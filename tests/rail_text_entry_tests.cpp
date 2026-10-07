@@ -1505,29 +1505,31 @@ void locale_source_action_pending_pointer(const std::string& action){
 void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
+    const bool opacity_source=scalar_field=="composite.opacity";
     const bool anchor_source=scalar_field=="transform.anchor_x"||scalar_field=="transform.anchor_y";
     const bool affine_linear=scalar_field=="transform.a"||scalar_field=="transform.b"||scalar_field=="transform.c"||scalar_field=="transform.d";
     const bool affine_source=scalar_field=="transform.tx"||scalar_field=="transform.ty"||affine_linear;
     const std::size_t affine_index=scalar_field=="transform.a"?0:scalar_field=="transform.b"?1:scalar_field=="transform.c"?2:scalar_field=="transform.d"?3:scalar_field=="transform.ty"?5:4;
-    const double pending_value=affine_linear?1.25:count_source?10.0:64.0;
-    const char* pending_text=affine_linear?"1.25":count_source?"10":"64";
+    const double pending_value=opacity_source?0.6:affine_linear?1.25:count_source?10.0:64.0;
+    const char* pending_text=opacity_source?"0.6":affine_linear?"1.25":count_source?"10":"64";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     const std::string field=mode=="generic"?"text.tracking":scalar_field;
-    const QString label=anchor_source?(field=="transform.anchor_y"?"Anchor Y":"Anchor X"):affine_linear?QString::fromStdString(field.substr(10)):field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=opacity_source?"Object opacity":anchor_source?(field=="transform.anchor_y"?"Anchor Y":"Anchor X"):affine_linear?QString::fromStdString(field.substr(10)):field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("scalar-pick-document","composition","board");
     Object text;text.id="text";text.name="Numeric picker target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
-    if(affine_source||anchor_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
-    if(affine_linear||anchor_source)text.anchor={{{17,{}},{23,{}}}};
+    if(affine_source||anchor_source||opacity_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
+    if(affine_linear||anchor_source||opacity_source)text.anchor={{{17,{}},{23,{}}}};
+    if(opacity_source)text.compositing.opacity.literal=0.9;
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
     }
-    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(anchor_source){source.text->id="source-text";source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;}else if(affine_source){source.text->id="source-text";source.transform.at(affine_index).literal=affine_linear?0.75:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
+    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(opacity_source){source.text->id="source-text";source.compositing.opacity.literal=0.8;}else if(anchor_source){source.text->id="source-text";source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;}else if(affine_source){source.text->id="source-text";source.transform.at(affine_index).literal=affine_linear?0.75:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
     if(scalar_field.rfind("generator.",0)==0){
         if((polystar_source||scalar_field!="generator.radius")&&document.objects.contains("source")){
@@ -1543,7 +1545,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const Ref target{text.id,"",field}, source_ref{source.id,"",field};
     auto verify_anchor_placement=[&]{
-        if(!anchor_source)return;
+        if(!anchor_source&&!opacity_source)return;
         const auto original_values=evaluate(document),current_values=evaluate(window.host.session.document());
         const auto original_transforms=evaluate_transforms(document,original_values),current_transforms=evaluate_transforms(window.host.session.document(),current_values);
         const auto original_bounds=object_bounds(document,text.id,original_values,original_transforms,true),current_bounds=object_bounds(window.host.session.document(),text.id,current_values,current_transforms,true);
@@ -1559,7 +1561,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     check(scroll&&size&&pick,"Existing Font size and numeric source picker available");scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
     const bool pending=mode!="plain"&&mode!="generic";
-    if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":(mode=="topology-drop"?"6":pending_text));events();}
+    if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="out-of-range"?"1.2":mode=="invalid"?"not-a-number":(mode=="topology-drop"?"6":pending_text));events();}
     check(size->hasFocus()&&size->isModified()==pending&&snapshot(window.host.session)==snapshot(expected),"Pending Font size remains full-state neutral before source picker");
     if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-pick-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
@@ -1605,9 +1607,9 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     }
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
     QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
-    if(mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
+    if(mode=="out-of-range"||mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(!picker&&snapshot(window.host.session)==snapshot(expected),"Refused picker entry preserves incoming full source/history");
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
     }
     if(pending)expected.apply({EditProperties{{target},pending_value,false}},expected.revision());
     std::cerr<<field<<" numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
@@ -1640,7 +1642,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     if(mode=="apply-session")window.host.session_id="incoming-pick-apply-session";
     if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();}
     if(scalar_field.rfind("generator.",0)==0&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
-    if((affine_linear||anchor_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
+    if((affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
     const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
 
     if(mode.rfind("apply-",0)==0){
@@ -1648,7 +1650,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused picker Apply preserves exact incoming full source/history");
         check(window.statusBar()->currentMessage().contains((mode=="apply-source"||mode=="apply-type")?"PROPERTY_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
         if(mode=="apply-document"||mode=="apply-session"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(window.canvas->selections()==current_selection&&snapshot(window.host.session)==snapshot(expected),"Stale picker Cancel does not restore selection into replacement document");}
-        if(scalar_field.rfind("generator.",0)==0||affine_linear||anchor_source)check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
+        if(scalar_field.rfind("generator.",0)==0||affine_linear||anchor_source||opacity_source)check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
         if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Picker refusal preserves active gesture");window.host.session.cancel_gesture();}return;
     }
     buttons->button(QDialogButtonBox::Ok)->click();events();expected.apply({LinkProperties{{target},source_ref,false}},expected.revision());
@@ -1660,11 +1662,12 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
 void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
+    const bool opacity_source=scalar_field=="composite.opacity";
     const bool anchor_source=scalar_field=="transform.anchor_x"||scalar_field=="transform.anchor_y";
     const bool affine_linear=scalar_field=="transform.a"||scalar_field=="transform.b"||scalar_field=="transform.c"||scalar_field=="transform.d";
     const bool affine_source=scalar_field=="transform.tx"||scalar_field=="transform.ty"||affine_linear;
-    const double pending_value=affine_linear?1.25:count_source?10.0:64.0;
-    const char* pending_text=affine_linear?"1.25":count_source?"10":"64";
+    const double pending_value=opacity_source?0.6:affine_linear?1.25:count_source?10.0:64.0;
+    const char* pending_text=opacity_source?"0.6":affine_linear?"1.25":count_source?"10":"64";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
@@ -1673,8 +1676,9 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     auto document=empty_document("scalar-fx-document","composition","board");
     Object text;text.id="text";text.name="Font size fx target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
-    if(affine_source||anchor_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
-    if(affine_linear||anchor_source)text.anchor={{{17,{}},{23,{}}}};
+    if(affine_source||anchor_source||opacity_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
+    if(affine_linear||anchor_source||opacity_source)text.anchor={{{17,{}},{23,{}}}};
+    if(opacity_source)text.compositing.opacity.literal=0.9;
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
@@ -1693,9 +1697,9 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
-    const QString label=anchor_source?(field=="transform.anchor_y"?"Anchor Y":"Anchor X"):affine_linear?QString::fromStdString(field.substr(10)):field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=opacity_source?"Object opacity":anchor_source?(field=="transform.anchor_y"?"Anchor Y":"Anchor X"):affine_linear?QString::fromStdString(field.substr(10)):field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     auto verify_anchor_placement=[&]{
-        if(!anchor_source)return;
+        if(!anchor_source&&!opacity_source)return;
         const auto original_values=evaluate(document),current_values=evaluate(window.host.session.document());
         const auto original_transforms=evaluate_transforms(document,original_values),current_transforms=evaluate_transforms(window.host.session.document(),current_values);
         const auto original_bounds=object_bounds(document,text.id,original_values,original_transforms,true),current_bounds=object_bounds(window.host.session.document(),text.id,current_values,current_transforms,true);
@@ -1709,7 +1713,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     }
     for(auto* button:window.findChildren<QPushButton*>("property-expression"))if(button->accessibleName()==label+" expression editor")fx=button;
     check(scroll&&size&&fx,"Existing same-object Font size and inline fx controls available");scroll->ensureWidgetVisible(size);events();
-    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":mode=="expression-scalar"?(affine_linear?"=1 + 0.25":count_source?"=5 + 5":"=40 + 2"):(mode=="topology-drop"?"6":pending_text));events();}
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="out-of-range"?"1.2":mode=="invalid"?"not-a-number":mode=="expression-scalar"?(opacity_source?"=0.5 + 0.1":affine_linear?"=1 + 0.25":count_source?"=5 + 5":"=40 + 2"):(mode=="topology-drop"?"6":pending_text));events();}
     check(size->hasFocus()&&size->isModified()==((mode!="plain"&&mode!="other-field"))&&snapshot(window.host.session)==snapshot(expected),"Font size draft remains fully authored-state neutral");
     if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-fx-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
@@ -1728,11 +1732,12 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     if(mode=="entry-session")window.host.session_id="incoming-fx-entry-session";
     const auto position=fx->mapTo(&window,fx->rect().center());check(window.childAt(position)==fx,"Actual Window pointer hits existing Font size fx");
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
-    if(mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
+    if(mode=="out-of-range"||mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(snapshot(window.host.session)==snapshot(expected),"Rejected fx entry preserves full incoming source/history without scalar mutation");
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
+        if(opacity_source)std::cerr<<"Opacity fx refusal mode="<<mode<<" status="<<window.statusBar()->currentMessage().toStdString()<<"\n";
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
     }
-    if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{(affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"),1},false}},expected.revision());
+    if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{(opacity_source?"0.5 + 0.1":affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"),1},false}},expected.revision());
     else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},pending_value,false}},expected.revision());
     QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
     std::cerr<<field<<" fx panel="<<(editor!=nullptr)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
@@ -1740,8 +1745,8 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     auto* panel=window.findChild<QWidget*>("nect-expression-panel");QPushButton* apply=nullptr;
     for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
     check(apply,"Existing inline Apply available");
-    check(editor->toPlainText()==(mode=="expression-scalar"?(affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"):(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):(mode=="topology-drop"?"6":pending_text)),"Inline initial source follows exactly its own committed scalar or expression");
-    editor->setPlainText(mode=="invalid-expression"?"broken(":(affine_linear?"0.75 + 0.125":count_source?"10 + 5":"32 + 3"));events();
+    check(editor->toPlainText()==(mode=="expression-scalar"?(opacity_source?"0.5 + 0.1":affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"):(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):(mode=="topology-drop"?QString("6"):opacity_source?QString::number(pending_value,'g',17):QString(pending_text))),"Inline initial source follows exactly its own committed scalar or expression");
+    editor->setPlainText(mode=="out-of-range-expression"?"1.2":mode=="invalid-expression"?"broken(":(opacity_source?"0.25 + 0.1":affine_linear?"0.75 + 0.125":count_source?"10 + 5":"32 + 3"));events();
     check(snapshot(window.host.session)==snapshot(expected),"Inline expression draft is fully source/history neutral");scroll->ensureWidgetVisible(apply);events();
     if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",scalar_field.rfind("generator.",0)==0?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
@@ -1765,7 +1770,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();
     }
     if(scalar_field.rfind("generator.",0)==0&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
-    if((affine_linear||anchor_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
+    if((affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
     const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
 
     if(mode=="apply-selection"){
@@ -1776,10 +1781,10 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     }
     if(mode=="cancel")for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
-    if(mode.rfind("apply-",0)==0||mode=="invalid-expression"){
+    if(mode.rfind("apply-",0)==0||mode=="invalid-expression"||mode=="out-of-range-expression"){
         check(snapshot(window.host.session)==snapshot(expected),"Refused inline Apply preserves full incoming source/history and neutral draft");
         auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Refused inline Apply keeps existing visible recovery status");
-        if(scalar_field.rfind("generator.",0)==0||affine_linear||anchor_source)check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
+        if(scalar_field.rfind("generator.",0)==0||affine_linear||anchor_source||opacity_source)check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
         if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Inline rejection retains active gesture");window.host.session.cancel_gesture();}
         return;
     }
@@ -1788,7 +1793,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
         check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled expression leaves scalar independently undoable");return;
     }
-    expected.apply({SetExpression{{{"text","",field}},{(affine_linear?"0.75 + 0.125":count_source?"10 + 5":"32 + 3"),1},false}},expected.revision());
+    expected.apply({SetExpression{{{"text","",field}},{(opacity_source?"0.25 + 0.1":affine_linear?"0.75 + 0.125":count_source?"10 + 5":"32 + 3"),1},false}},expected.revision());
     check(snapshot(window.host.session)==snapshot(expected),"Inline Apply equals canonical scalar then expression source/history");verify_anchor_placement();
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Expression Undo retains independent scalar");
     if((mode!="plain"&&mode!="other-field")){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores exact original Text source/style/history");
@@ -2518,6 +2523,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--text-anchor-scalars-whip-pending-pointer")){
             for(const auto* field:{"transform.anchor_x","transform.anchor_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_anchor_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-object-opacity-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"composite.opacity"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field);else scalar_pick_pending_pointer("valid",field);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Text Object opacity first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_object_opacity_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-object-opacity-fx-affected-pending-pointer")){
+            for(const auto* field:{"composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","expression-scalar","invalid-expression","out-of-range-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field);
+            std::cout<<"text_object_opacity_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-object-opacity-pick-affected-pending-pointer")){
+            for(const auto* field:{"composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field);
+            std::cout<<"text_object_opacity_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-object-opacity-whip-pending-pointer")){
+            for(const auto* field:{"composite.opacity"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
+            std::cout<<"text_object_opacity_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--text-affine-linear-entry-pending-pointer")){
             bool failed=false;
