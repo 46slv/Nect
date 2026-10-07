@@ -4938,6 +4938,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-alignment-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -7879,17 +7881,73 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     alignment_status->setObjectName("text-alignment-state");alignment_status->setWordWrap(true);alignment_status->setTextFormat(Qt::PlainText);form->addRow("",alignment_status);
     const Ref locale_ref{id,"","text.locale"};const auto locale_state=text_locale_property(host.session.document(),locale_ref);
     const auto locale_revision=host.session.revision();
+    const auto locale_document=host.session.document().id;
+    const auto locale_gesture=host.session.gesture_generation();
+    const bool locale_preview=host.session.gesture_active();
     auto* locale_row=new QWidget(box);auto* locale_layout=new QHBoxLayout(locale_row);locale_layout->setContentsMargins(0,0,0,0);
     auto* locale_value=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal));
     locale_value->setObjectName("text-locale");locale_value->setReadOnly(true);
     locale_value->setToolTip("Use Edit locale to stage and apply a change.");locale_layout->addWidget(locale_value);
-    auto* locale_driver_button=new QToolButton(locale_row);locale_driver_button->setObjectName("text-locale-driver");
+    auto* locale_driver_button=new PreparedTextMenuButton;locale_driver_button->setObjectName("text-locale-driver");
+    locale_driver_button->setProperty("nect-text-locale-action-object",qs(id));
+    locale_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_locale_revision=std::make_shared<std::uint64_t>(locale_revision);
+    auto locale_scalar_prepared=std::make_shared<bool>(false);
+    locale_driver_button->prepare=[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_preview,locale_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(locale_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its locale source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-locale",true);
+                pending->setProperty("nect-text-locale-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-locale-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-locale",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=locale_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=locale_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_locale_revision=host.session.revision();*locale_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    locale_driver_button->closed=[this,frozen_session,locale_document,locale_scalar_prepared]{
+        if(!*locale_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,locale_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==locale_document)rebuild_inspector();
+        });
+    };
     locale_driver_button->setText(locale_state.driver?"Driver…":"Drive…");locale_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* locale_menu=new QMenu(locale_driver_button);locale_driver_button->setMenu(locale_menu);locale_layout->addWidget(locale_driver_button);
     auto* edit_locale=locale_menu->addAction("Edit locale…");
     auto* link_locale=locale_menu->addAction("Link to Text locale…");
     auto* unlink_locale=locale_menu->addAction("Unlink locale");unlink_locale->setEnabled(locale_state.driver.has_value());
-    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_state,locale_ref]{
+    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_state,locale_ref]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text locale source belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto locale_revision=*prepared_locale_revision;
         QDialog dialog(this);dialog.setObjectName("text-locale-dialog");dialog.setWindowTitle("Edit Text locale");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal),&dialog);
@@ -7901,10 +7959,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_revision,locale_state,locale_ref,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_document,locale_revision,locale_gesture,locale_state,locale_ref,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=locale_revision)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(locale_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a locale edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -7926,29 +7985,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         locale_source_ids.push_back(source_id);
     }
     link_locale->setEnabled(!locale_source_ids.empty());const bool replace_locale_driver=locale_state.driver.has_value();
-    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,replace_locale_driver,locale_source_ids]{
+    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,replace_locale_driver,locale_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text locale source belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto locale_revision=*prepared_locale_revision;
         const auto target=Ref{id,"","text.locale"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,locale_source_ids,"Link Text locale");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,locale_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=locale_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,locale_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==locale_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,locale_revision,replace_locale_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,locale_document,locale_revision,locale_gesture,replace_locale_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=locale_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextLocale{target,source,replace_locale_driver}},locale_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -7956,9 +8027,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(unlink_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextLocale{locale_ref}},locale_revision);host.edited();});
+    connect(unlink_locale,&QAction::triggered,this,[this,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_ref]{
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.session.apply({UnlinkTextLocale{locale_ref}},*prepared_locale_revision);host.edited();});
     });
     form->addRow("Language tag",locale_row);
     const auto locale_driver_name=[this](const std::optional<TextLocaleDriver>& driver) {
@@ -10583,6 +10657,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-alignment-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-locale").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10611,6 +10689,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-layout-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-alignment").toBool())
                 input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-locale").toBool())
+                input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
