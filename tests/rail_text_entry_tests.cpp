@@ -1527,7 +1527,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     if(opacity_source)text.compositing.opacity.literal=0.9;
     if((circle_transform||scalar_field.rfind("generator.",0)==0)){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
-        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
+        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?(circle_transform?(star_source?"outer_radius":"radius"):scalar_field.substr(10)):"radius").literal=count_source?5:60;
     }
     Object source=text;source.id="source";source.name="Numeric picker source";if(circle_transform){source.source->id="circle-pick-source";if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(opacity_source){source.text->id="source-text";source.compositing.opacity.literal=0.8;}else if(anchor_source){source.text->id="source-text";source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;}else if(affine_source){source.text->id="source-text";source.transform.at(affine_index).literal=affine_linear?0.75:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
@@ -1689,7 +1689,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     if(opacity_source)text.compositing.opacity.literal=0.9;
     if((circle_transform||scalar_field.rfind("generator.",0)==0)){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
-        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
+        text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?(circle_transform?(star_source?"outer_radius":"radius"):scalar_field.substr(10)):"radius").literal=count_source?5:60;
     }
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
     if((circle_transform||scalar_field.rfind("generator.",0)==0)){
@@ -2602,6 +2602,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--text-anchor-scalars-whip-pending-pointer")){
             for(const auto* field:{"transform.anchor_x","transform.anchor_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_anchor_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-common-scalars-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field,false,true,false,true);else scalar_pick_pending_pointer("valid",field,false,true,false,true);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Polygon common property first-pointer entries satisfy the existing source contract");
+            std::cout<<"polygon_common_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-common-scalars-fx-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","expression-scalar","invalid-expression","out-of-range-expression","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture","apply-selection"}){if((std::string(mode)=="out-of-range"||std::string(mode)=="out-of-range-expression")&&std::string(field)!="composite.opacity")continue;scalar_fx_pending_pointer(mode,field,false,true,false,true);}
+            std::cout<<"polygon_common_scalars_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-common-scalars-pick-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture"}){if(std::string(mode)=="out-of-range"&&std::string(field)!="composite.opacity")continue;scalar_pick_pending_pointer(mode,field,false,true,false,true);}
+            std::cout<<"polygon_common_scalars_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-common-scalars-whip-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"}){scalar_pick_pending_pointer("drag",field,false,true,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,true,false,true);}
+            std::cout<<"polygon_common_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--rectangle-common-scalars-entry-pending-pointer")){
             bool failed=false;
