@@ -4936,6 +4936,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-layout-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-alignment-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -7711,17 +7713,73 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     direction_status->setObjectName("text-direction-state");direction_status->setWordWrap(true);direction_status->setTextFormat(Qt::PlainText);form->addRow("",direction_status);
     const Ref alignment_ref{id,"","text.alignment"};const auto alignment_state=text_alignment_property(host.session.document(),alignment_ref);
     const auto alignment_revision=host.session.revision();
+    const auto alignment_document=host.session.document().id;
+    const auto alignment_gesture=host.session.gesture_generation();
+    const bool alignment_preview=host.session.gesture_active();
     auto* alignment_row=new QWidget(box);auto* alignment_row_layout=new QHBoxLayout(alignment_row);alignment_row_layout->setContentsMargins(0,0,0,0);
     auto* text_alignment=new QComboBox;text_alignment->setObjectName("text-alignment");text_alignment->addItems({"Start","Center","End"});
     text_alignment->setCurrentIndex(alignment_state.evaluated=="center"?1:alignment_state.evaluated=="end"?2:0);text_alignment->setEnabled(false);
     text_alignment->setToolTip("Use Edit alignment to stage and apply a change.");alignment_row_layout->addWidget(text_alignment);
-    auto* alignment_driver_button=new QToolButton(alignment_row);alignment_driver_button->setObjectName("text-alignment-driver");
+    auto* alignment_driver_button=new PreparedTextMenuButton;alignment_driver_button->setObjectName("text-alignment-driver");
+    alignment_driver_button->setProperty("nect-text-alignment-action-object",qs(id));
+    alignment_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_alignment_revision=std::make_shared<std::uint64_t>(alignment_revision);
+    auto alignment_scalar_prepared=std::make_shared<bool>(false);
+    alignment_driver_button->prepare=[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_preview,alignment_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(alignment_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its alignment source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-alignment",true);
+                pending->setProperty("nect-text-alignment-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-alignment-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-alignment",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=alignment_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=alignment_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_alignment_revision=host.session.revision();*alignment_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    alignment_driver_button->closed=[this,frozen_session,alignment_document,alignment_scalar_prepared]{
+        if(!*alignment_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,alignment_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==alignment_document)rebuild_inspector();
+        });
+    };
     alignment_driver_button->setText(alignment_state.driver?"Driver…":"Drive…");alignment_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* alignment_menu=new QMenu(alignment_driver_button);alignment_driver_button->setMenu(alignment_menu);alignment_row_layout->addWidget(alignment_driver_button);
     auto* edit_alignment=alignment_menu->addAction("Edit alignment…");
     auto* link_alignment=alignment_menu->addAction("Link to Text alignment…");
     auto* unlink_alignment=alignment_menu->addAction("Unlink alignment");unlink_alignment->setEnabled(alignment_state.driver.has_value());
-    connect(edit_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,alignment_state]{
+    connect(edit_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref,alignment_state]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text alignment source belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto alignment_revision=*prepared_alignment_revision;
         QDialog dialog(this);dialog.setObjectName("text-alignment-dialog");dialog.setWindowTitle("Edit Text alignment");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QComboBox(&dialog);editor->setObjectName("text-alignment-editor");editor->addItems({"Start","Center","End"});
@@ -7734,10 +7792,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,alignment_revision,alignment_ref,alignment_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,alignment_document,alignment_revision,alignment_gesture,alignment_ref,alignment_state,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=alignment_revision)throw Error("STALE_CONTEXT","Text changed while the alignment editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("STALE_CONTEXT","Text changed while the alignment editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(alignment_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying an alignment edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -7760,29 +7819,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         alignment_source_ids.push_back(source_id);
     }
     link_alignment->setEnabled(!alignment_source_ids.empty());const bool replace_alignment_driver=alignment_state.driver.has_value();
-    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,replace_alignment_driver,alignment_source_ids]{
+    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref,replace_alignment_driver,alignment_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text alignment source belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto alignment_revision=*prepared_alignment_revision;
         const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,alignment_ref.field,alignment_source_ids,"Link Text alignment");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,alignment_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=alignment_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,alignment_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==alignment_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,alignment_ref,frozen_session,alignment_revision,replace_alignment_driver,selection,composition,artboard]{
+            [this,dialog,list,status,alignment_ref,frozen_session,alignment_document,alignment_revision,alignment_gesture,replace_alignment_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=alignment_ref.field||!source.point.empty()||source.object==alignment_ref.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=alignment_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextAlignment{alignment_ref,source,replace_alignment_driver}},alignment_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -7790,9 +7861,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_revision,alignment_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextAlignment{alignment_ref}},alignment_revision);host.edited();});
+    connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref]{
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.session.apply({UnlinkTextAlignment{alignment_ref}},*prepared_alignment_revision);host.edited();});
     });
     alignment_row_layout->addStretch();form->addRow("Alignment",alignment_row);
     const auto alignment_driver_name=[this](const std::optional<TextAlignmentDriver>& driver) {
@@ -10505,6 +10579,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-layout-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-alignment").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-alignment-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10531,6 +10609,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-italic-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-layout").toBool())
                 input->setProperty("nect-text-layout-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-alignment").toBool())
+                input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)

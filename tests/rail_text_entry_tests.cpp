@@ -650,6 +650,158 @@ void family_drive_pending_pointer(const std::string& mode="popup",bool weight=fa
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Drive Escape restores exact original source");
     std::cout<<"text_family_drive_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void alignment_link_pending_pointer(const std::string& mode){
+    const bool link=true;
+    const std::string source_field="text.alignment";
+    const char* route="text_alignment_link_pending_pointer ";
+    QTemporaryDir scratch;check(scratch.isValid(),"Alignment Drive menu owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("alignment-drive-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Alignment Drive target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing source";other.kind=Kind::text;
+    other.text=default_text("other-source","Source choice stays untouched");
+    other.text->alignment="center";
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
+    document.compositions.front().roots={text.id,other.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* drive=window.findChild<QToolButton*>("text-alignment-driver");
+    QPointer<QMenu> popup=drive?drive->menu():nullptr;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&drive&&popup&&size,"Existing alignment Drive menu and scalar are available");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain") {QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state remains neutral before alignment Drive pointer");
+    scroll->ensureWidgetVisible(drive);events();
+    if(mode=="entry-revision") {
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+    }
+    if(mode=="entry-document") {
+        auto incoming=document;incoming.id="incoming-entry-document";
+        window.host.session=Session(incoming);expected=window.host.session;
+    }
+    const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits the existing alignment Drive button");
+    bool opened=false,neutral=false;
+    const bool rejected_entry=mode=="invalid"||mode=="entry-revision"||mode=="entry-document";
+    if(mode!="plain"&&!rejected_entry)expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    const auto popup_delay=link?QApplication::doubleClickInterval()+20:250;
+    QTimer::singleShot(popup_delay,&window,[&]{
+        opened=popup&&popup->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
+        if(opened) {
+            if(link)QTest::mouseClick(popup,Qt::LeftButton,Qt::NoModifier,popup->actionGeometry(popup->actions().at(1)).center());
+            else QTest::keyClick(popup,Qt::Key_Escape);
+        }
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(popup_delay+50);events();
+    check(snapshot(window.host.session)==snapshot(expected),"Alignment Drive pointer commits only the independent size command");
+    if(rejected_entry) {
+        check(!opened,"Invalid or changed entry context does not open a writable source menu");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),
+            "Rejected source entry reports its exact cause");
+        std::cout<<route<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    std::cout<<"Alignment menu "<<mode<<" opened="<<opened<<" neutral="<<neutral<<" popup-exists="<<bool(popup)
+        <<" revision="<<window.host.session.revision()<<" expected="<<expected.revision()
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
+    check(opened&&neutral,"First alignment Drive pointer opens its existing menu with source-neutral popup state");
+    if(link) {
+        QPointer<QDialog> picker=window.findChild<QDialog*>("text-source-picker");
+        auto* list=picker?picker->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+        auto* buttons=picker?picker->findChild<QDialogButtonBox*>():nullptr;
+        check(picker&&picker->isVisible()&&list&&buttons,"Existing first Drive action opens the actual source chooser");
+        QListWidgetItem* source=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="other"&&ref.value("field").toString()==QString::fromStdString(source_field))source=list->item(i);
+        }
+        check(source&&!source->isHidden(),"Existing chooser exposes the exact stable same-property source Ref");
+        QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,list->viewport()->mapTo(picker,list->visualItemRect(source).center()));events();
+        check(snapshot(window.host.session)==snapshot(expected),"Source selection preview is fully authored-state neutral");
+        if(mode=="cancel") {
+            auto* cancel=buttons->button(QDialogButtonBox::Cancel);
+            QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,cancel->mapTo(picker,cancel->rect().center()));events();
+            check(snapshot(window.host.session)==snapshot(expected),"Chooser Cancel retains only the independent size command");
+            check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Chooser Cancel restores the exact original target selection");
+            size=nullptr;
+            for(auto* input:window.findChildren<QLineEdit*>()) {
+                const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+                if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+            }
+            check(size,"Chooser Cancel exposes a current scalar field");
+            scroll->ensureWidgetVisible(size);events();size->setFocus();
+            QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+            expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected),"Scalar edit after chooser Cancel uses current canonical context");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+            check(snapshot(window.host.session)==snapshot(expected),"Fresh scalar Undo retains the independent initial size");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+            check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo after chooser Cancel restores exact original source");
+            std::cout<<route<<"cancel: "<<checks<<" checks passed\n";return;
+        }
+        if(mode=="apply-revision") {
+            window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+            expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+        }
+        if(mode=="apply-document") {
+            auto incoming=document;incoming.id="incoming-apply-document";
+            Session replacement(incoming);replacement.apply({EditProperties{{{"text","","text.font_size"}},64,false}},replacement.revision());
+            check(replacement.revision()==window.host.session.revision(),"Incoming chooser Document has the same canonical revision");
+            window.host.session=replacement;expected=replacement;
+        }
+        if(mode=="apply-session")window.host.session_id="incoming-source-session";
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(picker,apply->rect().center()));events();
+        if(mode=="apply-revision"||mode=="apply-document"||mode=="apply-session") {
+            check(snapshot(window.host.session)==snapshot(expected),"Changed chooser context refuses Link without partial authored changes");
+            check(picker&&picker->findChild<QLabel*>("text-source-picker-status")->text().contains(mode=="apply-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),
+                "Changed chooser reports its exact bound-context cause");
+            QTest::keyClick(picker,Qt::Key_Escape);events();
+            check(snapshot(window.host.session)==snapshot(expected),"Closing the stale chooser preserves the complete incoming Session");
+            std::cout<<route<<mode<<": "<<checks<<" checks passed\n";return;
+        }
+        expected.apply({LinkTextAlignment{{"text","","text.alignment"},{"other","","text.alignment"},false}},expected.revision());
+        std::cout<<"Alignment"<<" Link actual-revision="<<window.host.session.revision()<<" expected="<<expected.revision()
+            <<" status="<<(picker?picker->findChild<QLabel*>("text-source-picker-status")->text().toStdString():"closed")<<std::endl;
+        check(snapshot(window.host.session)==snapshot(expected),"First existing alignment Link uses the independently committed scalar revision");
+        check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Successful Link restores the exact target selection");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected),"One source Link Undo preserves the independently committed size");
+        if(mode=="plain") {
+            check(expected.document()==document,"No-draft source Link remains one independent Undo");
+            std::cout<<route<<"plain: "<<checks<<" checks passed\n";return;
+        }
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Link restores exact original source");
+        std::cout<<route<<"valid: "<<checks<<" checks passed; Qt Window pointer route\n";return;
+    }
+    check(!popup||!popup->isVisible(),"Existing alignment Drive Escape closes without choosing a source");
+    size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(size,"Drive Escape leaves a current usable Font size field");
+    scroll->ensureWidgetVisible(size);events();size->setFocus();
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Scalar edit after Drive Escape uses fresh canonical context");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"Fresh scalar Undo preserves the initial independent size commit");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Drive Escape restores exact original source");
+    std::cout<<"text_alignment_drive_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
+}
 void family_unlink_pending_pointer(bool weight=false,bool expression=false,bool italic=false){
     QTemporaryDir scratch;check(scratch.isValid(),"Family Unlink owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -1065,6 +1217,72 @@ void layout_source_action_pending_pointer(const std::string& action){
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_layout_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
+}
+void alignment_source_action_pending_pointer(const std::string& action){
+    QTemporaryDir scratch;check(scratch.isValid(),"Alignment source action owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("alignment-source-action-document","composition","board");
+    Object text;text.id="text";text.name="Alignment action target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing centered source";other.kind=Kind::text;other.text=default_text("other-source","Retain source");other.text->alignment="center";
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);document.compositions.front().roots={text.id,other.id};
+    Session fixture(document);
+    if(action!="edit")fixture.apply({LinkTextAlignment{{"text","","text.alignment"},{"other","","text.alignment"},false}},fixture.revision());
+    document=fixture.document();window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");auto* drive=window.findChild<QToolButton*>("text-alignment-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&drive&&menu&&size,"Existing Alignment source action controls available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");events();
+    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Alignment action scalar draft is neutral");
+    scroll->ensureWidgetVisible(drive);events();const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits existing Alignment driver");
+    bool menu_open=false,neutral=false,dialog_open=false,choice=false;
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
+        menu_open=menu&&menu->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
+        if(menu_open)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at(action=="unlink"?2:0)).center());
+    });
+    QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
+        if(action=="unlink")return;
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");dialog_open=dialog&&dialog->isVisible();
+        if(!dialog_open){if(menu)menu->close();return;}
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!editor||!buttons){dialog->reject();return;}
+        if(action=="linked-edit"){
+            auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+            if(!unlink||!unlink->isVisible()){dialog->reject();return;}
+            QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,unlink->mapTo(dialog,unlink->rect().center()));
+            if(!unlink->isChecked()){dialog->reject();return;}
+        }
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,editor->mapTo(dialog,QPoint(editor->width()-8,editor->height()/2)));
+        QTest::qWait(QApplication::doubleClickInterval()+20);
+        auto* view=editor->view();const auto index=editor->model()->index(action=="edit"?1:0,0);
+        QTest::mouseClick(view->viewport(),Qt::LeftButton,Qt::NoModifier,view->visualRect(index).center());
+        choice=editor->currentIndex()==(action=="edit"?1:0)&&snapshot(window.host.session)==snapshot(expected);
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(dialog,apply->rect().center()));
+        if(dialog->isVisible())dialog->reject();
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(QApplication::doubleClickInterval()+1100);events();
+    check(menu_open&&neutral&&(action=="unlink"||(dialog_open&&choice)),"First Alignment driver reaches neutral existing Edit or Unlink action");
+    if(action=="unlink")expected.apply({UnlinkTextAlignment{{"text","","text.alignment"}}},expected.revision());
+    else{
+        auto next=*expected.document().objects.at("text").text;next.alignment=action=="edit"?"center":"start";next.alignment_driver.reset();
+        std::vector<Command> commands;if(action=="linked-edit")commands.push_back(UnlinkTextAlignment{{"text","","text.alignment"}});commands.push_back(UpdateText{"text",next});
+        expected.apply(commands,expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Existing Alignment source action equals canonical command batch and full source/history");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Alignment action Undo restores source/driver and preserves independent size");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
+    std::cout<<"text_alignment_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -1534,6 +1752,14 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--alignment-source-actions-pending-pointer")){
+            for(const auto* action:{"edit","unlink","linked-edit"})alignment_source_action_pending_pointer(action);
+            return 0;
+        }
+        if(app.arguments().contains("--alignment-link-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})alignment_link_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--layout-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})layout_source_action_pending_pointer(action);
             return 0;
