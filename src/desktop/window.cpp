@@ -337,6 +337,20 @@ protected:
 private:
     QPointer<QWidget> popup_;
 };
+class PreparedTextSpin final : public QSpinBox {
+public:
+    std::function<bool()> prepare;
+protected:
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+        }
+        QSpinBox::mousePressEvent(event);
+    }
+};
 class PropertyInput final : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
@@ -4890,6 +4904,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        writing&&writing->property("nect-retain-text-inspector").toBool())return;
     if(auto* family=inspector_->findChild<QComboBox*>("text-family");
        family&&family->property("nect-retain-text-inspector").toBool())return;
+    if(auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
+       weight&&weight->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -6915,12 +6931,49 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto weight_document=host.session.document().id;
     const auto weight_gesture=host.session.gesture_generation();
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
-    auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
+    auto* weight=new PreparedTextSpin;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
+    weight->setProperty("nect-text-weight-action-object",qs(id));
+    weight->findChild<QLineEdit*>()->setProperty("nect-text-weight-action-object",qs(id));
     weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);
     const bool weight_is_driven=weight_state.driver.has_value()||weight_state.expression.has_value();
     weight->setEnabled(!weight_is_driven);
     if(weight_is_driven)weight->setToolTip("Unlink the source before editing the authored weight.");
     weight_layout->addWidget(weight);
+    auto prepared_weight_revision=std::make_shared<std::uint64_t>(weight_revision);
+    auto weight_scalar_prepared=std::make_shared<bool>(false);
+    const bool weight_preview=host.session.gesture_active();
+    weight->prepare=[this,id,frozen_session,weight_document,weight_gesture,weight_preview,prepared_weight_revision,weight_scalar_prepared] {
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight");
+            if(weight_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its weight");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-weight",true);
+                pending->setProperty("nect-text-weight-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-weight-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-weight",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=weight_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=weight_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_weight_revision=host.session.revision();*weight_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
     auto* weight_driver_button=new QToolButton(weight_row);weight_driver_button->setObjectName("text-weight-driver");
     weight_driver_button->setText(weight_is_driven?"Source…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
@@ -7009,16 +7062,22 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
     weight_status->setWordWrap(true);form->addRow("",weight_status);
-    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state,frozen_session,weight_document,weight_revision,weight_gesture]{
+    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state,frozen_session,weight_document,prepared_weight_revision,weight_gesture]{
         if(weight_state.driver||weight_state.expression)return;
         if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
                 throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
-            if(host.session.revision()!=weight_revision||host.session.gesture_generation()!=weight_gesture)
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
                 throw Error("REVISION_CONFLICT","Text changed; edit its weight again");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});
         });});
+    connect(weight,&QSpinBox::editingFinished,this,[this,frozen_session,weight_document,weight_scalar_prepared]{
+        if(!*weight_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,weight_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document)rebuild_inspector();
+        });
+    });
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();
     auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);
@@ -10150,6 +10209,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-family-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-weight").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-weight-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10170,6 +10233,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-content-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-family").toBool())
                 input->setProperty("nect-text-family-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-weight").toBool())
+                input->setProperty("nect-text-weight-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)
