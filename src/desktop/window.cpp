@@ -10731,7 +10731,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
-    const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
+    const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
     auto* prepared_fx=text_scalar_fx?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
@@ -10852,11 +10852,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-fx").toBool()&&
-           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing")&&focus&&
+           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-pick").toBool()&&
-           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing")&&focus&&
+           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
            focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-path").toBool()&&
