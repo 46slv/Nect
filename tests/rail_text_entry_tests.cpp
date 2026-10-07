@@ -1505,21 +1505,23 @@ void locale_source_action_pending_pointer(const std::string& action){
 void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
+    const bool affine_source=scalar_field=="transform.tx"||scalar_field=="transform.ty";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     const std::string field=mode=="generic"?"text.tracking":scalar_field;
-    const QString label=field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("scalar-pick-document","composition","board");
     Object text;text.id="text";text.name="Numeric picker target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    if(affine_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
     }
-    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
+    Object source=text;source.id="source";source.name="Numeric picker source";if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(affine_source){source.text->id="source-text";source.transform.at(field=="transform.ty"?5:4).literal=72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
     if(scalar_field.rfind("generator.",0)==0){
         if((polystar_source||scalar_field!="generator.radius")&&document.objects.contains("source")){
@@ -1532,6 +1534,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         document=seeded.document();
     }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const Ref target{text.id,"",field}, source_ref{source.id,"",field};
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* pick=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
@@ -1642,6 +1645,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
 void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
+    const bool affine_source=scalar_field=="transform.tx"||scalar_field=="transform.ty";
     const bool rectangle_source=rectangle_centers||scalar_field=="generator.width"||scalar_field=="generator.height";
     const bool vertical=scalar_field=="generator.height"||((rectangle_centers||polystar_source)&&scalar_field=="generator.center_y");
     QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
@@ -1650,6 +1654,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     auto document=empty_document("scalar-fx-document","composition","board");
     Object text;text.id="text";text.name="Font size fx target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    if(affine_source)text.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};
     if(scalar_field.rfind("generator.",0)==0){
         text.name=rectangle_source?"Retained Rectangle Width target":"Retained Circle scalar target";text.kind=Kind::path;text.text.reset();
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?(rectangle_centers?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?scalar_field.substr(10):"radius").literal=count_source?5:60;
@@ -1666,8 +1671,9 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         document=seeded.document();
     }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
-    const QString label=field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="transform.tx"?"tx":field=="transform.ty"?"ty":field=="generator.points"?"Points":field=="generator.inner_radius"?"Inner radius":field=="generator.outer_radius"?"Outer radius":field=="generator.rotation"?"Rotation":field=="generator.height"?"Height":field=="generator.width"?"Width":field=="generator.center_x"?"Center X":field=="generator.center_y"?"Center Y":field=="generator.radius"?"Radius":field=="text.origin_x"?"Origin X":field=="text.origin_y"?"Origin Y":field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -2440,6 +2446,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--origin-scalars-whip-pending-pointer")){
             for(const auto* field:{"text.origin_x","text.origin_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_origin_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-affine-translations-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"transform.tx","transform.ty"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field);else scalar_pick_pending_pointer("valid",field);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Text Affine matrix translation first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_affine_translations_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-affine-translations-fx-affected-pending-pointer")){
+            for(const auto* field:{"transform.tx","transform.ty"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field);
+            std::cout<<"text_affine_translations_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-affine-translations-pick-affected-pending-pointer")){
+            for(const auto* field:{"transform.tx","transform.ty"})for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field);
+            std::cout<<"text_affine_translations_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-affine-translations-whip-pending-pointer")){
+            for(const auto* field:{"transform.tx","transform.ty"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
+            std::cout<<"text_affine_translations_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-scalar-entry-pending-pointer")){
             bool failed=false;
