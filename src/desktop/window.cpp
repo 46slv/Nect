@@ -4930,6 +4930,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-weight-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-italic-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -7170,7 +7172,49 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     italic->setProperty("nect-text-italic-action-object",qs(id));
     italic->setEnabled(!italic_state.driver);if(italic_state.driver)italic->setToolTip("Unlink or replace the driver before editing the literal.");
     italic_layout->addWidget(italic);
-    auto* italic_driver_button=new QToolButton(italic_row);italic_driver_button->setObjectName("text-italic-driver");
+    auto* italic_driver_button=new PreparedTextMenuButton;italic_driver_button->setObjectName("text-italic-driver");
+    italic_driver_button->setProperty("nect-text-italic-action-object",qs(id));
+    italic_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_italic_revision=std::make_shared<std::uint64_t>(italic_revision);
+    auto italic_scalar_prepared=std::make_shared<bool>(false);
+    italic_driver_button->prepare=[this,id,frozen_session,italic_document,prepared_italic_revision,italic_gesture,italic_preview,italic_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its italic source");
+            if(italic_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its italic source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-italic",true);
+                pending->setProperty("nect-text-italic-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-italic-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-italic",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=italic_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=italic_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_italic_revision=host.session.revision();*italic_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    italic_driver_button->closed=[this,frozen_session,italic_document,italic_scalar_prepared]{
+        if(!*italic_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,italic_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==italic_document)rebuild_inspector();
+        });
+    };
     italic_driver_button->setText(italic_state.driver?"Driver…":"Drive…");italic_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* italic_menu=new QMenu(italic_driver_button);italic_driver_button->setMenu(italic_menu);italic_layout->addWidget(italic_driver_button);italic_layout->addStretch();
     auto* link_italic=italic_menu->addAction("Link to Text italic…");
@@ -7182,29 +7226,43 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_italic->setEnabled(!italic_source_ids.empty());
     const bool replace_italic_driver=italic_state.driver.has_value();
-    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,italic_source_ids]{
+    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision,italic_gesture,replace_italic_driver,italic_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its italic source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto italic_revision=*prepared_italic_revision;
         const auto target=Ref{id,"","text.italic"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,italic_source_ids,"Link Text italic");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,italic_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=italic_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,italic_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==italic_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,italic_revision,replace_italic_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,italic_document,italic_revision,italic_gesture,replace_italic_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=italic_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=italic_revision||host.session.gesture_generation()!=italic_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextItalic{target,source,replace_italic_driver}},italic_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -7214,15 +7272,24 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     });
     const auto initial_italic_expression=italic_state.driver&&std::holds_alternative<Expression>(*italic_state.driver)?
         qs(std::get<Expression>(*italic_state.driver).source):QStringLiteral("false");
-    connect(expression_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,initial_italic_expression]{
+    connect(expression_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision,replace_italic_driver,initial_italic_expression]{
+        if(host.session_id!=frozen_session||host.session.document().id!=italic_document) {
+            perform([&]{throw Error("SESSION_CONFLICT","Text italic source belongs to another document");});return;
+        }
+        if(host.session.revision()!=*prepared_italic_revision) {
+            perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its italic source");});return;
+        }
+        const auto italic_revision=*prepared_italic_revision;
         bool accepted=false;const auto expression=QInputDialog::getText(this,"Text italic expression","Expression",
             QLineEdit::Normal,initial_italic_expression,&accepted);if(!accepted)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
             host.session.apply({SetTextItalicExpression{{id,"","text.italic"},{expression.toStdString(),1},replace_italic_driver}},italic_revision);host.edited();});
     });
-    connect(unlink_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextItalic{{id,"","text.italic"}}},italic_revision);host.edited();});
+    connect(unlink_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            host.session.apply({UnlinkTextItalic{{id,"","text.italic"}}},*prepared_italic_revision);host.edited();});
     });
     form->addRow("Italic",italic_row);
     auto* italic_status=new QLabel(italic_row);italic_status->setObjectName("text-italic-state");

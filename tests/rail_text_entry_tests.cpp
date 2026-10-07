@@ -14,6 +14,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QInputMethodEvent>
+#include <QInputDialog>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QLabel>
@@ -494,10 +495,10 @@ void structure_pending_pointer(){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Single scalar Undo restores full original source/history across selection");
     std::cout<<"text_structure_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void family_drive_pending_pointer(const std::string& mode="popup",bool weight=false){
+void family_drive_pending_pointer(const std::string& mode="popup",bool weight=false,bool italic=false){
     const bool link=mode!="popup";
-    const std::string source_field=weight?"text.weight":"text.family";
-    const char* route=weight?"text_weight_link_pending_pointer ":"text_family_link_pending_pointer ";
+    const std::string source_field=italic?"text.italic":weight?"text.weight":"text.family";
+    const char* route=italic?"text_italic_link_pending_pointer ":weight?"text_weight_link_pending_pointer ":"text_family_link_pending_pointer ";
     QTemporaryDir scratch;check(scratch.isValid(),"Family Drive menu owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -507,13 +508,14 @@ void family_drive_pending_pointer(const std::string& mode="popup",bool weight=fa
     Object other;other.id="other";other.name="Existing source";other.kind=Kind::text;
     other.text=default_text("other-source","Source choice stays untouched");
     if(weight)other.text->weight=700;
+    if(italic)other.text->italic=true;
     document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
     document.compositions.front().roots={text.id,other.id};
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);
     window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     Session expected=window.host.session;
     auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
-    auto* drive=window.findChild<QToolButton*>(weight?"text-weight-driver":"text-family-driver");
+    auto* drive=window.findChild<QToolButton*>(italic?"text-italic-driver":weight?"text-weight-driver":"text-family-driver");
     QPointer<QMenu> popup=drive?drive->menu():nullptr;
     QLineEdit* size=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()) {
@@ -614,9 +616,10 @@ void family_drive_pending_pointer(const std::string& mode="popup",bool weight=fa
             check(snapshot(window.host.session)==snapshot(expected),"Closing the stale chooser preserves the complete incoming Session");
             std::cout<<route<<mode<<": "<<checks<<" checks passed\n";return;
         }
-        if(weight)expected.apply({LinkTextWeight{{"text","","text.weight"},{"other","","text.weight"},false}},expected.revision());
+        if(italic)expected.apply({LinkTextItalic{{"text","","text.italic"},{"other","","text.italic"},false}},expected.revision());
+        else if(weight)expected.apply({LinkTextWeight{{"text","","text.weight"},{"other","","text.weight"},false}},expected.revision());
         else expected.apply({LinkTextFamily{{"text","","text.family"},{"other","","text.family"},false}},expected.revision());
-        std::cout<<(weight?"Weight":"Family")<<" Link actual-revision="<<window.host.session.revision()<<" expected="<<expected.revision()
+        std::cout<<(italic?"Italic":weight?"Weight":"Family")<<" Link actual-revision="<<window.host.session.revision()<<" expected="<<expected.revision()
             <<" status="<<(picker?picker->findChild<QLabel*>("text-source-picker-status")->text().toStdString():"closed")<<std::endl;
         check(snapshot(window.host.session)==snapshot(expected),"First existing family Link uses the independently committed scalar revision");
         check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Successful Link restores the exact target selection");
@@ -647,7 +650,7 @@ void family_drive_pending_pointer(const std::string& mode="popup",bool weight=fa
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Drive Escape restores exact original source");
     std::cout<<"text_family_drive_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void family_unlink_pending_pointer(bool weight=false,bool expression=false){
+void family_unlink_pending_pointer(bool weight=false,bool expression=false,bool italic=false){
     QTemporaryDir scratch;check(scratch.isValid(),"Family Unlink owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -656,19 +659,21 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false){
     text.text=default_text("text-source","Retain 日本語 and style");
     Object other;other.id="other";other.name="Existing source";other.kind=Kind::text;
     other.text=default_text("other-source","Retain source");
+    if(italic)other.text->italic=true;
     document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
     document.compositions.front().roots={text.id,other.id};
     // Existing linked source is fixture intake; do not replay closed Link UI.
     Session fixture(document);
     if(!expression) {
-        if(weight)fixture.apply({LinkTextWeight{{"text","","text.weight"},{"other","","text.weight"},false}},fixture.revision());
+        if(italic)fixture.apply({LinkTextItalic{{"text","","text.italic"},{"other","","text.italic"},false}},fixture.revision());
+        else if(weight)fixture.apply({LinkTextWeight{{"text","","text.weight"},{"other","","text.weight"},false}},fixture.revision());
         else fixture.apply({LinkTextFamily{{"text","","text.family"},{"other","","text.family"},false}},fixture.revision());
     }
     document=fixture.document();window.host.session=Session(document);window.host.edited();window.resize(1100,750);
     window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     Session expected=window.host.session;
     auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
-    auto* drive=window.findChild<QToolButton*>(weight?"text-weight-driver":"text-family-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
+    auto* drive=window.findChild<QToolButton*>(italic?"text-italic-driver":weight?"text-weight-driver":"text-family-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
     QLineEdit* size=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()) {
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -685,15 +690,20 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false){
     bool menu_open=false,dialog_open=false,unlink_clicked=false;
     QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
         menu_open=menu&&menu->isVisible();
-        if(menu_open)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at(weight&&!expression?2:1)).center());
+        if(menu_open)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at((weight||italic)&&!expression?2:1)).center());
     });
     QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
-        if(weight&&!expression)return;
-        auto* dialog=window.findChild<QDialog*>(expression?"text-weight-expression-dialog":"text-family-dialog");dialog_open=dialog&&dialog->isVisible();
+        if((weight||italic)&&!expression)return;
+        QDialog* dialog=italic?qobject_cast<QInputDialog*>(QApplication::activeModalWidget()):window.findChild<QDialog*>(expression?"text-weight-expression-dialog":"text-family-dialog");dialog_open=dialog&&dialog->isVisible();
         if(!dialog_open){if(menu)menu->close();return;}
         auto* buttons=dialog->findChild<QDialogButtonBox*>();
         if(!buttons){dialog->reject();return;}
-        if(expression) {
+        if(italic) {
+            auto* editor=dialog->findChild<QLineEdit*>();
+            if(!editor){dialog->reject();return;}
+            editor->setFocus();QTest::keyClick(editor,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(editor,"true");
+            unlink_clicked=editor->text()=="true";
+        } else if(expression) {
             auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");
             if(!editor){dialog->reject();return;}
             editor->setFocus();QTest::keyClick(editor,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(editor,"500");
@@ -704,14 +714,16 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false){
             QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,unlink->mapTo(dialog,unlink->rect().center()));
             unlink_clicked=unlink->isChecked();
         }
-        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        auto* apply=buttons->button(italic?QDialogButtonBox::Ok:QDialogButtonBox::Apply);
         QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(dialog,apply->rect().center()));
         if(dialog->isVisible())dialog->reject();
     });
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(QApplication::doubleClickInterval()+1050);events();
-    check(menu_open&&((weight&&!expression)||(dialog_open&&unlink_clicked)),"First driver pointer reaches the existing explicit source action");
+    check(menu_open&&(((weight||italic)&&!expression)||(dialog_open&&unlink_clicked)),"First driver pointer reaches the existing explicit source action");
     expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
-    if(expression)expected.apply({SetTextWeightExpression{{"text","","text.weight"},Expression{"500",1},false}},expected.revision());
+    if(italic&&expression)expected.apply({SetTextItalicExpression{{"text","","text.italic"},Expression{"true",1},false}},expected.revision());
+    else if(italic)expected.apply({UnlinkTextItalic{{"text","","text.italic"}}},expected.revision());
+    else if(expression)expected.apply({SetTextWeightExpression{{"text","","text.weight"},Expression{"500",1},false}},expected.revision());
     else if(weight)expected.apply({UnlinkTextWeight{{"text","","text.weight"}}},expected.revision());
     else expected.apply({UnlinkTextFamily{{"text","","text.family"}}},expected.revision());
     check(snapshot(window.host.session)==snapshot(expected),"Existing Unlink editor uses exact own scalar revision without changing a font value");
@@ -719,7 +731,7 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false){
     check(snapshot(window.host.session)==snapshot(expected),"One Unlink Undo restores the source driver and retains the independent size");
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original linked source");
-    std::cout<<(weight?(expression?"text_weight_expression_pending_pointer: ":"text_weight_unlink_pending_pointer: "):"text_family_unlink_pending_pointer: ")
+    std::cout<<(italic?(expression?"text_italic_expression_pending_pointer: ":"text_italic_unlink_pending_pointer: "):weight?(expression?"text_weight_expression_pending_pointer: ":"text_weight_unlink_pending_pointer: "):"text_family_unlink_pending_pointer: ")
         <<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
@@ -1190,6 +1202,13 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--italic-source-actions-pending-pointer")){
+            family_unlink_pending_pointer(false,true,true);family_unlink_pending_pointer(false,false,true);return 0;
+        }
+        if(app.arguments().contains("--italic-link-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})family_drive_pending_pointer(mode,false,true);
+            return 0;
+        }
         if(app.arguments().contains("--weight-source-actions-pending-pointer")){
             family_unlink_pending_pointer(true,true);family_unlink_pending_pointer(true,false);return 0;
         }
