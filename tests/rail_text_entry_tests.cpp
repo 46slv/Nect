@@ -16,6 +16,8 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QLineEdit>
+#include <QLabel>
+#include <QListWidget>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QPointer>
@@ -492,7 +494,8 @@ void structure_pending_pointer(){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Single scalar Undo restores full original source/history across selection");
     std::cout<<"text_structure_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void family_drive_pending_pointer(){
+void family_drive_pending_pointer(const std::string& mode="popup"){
+    const bool link=mode!="popup";
     QTemporaryDir scratch;check(scratch.isValid(),"Family Drive menu owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -517,20 +520,112 @@ void family_drive_pending_pointer(){
     check(scroll&&drive&&popup&&size,"Existing family Drive menu and scalar are available");
     scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
-    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"64");events();
-    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Pending size remains neutral before family Drive pointer");
+    if(mode!="plain") {QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state remains neutral before family Drive pointer");
     scroll->ensureWidgetVisible(drive);events();
+    if(mode=="entry-revision") {
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+    }
+    if(mode=="entry-document") {
+        auto incoming=document;incoming.id="incoming-entry-document";
+        window.host.session=Session(incoming);expected=window.host.session;
+    }
     const auto position=drive->mapTo(&window,drive->rect().center());
     check(window.childAt(position)==drive,"Actual Window pointer hits the existing family Drive button");
     bool opened=false,neutral=false;
-    expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
-    QTimer::singleShot(250,&window,[&]{
+    const bool rejected_entry=mode=="invalid"||mode=="entry-revision"||mode=="entry-document";
+    if(mode!="plain"&&!rejected_entry)expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    const auto popup_delay=link?QApplication::doubleClickInterval()+20:250;
+    QTimer::singleShot(popup_delay,&window,[&]{
         opened=popup&&popup->isVisible();neutral=snapshot(window.host.session)==snapshot(expected);
-        if(opened)QTest::keyClick(popup,Qt::Key_Escape);
+        if(opened) {
+            if(link)QTest::mouseClick(popup,Qt::LeftButton,Qt::NoModifier,popup->actionGeometry(popup->actions().front()).center());
+            else QTest::keyClick(popup,Qt::Key_Escape);
+        }
     });
-    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(300);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(popup_delay+50);events();
     check(snapshot(window.host.session)==snapshot(expected),"Family Drive pointer commits only the independent size command");
+    if(rejected_entry) {
+        check(!opened,"Invalid or changed entry context does not open a writable source menu");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),
+            "Rejected source entry reports its exact cause");
+        std::cout<<"text_family_link_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    std::cout<<"Family menu "<<mode<<" opened="<<opened<<" neutral="<<neutral<<" popup-exists="<<bool(popup)
+        <<" revision="<<window.host.session.revision()<<" expected="<<expected.revision()
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
     check(opened&&neutral,"First family Drive pointer opens its existing menu with source-neutral popup state");
+    if(link) {
+        QPointer<QDialog> picker=window.findChild<QDialog*>("text-source-picker");
+        auto* list=picker?picker->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+        auto* buttons=picker?picker->findChild<QDialogButtonBox*>():nullptr;
+        check(picker&&picker->isVisible()&&list&&buttons,"Existing first Drive action opens the actual source chooser");
+        QListWidgetItem* source=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="other"&&ref.value("field").toString()=="text.family")source=list->item(i);
+        }
+        check(source&&!source->isHidden(),"Existing chooser exposes the exact stable same-property source Ref");
+        QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,list->viewport()->mapTo(picker,list->visualItemRect(source).center()));events();
+        check(snapshot(window.host.session)==snapshot(expected),"Source selection preview is fully authored-state neutral");
+        if(mode=="cancel") {
+            auto* cancel=buttons->button(QDialogButtonBox::Cancel);
+            QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,cancel->mapTo(picker,cancel->rect().center()));events();
+            check(snapshot(window.host.session)==snapshot(expected),"Chooser Cancel retains only the independent size command");
+            check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Chooser Cancel restores the exact original target selection");
+            size=nullptr;
+            for(auto* input:window.findChildren<QLineEdit*>()) {
+                const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+                if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+            }
+            check(size,"Chooser Cancel exposes a current scalar field");
+            scroll->ensureWidgetVisible(size);events();size->setFocus();
+            QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+            expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected),"Scalar edit after chooser Cancel uses current canonical context");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+            check(snapshot(window.host.session)==snapshot(expected),"Fresh scalar Undo retains the independent initial size");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+            check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo after chooser Cancel restores exact original source");
+            std::cout<<"text_family_link_pending_pointer cancel: "<<checks<<" checks passed\n";return;
+        }
+        if(mode=="apply-revision") {
+            window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+            expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+        }
+        if(mode=="apply-document") {
+            auto incoming=document;incoming.id="incoming-apply-document";
+            Session replacement(incoming);replacement.apply({EditProperties{{{"text","","text.font_size"}},64,false}},replacement.revision());
+            check(replacement.revision()==window.host.session.revision(),"Incoming chooser Document has the same canonical revision");
+            window.host.session=replacement;expected=replacement;
+        }
+        if(mode=="apply-session")window.host.session_id="incoming-source-session";
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        QTest::mouseClick(picker->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(picker,apply->rect().center()));events();
+        if(mode=="apply-revision"||mode=="apply-document"||mode=="apply-session") {
+            check(snapshot(window.host.session)==snapshot(expected),"Changed chooser context refuses Link without partial authored changes");
+            check(picker&&picker->findChild<QLabel*>("text-source-picker-status")->text().contains(mode=="apply-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),
+                "Changed chooser reports its exact bound-context cause");
+            QTest::keyClick(picker,Qt::Key_Escape);events();
+            check(snapshot(window.host.session)==snapshot(expected),"Closing the stale chooser preserves the complete incoming Session");
+            std::cout<<"text_family_link_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+        }
+        expected.apply({LinkTextFamily{{"text","","text.family"},{"other","","text.family"},false}},expected.revision());
+        std::cout<<"Family Link actual-revision="<<window.host.session.revision()<<" expected="<<expected.revision()
+            <<" status="<<(picker?picker->findChild<QLabel*>("text-source-picker-status")->text().toStdString():"closed")<<std::endl;
+        check(snapshot(window.host.session)==snapshot(expected),"First existing family Link uses the independently committed scalar revision");
+        check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Successful Link restores the exact target selection");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected),"One source Link Undo preserves the independently committed size");
+        if(mode=="plain") {
+            check(expected.document()==document,"No-draft source Link remains one independent Undo");
+            std::cout<<"text_family_link_pending_pointer plain: "<<checks<<" checks passed\n";return;
+        }
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Link restores exact original source");
+        std::cout<<"text_family_link_pending_pointer valid: "<<checks<<" checks passed; Qt Window pointer route\n";return;
+    }
     check(!popup||!popup->isVisible(),"Existing family Drive Escape closes without choosing a source");
     size=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()) {
@@ -547,6 +642,65 @@ void family_drive_pending_pointer(){
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo after Drive Escape restores exact original source");
     std::cout<<"text_family_drive_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
+}
+void family_unlink_pending_pointer(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Family Unlink owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("family-unlink-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Linked family target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    Object other;other.id="other";other.name="Existing source";other.kind=Kind::text;
+    other.text=default_text("other-source","Retain source");
+    document.objects.emplace(text.id,text);document.objects.emplace(other.id,other);
+    document.compositions.front().roots={text.id,other.id};
+    // Existing linked source is fixture intake; do not replay closed Link UI.
+    Session fixture(document);fixture.apply({LinkTextFamily{{"text","","text.family"},{"other","","text.family"},false}},fixture.revision());
+    document=fixture.document();window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* drive=window.findChild<QToolButton*>("text-family-driver");QPointer<QMenu> menu=drive?drive->menu():nullptr;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&drive&&menu&&size,"Existing linked-family driver and scalar are available");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");events();
+    check(size->hasFocus()&&size->isModified()&&snapshot(window.host.session)==snapshot(expected),"Pending size remains neutral before linked-family driver");
+    scroll->ensureWidgetVisible(drive);events();
+    const auto position=drive->mapTo(&window,drive->rect().center());
+    check(window.childAt(position)==drive,"Actual Window pointer hits the linked family driver");
+    bool menu_open=false,dialog_open=false,unlink_clicked=false;
+    QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
+        menu_open=menu&&menu->isVisible();
+        if(menu_open)QTest::mouseClick(menu,Qt::LeftButton,Qt::NoModifier,menu->actionGeometry(menu->actions().at(1)).center());
+    });
+    QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-family-dialog");dialog_open=dialog&&dialog->isVisible();
+        if(!dialog_open){if(menu)menu->close();return;}
+        auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-family-driver");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!unlink||!buttons){dialog->reject();return;}
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,unlink->mapTo(dialog,unlink->rect().center()));
+        unlink_clicked=unlink->isChecked();
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
+        QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(dialog,apply->rect().center()));
+        if(dialog->isVisible())dialog->reject();
+    });
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);QTest::qWait(QApplication::doubleClickInterval()+1050);events();
+    check(menu_open&&dialog_open&&unlink_clicked,"First driver pointer reaches the existing explicit Unlink editor and checkbox");
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    expected.apply({UnlinkTextFamily{{"text","","text.family"}}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Existing Unlink editor uses exact own scalar revision without changing a font value");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Unlink Undo restores the source driver and retains the independent size");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original linked source");
+    std::cout<<"text_family_unlink_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -1016,6 +1170,11 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--family-unlink-pending-pointer")){family_unlink_pending_pointer();return 0;}
+        if(app.arguments().contains("--family-link-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})family_drive_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--family-drive-pending-pointer")){family_drive_pending_pointer();return 0;}
         if(app.arguments().contains("--structure-pending-pointer")){structure_pending_pointer();return 0;}
         if(app.arguments().contains("--italic-pending-pointer")){

@@ -351,6 +351,26 @@ protected:
         QSpinBox::mousePressEvent(event);
     }
 };
+class PreparedTextMenuButton final : public QToolButton {
+public:
+    std::function<bool()> prepare;
+    std::function<void()> closed;
+protected:
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+            if(menu())menu()->installEventFilter(this);
+        }
+        QToolButton::mousePressEvent(event);
+    }
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        if(watched==menu()&&event->type()==QEvent::Hide&&closed)closed();
+        return QToolButton::eventFilter(watched,event);
+    }
+};
 class PropertyInput final : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
@@ -4906,6 +4926,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        family&&family->property("nect-retain-text-inspector").toBool())return;
     if(auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
        weight&&weight->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-family-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -6783,6 +6805,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto family_revision=host.session.revision();
     const auto family_document=host.session.document().id;
     const auto family_gesture=host.session.gesture_generation();
+    auto prepared_family_revision=std::make_shared<std::uint64_t>(family_revision);
     auto* family_row=new QWidget(box);auto* family_layout=new QHBoxLayout(family_row);family_layout->setContentsMargins(0,0,0,0);
     auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
     family->setProperty("nect-text-family-action-object",qs(id));
@@ -6790,7 +6813,9 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     family->addItem(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setCurrentText(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setEnabled(!family_state.driver);family_layout->addWidget(family);
-    auto* family_driver_button=new QToolButton(family_row);family_driver_button->setObjectName("text-family-driver");
+    auto* family_driver_button=new PreparedTextMenuButton;family_driver_button->setObjectName("text-family-driver");
+    family_driver_button->setProperty("nect-text-family-action-object",qs(id));
+    family_driver_button->setFocusPolicy(Qt::StrongFocus);
     family_driver_button->setText(family_state.driver?"Driver…":"Drive…");family_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* family_menu=new QMenu(family_driver_button);family_driver_button->setMenu(family_menu);family_layout->addWidget(family_driver_button);
     auto* link_family=family_menu->addAction("Link to Text family…");
@@ -6801,29 +6826,43 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_family->setEnabled(!family_source_ids.empty());
     const bool replace_family_driver=family_state.driver.has_value();
-    connect(link_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,replace_family_driver,family_source_ids]{
+    connect(link_family,&QAction::triggered,this,[this,id,frozen_session,family_document,prepared_family_revision,family_gesture,replace_family_driver,family_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_family_revision||host.session.gesture_generation()!=family_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its family");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto family_revision=*prepared_family_revision;
         const auto target=Ref{id,"","text.family"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,family_source_ids,"Link Text family");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,family_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=family_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,family_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==family_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,family_revision,replace_family_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,family_document,family_revision,family_gesture,replace_family_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=family_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=family_revision||host.session.gesture_generation()!=family_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextFamily{target,source,replace_family_driver}},family_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6831,7 +6870,14 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(edit_linked_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,family_state]{
+    connect(edit_linked_family,&QAction::triggered,this,[this,id,frozen_session,family_document,prepared_family_revision,family_state]{
+        if(host.session_id!=frozen_session||host.session.document().id!=family_document) {
+            perform([&]{throw Error("SESSION_CONFLICT","Text family belongs to another document");});return;
+        }
+        if(host.session.revision()!=*prepared_family_revision) {
+            perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its family");});return;
+        }
+        const auto family_revision=*prepared_family_revision;
         QDialog dialog(this);dialog.setObjectName("text-family-dialog");dialog.setWindowTitle("Edit linked font family");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new FontFamilyCombo(font_families_);editor->setObjectName("text-family-editor");
@@ -6842,9 +6888,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,family_revision,family_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,family_document,family_revision,family_state,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                    throw Error("SESSION_CONFLICT","Text belongs to another document");
                 if(host.session.revision()!=family_revision)throw Error("STALE_CONTEXT","Text changed while the family editor was open; copy this value and reopen the editor");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -6861,7 +6908,6 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         dialog.exec();
     });
     form->addRow("Font family",family_row);
-    auto prepared_family_revision=std::make_shared<std::uint64_t>(family_revision);
     auto family_scalar_prepared=std::make_shared<bool>(false);
     const bool family_preview=host.session.gesture_active();
     family->prepare=[this,id,frozen_session,family_document,family_revision,family_gesture,family_preview,prepared_family_revision,family_scalar_prepared] {
@@ -6902,6 +6948,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session_id==frozen_session&&host.session.document().id==family_document)rebuild_inspector();
         });
     };
+    family_driver_button->prepare=family->prepare;
+    family_driver_button->closed=family->closed;
     auto update_family=[this,id,frozen_session,family_document,prepared_family_revision,family_gesture,update](const std::string& value){
         if(host.session_id!=frozen_session||host.session.document().id!=family_document)
             throw Error("SESSION_CONFLICT","Text family draft belongs to another document");
