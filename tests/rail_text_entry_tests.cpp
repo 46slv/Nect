@@ -1138,7 +1138,9 @@ void direction_link_pending_pointer(const std::string& mode){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores full original source/history");
     std::cout<<"text_direction_link_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void layout_link_pending_pointer(const std::string& mode){
+void layout_link_pending_pointer(const std::string& mode,bool frame_width=false){
+    const std::string scalar_field=frame_width?"text.frame_width":"text.font_size";
+    const int scalar_value=frame_width?777:64;
     QTemporaryDir scratch;check(scratch.isValid(),"Sizing source owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -1157,14 +1159,14 @@ void layout_link_pending_pointer(const std::string& mode){
     const auto find_size=[&]()->QLineEdit*{
         for(auto* input:window.findChildren<QLineEdit*>()){
             const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
-            if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")return input;
+            if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()==QString::fromStdString(scalar_field))return input;
         }
         return nullptr;
     };
     auto* size=find_size();check(scroll&&drive&&menu&&size,"Existing Sizing driver and scalar available");
     scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
-    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":QString::number(scalar_value).toLatin1().constData());events();}
     check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Sizing source scalar draft is neutral before the actual first pointer");
     scroll->ensureWidgetVisible(drive);events();
     if(mode=="entry-revision"){
@@ -1175,7 +1177,7 @@ void layout_link_pending_pointer(const std::string& mode){
     const auto position=drive->mapTo(&window,drive->rect().center());
     check(window.childAt(position)==drive,"Actual Window pointer hits existing Sizing driver");
     const bool reject_entry=mode=="invalid"||mode=="entry-revision"||mode=="entry-document";
-    if(mode!="plain"&&!reject_entry)expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    if(mode!="plain"&&!reject_entry)expected.apply({EditProperties{{{"text","",scalar_field}},static_cast<double>(scalar_value),false}},expected.revision());
     bool opened=false,neutral=false,dialog_open=false,choice=false,same_revision=true;
     QString status;
     QTimer::singleShot(QApplication::doubleClickInterval()+20,&window,[&]{
@@ -1198,7 +1200,7 @@ void layout_link_pending_pointer(const std::string& mode){
         }
         if(mode=="apply-document"){
             auto incoming=document;incoming.id="incoming-apply-document";
-            Session replacement(incoming);replacement.apply({EditProperties{{{"text","","text.font_size"}},64,false}},replacement.revision());
+            Session replacement(incoming);replacement.apply({EditProperties{{{"text","",scalar_field}},static_cast<double>(scalar_value),false}},replacement.revision());
             same_revision=replacement.revision()==window.host.session.revision();window.host.session=replacement;expected=replacement;
         }
         if(mode=="apply-session")window.host.session_id="incoming-source-session";
@@ -1213,6 +1215,7 @@ void layout_link_pending_pointer(const std::string& mode){
         check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),"Sizing entry reports exact cause");
         std::cout<<"text_layout_link_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
     }
+    std::cerr<<"Sizing scalar "<<scalar_field<<" menu="<<opened<<" source-dialog="<<dialog_open<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<" status="<<window.statusBar()->currentMessage().toStdString()<<"\n";
     check(opened&&neutral&&dialog_open&&choice,"First Sizing pointer opens the existing chooser with neutral exact source selection");
     if(mode=="apply-revision"||mode=="apply-document"||mode=="apply-session"){
         check(same_revision,"Incoming chooser Document has same canonical revision");
@@ -1224,7 +1227,7 @@ void layout_link_pending_pointer(const std::string& mode){
         check(snapshot(window.host.session)==snapshot(expected),"Sizing chooser Cancel retains only independent scalar");
         size=find_size();check(size,"Sizing Cancel exposes current scalar");scroll->ensureWidgetVisible(size);events();size->setFocus();
         QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
-        expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+        expected.apply({EditProperties{{{"text","",scalar_field}},65,false}},expected.revision());
         check(snapshot(window.host.session)==snapshot(expected),"Sizing Cancel leaves scalar usable at exact current revision");
     }else{
         expected.apply({LinkTextLayout{{"text","","text.layout"},{"other","","text.layout"},false}},expected.revision());
@@ -2315,6 +2318,11 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--layout-link-pending-pointer")){
             for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode);
             return 0;
+        }
+        if(app.arguments().contains("--layout-frame-width-pending-pointer")){layout_link_pending_pointer("valid",true);return 0;}
+        if(app.arguments().contains("--layout-frame-width-affected-pending-pointer")){
+            for(const auto* mode:{"cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})layout_link_pending_pointer(mode,true);
+            std::cout<<"text_layout_frame_width_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--direction-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})direction_source_action_pending_pointer(action);

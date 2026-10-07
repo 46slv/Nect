@@ -7471,7 +7471,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 const auto data=input->property("nect-reference").toByteArray();
                 if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
                 const auto ref=read_ref(data);
-                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+                if(ref.object==id&&ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"))pending=input;
             }
             if(pending) {
                 pending->setProperty("nect-finishing-text-layout",true);
@@ -7482,7 +7482,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 if(!committed.isValid())return;
                 if(host.session_id!=frozen_session||host.session.document().id!=layout_document||
                    host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=layout_gesture||host.session.gesture_active())
-                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                    throw Error("STALE_CONTEXT","Text changed while finishing its sizing property");
                 *prepared_layout_revision=host.session.revision();*layout_scalar_prepared=true;
             }
             ready=true;
@@ -10840,7 +10840,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            focus->property("nect-text-italic-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-layout").toBool()&&
-           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width")&&focus&&
            focus->property("nect-text-layout-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-alignment").toBool()&&
