@@ -315,7 +315,7 @@ std::vector<Ref> read_refs(const QByteArray& data) {
     return refs;
 }
 const char* reference_mime="application/x-nect-property-reference";
-class WritingDirectionCombo final : public QComboBox {
+class PreparedTextCombo : public QComboBox {
 public:
     std::function<bool()> prepare;
     std::function<void()> closed;
@@ -367,7 +367,7 @@ QString expression_ref(const Ref& ref) {
     auto args=QJsonDocument(QJsonArray{qs(ref.object),qs(ref.point),qs(ref.field)}).toJson(QJsonDocument::Compact);
     return "ref("+QString::fromUtf8(args.mid(1,args.size()-2))+")";
 }
-class FontFamilyCombo final : public QComboBox {
+class FontFamilyCombo final : public PreparedTextCombo {
     QStringListModel* families_;
 public:
     explicit FontFamilyCombo(QStringListModel* families):families_(families) {
@@ -387,7 +387,7 @@ public:
             const QSignalBlocker combo_blocker(this),edit_blocker(lineEdit());
             setModel(families_);setCurrentIndex(findText(value));setEditText(value);
         }
-        QComboBox::showPopup();
+        PreparedTextCombo::showPopup();
     }
 };
 class WhipOverlay final : public QWidget {
@@ -4884,10 +4884,12 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 
 void Window::rebuild_inspector(bool use_canvas_values) {
     if(rebuilding_inspector_)return;
-    // The direct Writing popup owns only its synchronous scalar preparation.
+    // Direct Text popups own only their synchronous scalar preparation.
     // Canvas/recovery still refresh; keep this control alive until it can open.
     if(auto* writing=inspector_->findChild<QComboBox*>("text-direction");
        writing&&writing->property("nect-retain-text-inspector").toBool())return;
+    if(auto* family=inspector_->findChild<QComboBox*>("text-family");
+       family&&family->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -6767,6 +6769,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto family_gesture=host.session.gesture_generation();
     auto* family_row=new QWidget(box);auto* family_layout=new QHBoxLayout(family_row);family_layout->setContentsMargins(0,0,0,0);
     auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
+    family->setProperty("nect-text-family-action-object",qs(id));
+    family->lineEdit()->setProperty("nect-text-family-action-object",qs(id));
     family->addItem(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setCurrentText(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setEnabled(!family_state.driver);family_layout->addWidget(family);
@@ -6841,14 +6845,55 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         dialog.exec();
     });
     form->addRow("Font family",family_row);
-    auto update_family=[this,id,frozen_session,family_document,family_revision,family_gesture,update](const std::string& value){
+    auto prepared_family_revision=std::make_shared<std::uint64_t>(family_revision);
+    auto family_scalar_prepared=std::make_shared<bool>(false);
+    const bool family_preview=host.session.gesture_active();
+    family->prepare=[this,id,frozen_session,family_document,family_revision,family_gesture,family_preview,prepared_family_revision,family_scalar_prepared] {
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=family_revision||host.session.gesture_generation()!=family_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its family");
+            if(family_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its family");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-family",true);
+                pending->setProperty("nect-text-family-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-family-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-family",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=family_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=family_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_family_revision=host.session.revision();*family_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    family->closed=[this,frozen_session,family_document,family_scalar_prepared] {
+        if(!*family_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,family_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==family_document)rebuild_inspector();
+        });
+    };
+    auto update_family=[this,id,frozen_session,family_document,prepared_family_revision,family_gesture,update](const std::string& value){
         if(host.session_id!=frozen_session||host.session.document().id!=family_document)
             throw Error("SESSION_CONFLICT","Text family draft belongs to another document");
         const auto found=host.session.document().objects.find(id);
         if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
         // Return can deliver both signals after the first has rebuilt the Inspector.
         if(found->second.text->family==value)return;
-        if(host.session.revision()!=family_revision||host.session.gesture_generation()!=family_gesture)
+        if(host.session.revision()!=*prepared_family_revision||host.session.gesture_generation()!=family_gesture)
             throw Error("REVISION_CONFLICT","Text changed; edit its family again");
         if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         update([&](auto& s){s.family=value;});
@@ -7160,7 +7205,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const Ref direction_ref{id,"","text.direction"};const auto direction_state=text_direction_property(host.session.document(),direction_ref);
     const auto direction_revision=host.session.revision();
     auto* direction_row=new QWidget(box);auto* direction_layout=new QHBoxLayout(direction_row);direction_layout->setContentsMargins(0,0,0,0);
-    auto* direction=new WritingDirectionCombo;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
+    auto* direction=new PreparedTextCombo;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
     direction->setProperty("nect-text-writing-action-object",qs(id));
     direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(!direction_state.driver);
     direction->setAccessibleName("Text writing direction");
@@ -10101,6 +10146,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-writing-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-family").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-family-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
@@ -10119,6 +10168,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-writing-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-content").toBool())
                 input->setProperty("nect-text-content-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-family").toBool())
+                input->setProperty("nect-text-family-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
         perform([&]{
             if(host.session_id!=input_session||host.session.document().id!=input_document)

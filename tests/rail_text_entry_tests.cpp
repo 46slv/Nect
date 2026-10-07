@@ -4,6 +4,7 @@
 #include "nect/io.hpp"
 #include <QApplication>
 #include <QComboBox>
+#include <QCompleter>
 #include <QCursor>
 #include <QAbstractItemView>
 #include <QDialog>
@@ -245,6 +246,75 @@ void content_pending_pointer(const std::string& mode){
         check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Independent scalar Undo restores the entire original source");
     }
     std::cout<<"text_content_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
+}
+void family_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Family popup owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("family-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Family target";text.kind=Kind::text;
+    text.text=default_text("text-source","Retain 日本語 and style");
+    document.objects.emplace(text.id,text);document.compositions.front().roots.push_back(text.id);
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* family=window.findChild<QComboBox*>("text-family");QPointer<QComboBox> original_family=family;
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&family&&size,"Actual family popup and Font size controls exist");
+    check(QTest::qWaitFor([&]{return family->completer()&&family->completer()->model()->rowCount()>0;},3000),
+        "Existing family completion catalogue is available; no font repertoire claim");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain") {QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state stays neutral before family arrow");
+    scroll->ensureWidgetVisible(family);events();
+    if(mode=="revision") {
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+    }
+    if(mode=="document") {
+        auto incoming=document;incoming.id="incoming-family-document";
+        window.host.session=Session(incoming);expected=window.host.session;
+    }
+    const auto arrow=family->mapTo(&window,QPoint(family->width()-8,family->height()/2));
+    check(window.childAt(arrow)==family,"Actual Window arrow position hits the family control");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,arrow);events();
+    if(mode=="invalid"||mode=="revision"||mode=="document") {
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected family entry keeps complete incoming source and history");
+        check(original_family&&!original_family->view()->isVisible(),"Rejected draft/context does not open the family popup");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="revision"?"STALE_CONTEXT":"SESSION_CONFLICT"),
+            "Rejected family entry reports its exact cause");
+        std::cout<<"text_family_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    if(mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"First family arrow commits only the independent scalar transaction");
+    check(original_family&&original_family->view()->isVisible(),"First family arrow opens the existing catalogue without losing the pointer gesture");
+    QTest::keyClick(original_family->view(),Qt::Key_Escape);events();
+    check(snapshot(window.host.session)==snapshot(expected),"Family popup Escape does not choose a font or author any extra state");
+    if(mode=="plain") {
+        check(expected.document()==document,"No-draft popup and Cancel leave the exact original source/history");
+        std::cout<<"text_family_pending_pointer plain: "<<checks<<" checks passed\n";return;
+    }
+    size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(size,"Popup Cancel leaves a usable current scalar field");
+    scroll->ensureWidgetVisible(size);events();size->setFocus();
+    QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+    expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Scalar edit after family Cancel uses fresh canonical context");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"Fresh scalar Undo preserves the independently committed pending size");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores the complete original source");
+    std::cout<<"text_family_pending_pointer cancel: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -714,6 +784,10 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--family-pending-pointer")){
+            for(const auto* mode:{"cancel","invalid","revision","document","plain"})family_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--content-pending-pointer")){
             for(const auto* mode:{"cancel","apply","invalid","revision","document","plain"})content_pending_pointer(mode);
             return 0;
