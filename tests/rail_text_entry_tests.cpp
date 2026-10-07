@@ -1502,17 +1502,18 @@ void locale_source_action_pending_pointer(const std::string& action){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_locale_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
-void scalar_pick_pending_pointer(const std::string& mode){
+void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size"){
+    const std::string field=mode=="generic"?"text.tracking":scalar_field;
+    const QString label=field=="text.tracking"?"Tracking":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("scalar-pick-document","composition","board");
     Object text;text.id="text";text.name="Numeric picker target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
-    Object source=text;source.id="source";source.name="Numeric picker source";source.text->id="source-text";source.text->parameters.at("font_size").literal=72;
+    Object source=text;source.id="source";source.name="Numeric picker source";source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=72;
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
-    const std::string field=mode=="generic"?"text.tracking":"text.font_size";const QString label=mode=="generic"?"Tracking":"Font size";
     const Ref target{text.id,"",field}, source_ref{source.id,"",field};
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* pick=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
@@ -1544,7 +1545,7 @@ void scalar_pick_pending_pointer(const std::string& mode){
             check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Whip source browsing changes only view while target remains frozen");
             QLineEdit* source_field=nullptr;for(auto* input:window.findChildren<QLineEdit*>()){
                 const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
-                if(input->isVisible()&&ref.value("object").toString()=="source"&&ref.value("field").toString()=="text.font_size")source_field=input;
+                if(input->isVisible()&&ref.value("object").toString()=="source"&&ref.value("field").toString()==QString::fromStdString(field))source_field=input;
             }
             check(source_field,"Existing compatible other Text Font size source available for whip");scroll->ensureWidgetVisible(source_field);events();
             const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual Window drag reaches visible source field");
@@ -1562,7 +1563,7 @@ void scalar_pick_pending_pointer(const std::string& mode){
         check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
     }
     if(pending)expected.apply({EditProperties{{target},64,false}},expected.revision());
-    std::cerr<<"Font size numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+    std::cerr<<field<<" numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
     check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First source-picker pointer commits scalar and opens neutral picker");
     auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
     if(list)for(int i=0;i<list->count();++i){const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(ref.value("object").toString()=="source"&&ref.value("field").toString()==QString::fromStdString(field))item=list->item(i);}
@@ -1592,7 +1593,7 @@ void scalar_pick_pending_pointer(const std::string& mode){
     if(pending){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Scalar Undo restores full original Text source/style/history");
 }
 
-void scalar_fx_pending_pointer(const std::string& mode){
+void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size"){
     QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -1601,7 +1602,8 @@ void scalar_fx_pending_pointer(const std::string& mode){
     text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
-    const std::string field=mode=="other-field"?"text.tracking":"text.font_size";const QString label=mode=="other-field"?"Tracking":"Font size";
+    const std::string field=mode=="other-field"?"text.tracking":scalar_field;
+    const QString label=field=="text.tracking"?"Tracking":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -1623,7 +1625,7 @@ void scalar_fx_pending_pointer(const std::string& mode){
     if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{"40 + 2",1},false}},expected.revision());
     else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},64,false}},expected.revision());
     QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
-    std::cerr<<"Font size fx panel="<<(editor!=nullptr)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+    std::cerr<<field<<" fx panel="<<(editor!=nullptr)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
     check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First fx pointer commits only scalar and opens existing inline neutral expression editor");
     auto* panel=window.findChild<QWidget*>("nect-expression-panel");QPushButton* apply=nullptr;
     for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
@@ -2284,6 +2286,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--scalar-pick-pending-pointer")){scalar_pick_pending_pointer("valid");std::cout<<"text_scalar_pick_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--scalar-pick-affected-pending-pointer")){for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","generic"})scalar_pick_pending_pointer(mode);std::cout<<"text_scalar_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--scalar-pick-whip-pending-pointer")){scalar_pick_pending_pointer("drag");scalar_pick_pending_pointer("drag-cancel");std::cout<<"text_scalar_pick_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--frame-scalars-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"text.frame_width","text.frame_height"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field);else scalar_pick_pending_pointer("valid",field);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Frame scalar first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_frame_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--frame-scalars-fx-affected-pending-pointer")){
+            for(const auto* field:{"text.frame_width","text.frame_height"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field);
+            std::cout<<"text_frame_scalars_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--frame-scalars-pick-affected-pending-pointer")){
+            for(const auto* field:{"text.frame_width","text.frame_height"})for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field);
+            std::cout<<"text_frame_scalars_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--frame-scalars-whip-pending-pointer")){
+            for(const auto* field:{"text.frame_width","text.frame_height"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
+            std::cout<<"text_frame_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
         if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--alignment-source-actions-pending-pointer")){
