@@ -10753,7 +10753,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.rectangle";
     const bool polygon_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="generator.rotation")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.polygon";
-    const bool star_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.outer_radius"||ref.field=="generator.inner_radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y")&&
+    const bool star_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.outer_radius"||ref.field=="generator.inner_radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="generator.rotation")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.star";
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
