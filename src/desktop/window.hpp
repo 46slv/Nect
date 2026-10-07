@@ -134,6 +134,8 @@ private:
     Id whip_composition_,whip_artboard_;
     std::uint64_t whip_revision_=0;
     QString whip_session_;
+    Id whip_document_;
+    std::function<void()> whip_verify_;
     QPoint whip_start_;
     bool whip_dragged_=false;
     QWidget* whip_overlay_=nullptr;
@@ -188,7 +190,7 @@ private:
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
-    void pick_source(std::vector<Ref> targets,bool relative=false);
+    void pick_source(std::vector<Ref> targets,bool relative=false,std::function<void()> verify_context={});
     void save(bool choose);
     void export_png();
     void import_svg();

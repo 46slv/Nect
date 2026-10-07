@@ -1500,6 +1500,96 @@ void locale_source_action_pending_pointer(const std::string& action){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_locale_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void scalar_pick_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("scalar-pick-document","composition","board");
+    Object text;text.id="text";text.name="Numeric picker target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    Object source=text;source.id="source";source.name="Numeric picker source";source.text->id="source-text";source.text->parameters.at("font_size").literal=72;
+    document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    const std::string field=mode=="generic"?"text.tracking":"text.font_size";const QString label=mode=="generic"?"Tracking":"Font size";
+    const Ref target{text.id,"",field}, source_ref{source.id,"",field};
+    Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* pick=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()==QString::fromStdString(field))size=input;
+    }
+    for(auto* button:window.findChildren<QPushButton*>("property-source-pick"))if(button->accessibleName()=="Pick source for "+label)pick=button;
+    check(scroll&&size&&pick,"Existing Font size and numeric source picker available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    const bool pending=mode!="plain"&&mode!="generic";
+    if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==pending&&snapshot(window.host.session)==snapshot(expected),"Pending Font size remains full-state neutral before source picker");
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-pick-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
+    if(mode=="entry-session")window.host.session_id="incoming-pick-entry-session";
+    const auto selection=window.canvas->selections();const auto position=pick->mapTo(&window,pick->rect().center());
+    check(window.childAt(position)==pick,"Actual Window pointer hits numeric source picker");
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();expected.apply({EditProperties{{target},64,false}},expected.revision());
+        check(snapshot(window.host.session)==snapshot(expected),"Whip press prepares only its own scalar before target freeze");
+        if(mode=="drag-cancel"){
+            QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Whip Escape restores target with only independent scalar");
+        }else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* source_item=nullptr;
+            for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="source"){tree=candidate;source_item=*it;}
+            check(tree&&source_item,"Exact other Text source row available for whip browsing");tree->scrollToItem(source_item);events();
+            const auto hover=tree->viewport()->mapTo(&window,tree->visualItemRect(source_item).center());
+            QTest::mouseMove(window.windowHandle(),hover,10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Whip source browsing changes only view while target remains frozen");
+            QLineEdit* source_field=nullptr;for(auto* input:window.findChildren<QLineEdit*>()){
+                const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+                if(input->isVisible()&&ref.value("object").toString()=="source"&&ref.value("field").toString()=="text.font_size")source_field=input;
+            }
+            check(source_field,"Existing compatible other Text Font size source available for whip");scroll->ensureWidgetVisible(source_field);events();
+            const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual Window drag reaches visible source field");
+            QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();
+            expected.apply({LinkProperties{{target},source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Prepared Text whip links exact compatible Ref and restores target");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Whip link Undo retains independent scalar");
+        }
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Whip scalar Undo restores complete original source/history");return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
+    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+        check(!picker&&snapshot(window.host.session)==snapshot(expected),"Refused picker entry preserves incoming full source/history");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
+    }
+    if(pending)expected.apply({EditProperties{{target},64,false}},expected.revision());
+    std::cerr<<"Font size numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+    check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First source-picker pointer commits scalar and opens neutral picker");
+    auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+    if(list)for(int i=0;i<list->count();++i){const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(ref.value("object").toString()=="source"&&ref.value("field").toString()==QString::fromStdString(field))item=list->item(i);}
+    check(list&&buttons&&item,"Numeric picker retains exact compatible source Ref");list->setCurrentItem(item);events();
+    check(snapshot(window.host.session)==snapshot(expected),"Numeric source selection remains authored-state neutral");
+    if(mode=="cancel"){
+        buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Picker Cancel restores target and preserves only scalar");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled picker scalar independently restores original source");return;
+    }
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-document"){
+        auto incoming=document;incoming.id="incoming-pick-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{target},64,false}},replacement.revision());
+        check(replacement.revision()==window.host.session.revision(),"Incoming picker document collides at exact revision");window.host.session=replacement;expected=replacement;
+    }
+    if(mode=="apply-session")window.host.session_id="incoming-pick-apply-session";
+    if(mode=="apply-gesture"||mode=="apply-cancelled-gesture"){window.host.session.begin_gesture(window.host.session.revision());if(mode=="apply-cancelled-gesture")window.host.session.cancel_gesture();}
+    if(mode.rfind("apply-",0)==0){
+        const auto current_selection=window.canvas->selections();buttons->button(QDialogButtonBox::Ok)->click();events();
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused picker Apply preserves exact incoming full source/history");
+        check(window.statusBar()->currentMessage().contains(mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
+        if(mode=="apply-document"||mode=="apply-session"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(window.canvas->selections()==current_selection&&snapshot(window.host.session)==snapshot(expected),"Stale picker Cancel does not restore selection into replacement document");}
+        if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Picker refusal preserves active gesture");window.host.session.cancel_gesture();}return;
+    }
+    buttons->button(QDialogButtonBox::Ok)->click();events();expected.apply({LinkProperties{{target},source_ref,false}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Numeric picker Apply equals canonical LinkProperties and restores frozen target");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Link Undo retains independent scalar");
+    if(pending){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Scalar Undo restores full original Text source/style/history");
+}
+
 void scalar_fx_pending_pointer(const std::string& mode){
     QTemporaryDir scratch;check(scratch.isValid(),"Text scalar fx entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -2189,6 +2279,9 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--scalar-fx-affected-pending-pointer")){for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode);std::cout<<"text_scalar_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--scalar-fx-generic-pending-pointer")){scalar_fx_pending_pointer("other-field");std::cout<<"text_scalar_fx_generic_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--scalar-fx-pending-pointer")){scalar_fx_pending_pointer("valid");std::cout<<"text_scalar_fx_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--scalar-pick-pending-pointer")){scalar_pick_pending_pointer("valid");std::cout<<"text_scalar_pick_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--scalar-pick-affected-pending-pointer")){for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","generic"})scalar_pick_pending_pointer(mode);std::cout<<"text_scalar_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--scalar-pick-whip-pending-pointer")){scalar_pick_pending_pointer("drag");scalar_pick_pending_pointer("drag-cancel");std::cout<<"text_scalar_pick_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--alignment-source-actions-pending-pointer")){

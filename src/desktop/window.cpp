@@ -376,6 +376,7 @@ public:
     using QPushButton::QPushButton;
     std::function<bool()> prepare;
     std::function<void()> completed;
+    std::function<void()> verify_context;
 protected:
     void mousePressEvent(QMouseEvent* event)override {
         if(event->button()==Qt::LeftButton&&prepare) {
@@ -1842,12 +1843,24 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
     if(event->type()==QEvent::MouseButtonPress&&!whip_target_) {
         const auto* mouse=static_cast<QMouseEvent*>(event);
         if(mouse->button()==Qt::LeftButton&&watched->property("nect-pick-whip").toBool()) {
+            // The application filter owns both click and drag; prepare before
+            // freezing the whip so its revision follows only its own scalar.
+            std::function<void()> verify;
+            if(watched->property("nect-text-scalar-pick-action-object").isValid()) {
+                auto* button=static_cast<PreparedTextActionButton*>(watched);
+                button->setProperty("nect-retain-text-inspector",true);
+                const bool ready=button->prepare();
+                button->setProperty("nect-retain-text-inspector",false);
+                if(!ready)return true;
+                verify=button->verify_context;
+            }
             whip_target_=read_ref(watched->property("nect-reference").toByteArray());
             whip_targets_=read_refs(watched->property("nect-targets").toByteArray());
             if(whip_targets_.empty())whip_targets_={*whip_target_};
             whip_selection_=canvas->selections();whip_revision_=host.session.revision();
             whip_composition_=canvas->active_composition();whip_artboard_=canvas->active_artboard();
             whip_session_=host.session_id;whip_start_=mouse->globalPosition().toPoint();whip_dragged_=false;
+            whip_document_=host.session.document().id;whip_verify_=std::move(verify);
             grabMouse();
             statusBar()->showMessage("Drag to a property · hover an object to inspect its source · Shift: relative link · Esc: cancel");
             return true;
@@ -1908,9 +1921,15 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
             if(!source_bytes.isEmpty())break;
         }
     }
+    const auto verify=whip_verify_;
     cancel_whip();
-    if(!dragged) {pick_source(targets);return true;}
+    if(!dragged) {
+        if(verify)perform([&]{verify();pick_source(targets,false,verify);});
+        else pick_source(targets);
+        return true;
+    }
     perform([&] {
+        if(verify)verify();
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The pick-whip belongs to another document");
         if(source_bytes.isEmpty())throw Error("NO_SOURCE","Drop the pick-whip on a numeric property field");
         const auto source=read_ref(source_bytes);
@@ -1934,7 +1953,8 @@ void Window::reveal_whip_source() {
 }
 void Window::cancel_whip() {
     if(!whip_target_)return;
-    const auto selection=whip_selection_;const auto same_session=whip_session_==host.session_id;
+    const auto selection=whip_selection_;const auto same_session=whip_session_==host.session_id&&(!whip_verify_||whip_document_==host.session.document().id);
+    whip_verify_={};whip_document_.clear();
     whip_target_.reset();whip_targets_.clear();whip_selection_.clear();releaseMouse();
     if(whip_overlay_) {whip_overlay_->hide();whip_overlay_->deleteLater();whip_overlay_=nullptr;}
     statusBar()->clearMessage();
@@ -4961,7 +4981,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     for(auto* action:inspector_->findChildren<QPushButton*>())
-        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
+        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid()||action->property("nect-text-scalar-pick-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -10717,15 +10737,45 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
+    auto* prepared_pick=text_scalar_fx?new PreparedTextActionButton("↗"):nullptr;
+    QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
     pick->setProperty("nect-targets",target_data);
     pick->setToolTip("Pick source for "+label+". Drag to a source field; hover Objects to inspect another source. Click to search.");
     layout->addRow(label,row);
-    connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;
     const auto field_revision=host.session.revision();
+    if(prepared_pick) {
+        prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setFocusPolicy(Qt::StrongFocus);
+        auto context=std::make_shared<TextTypographyContext>(TextTypographyContext{field_session,ref.object,d.objects.at(ref.object).text->id,
+            canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
+        prepared_pick->prepare=[this,input,context] {
+            bool ready=false;perform([&]{
+                verify_text_typography_context(*context);
+                if(input->isModified()) {
+                    input->setProperty("nect-finishing-text-scalar-pick",true);input->setProperty("nect-text-scalar-pick-committed-revision",QVariant{});
+                    input->editingFinished();const auto committed=input->property("nect-text-scalar-pick-committed-revision");
+                    input->setProperty("nect-finishing-text-scalar-pick",false);if(!committed.isValid())return;
+                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_text_typography_context(advanced);*context=std::move(advanced);
+                    const auto session=context->session,document=qs(context->document);
+                    QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&qs(host.session.document().id)==document)rebuild_inspector();});
+                }ready=true;
+            });return ready;
+        };
+        // Browsing a source intentionally changes selection. Keep the target
+        // identity, scope and edit generation frozen while allowing that view.
+        prepared_pick->verify_context=[this,context] {
+            if(host.session_id!=context->session||host.session.document().id!=context->document)throw Error("SESSION_CONFLICT","The source picker belongs to another document");
+            if(host.session.revision()!=context->revision)throw Error("REVISION_CONFLICT","The source picker revision changed");
+            if(context->preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before choosing a source");
+            if(host.session.gesture_generation()!=context->gesture_generation)throw Error("REVISION_CONFLICT","The source picker gesture context changed");
+            const auto found=host.session.document().objects.find(context->object);
+            if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context->source)throw Error("TEXT_EDIT_CONFLICT","The original Text source changed");
+            if(artboard_editing_||canvas->active_composition()!=context->composition||canvas->active_artboard()!=context->artboard)throw Error("SELECTION_CONFLICT","The source picker scope changed");
+        };
+        connect(pick,&QPushButton::clicked,this,[this,targets,context,verify=prepared_pick->verify_context]{perform([&]{verify_text_typography_context(*context);pick_source(targets,false,verify);});});
+    } else connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source,std::optional<std::uint64_t> prepared_revision={},std::function<void()> verify_context={}) {
         if(host.session_id!=field_session)return;
         if(source.startsWith('='))source.remove(0,1);
@@ -10805,6 +10855,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-scalar-pick").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-path").toBool()&&
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-path-action-object").toString()==qs(ref.object)&&
@@ -10845,6 +10899,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-scalar-fx").toBool())
                 input->setProperty("nect-text-scalar-fx-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-scalar-pick").toBool())
+                input->setProperty("nect-text-scalar-pick-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-path").toBool())
                 input->setProperty("nect-text-path-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-typography").toBool())
@@ -10917,7 +10973,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     });
 }
 
-void Window::pick_source(std::vector<Ref> targets,bool relative) {
+void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
@@ -10952,16 +11008,18 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     });
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     const auto frozen_session=host.session_id;
-    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-        if(!item||host.session_id!=frozen_session)return;
+    const auto frozen_document=host.session.document().id;
+    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session,frozen_document,guarded=bool(verify_context)](QListWidgetItem* item,QListWidgetItem*){
+        if(!item||host.session_id!=frozen_session||(guarded&&host.session.document().id!=frozen_document))return;
         const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
         if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
     });
-    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-        if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context)]{
+        if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
-    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard] {
+    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context] {
         perform([&]{
+            if(verify_context)verify_context();
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Source picker belongs to a different document");
             if(!list->currentItem()||list->currentItem()->isHidden()||!(list->currentItem()->flags()&Qt::ItemIsEnabled))
                 throw Error("NO_SOURCE","Choose a visible compatible source property");
