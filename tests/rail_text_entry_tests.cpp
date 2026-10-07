@@ -1504,7 +1504,7 @@ void locale_source_action_pending_pointer(const std::string& action){
 }
 void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size"){
     const std::string field=mode=="generic"?"text.tracking":scalar_field;
-    const QString label=field=="text.tracking"?"Tracking":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     QTemporaryDir scratch;check(scratch.isValid(),"Text numeric picker owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -1603,7 +1603,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
-    const QString label=field=="text.tracking"?"Tracking":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
+    const QString label=field=="text.tracking"?"Tracking":field=="text.line_spacing"?"Line advance · 0 = auto":field=="text.frame_width"?"Frame width":field=="text.frame_height"?"Frame height":"Font size";
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* fx=nullptr;
     for(auto* input:window.findChildren<QLineEdit*>()){
         const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
@@ -2306,6 +2306,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--frame-scalars-whip-pending-pointer")){
             for(const auto* field:{"text.frame_width","text.frame_height"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_frame_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--spacing-scalars-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"text.tracking","text.line_spacing"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field);else scalar_pick_pending_pointer("valid",field);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Text spacing first-pointer entries satisfy the existing source contract");
+            std::cout<<"text_spacing_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--spacing-scalars-fx-affected-pending-pointer")){
+            for(const auto* field:{"text.tracking","text.line_spacing"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture","apply-selection"})scalar_fx_pending_pointer(mode,field);
+            std::cout<<"text_spacing_scalars_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--spacing-scalars-pick-affected-pending-pointer")){
+            for(const auto* field:{"text.tracking","text.line_spacing"})for(const auto* mode:{"plain","cancel","invalid","entry-revision","entry-document","entry-session","apply-revision","apply-document","apply-session","apply-gesture","apply-cancelled-gesture"})scalar_pick_pending_pointer(mode,field);
+            std::cout<<"text_spacing_scalars_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--spacing-scalars-whip-pending-pointer")){
+            for(const auto* field:{"text.tracking","text.line_spacing"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
+            std::cout<<"text_spacing_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
