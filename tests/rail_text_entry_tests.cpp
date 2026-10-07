@@ -13,9 +13,14 @@
 #include <QMouseEvent>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QLineEdit>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QPointer>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
+#include <QStatusBar>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -24,6 +29,7 @@
 #include <QToolTip>
 #include <QTreeWidget>
 #include <QTreeWidgetItemIterator>
+#include <QWindow>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <cmath>
@@ -56,6 +62,119 @@ void variant(Window& window,bool vertical){
     check(opened&&neutral,"Actual press-and-hold opens a document/history-neutral flyout");
     unchanged(window.host.session,before,"Picking a creation variant never changes selected Text or history");
     check(button->accessibleName().startsWith(vertical?"Vertical Text":"Horizontal Text"),"Group slot reflects remembered variant");
+}
+void writing_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Writing pointer owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("writing-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Writing target";text.kind=Kind::text;
+    text.text=default_text("text-source","Keep Japanese 日本語 and style");
+    document.objects.emplace(text.id,text);document.compositions.front().roots.push_back(text.id);
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);
+    window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    auto* direction=window.findChild<QComboBox*>("text-direction");QPointer<QComboBox> original_direction=direction;
+    struct PointerProbe final:QObject {
+        int presses=0,focus=0;
+        bool eventFilter(QObject*,QEvent* event)override {
+            if(event->type()==QEvent::MouseButtonPress)++presses;
+            if(event->type()==QEvent::FocusIn)++focus;
+            return false;
+        }
+    } pointer_probe;
+    if(direction)direction->installEventFilter(&pointer_probe);
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()) {
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(scroll&&direction&&size,"Actual direct Writing and Font size controls exist");
+    scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),
+        "Focused pending or unchanged Font size field is fully Session neutral");
+    scroll->ensureWidgetVisible(direction);events();
+    check(size->hasFocus()&&size->isModified()==(mode!="plain"),"Revealing Writing retains the focused field and its draft state");
+    if(mode=="document") {
+        auto incoming=document;incoming.id="incoming-document";
+        window.host.session=Session(incoming);expected=window.host.session;
+    }
+    const auto first_position=direction->mapTo(&window,direction->rect().center());
+    const auto* hit=window.childAt(first_position);
+    check(hit==direction,"The first Window pointer position resolves to the actual Writing control");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,first_position);events();
+    if(mode=="invalid"||mode=="document") {
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected draft/context keeps the complete incoming Session");
+        check(original_direction&&!original_direction->view()->isVisible(),"Rejected draft/context never opens a writable popup");
+        check(window.statusBar()->currentMessage().contains(mode=="invalid"?"INVALID_VALUE":"SESSION_CONFLICT"),
+            "Rejected draft/context reports its explicit cause");
+        std::cout<<"text_writing_pending_pointer "<<mode<<": "<<checks<<" checks passed\n";return;
+    }
+    if(mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    std::cout<<"Writing "<<mode<<" first pointer: revision="<<window.host.session.revision()
+        <<" expected="<<expected.revision()<<" size="<<window.host.session.document().objects.at("text").text->parameters.at("font_size").literal
+        <<" original-control="<<bool(original_direction)<<" popup="<<(original_direction&&original_direction->view()->isVisible())
+        <<" press="<<pointer_probe.presses<<" focus="<<pointer_probe.focus
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
+    check(snapshot(window.host.session)==snapshot(expected),"First Writing pointer completes exactly the ordinary Font size transaction");
+    check(original_direction&&original_direction->view()->isVisible(),
+        "First Writing pointer opens the direct popup without losing the gesture to scalar blur");
+    check(pointer_probe.presses==1&&pointer_probe.focus==1,"The one Window press delivered actual control focus and one pointer event");
+    if(mode=="cancel") {
+        QTest::keyClick(original_direction->view(),Qt::Key_Escape);events();
+        check(snapshot(window.host.session)==snapshot(expected),"Popup Escape retains only the independent scalar transaction");
+        size=nullptr;
+        for(auto* input:window.findChildren<QLineEdit*>()) {
+            const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+            if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+        }
+        check(size,"Popup cancel retains a usable scalar field");
+        scroll->ensureWidgetVisible(size);events();size->setFocus();
+        QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,"65");QTest::keyClick(size,Qt::Key_Return);events();
+        expected.apply({EditProperties{{{"text","","text.font_size"}},65,false}},expected.revision());
+        check(snapshot(window.host.session)==snapshot(expected),"After popup cancel the next scalar edit uses fresh canonical context");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected),"Next scalar Undo preserves the earlier independently committed draft");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,
+            "Separate scalar Undo after popup cancel restores the original source");
+        std::cout<<"text_writing_pending_pointer cancel: "<<checks<<" checks passed\n";return;
+    }
+    if(mode=="revision") {
+        expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
+        window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
+    }
+    const auto index=original_direction->model()->index(1,0);
+    auto* viewport=original_direction->view()->viewport();
+    // Qt protects the opening release for the double-click interval. A later
+    // independent choice must not be mistaken for that initial release.
+    QTest::qWait(QApplication::doubleClickInterval()+20);
+    QTest::mouseClick(viewport,Qt::LeftButton,Qt::NoModifier,original_direction->view()->visualRect(index).center());events();
+    std::cout<<"Writing "<<mode<<" choice: revision="<<window.host.session.revision()
+        <<" direction="<<window.host.session.document().objects.at("text").text->direction
+        <<" status="<<window.statusBar()->currentMessage().toStdString()<<std::endl;
+    if(mode=="revision") {
+        check(snapshot(window.host.session)==snapshot(expected),"Old Writing popup refuses the changed revision without partial authoring");
+        check(window.statusBar()->currentMessage().contains("STALE_CONTEXT"),"Old popup explicitly reports the changed context");
+        std::cout<<"text_writing_pending_pointer revision: "<<checks<<" checks passed\n";return;
+    }
+    auto changed=*expected.document().objects.at("text").text;changed.direction="vertical";
+    expected.apply({UpdateText{"text",changed}},expected.revision());
+    check(snapshot(window.host.session)==snapshot(expected),"Writing commits only direction with a separate canonical Undo entry");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document().objects.at("text").text->direction=="horizontal",
+        "One Writing Undo retains independently committed Font size");
+    if(mode=="plain"){
+        check(expected.document()==document,"Ordinary Writing remains one Undo without a scalar draft");
+        std::cout<<"text_writing_pending_pointer plain: "<<checks<<" checks passed\n";return;
+    }
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,
+        "Separate scalar Undo restores the complete original source");
+    std::cout<<"text_writing_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void keyboard_focus_help(){
     QTemporaryDir scratch;check(scratch.isValid(),"Rail focus check owns preferences and recovery");
@@ -525,6 +644,10 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--writing-pending-pointer")){
+            for(const auto* mode:{"valid","cancel","invalid","revision","document","plain"})writing_pending_pointer(mode);
+            return 0;
+        }
         if(app.arguments().contains("--keyboard-focus-help")){keyboard_focus_help();return 0;}
         if(app.arguments().contains("--keyboard-popup-focus-help")){keyboard_popup_focus_help();return 0;}
         if(app.arguments().contains("--double-click-isolation")){double_click_isolation();return 0;}

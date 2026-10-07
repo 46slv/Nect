@@ -112,6 +112,16 @@ Historical checkpoints belong in Git history, an existing issue/PR, or evidence 
 Do not keep multiple old checkpoints active and do not paste completed logs back into the
 current one.
 
+### 2026-10-07 brief-driven execution
+
+Fresh-read `CURRENT_GOAL.md` at start, resume, each semantic boundary and before choosing
+the next task. Follow its approved scope and priority without waiting for individual
+dispatch instructions; incorporate dot's design/priority changes at the next boundary.
+Keep `Next task`, `Done for next` and the sufficient focused validation explicit in the
+single active checkpoint. Reuse valid PASS evidence. An unresolved decision, permission
+or capability pauses only its dependent work: record the missing item and resume trigger,
+report them to the parent, and continue independent accepted work.
+
 ## Checkpoint execution
 
 Within an active checkpoint:
