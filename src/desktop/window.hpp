@@ -215,7 +215,7 @@ private:
     };
     using TextTypographyContext=PropertyActionContext;
     void verify_text_typography_context(const TextTypographyContext& context) const;
-    void verify_circle_scalar_context(const PropertyActionContext& context,bool browsing=false) const;
+    void verify_primitive_scalar_context(const PropertyActionContext& context,const std::string& source_type,bool browsing=false) const;
     QLabel* add_text_typography(QVBoxLayout* layout,const Object& object);
     void edit_text_typography(const TextTypographyContext& context,bool axis,
         const std::optional<std::string>& tag={},bool remove=false);
