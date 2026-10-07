@@ -1500,6 +1500,69 @@ void locale_source_action_pending_pointer(const std::string& action){
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original fixture and history");
     std::cout<<"text_locale_source_action_pending_pointer "<<action<<": "<<checks<<" checks passed; Qt Window pointer route\n";
 }
+void path_pending_pointer(const std::string& mode){
+    QTemporaryDir scratch;check(scratch.isValid(),"Text Path entry owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("path-pointer-document","composition","board");
+    Object text;text.id="text";text.name="Path pointer target";text.kind=Kind::text;text.text=default_text("text-source","Retain 日本語 and style");
+    text.text->font_features={{"KERN",1,"whole_text"},{"lig ",4,"whole_text"}};text.text->additional_axis_values={{"wdth",87.1234567890123}};
+    Object path;path.id="path";path.name="Stable guide";path.kind=Kind::path;Contour contour;contour.id="contour";
+    Point first;first.id="first";first.y.literal=100;Point last;last.id="last";last.x.literal=2000;last.y.literal=100;contour.points={first,last};path.contours={contour};
+    if(mode=="update"||mode=="detach")text.text->path_attachment=TextPathAttachment{"path","contour","distance",12,3,false};
+    document.objects.emplace(text.id,text);document.objects.emplace(path.id,path);document.compositions.front().roots={text.id,path.id};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");auto* action=window.findChild<QPushButton*>(mode=="detach"?"text-path-detach":"text-path-apply");
+    auto* choice=window.findChild<QComboBox*>("text-path-contour");auto* start=window.findChild<QLineEdit*>("text-path-start");auto* spacing=window.findChild<QLineEdit*>("text-path-spacing");
+    check(scroll&&action&&choice&&start&&spacing,"Existing Path attachment controls available");
+    choice->setCurrentIndex(choice->findData("path\ncontour"));start->setText("23.125");spacing->setText("4.75");
+    QLineEdit* size=nullptr;
+    for(auto* input:window.findChildren<QLineEdit*>()){
+        const auto ref=QJsonDocument::fromJson(input->property("nect-reference").toByteArray()).object();
+        if(input->isVisible()&&ref.value("object").toString()=="text"&&ref.value("field").toString()=="text.font_size")size=input;
+    }
+    check(size,"Visible same-object Font size available");scroll->ensureWidgetVisible(size);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));
+    if(mode!="plain"){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
+    check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Path scalar and attachment drafts are fully neutral");
+    if(mode=="invalid-start")start->setText("bad");
+    if(mode=="invalid-spacing")spacing->setText("-1");
+    if(mode=="missing")choice->setCurrentIndex(0);
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-path-document";window.host.session=Session(incoming);expected=window.host.session;}
+    if(mode=="entry-session")window.host.session_id="incoming-path-session";
+    if(mode=="entry-gesture"||mode=="entry-cancelled-gesture"){
+        window.host.session.begin_gesture(window.host.session.revision());if(mode=="entry-cancelled-gesture")window.host.session.cancel_gesture();
+    }
+    scroll->ensureWidgetVisible(action);events();const auto position=action->mapTo(&window,action->rect().center());
+    check(window.childAt(position)==action,"Actual Window pointer hits existing Path action");
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected Path entry preserves full incoming source/history without scalar mutation");
+        const auto cause=mode=="invalid"?"INVALID_VALUE":mode=="entry-document"||mode=="entry-session"?"SESSION_CONFLICT":mode=="entry-gesture"?"GESTURE_ACTIVE":"REVISION_CONFLICT";
+        check(window.statusBar()->currentMessage().contains(cause),"Rejected Path entry reports exact bound context cause");
+        if(mode=="entry-gesture"){check(window.host.session.gesture_active(),"Path refusal retains actual active gesture");window.host.session.cancel_gesture();}
+        return;
+    }
+    if(mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
+    if(mode=="invalid-start"||mode=="invalid-spacing"||mode=="missing"){
+        check(snapshot(window.host.session)==snapshot(expected),"Rejected attachment draft retains only its independent scalar command");
+        check(window.statusBar()->currentMessage().contains(mode=="missing"?"MISSING_PATH_ATTACHMENT":mode=="invalid-start"?"TEXT_PATH_START_INVALID":"TEXT_PATH_SPACING"),"Invalid Path intent reports exact existing cause");
+        window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+        check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Undo after refused attachment restores exact original scalar/source/history");return;
+    }
+    auto next=*expected.document().objects.at("text").text;
+    if(mode=="detach")next.path_attachment.reset();else next.path_attachment=TextPathAttachment{"path","contour","distance",23.125,4.75,false};
+    expected.apply({UpdateText{"text",next}},expected.revision());
+    std::cerr<<"Path "<<mode<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<" status="<<window.statusBar()->currentMessage().toStdString()<<"\n";
+    check(snapshot(window.host.session)==snapshot(expected),"First Path action commits exact scalar then attachment intent with canonical full source/history");
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    check(snapshot(window.host.session)==snapshot(expected),"One Path action Undo restores attachment and retains size");
+    if(mode!="plain"){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}
+    check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate size Undo restores exact original Path/Text/style/history");
+}
+
 void typography_pending_pointer(const std::string& mode){
     QTemporaryDir scratch;check(scratch.isValid(),"Typography entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -2050,6 +2113,8 @@ void double_click_isolation(){
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try{
+        if(app.arguments().contains("--path-affected-pending-pointer")){for(const auto* mode:{"update","detach","plain","invalid","invalid-start","invalid-spacing","missing","entry-revision","entry-document","entry-session","entry-gesture","entry-cancelled-gesture"})path_pending_pointer(mode);std::cout<<"text_path_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
+        if(app.arguments().contains("--path-pending-pointer")){path_pending_pointer("attach");std::cout<<"text_path_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;}
         if(app.arguments().contains("--alignment-source-actions-pending-pointer")){
             for(const auto* action:{"edit","unlink","linked-edit"})alignment_source_action_pending_pointer(action);
             return 0;

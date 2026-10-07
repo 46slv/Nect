@@ -4961,7 +4961,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     for(auto* action:inspector_->findChildren<QPushButton*>())
-        if(action->property("nect-text-typography-action-object").isValid()&&action->property("nect-retain-text-inspector").toBool())return;
+        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -6797,8 +6797,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* path_reversed=new QCheckBox("Reverse contour traversal",path_group);path_reversed->setObjectName("text-path-reversed");
     path_reversed->setChecked(source.path_attachment&&source.path_attachment->reversed);path_form->addRow(path_reversed);
     auto* path_actions=new QWidget(path_group);auto* path_action_row=new QHBoxLayout(path_actions);path_action_row->setContentsMargins(0,0,0,0);
-    auto* path_apply=new QPushButton("Attach / update",path_actions);path_apply->setObjectName("text-path-apply");path_action_row->addWidget(path_apply);
-    auto* path_detach=new QPushButton("Detach",path_actions);path_detach->setObjectName("text-path-detach");
+    auto* path_apply=new PreparedTextActionButton("Attach / update",path_actions);path_apply->setObjectName("text-path-apply");path_action_row->addWidget(path_apply);
+    auto* path_detach=new PreparedTextActionButton("Detach",path_actions);path_detach->setObjectName("text-path-detach");
     path_detach->setEnabled(source.path_attachment.has_value());path_action_row->addWidget(path_detach);path_action_row->addStretch();
     path_form->addRow(path_actions);
     auto* path_status=new QLabel(source.path_attachment?
@@ -6808,18 +6808,68 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto refresh_path_inspector=[this,id,frozen_session]{QTimer::singleShot(0,this,[this,id,frozen_session]{
         if(host.session_id==frozen_session&&canvas->selected_object==id)rebuild_inspector(true);
     });};
-    connect(path_apply,&QPushButton::clicked,this,[this,path_contour,path_start_mode,path_start,path_spacing,path_reversed,update,refresh_path_inspector]{perform([&]{
-        const auto parts=path_contour->currentData().toString().split('\n');
-        if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())throw Error("MISSING_PATH_ATTACHMENT","Choose an authored Path contour by ID");
-        bool start_ok=false,spacing_ok=false;
-        const auto start=path_start->text().trimmed().toDouble(&start_ok);
-        const auto spacing=path_spacing->text().trimmed().toDouble(&spacing_ok);
-        if(!start_ok||!std::isfinite(start))throw Error("TEXT_PATH_START_INVALID","Enter a finite Text-on-Path start value");
-        if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
-        update([&](TextSource& next){next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),
-            path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};});
-    });});
-    connect(path_detach,&QPushButton::clicked,this,[this,update,refresh_path_inspector]{perform([&]{update([](TextSource& next){next.path_attachment.reset();});refresh_path_inspector();});});
+    const auto path_document=host.session.document().id,path_source=source.id;
+    const auto path_revision=host.session.revision(),path_generation=text_selection_generation_,path_gesture=host.session.gesture_generation();
+    const auto path_composition_id=canvas->active_composition(),path_artboard=canvas->active_artboard();
+    const bool path_preview=host.session.gesture_active();
+    const auto verify_path=[this,id,frozen_session,path_document,path_source,path_generation,path_gesture,path_composition_id,path_artboard,path_preview](std::uint64_t revision) {
+        if(host.session_id!=frozen_session||host.session.document().id!=path_document)throw Error("SESSION_CONFLICT","This Path edit belongs to another document");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Text changed; reopen its Path controls");
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=path_source)
+            throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists");
+        if(artboard_editing_||text_selection_generation_!=path_generation||canvas->selections()!=std::vector<Canvas::Selection>{{id,{}}}||
+           canvas->active_composition()!=path_composition_id||canvas->active_artboard()!=path_artboard)
+            throw Error("SELECTION_CONFLICT","Select the original whole Text before editing its Path attachment");
+        if(path_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the active edit first");
+        if(host.session.gesture_generation()!=path_gesture)throw Error("REVISION_CONFLICT","The gesture context changed; reopen Path controls");
+    };
+    for(auto* button:{path_apply,path_detach}) {
+        button->setProperty("nect-text-path-action-object",qs(id));button->setFocusPolicy(Qt::StrongFocus);
+        auto revision=std::make_shared<std::uint64_t>(path_revision);auto refresh_needed=std::make_shared<bool>(false);
+        button->prepare=[this,id,verify_path,revision,refresh_needed] {
+            bool ready=false;
+            perform([&]{
+                verify_path(*revision);QPointer<QLineEdit> pending;
+                for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=input->property("nect-reference").toByteArray();
+                    if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                    const auto ref=read_ref(data);if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+                }
+                if(pending) {
+                    pending->setProperty("nect-finishing-text-path",true);pending->setProperty("nect-text-path-committed-revision",QVariant{});
+                    pending->editingFinished();const auto committed=pending?pending->property("nect-text-path-committed-revision"):QVariant{};
+                    if(pending)pending->setProperty("nect-finishing-text-path",false);
+                    if(!committed.isValid())return;
+                    verify_path(committed.toULongLong());*revision=committed.toULongLong();*refresh_needed=true;
+                }
+                ready=true;
+            });return ready;
+        };
+        button->completed=[refresh_needed,refresh_path_inspector]{if(*refresh_needed)refresh_path_inspector();};
+        const bool detach=button==path_detach;
+        connect(button,&QPushButton::clicked,this,[this,id,button,detach,verify_path,revision,refresh_needed,path_contour,path_start_mode,path_start,path_spacing,path_reversed]{
+            // A changed Path attachment synchronously emits host.edited too.
+            // Retain this pressed control until release; refresh is queued.
+            button->setProperty("nect-retain-text-inspector",true);
+            perform([&]{
+                verify_path(*revision);auto next=*host.session.document().objects.at(id).text;
+                if(detach)next.path_attachment.reset();
+                else {
+                    const auto parts=path_contour->currentData().toString().split('\n');
+                    if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())throw Error("MISSING_PATH_ATTACHMENT","Choose an authored Path contour by ID");
+                    bool start_ok=false,spacing_ok=false;
+                    const auto start=path_start->text().trimmed().toDouble(&start_ok),spacing=path_spacing->text().trimmed().toDouble(&spacing_ok);
+                    if(!start_ok||!std::isfinite(start))throw Error("TEXT_PATH_START_INVALID","Enter a finite Text-on-Path start value");
+                    if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
+                    next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};
+                }
+                if(next==*host.session.document().objects.at(id).text)return;
+                host.session.apply({UpdateText{id,std::move(next)}},*revision);*refresh_needed=true;host.edited();
+            });
+            button->setProperty("nect-retain-text-inspector",false);
+        });
+    }
     if(!font_families_) {
         font_families_=new QStringListModel(this);
         auto reload=[this]{
@@ -10720,6 +10770,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-path").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-path-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-typography").toBool()&&
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-typography-action-object").toString()==qs(ref.object)&&
@@ -10754,6 +10808,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-locale").toBool())
                 input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-path").toBool())
+                input->setProperty("nect-text-path-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
             if(input->property("nect-finishing-text-typography").toBool())
                 input->setProperty("nect-text-typography-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
         };
