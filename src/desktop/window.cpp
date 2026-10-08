@@ -10777,8 +10777,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
          (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))||
         (paint_target.kind==Kind::text&&paint_target.text&&!paint_target.source)))
         for(const auto& operation:paint_target.stack)
-            for(const auto* parameter:{"width","r","g","b","a"})
-                if((operation.type=="nect.paint.stroke"||(operation.type=="nect.paint.fill"&&std::string(parameter)!="width"))&&
+            for(const auto* parameter:{"width","miter_limit","r","g","b","a"})
+                if((operation.type=="nect.paint.stroke"||(operation.type=="nect.paint.fill"&&std::string(parameter)!="width"&&std::string(parameter)!="miter_limit"))&&
                    operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
                     paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
                 }
