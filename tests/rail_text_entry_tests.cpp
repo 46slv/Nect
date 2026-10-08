@@ -2287,13 +2287,13 @@ void authored_stroke_width_pointer(bool picking,const std::string& mode="valid")
     check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
 }
 
-void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false){
-    const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":"circle-stroke-source-east";
+void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
+    const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("circle-stroke-entry","composition","board");
-    Object target;target.id="text";target.name="Authored target";target.kind=Kind::path;target.source=default_primitive("circle-stroke-source",rectangle_source?"nect.shape.rectangle":polygon_source?"nect.shape.polygon":"nect.shape.circle");
+    Object target;target.id="text";target.name="Authored target";target.kind=Kind::path;target.source=default_primitive("circle-stroke-source",rectangle_source?"nect.shape.rectangle":polygon_source?"nect.shape.polygon":star_source?"nect.shape.star":"nect.shape.circle");
     target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
     Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
     document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};Session paint_seed(document);paint_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0},Set{{"text",generated_point,"x"},87},Set{{"text",generated_point,"out.length"},31}},paint_seed.revision());document=paint_seed.document();
@@ -2333,15 +2333,16 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bo
         }else{
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
             if(suffix=="document")incoming.id="replacement-stroke-document";
-            else if(suffix=="source")object.source->parameters.at(rectangle_source?"width":"radius").literal=rectangle_source?221:76;
-            else if(suffix=="topology")object.source->parameters.at("points").literal=12;
+            else if(suffix=="source")object.source->parameters.at(rectangle_source?"width":star_source?"outer_radius":"radius").literal=rectangle_source?221:76;
+            else if(suffix=="inner-radius")object.source->parameters.at("inner_radius").literal=36;
+            else if(suffix=="topology")object.source->parameters.at("points").literal=star_source?10:12;
             else if(suffix=="coordinate")object.stack.at(1).parameters.at("width").literal=65;
             else if(suffix=="handle")object.point_edit->overrides.at(generated_point).at("out.length").literal=26;
             else if(suffix=="color")object.stack.at(1).parameters.at("r").literal=0.7;
             else if(suffix=="order")std::reverse(object.stack.begin(),object.stack.end());
             else if(suffix=="operation"){object.stack.at(1).id="replacement-stroke";incoming.objects.at("path-ref-guard").source->parameters.at("height").binding->source=operation_ref("text","replacement-stroke","width");}
             else if(suffix=="type"){object.source=default_primitive("replacement-stroke-source",rectangle_source?"nect.shape.circle":"nect.shape.rectangle");object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text",rectangle_source?"replacement-stroke-source-east":"replacement-stroke-source-top-right","x"};}
-            else if(suffix=="identity"){object.source->id="replacement-stroke-source";object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text",rectangle_source?"replacement-stroke-source-top-right":polygon_source?"replacement-stroke-source-outer-1-6":"replacement-stroke-source-east","x"};}
+            else if(suffix=="identity"){object.source->id="replacement-stroke-source";object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text",rectangle_source?"replacement-stroke-source-top-right":polygon_source?"replacement-stroke-source-outer-1-6":star_source?"replacement-stroke-source-outer-1-5":"replacement-stroke-source-east","x"};}
             else if(suffix=="point-edit")object.point_edit->enabled=false;
             else throw std::runtime_error("Unknown Stroke context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.tx"},61}},replacement.revision());
@@ -3521,6 +3522,21 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--polygon-stroke-width-whip-pending-pointer")){
             for(const auto* mode:{"drag","drag-cancel"})circle_stroke_width_pointer(true,mode,false,true);
             std::cout<<"polygon_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-stroke-width-entry-pending-pointer")){
+            bool failed=false;for(bool picking:{false,true}){try{circle_stroke_width_pointer(picking,"valid",false,false,true);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
+            check(!failed,"Both generated Star Stroke first-pointer entries satisfy existing semantics");
+            std::cout<<"star_stroke_width_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-stroke-width-affected-pending-pointer")){
+            for(bool picking:{false,true})for(const auto* mode:{"valid","zero","invalid","negative","cancel","expression-scalar","entry-session","entry-document","entry-revision","entry-source","entry-inner-radius","entry-topology","entry-identity","entry-point-edit","entry-coordinate","entry-handle","entry-color","entry-order","entry-operation","entry-type","entry-gesture","entry-cancelled-gesture","apply-session","apply-document","apply-revision","apply-source","apply-inner-radius","apply-topology","apply-identity","apply-point-edit","apply-coordinate","apply-handle","apply-color","apply-order","apply-operation","apply-type","apply-selection","apply-gesture","apply-cancelled-gesture"}){std::cerr<<(picking?"pick":"fx")<<" / "<<mode<<"\n";circle_stroke_width_pointer(picking,mode,false,false,true);}
+            for(const auto* mode:{"invalid-expression","negative-expression"})circle_stroke_width_pointer(false,mode,false,false,true);
+            for(const auto* mode:{"cycle","unit"})circle_stroke_width_pointer(true,mode,false,false,true);
+            std::cout<<"star_stroke_width_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-stroke-width-whip-pending-pointer")){
+            for(const auto* mode:{"drag","drag-cancel"})circle_stroke_width_pointer(true,mode,false,false,true);
+            std::cout<<"star_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-stroke-width-entry-pending-pointer")){
             bool failed=false;for(bool picking:{false,true}){try{circle_stroke_width_pointer(picking);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
