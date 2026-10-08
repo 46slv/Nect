@@ -10787,6 +10787,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
                         paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
                     }
+            if(operation.type=="nect.shape.repeater"&&operation.version==1&&!operation.macro&&
+               paint_target.kind==Kind::path&&paint_target.source&&paint_target.source->type=="nect.shape.circle")
+                for(const auto* parameter:{"copies","rotation"})
+                    if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
+                        paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
+                    }
         }
     // Freeze only these exact nested authored scalars; the complete Object
     // guard retains every other endpoint, stop, Source and Point Edit value.
