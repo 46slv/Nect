@@ -10835,8 +10835,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
              ((target.field=="generator.radius"||target.field=="generator.center_x"||target.field=="generator.center_y")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.circle")||
              ((target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.center_x"||target.field=="generator.center_y")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.rectangle")||
-             ((target.field=="generator.radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.polygon")||
-             ((target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.star"));
+             ((target.field=="generator.radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.polygon")||
+             ((target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.star"));
     });
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
@@ -10994,7 +10994,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             try {
                 for(const auto& target:targets) {
                     auto& object=expected_batch_objects->at(target.object);const auto scalar=nect::property(host.session.document(),target);
-                    if(target.field=="generator.radius"||target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation") {
+                    if(target.field=="generator.radius"||target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points") {
                         if(!object.source||(object.source->type!="nect.shape.circle"&&object.source->type!="nect.shape.rectangle"&&object.source->type!="nect.shape.polygon"&&object.source->type!="nect.shape.star"))throw Error("PROPERTY_CONFLICT","The batch primitive source changed");
                         object.source->parameters.at(target.field.substr(10))=scalar;
                     }else if(target.field=="composite.opacity")object.compositing.opacity=scalar;
