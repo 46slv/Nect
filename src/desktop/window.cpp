@@ -10761,14 +10761,16 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
     const bool image_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity"||ref.field=="image.width"||ref.field=="image.height")&&
         d.objects.at(ref.object).kind==Kind::image&&d.objects.at(ref.object).image&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
+    const bool instance_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::instance&&d.objects.at(ref.object).instance;
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
-    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
+    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
+    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
     QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -10825,8 +10827,55 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Image property");
         if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Image property gesture context changed");
     };
-    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context](const PropertyActionContext& context) {
-        if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
+    const auto instance_source=instance_scalar_fx?d.objects.at(ref.object).instance:std::optional<DefinitionInstance>{};
+    const auto instance_definition=instance_scalar_fx?std::optional<Definition>{d.definitions.at(instance_source->definition)}:std::optional<Definition>{};
+    auto instance_objects=std::make_shared<std::map<Id,Object>>();
+    auto instance_assets=std::make_shared<std::map<Id,RasterAsset>>();
+    auto instance_macros=std::make_shared<std::map<std::pair<Id,std::uint64_t>,MacroDefinitionRevision>>();
+    if(instance_scalar_fx) {
+        std::function<void(const Id&)> capture=[&](const Id& id) {
+            const auto& object=d.objects.at(id);if(!instance_objects->emplace(id,object).second)return;
+            if(object.image)instance_assets->emplace(object.image->asset,d.raster_assets.at(object.image->asset));
+            for(const auto& operation:object.stack)if(operation.macro) {
+                const auto& macro=*operation.macro;
+                instance_macros->emplace(std::make_pair(macro.definition,macro.pinned_revision),d.macro_definitions.at(macro.definition).revisions.at(macro.pinned_revision));
+            }
+            for(const auto& child:object.children)capture(child);
+        };capture(instance_definition->root);
+    }
+    auto verify_instance_context=[this,instance_source,instance_definition,instance_objects,instance_assets,instance_macros](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Instance property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Instance property revision changed");
+        const auto& document=host.session.document();const auto found=document.objects.find(context.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::instance||found->second.instance!=instance_source)
+            throw Error("PROPERTY_CONFLICT","The original Instance or its local overrides changed");
+        const auto definition=document.definitions.find(instance_source->definition);
+        if(definition==document.definitions.end()||definition->second!=*instance_definition)
+            throw Error("PROPERTY_CONFLICT","The original shared Definition changed");
+        for(const auto& [id,source]:*instance_objects) {
+            const auto current=document.objects.find(id);
+            if(current==document.objects.end()||current->second!=source)
+                throw Error("PROPERTY_CONFLICT","The original Definition source subtree changed");
+        }
+        for(const auto& [id,asset]:*instance_assets) {
+            const auto current=document.raster_assets.find(id);
+            if(current==document.raster_assets.end()||!(current->second==asset))
+                throw Error("PROPERTY_CONFLICT","The accepted Definition image asset changed");
+        }
+        for(const auto& [key,revision]:*instance_macros) {
+            const auto current=document.macro_definitions.find(key.first);
+            if(current==document.macro_definitions.end()||!current->second.revisions.contains(key.second)||current->second.revisions.at(key.second)!=revision)
+                throw Error("PROPERTY_CONFLICT","The pinned Definition Macro revision changed");
+        }
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Instance property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Instance property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Instance property gesture context changed");
+    };
+    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context](const PropertyActionContext& context) {
+        if(instance_scalar_fx)verify_instance_context(context);else if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
     };
     // Only a successful canonical edit may advance the frozen target dimension.
     // Keep the full snapshot afterwards so same-revision replacement is refused.
@@ -10859,7 +10908,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         };
         // Browsing a source intentionally changes selection. Keep the target
         // identity, scope and edit generation frozen while allowing that view.
-        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context] {
+        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context] {
+            if(instance_scalar_fx){verify_instance_context(*context,true);return;}
             if(image_scalar_fx){verify_image_context(*context,true);return;}
             if(path_scalar_fx){verify_path_context(*context,true);return;}
             if(group_scalar_fx){verify_group_context(*context,true);return;}
