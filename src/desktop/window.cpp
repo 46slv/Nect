@@ -10826,12 +10826,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
     const bool batch_path_scalar_fx=targets.size()>1&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         const auto found=d.objects.find(target.object);
-        return target.point.empty()&&(target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
-            target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity")&&found!=d.objects.end()&&
-            ((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+        const bool common_field=target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
+            target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity";
+        return target.point.empty()&&found!=d.objects.end()&&
+            ((common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
                 found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
                 found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
-             (found->second.kind==Kind::text&&found->second.text&&!found->second.source));
+                (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
+             (target.field=="generator.radius"&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.circle"));
     });
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
@@ -10989,7 +10991,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             try {
                 for(const auto& target:targets) {
                     auto& object=expected_batch_objects->at(target.object);const auto scalar=nect::property(host.session.document(),target);
-                    if(target.field=="composite.opacity")object.compositing.opacity=scalar;
+                    if(target.field=="generator.radius") {
+                        if(!object.source||object.source->type!="nect.shape.circle")throw Error("PROPERTY_CONFLICT","The batch Circle source changed");
+                        object.source->parameters.at("radius")=scalar;
+                    }else if(target.field=="composite.opacity")object.compositing.opacity=scalar;
                     else if(target.field=="transform.anchor_x"||target.field=="transform.anchor_y")object.anchor.at(target.field=="transform.anchor_y"?1:0)=scalar;
                     else {
                         std::size_t slot=0;for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"}){if(target.field==field)break;++slot;}
