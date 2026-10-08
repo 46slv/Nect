@@ -5736,6 +5736,158 @@ void batch_point_coordinate_pointer(const std::string& kind,const std::string& f
     undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
 }
 
+void batch_point_handle_pointer(const std::string& kind,const std::string& field,bool picking,const std::string& mode="valid"){
+    const bool same=kind.rfind("same-",0)==0;const std::string variant=same?kind.substr(5):kind;
+    const bool angle=field.ends_with(".angle");
+    const QString label=QString::fromStdString(field),formula_source=angle?"720 + 5.5":"4 + 2",applied=angle?"1080 + 0.5":"5 + 1";
+    auto handle_scalar=[&](Point& point)->Scalar& {if(field=="in.angle")return point.in_angle;if(field=="out.angle")return point.out_angle;if(field=="in.length")return point.in_length;if(field=="out.length")return point.out_length;throw std::runtime_error("Unexpected frozen handle field");};
+    QTemporaryDir scratch;check(scratch.isValid(),"Batch point owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("batch-point-coordinate-document","composition","board");
+    for(const auto* id:{"first","second","source"}){
+        Object object;object.id=id;object.name=id;
+        const std::string actual=std::string(id)=="source"?"authored":variant=="mixed"?(std::string(id)=="first"?"authored":"nect.shape.circle"):variant;
+        if(actual=="authored")make_scalar_path(object);else {object.kind=Kind::path;object.source=default_primitive(std::string(id)+"-primitive-source",actual);}
+        if(std::string(id)=="source"){object.contours.front().points.at(1).x.literal=72;object.contours.front().points.at(1).y.literal=90;handle_scalar(object.contours.front().points.at(1)).literal=field=="in.angle"?450.5:field=="out.angle"?-725.25:field=="in.length"?36:28;}
+        object.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{std::string(id)=="first"?10.0:20.0,{}},{50,{}}}};object.anchor={{{17,{}},{23,{}}}};
+        document.objects.emplace(object.id,object);document.compositions.front().roots.push_back(object.id);
+    }
+    auto point_id=[&](const Id& id,bool alternate){const auto& object=document.objects.at(id);if(!object.source)return id+(alternate?"-first":"-second");const auto& source=*object.source;
+        return source.id+"-"+(source.type=="nect.shape.circle"?(alternate?"north":"east"):source.type=="nect.shape.rectangle"?(alternate?"bottom-left":"top-right"):source.type=="nect.shape.polygon"?(alternate?"outer-0-1":"outer-1-6"):(alternate?"outer-0-1":"outer-1-5"));};
+    const std::vector<Ref> refs={{"first",point_id("first",false),field},{same?"first":"second",point_id(same?"first":"second",same),field}};
+    Ref source_ref{"source","source-second",field};if(mode=="unit")source_ref={"source","","composite.opacity"};
+    Session seeded(document);
+    for(const auto* id:{"first","second","source"}){
+        auto fill=default_operation(std::string(id)+"-fill","nect.paint.fill");fill.parameters.at("r").literal=0.3;
+        auto stroke=default_operation(std::string(id)+"-stroke","nect.paint.stroke");stroke.parameters.at("width").literal=4;stroke.version=2;stroke.parameters.emplace("miter_limit",Scalar{12,{}});stroke.line_join="miter";stroke.line_cap="round";
+        seeded.apply({AddOperation{id,fill,0},AddOperation{id,stroke,1}},seeded.revision());
+        if(std::string(id)!="source")seeded.apply({Set{{id,point_id(id,false),"out.length"},31},Set{{id,point_id(id,true),"out.angle"},0.7},Set{{id,point_id(id,true),"x"},87}},seeded.revision());
+    }
+    seeded.apply({Set{refs.front(),mode=="partial"?(angle?999999990.0:40.0):(angle?450.5:4.0)},Set{refs.back(),mode=="partial"?(angle?999999999.0:20.0):(angle?725.5:8.0)}},seeded.revision());document=seeded.document();
+    if(mode=="fresh"||mode=="bypassed"){
+        for(const auto* id:{"first","second"}){auto& object=document.objects.at(id);if(object.source){if(mode=="fresh")object.point_edit.reset();else object.point_edit->enabled=false;}}
+        check(evaluate(document).contains(refs.front())&&evaluate(document).contains(refs.back()),"Fresh/bypassed exact stable handle fields exist; common zero remains a real common value");
+    }
+    Object guard;guard.id="batch-ref-guard";make_scalar_path(guard);document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
+    Object second_guard;second_guard.id="batch-second-ref-guard";make_scalar_path(second_guard);document.objects.emplace(second_guard.id,second_guard);document.compositions.front().roots.push_back(second_guard.id);
+    seeded=Session(document);seeded.apply({Link{{guard.id,guard.id+"-first",field},{refs.front(),0.0000001,200,"copy_local_value"}},Link{{second_guard.id,second_guard.id+"-first",field},{refs.back(),0.0000001,200,"copy_local_value"}},Link{{guard.id,guard.id+"-first","x"},{{refs.front().object,refs.front().point,"x"},0.1,20,"copy_local_value"}},Link{{second_guard.id,second_guard.id+"-first","y"},{{refs.back().object,refs.back().point,"y"},0.1,20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    if(mode=="partial"){Session qualifier(document);qualifier.apply({EditProperties{{refs.front()},angle?5.0:-30.0,true}},qualifier.revision());check(evaluate(qualifier.document()).at(refs.front())==(angle?999999995:10),"First selected handle alone is valid; second exceeds magnitude limit or becomes negative");}
+    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{source_ref,{refs.front(),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selections({{refs[0].object,refs[0].point},{refs[1].object,refs[1].point}});events();
+    Session expected=window.host.session;const auto selection=window.canvas->selections();
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="first"&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    check(scroll&&input,"Exact batch point handle row exists");
+    const auto initial_values=evaluate(document);const bool really_mixed=initial_values.at(refs.front())!=initial_values.at(refs.back());check(input->property("nect-mixed").toBool()==really_mixed&&input->text()==(really_mixed?QString{}:QString::number(initial_values.at(refs.front()),'g',angle?17:12)),"Actual unequal handles are Mixed; fresh common zero/tangent remains exact common value");
+    for(auto* button:input->parentWidget()->findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
+    check(action,"Exact batch row owns its action");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    const bool relative=mode=="relative"||mode=="partial",formula=mode=="expression-scalar";
+    const double pending=mode=="range"?1000000001.0:mode=="fractional"?6.5:mode=="negative"?-6:mode=="zero"?0:angle?1080.5:6,delta=mode=="partial"?(angle?5:-30):1;
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):relative?QString("+=")+QString::number(delta):formula?QString("=")+formula_source:QString::number(pending,'g',17));events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Mixed draft is full-state neutral");
+    auto change_context=[&](bool applying){
+        const auto suffix=mode.substr(mode.find('-')+1);
+        if(suffix=="session"){window.host.session_id="replacement-batch-session";return;}
+        if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.ty"},51}},window.host.session.revision());
+        else if(suffix=="gesture"||suffix=="cancelled-gesture"){
+            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"second","","transform.ty"},51}});if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
+        }else if(suffix=="selection"){
+            Session canonical=window.host.session;if(!applying)canonical.apply({EditProperties{refs,angle?1080.5:6.0,false}},canonical.revision());
+            window.canvas->set_selection("source");events();window.canvas->set_selections(selection);events();
+            std::cerr<<"point selection blur applying="<<applying<<" actual="<<window.host.session.revision()<<" canonical="<<canonical.revision()<<"\n";
+            check(snapshot(window.host.session)==snapshot(canonical),"Actual selection blur commits only canonical atomic scalar; fx/picker draft remains neutral");
+        }
+        else{
+            auto incoming=window.host.session.document();
+            if(suffix=="document")incoming.id="replacement-batch-document";
+            else if(suffix=="first"||suffix=="second"){
+                auto& object=incoming.objects.at(same?"first":suffix);if(object.source)object.source->parameters.at("center_y").literal=123;else object.contours.front().points.back().out_length.literal=19;
+            }
+            else if(suffix=="selected-field"){
+                const auto& target=refs.back();auto& object=incoming.objects.at(target.object);
+                if(object.source)object.point_edit->overrides.at(target.point).at(target.field).literal=21;
+                else for(auto& contour:object.contours)for(auto& point:contour.points)if(point.id==target.point){handle_scalar(point).literal=21;}
+            }
+            else if(suffix=="correction"){auto& object=incoming.objects.at(refs.back().object);object.point_edit->overrides.at(refs.back().point)[field=="x"?"y":"x"].literal=19;}
+            else if(suffix=="style")incoming.objects.at("second").stack.front().parameters.at("r").literal=0.4;
+            else throw std::runtime_error("Unknown batch context fixture");
+            Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.ty"},51}},replacement.revision());check(replacement.revision()==window.host.session.revision(),"Batch replacement deliberately collides at captured revision");window.host.session=replacement;
+        }
+        expected=window.host.session;
+    };
+    if(mode.rfind("entry-",0)==0)change_context(false);
+    if(mode=="entry-selection"){
+        std::cerr<<"point selection lifecycle entry retired-action="<<!action<<" canonical=1\n";
+        check(!action&&window.canvas->selections()==selection,"Selection rebuild destroys pending action before any further pointer");return;
+    }
+    const auto preview=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    auto scalar=[&]{if(formula)expected.apply({SetExpression{refs,{formula_source.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{refs,relative?delta:pending,relative}},expected.revision());};
+    auto undo=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Batch command Undo restores all targets together");};
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits batch action");
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar();check(snapshot(window.host.session)==snapshot(expected),"Batch whip press commits one atomic independent scalar command");
+        if(mode=="drag-cancel"){QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Batch whip Escape retains both targets and scalar");}
+        else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* item=nullptr;for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString()==QString::fromStdString(source_ref.point)){tree=candidate;item=*it;}
+            check(tree&&item,"Batch whip finds exact source row");if(item->parent())item->parent()->setExpanded(true);tree->scrollToItem(item);events();QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Source browsing is authored-state neutral");
+            QLineEdit* source=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("point").toString()==QString::fromStdString(source_ref.point)&&data.value("field").toString()==QString::fromStdString(source_ref.field))source=candidate;}
+            check(source,"Whip source field owns exact scalar Ref");scroll->ensureWidgetVisible(source);events();const auto drop=source->mapTo(&window,source->rect().center());check(window.childAt(drop)==source,"Actual pointer hits source field");QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();expected.apply({LinkProperties{refs,source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Whip links both frozen Refs and restores full selection");undo();
+        }
+        undo();check(expected.document()==document,"Whip Undo restores full authored paths/IDs/paint/Refs");return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="range"||mode=="partial"||(!angle&&mode=="negative")||mode.rfind("entry-",0)==0){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused batch entry is atomic and opens no editor");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview,"Refused entry preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");std::cerr<<"batch point handles "<<kind<<" / "<<field<<" pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First batch picker commits only both scalar targets and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("point").toString()==QString::fromStdString(source_ref.point)&&data.value("field").toString()==QString::fromStdString(source_ref.field))item=list->item(i);}
+        check(list&&buttons&&item,"Exact compatible/incompatible source Ref remains explicit");list->setCurrentItem(item);events();check(snapshot(window.host.session)==snapshot(expected),"Picker source selection is neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Batch picker Cancel restores original full selection");undo();return;}
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        if(mode=="apply-selection"){
+            std::cerr<<"point selection lifecycle picker visible="<<(picker&&picker->isVisible())<<" neutral=1\n";
+            // Picker owns its frozen targets independently of the rebuilt Inspector.
+        }
+        const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode=="cycle"||mode=="unit"||(mode.rfind("apply-",0)==0&&mode!="apply-selection")){check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused batch Link preserves all targets and history");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused Link preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();buttons->button(QDialogButtonBox::Cancel)->click();events();return;}
+        expected.apply({LinkProperties{refs,source_ref,false}},expected.revision());
+        if(mode=="apply-selection")std::cerr<<"point picker browsing frozen-targets canonical-link=1 actual="<<window.host.session.revision()<<" canonical="<<expected.revision()<<"\n";
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+        std::cerr<<"batch point handles "<<kind<<" / "<<field<<" fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected)&&editor->toPlainText()==(relative?QString{}:formula?formula_source:QString::number(pending,'g',17)),"First batch fx commits both scalar targets and retains Mixed/actual expression");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):applied);events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
+        const QPointer<QWidget> original_panel=window.findChild<QWidget*>("nect-expression-panel");
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        if(mode=="apply-selection"){
+            QPlainTextEdit* restored=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")restored=candidate;
+            const bool retired=!original_panel,reopened=window.findChild<QWidget*>("nect-expression-panel")&&restored&&restored->toPlainText()==applied;
+            std::cerr<<"point selection lifecycle fx retired-panel="<<retired<<" reopened-draft="<<reopened<<" neutral=1\n";
+            check(retired&&reopened&&window.canvas->selections()==selection,"Selection rebuild retires old panel and restores draft with original captured guard");
+        }
+        auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Batch fx panel retained");QPushButton* apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()==(mode=="cancel"?"Cancel":"Apply"))apply=button;
+        check(apply,"Batch fx Apply/Cancel exists");scroll->ensureWidgetVisible(apply);events();const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode=="invalid-expression"||mode.rfind("apply-",0)==0){check(snapshot(window.host.session)==snapshot(expected),"Refused batch fx Apply is full-state atomic");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused fx preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;}
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Batch fx Cancel discards only draft");undo();return;}
+        expected.apply({SetExpression{refs,{applied.toStdString(),1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Batch matches canonical full Document/encode/revision/history");
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());const auto actual_world=evaluate_transforms(window.host.session.document(),actual_values),expected_world=evaluate_transforms(expected.document(),expected_values);
+    for(const auto* id:{"first","second"}){check(actual_world.at(id).world==expected_world.at(id).world,"Both world matrices match canonical batch edit");const auto actual=object_bounds(window.host.session.document(),id,actual_values,actual_world,true),canonical=object_bounds(expected.document(),id,expected_values,expected_world,true);check(actual.has_value()==canonical.has_value()&&(!actual||std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom}),"Both curved bounds match canonical batch edit");}
+    undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
+}
+
 void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
     const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
@@ -7754,6 +7906,21 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-point-handles-entry-pending-pointer")){
+            bool failed=false;for(const auto* kind:{"authored","nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star","mixed","same-authored","same-nect.shape.circle","same-nect.shape.rectangle","same-nect.shape.polygon","same-nect.shape.star"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true}){try{batch_point_handle_pointer(kind,field,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
+            check(!failed,"All88 multiple point handle first actions satisfy canonical contract");
+            std::cout<<"batch_point_handles_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-point-handles-affected-pending-pointer")){
+            for(const auto* kind:{"mixed","same-nect.shape.circle"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","zero","negative","fractional","range","partial","entry-first","entry-selected-field","entry-correction","apply-first","apply-selected-field","apply-correction","invalid-expression"}){std::cerr<<kind<<" / "<<field<<" / fx / "<<mode<<"\n";batch_point_handle_pointer(kind,field,false,mode);}
+            for(const auto* kind:{"mixed","same-nect.shape.circle"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","zero","negative","fractional","range","partial","entry-first","entry-selected-field","entry-correction","apply-first","apply-selected-field","apply-correction","cycle","unit"}){std::cerr<<kind<<" / "<<field<<" / pick / "<<mode<<"\n";batch_point_handle_pointer(kind,field,true,mode);}
+            for(const auto* kind:{"nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star","same-nect.shape.circle","same-nect.shape.rectangle","same-nect.shape.polygon","same-nect.shape.star"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true})for(const auto* mode:{"fresh","bypassed"}){std::cerr<<kind<<" / "<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_point_handle_pointer(kind,field,picking,mode);}
+            std::cout<<"batch_point_handles_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-point-handles-whip-pending-pointer")){
+            for(const auto* kind:{"authored","nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star","mixed","same-authored","same-nect.shape.circle","same-nect.shape.rectangle","same-nect.shape.polygon","same-nect.shape.star"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"drag","drag-cancel"})batch_point_handle_pointer(kind,field,true,mode);
+            std::cout<<"batch_point_handles_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-point-selection-lifecycle-diagnostic-pending-pointer")){
             batch_point_coordinate_pointer("mixed","x",false,"entry-selection");
