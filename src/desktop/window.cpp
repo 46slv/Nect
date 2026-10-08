@@ -10765,20 +10765,23 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::instance&&d.objects.at(ref.object).instance;
     const bool point_scalar_fx=targets.size()==1&&!ref.point.empty()&&(ref.field=="x"||ref.field=="y"||ref.field=="in.angle"||ref.field=="in.length"||ref.field=="out.angle"||ref.field=="out.length")&&
         d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
-    Id stroke_width_operation;
+    Id paint_scalar_operation;std::string paint_scalar_parameter;
     if(targets.size()==1&&ref.point.empty()&&d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text)
         for(const auto& operation:d.objects.at(ref.object).stack)
-            if(operation.type=="nect.paint.stroke"&&operation.parameters.contains("width")&&ref==operation_ref(ref.object,operation.id,"width"))
-                stroke_width_operation=operation.id;
-    const bool stroke_width_fx=!stroke_width_operation.empty();
+            for(const auto* parameter:{"width","r","g","b","a"})
+                if((operation.type=="nect.paint.stroke"||(operation.type=="nect.paint.fill"&&std::string(parameter)!="width"))&&
+                   operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
+                    paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
+                }
+    const bool paint_scalar_fx=!paint_scalar_operation.empty();
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
-    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||stroke_width_fx)?new PreparedTextActionButton("fx"):nullptr;
+    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||stroke_width_fx)?new PreparedTextActionButton("↗"):nullptr;
+    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
     QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -10882,7 +10885,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Instance property");
         if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Instance property gesture context changed");
     };
-    const auto expected_point_object=std::make_shared<std::optional<Object>>((point_scalar_fx||stroke_width_fx)?std::optional<Object>{d.objects.at(ref.object)}:std::optional<Object>{});
+    const auto expected_point_object=std::make_shared<std::optional<Object>>((point_scalar_fx||paint_scalar_fx)?std::optional<Object>{d.objects.at(ref.object)}:std::optional<Object>{});
     auto verify_point_context=[this,expected_point_object](const PropertyActionContext& context,bool browsing=false) {
         if(host.session_id!=context.session||host.session.document().id!=context.document)
             throw Error("SESSION_CONFLICT","The point property belongs to another document");
@@ -10896,16 +10899,16 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the point property");
         if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The point property gesture context changed");
     };
-    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,stroke_width_fx,verify_point_context](const PropertyActionContext& context) {
-        if(point_scalar_fx||stroke_width_fx)verify_point_context(context);else if(instance_scalar_fx)verify_instance_context(context);else if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
+    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context](const PropertyActionContext& context) {
+        if(point_scalar_fx||paint_scalar_fx)verify_point_context(context);else if(instance_scalar_fx)verify_instance_context(context);else if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
     };
     // Only a successful canonical edit may advance the frozen target scalar.
     // Keep the full snapshot afterwards so same-revision replacement is refused.
-    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,stroke_width_fx,stroke_width_operation,expected_point_object](const PropertyActionContext& context) {
-        if(stroke_width_fx) {
+    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
+        if(paint_scalar_fx) {
             const auto previous=*expected_point_object;
-            for(auto& operation:expected_point_object->value().stack)if(operation.id==stroke_width_operation)
-                operation.parameters.at("width")=nect::property(host.session.document(),ref);
+            for(auto& operation:expected_point_object->value().stack)if(operation.id==paint_scalar_operation)
+                operation.parameters.at(paint_scalar_parameter)=nect::property(host.session.document(),ref);
             try{verify_scalar_context(context);}catch(...){*expected_point_object=previous;throw;}
             return;
         }
@@ -10947,8 +10950,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         };
         // Browsing a source intentionally changes selection. Keep the target
         // identity, scope and edit generation frozen while allowing that view.
-        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,stroke_width_fx,verify_point_context] {
-            if(point_scalar_fx||stroke_width_fx){verify_point_context(*context,true);return;}
+        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context] {
+            if(point_scalar_fx||paint_scalar_fx){verify_point_context(*context,true);return;}
             if(instance_scalar_fx){verify_instance_context(*context,true);return;}
             if(image_scalar_fx){verify_image_context(*context,true);return;}
             if(path_scalar_fx){verify_path_context(*context,true);return;}
@@ -11003,7 +11006,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,stroke_width_fx] {
+        input_session,input_document,input_revision,input_gesture,input_preview,paint_scalar_fx] {
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
@@ -11039,7 +11042,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
-        if(stroke_width_fx&&!input->property("nect-finishing-text-scalar-fx").toBool()&&focus&&
+        if(paint_scalar_fx&&!input->property("nect-finishing-text-scalar-fx").toBool()&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            focus->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
            focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)&&
@@ -11049,7 +11052,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             focus->property("nect-text-scalar-fx-action-point").toString()==qs(ref.point)&&focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)))&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
-        if(stroke_width_fx&&!input->property("nect-finishing-text-scalar-pick").toBool()&&focus&&
+        if(paint_scalar_fx&&!input->property("nect-finishing-text-scalar-pick").toBool()&&focus&&
            focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
            focus->property("nect-text-scalar-pick-action-point").toString().isEmpty()&&
            focus->property("nect-text-scalar-pick-action-field").toString()==qs(ref.field)&&
