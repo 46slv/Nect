@@ -3756,6 +3756,28 @@ int main(int argc,char** argv){
             for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode,false,false,false,true);
             std::cout<<"polygon_point_handles_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
+        if(app.arguments().contains("--star-point-handles-entry-pending-pointer")){
+            bool failed=false;for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true}){
+                try{authored_point_coordinate_pointer(field,picking,"valid",false,false,false,false,true);}catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Eight generated Star point handle first-pointer entries satisfy existing semantics");
+            std::cout<<"star_point_handles_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-point-handles-affected-pending-pointer")){
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true})for(const auto* mode:{"canvas-selection","fresh","point-edit","bypassed","zero","cancel","invalid","expression-scalar","entry-revision","entry-session","entry-document","entry-source","entry-source-id","entry-count","entry-coordinate","entry-handle","entry-type","entry-missing-point","entry-point-edit-reset","entry-point-edit-enabled","entry-gesture","entry-cancelled-gesture","apply-revision","apply-session","apply-document","apply-source","apply-source-id","apply-count","apply-coordinate","apply-handle","apply-type","apply-missing-point","apply-point-edit-reset","apply-point-edit-enabled","apply-gesture","apply-cancelled-gesture"}){std::cerr<<"Star point "<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_point_coordinate_pointer(field,picking,mode,false,false,false,false,true);}
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"invalid-expression","apply-selection"})authored_point_coordinate_pointer(field,false,mode,false,false,false,false,true);
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"cycle","unit"})authored_point_coordinate_pointer(field,true,mode,false,false,false,false,true);
+            for(const auto* field:{"in.angle","out.angle"})for(bool picking:{false,true})for(const auto* mode:{"unwrapped","signed"})authored_point_coordinate_pointer(field,picking,mode,false,false,false,false,true);
+            for(const auto* field:{"in.length","out.length"}){
+                for(bool picking:{false,true})authored_point_coordinate_pointer(field,picking,"negative",false,false,false,false,true);
+                authored_point_coordinate_pointer(field,false,"negative-expression",false,false,false,false,true);
+            }
+            std::cout<<"star_point_handles_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-point-handles-whip-pending-pointer")){
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode,false,false,false,false,true);
+            std::cout<<"star_point_handles_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
         if(app.arguments().contains("--star-point-coordinates-entry-pending-pointer")){
             bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
                 try{authored_point_coordinate_pointer(field,picking,"valid",false,false,false,false,true);}catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
