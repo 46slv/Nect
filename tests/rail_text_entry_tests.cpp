@@ -2586,7 +2586,7 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
         }else{
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");auto op=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& o){return o.id==target_op;});check(op!=object.stack.end(),"Exact paint operation survives fixture context");
             if(gradient&&suffix!="document"){
-                if(suffix=="source")object.source->parameters.at("radius").literal=123;
+                if(suffix=="source")object.source->parameters.at(generated_rectangle?"width":"radius").literal=123;
                 else if(suffix=="coordinate"){
                     auto& g=*op->gradient;if(stop_scalar){for(auto& stop:g.stops)if(stop.id==target_stop_id){if(stop_offset)stop.offset.literal=0.65;else stop.rgba[gradient_channel=="r"?0:gradient_channel=="g"?1:gradient_channel=="b"?2:3].literal=0.65;}}else if(gradient_endpoint=="start_x")g.start_x.literal=65;else if(gradient_endpoint=="start_y")g.start_y.literal=65;else if(gradient_endpoint=="end_x")g.end_x.literal=65;else g.end_y.literal=65;
                 }else if(suffix=="gradient"){
@@ -3546,6 +3546,23 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--circle-gradient-endpoints-whip-pending-pointer")){
             for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,true,false,false,false,field);
             std::cout<<"circle_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-gradient-endpoints-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("fill","a",picking,"valid",false,true,false,false,field);}catch(const std::exception& error){std::cerr<<field<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Rectangle Fill Gradient endpoint first-pointer entries satisfy the existing canonical Scalar contract");
+            std::cout<<"rectangle_gradient_endpoints_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-gradient-endpoints-affected-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","zero","signed","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture","apply-selection"})authored_paint_scalar_pointer("fill","a",false,mode,false,true,false,false,field);
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","zero","signed","cycle","unit","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("fill","a",true,mode,false,true,false,false,field);
+            std::cout<<"rectangle_gradient_endpoints_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-gradient-endpoints-whip-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,false,true,false,false,field);
+            std::cout<<"rectangle_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-stroke-gradient-endpoints-entry-pending-pointer")){
             bool failed=false;
