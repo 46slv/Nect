@@ -10768,7 +10768,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).text&&
         (!d.objects.at(ref.object).source||((d.objects.at(ref.object).source->type=="nect.shape.circle"||
             d.objects.at(ref.object).source->type=="nect.shape.rectangle"||
-            d.objects.at(ref.object).source->type=="nect.shape.polygon")&&origin!="authored"));
+            d.objects.at(ref.object).source->type=="nect.shape.polygon"||
+            (d.objects.at(ref.object).source->type=="nect.shape.star"&&(ref.field=="x"||ref.field=="y")))&&origin!="authored"));
     Id paint_scalar_operation;std::string paint_scalar_parameter;
     const auto& paint_target=d.objects.at(ref.object);
     if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&!paint_target.text&&
