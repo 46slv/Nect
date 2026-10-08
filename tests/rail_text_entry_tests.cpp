@@ -1948,6 +1948,156 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
 }
 
 
+void authored_point_coordinate_pointer(const std::string& field,bool picking,const std::string& mode="valid"){
+    QTemporaryDir scratch;check(scratch.isValid(),"Point coordinate owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("authored-point-entry","composition","board");
+    Object target;target.id="text";target.name="Authored target";make_scalar_path(target);
+    target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
+    Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
+    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};seed_scalar_path(document);
+    Session seed(document);seed.apply({Link{{"path-ref-guard","","generator.height"},{{"text","text-second","y"},0.1,20,"copy_local_value"}}},seed.revision());document=seed.document();
+    const Ref ref{"text","text-second",field};Ref source_ref{"source","source-second",field};
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object,ref.point);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString()=="text-second"&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    for(auto* button:window.findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))
+        if(button->accessibleName()==(picking?"Pick source for "+QString::fromStdString(field):QString::fromStdString(field)+" expression editor"))action=button;
+    check(scroll&&input&&action,"Exact stable point coordinate input/action exists");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,mode=="invalid"?"not-a-number":mode=="expression-scalar"?"=40 + 2":"64");events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Selected point draft is full-state neutral");
+    auto change_context=[&](bool applying){
+        const auto suffix=mode.substr(mode.find('-')+1);
+        if(suffix=="session"){window.host.session_id="replacement-point-session";return;}
+        if(suffix=="revision")window.host.session.apply({Set{{"text","","transform.tx"},61}},window.host.session.revision());
+        else if(suffix=="gesture"||suffix=="cancelled-gesture"){
+            window.host.session.begin_gesture(window.host.session.revision());
+            window.host.session.update_gesture({Set{{"text","text-first","y"},13}});
+            if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
+        }else if(suffix=="selection"){
+            window.canvas->set_selection("text","text-first");events();window.canvas->set_selection(ref.object,ref.point);events();
+        }else{
+            auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
+            if(suffix=="document")incoming.id="replacement-point-document";
+            else if(suffix=="source")object.contours.front().id="replacement-point-contour";
+            else if(suffix=="coordinate")(field=="x"?object.contours.front().points.at(1).x:object.contours.front().points.at(1).y).literal=65;
+            else if(suffix=="handle")object.contours.front().points.front().out_length.literal=26;
+            else if(suffix=="type"||suffix=="missing-point"){
+                const Id replacement=suffix=="type"?"replacement-point-source-east":"replacement-second";
+                if(suffix=="type"){object.contours.clear();object.source=default_primitive("replacement-point-source","nect.shape.circle");}
+                else object.contours.front().points.at(1).id=replacement;
+                auto& guard=*incoming.objects.at("path-ref-guard").source;
+                guard.parameters.at("width").binding->source={"text",replacement,"x"};guard.parameters.at("height").binding->source={"text",replacement,"y"};
+            }else throw std::runtime_error("Unknown point context fixture");
+            Session replacement(incoming);
+            if(applying)replacement.apply({Set{{"text","","transform.tx"},61}},replacement.revision());
+            check(replacement.revision()==window.host.session.revision(),"Point replacement collides at captured revision without retargeting Ref");
+            window.host.session=replacement;
+        }
+        expected=window.host.session;
+    };
+    if(mode.rfind("entry-",0)==0)change_context(false);
+    const auto preview_before_entry=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    const auto selection=window.canvas->selections();
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits selected point action");
+    auto scalar_expected=[&]{if(mode=="expression-scalar")expected.apply({SetExpression{{ref},{"40 + 2",1},false}},expected.revision());else expected.apply({EditProperties{{ref},64,false}},expected.revision());};
+    auto undo_scalar=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate point scalar Undo restores exact curve/IDs/handles/paint/Refs");};
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar_expected();
+        check(snapshot(window.host.session)==snapshot(expected),"Point whip press commits only independent coordinate before freezing target");
+        if(mode=="drag-cancel"){
+            QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Point whip Escape retains scalar and exact target selection");
+        }else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* source_item=nullptr;
+            for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty()){tree=candidate;source_item=*it;}
+            check(tree&&source_item,"Point whip finds exact other authored Path tree row");tree->scrollToItem(source_item);events();
+            QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(source_item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&window.canvas->selected_point=="source-first"&&snapshot(window.host.session)==snapshot(expected),"Point whip browsing selects stable first source point with no authored mutation");
+            QLineEdit* source_field=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+                const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+                if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("point").toString()=="source-first"&&data.value("field").toString()==QString::fromStdString(field))source_field=candidate;
+            }
+            check(source_field,"Whip drop has exact stable source point coordinate");scroll->ensureWidgetVisible(source_field);events();
+            const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual point whip drop hits visible coordinate");
+            QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();
+            source_ref.point="source-first";expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Point whip links exact Ref and restores frozen target");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Point whip link Undo retains independent scalar");
+        }
+        undo_scalar();return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused point entry preserves complete incoming authored state and opens no editor");
+        const auto message=window.statusBar()->currentMessage();
+        const auto reason=mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"||mode=="entry-cancelled-gesture"?"REVISION_CONFLICT":mode=="entry-session"||mode=="entry-document"?"SESSION_CONFLICT":mode=="entry-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+        check(message.contains(reason),"Point entry refusal identifies exact cause");
+        check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before_entry,"Point entry refusal preserves preview and gesture state");
+        if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar_expected();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
+        std::cerr<<field<<" point pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First point picker commits only selected coordinate and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("point").toString()=="source-second"&&data.value("field").toString()==QString::fromStdString(field))item=list->item(i);}
+        check(list&&buttons&&item,"Picker retains exact other stable point coordinate Ref");list->setCurrentItem(item);events();
+        check(snapshot(window.host.session)==snapshot(expected),"Choosing other stable point is authored-state neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Point picker Cancel discards only link draft");undo_scalar();return;}
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode.rfind("apply-",0)==0){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused point picker Apply preserves incoming source and complete history");
+            const auto reason=mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":mode=="apply-session"||mode=="apply-document"?"SESSION_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+            check(window.statusBar()->currentMessage().contains(reason),"Point picker refusal identifies exact cause");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Point picker refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==QString::fromStdString(field)+" expression")editor=candidate;
+        std::cerr<<field<<" point fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&editor->toPlainText()==(mode=="expression-scalar"?"40 + 2":"64")&&snapshot(window.host.session)==snapshot(expected),"First point fx commits coordinate and opens exact neutral editor");
+        editor->setPlainText(mode=="invalid-expression"?"broken(":"32 + 3");events();check(snapshot(window.host.session)==snapshot(expected),"Point expression draft remains neutral");
+        QPushButton* apply=nullptr;for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+        check(apply,"Point inline Apply exists");
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        if(mode=="apply-selection"){
+            auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Point expression draft survives exact stable selection roundtrip");
+            apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;check(apply,"Point selection roundtrip recreated Apply");
+        }
+        if(mode=="cancel")for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        scroll->ensureWidgetVisible(apply);events();QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode.rfind("apply-",0)==0||mode=="invalid-expression"){
+            check(snapshot(window.host.session)==snapshot(expected),"Refused point fx Apply preserves incoming source and complete history");
+            auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Point expression refusal retains visible recovery status");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Point fx refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Point expression Cancel discards only expression draft");undo_scalar();return;}
+        expected.apply({SetExpression{{ref},{"32 + 3",1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Point operation exactly matches canonical Document/encode/history/revision");
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
+    const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
+    const auto actual_bounds=object_bounds(window.host.session.document(),"text",actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),"text",expected_values,expected_transforms,true);
+    check(actual_transforms.at("text").world==expected_transforms.at("text").world,"Point edit retains canonical nonidentity world matrix");
+    check(actual_bounds&&expected_bounds&&std::tuple{actual_bounds->left,actual_bounds->top,actual_bounds->right,actual_bounds->bottom}==std::tuple{expected_bounds->left,expected_bounds->top,expected_bounds->right,expected_bounds->bottom},"Point edit bounds match canonical curve geometry");
+    for(int i=0;i<2;++i){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Point scalar and later operation undo independently");}
+    check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
+}
+
 void path_pending_pointer(const std::string& mode){
     QTemporaryDir scratch;check(scratch.isValid(),"Text Path entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -2755,6 +2905,25 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--image-dimension-scalars-whip-pending-pointer")){
             for(const auto* field:{"image.width","image.height"}){scalar_pick_pending_pointer("drag",field,false,false,false,false,false,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,false,false,false,false,true);}
             std::cout<<"image_dimension_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-point-coordinates-entry-pending-pointer")){
+            bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
+                try{authored_point_coordinate_pointer(field,picking);}catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Four authored point coordinate first-pointer entries satisfy existing semantics");
+            std::cout<<"path_point_coordinates_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-point-coordinates-affected-pending-pointer")){
+            for(const auto* field:{"x","y"})for(bool picking:{false,true})
+                for(const auto* mode:{"cancel","invalid","expression-scalar","entry-revision","entry-session","entry-document","entry-source","entry-coordinate","entry-handle","entry-type","entry-missing-point","entry-gesture","entry-cancelled-gesture","apply-revision","apply-session","apply-document","apply-source","apply-coordinate","apply-handle","apply-type","apply-missing-point","apply-gesture","apply-cancelled-gesture"}){
+                    std::cerr<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_point_coordinate_pointer(field,picking,mode);
+                }
+            for(const auto* field:{"x","y"})for(const auto* mode:{"invalid-expression","apply-selection"})authored_point_coordinate_pointer(field,false,mode);
+            std::cout<<"path_point_coordinates_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-point-coordinates-whip-pending-pointer")){
+            for(const auto* field:{"x","y"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode);
+            std::cout<<"path_point_coordinates_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--instance-common-scalars-entry-pending-pointer")){
             bool failed=false;
