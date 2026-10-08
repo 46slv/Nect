@@ -2122,6 +2122,171 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
     check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
 }
 
+void authored_stroke_width_pointer(bool picking,const std::string& mode="valid"){
+    const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";
+    QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("authored-stroke-entry","composition","board");
+    Object target;target.id="text";target.name="Authored target";make_scalar_path(target);
+    target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
+    Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
+    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};seed_scalar_path(document);
+    auto target_stroke=default_operation("path-target-stroke","nect.paint.stroke");target_stroke.parameters.at("width").literal=4;
+    auto source_stroke=default_operation("source-stroke","nect.paint.stroke");source_stroke.parameters.at("width").literal=12;
+    Session seeded(document);seeded.apply({AddOperation{"text",target_stroke,1},AddOperation{"source",source_stroke,0},
+        Link{{"path-ref-guard","","generator.height"},{operation_ref("text","path-target-stroke","width"),0.1,20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{operation_ref("source","source-stroke","width"),{operation_ref("text","path-target-stroke","width"),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    const Ref ref=operation_ref("text","path-target-stroke","width");Ref source_ref=operation_ref("source","source-stroke","width");if(mode=="unit")source_ref=operation_ref("source","source-stroke","a");
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    for(auto* button:window.findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))
+        if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
+    check(scroll&&input&&action,"Exact stable point width input/action exists");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    const double pending_value=mode=="zero"?0:mode=="unwrapped"?450.5:64;
+    const QString pending_text=mode=="zero"?"0":mode=="unwrapped"?"450.5":"64";
+    const QString expression_text=mode=="unwrapped"?"360 + 45":"32 + 3";
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):mode=="negative"?QString("-1"):mode=="expression-scalar"?QString("=40 + 2"):pending_text);events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Selected Stroke draft is full-state neutral");
+    auto change_context=[&](bool applying){
+        const auto suffix=mode.substr(mode.find('-')+1);
+        if(suffix=="session"){window.host.session_id="replacement-stroke-session";return;}
+        if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.tx"},61}},window.host.session.revision());
+        else if(suffix=="gesture"||suffix=="cancelled-gesture"){
+            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text","text-first","y"},13}});
+            if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
+        }else if(suffix=="selection"){
+            window.canvas->set_selection("source");events();window.canvas->set_selection(ref.object);events();
+        }else{
+            auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
+            if(suffix=="document")incoming.id="replacement-stroke-document";
+            else if(suffix=="source")object.contours.front().id="replacement-stroke-contour";
+            else if(suffix=="coordinate")object.stack.at(1).parameters.at("width").literal=65;
+            else if(suffix=="handle")object.contours.front().points.front().out_length.literal=26;
+            else if(suffix=="color")object.stack.at(1).parameters.at("r").literal=0.7;
+            else if(suffix=="order")std::reverse(object.stack.begin(),object.stack.end());
+            else if(suffix=="operation"){object.stack.at(1).id="replacement-stroke";incoming.objects.at("path-ref-guard").source->parameters.at("height").binding->source=operation_ref("text","replacement-stroke","width");}
+            else if(suffix=="type"){object.contours.clear();object.source=default_primitive("replacement-stroke-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-stroke-source-east","x"};}
+            else throw std::runtime_error("Unknown Stroke context fixture");
+            Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.tx"},61}},replacement.revision());
+            check(replacement.revision()==window.host.session.revision(),"Stroke replacement collides at captured revision without retargeting Ref");window.host.session=replacement;
+        }
+        expected=window.host.session;
+    };
+    if(mode.rfind("entry-",0)==0)change_context(false);
+    const auto preview_before_entry=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    const auto selection=window.canvas->selections();
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits selected Stroke width action");
+    auto scalar_expected=[&]{if(mode=="expression-scalar")expected.apply({SetExpression{{ref},{"40 + 2",1},false}},expected.revision());else expected.apply({EditProperties{{ref},pending_value,false}},expected.revision());};
+    auto undo_scalar=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate Stroke scalar Undo restores exact curve/IDs/handles/paint/Refs");};
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar_expected();
+        check(snapshot(window.host.session)==snapshot(expected),"Stroke whip press commits only independent width before freezing target");
+        if(mode=="drag-cancel"){
+            QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Stroke whip Escape retains scalar and exact target selection");
+        }else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* source_item=nullptr;
+            for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty()){tree=candidate;source_item=*it;}
+            check(tree&&source_item,"Stroke whip finds exact other authored Path tree row");tree->scrollToItem(source_item);events();
+            QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(source_item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Stroke whip browsing selects stable first source point with no authored mutation");
+            QLineEdit* source_field=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+                const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+                if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))source_field=candidate;
+            }
+            check(source_field,"Whip drop has exact stable source point width");scroll->ensureWidgetVisible(source_field);events();
+            const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual point whip drop hits visible width");
+            QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();
+            expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Stroke whip links exact Ref and restores frozen target");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Stroke whip link Undo retains independent scalar");
+        }
+        undo_scalar();return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="negative"||mode.rfind("entry-",0)==0){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused point entry preserves complete incoming authored state and opens no editor");
+        const auto message=window.statusBar()->currentMessage();
+        const auto reason=mode=="negative"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"||mode=="entry-cancelled-gesture"?"REVISION_CONFLICT":mode=="entry-session"||mode=="entry-document"?"SESSION_CONFLICT":mode=="entry-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+        check(message.contains(reason),"Stroke entry refusal identifies exact cause");
+        check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before_entry,"Stroke entry refusal preserves preview and gesture state");
+        if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar_expected();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
+        std::cerr<<field<<" stroke pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First Stroke picker commits only selected width and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))item=list->item(i);}
+        check(list&&buttons&&item,"Picker retains exact other stable point width Ref");list->setCurrentItem(item);events();
+        check(snapshot(window.host.session)==snapshot(expected),"Choosing other stable point is authored-state neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Stroke picker Cancel discards only link draft");undo_scalar();return;}
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode=="cycle"||mode=="unit"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Cycle/unit picker refusal is full-state atomic");
+            check(window.statusBar()->currentMessage().contains(mode=="cycle"?"CYCLE":"NO_SOURCE"),"Cycle/unit refusal identifies cause");
+            buttons->button(QDialogButtonBox::Cancel)->click();events();undo_scalar();return;
+        }
+        if(mode.rfind("apply-",0)==0&&mode!="apply-selection"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused point picker Apply preserves incoming source and complete history");
+            const auto reason=mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":mode=="apply-session"||mode=="apply-document"?"SESSION_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+            check(window.statusBar()->currentMessage().contains(reason),"Stroke picker refusal identifies exact cause");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Stroke picker refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+        std::cerr<<field<<" stroke fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&editor->toPlainText()==(mode=="expression-scalar"?QString("40 + 2"):pending_text)&&snapshot(window.host.session)==snapshot(expected),"First Stroke fx commits width and opens exact neutral editor");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):mode=="negative-expression"?QString("-1"):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Stroke expression draft remains neutral");
+        QPushButton* apply=nullptr;for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+        check(apply,"Stroke inline Apply exists");
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        if(mode=="apply-selection"){
+            auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Stroke expression draft survives exact stable selection roundtrip");
+            apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;check(apply,"Stroke selection roundtrip recreated Apply");
+        }
+        if(mode=="cancel")for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        scroll->ensureWidgetVisible(apply);events();QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode.rfind("apply-",0)==0||mode=="invalid-expression"||mode=="negative-expression"){
+            check(snapshot(window.host.session)==snapshot(expected),"Refused point fx Apply preserves incoming source and complete history");
+            auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Stroke expression refusal retains visible recovery status");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Stroke fx refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Stroke expression Cancel discards only expression draft");undo_scalar();return;}
+        expected.apply({SetExpression{{ref},{expression_text.toStdString(),1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Stroke operation exactly matches canonical Document/encode/history/revision");
+    if(handle){
+        QLineEdit* result=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+            const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+            if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))result=candidate;
+        }
+        check(result&&result->text().toDouble()==evaluate(expected.document()).at(ref),"Handle numeric field retains raw unwrapped canonical value without dial normalization");
+    }
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
+    const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
+    const auto actual_bounds=object_bounds(window.host.session.document(),"text",actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),"text",expected_values,expected_transforms,true);
+    check(actual_transforms.at("text").world==expected_transforms.at("text").world,"Stroke edit retains canonical nonidentity world matrix");
+    check(actual_bounds&&expected_bounds&&std::tuple{actual_bounds->left,actual_bounds->top,actual_bounds->right,actual_bounds->bottom}==std::tuple{expected_bounds->left,expected_bounds->top,expected_bounds->right,expected_bounds->bottom},"Stroke edit bounds match canonical curve geometry");
+    for(int i=0;i<2;++i){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Stroke scalar and later operation undo independently");}
+    check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
+}
+
 void path_pending_pointer(const std::string& mode){
     QTemporaryDir scratch;check(scratch.isValid(),"Text Path entry owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -2929,6 +3094,23 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--image-dimension-scalars-whip-pending-pointer")){
             for(const auto* field:{"image.width","image.height"}){scalar_pick_pending_pointer("drag",field,false,false,false,false,false,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,false,false,false,false,true);}
             std::cout<<"image_dimension_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-width-entry-pending-pointer")){
+            bool failed=false;for(bool picking:{false,true}){try{authored_stroke_width_pointer(picking);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
+            check(!failed,"Two authored Stroke width first-pointer entries satisfy existing semantics");
+            std::cout<<"path_stroke_width_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-width-affected-pending-pointer")){
+            for(bool picking:{false,true})for(const auto* mode:{"valid","zero","negative","invalid","cancel","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-handle","entry-type","entry-operation","entry-color","entry-order","entry-gesture","entry-cancelled-gesture","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-handle","apply-type","apply-operation","apply-color","apply-order","apply-selection","apply-gesture","apply-cancelled-gesture"}){
+                std::cerr<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_stroke_width_pointer(picking,mode);
+            }
+            for(const auto* mode:{"invalid-expression","negative-expression"})authored_stroke_width_pointer(false,mode);
+            for(const auto* mode:{"cycle","unit"})authored_stroke_width_pointer(true,mode);
+            std::cout<<"path_stroke_width_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-width-whip-pending-pointer")){
+            for(const auto* mode:{"drag","drag-cancel"})authored_stroke_width_pointer(true,mode);
+            std::cout<<"path_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--path-point-coordinates-entry-pending-pointer")){
             bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
