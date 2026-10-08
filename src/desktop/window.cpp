@@ -10764,7 +10764,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool instance_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
         d.objects.at(ref.object).kind==Kind::instance&&d.objects.at(ref.object).instance;
     const bool point_scalar_fx=targets.size()==1&&!ref.point.empty()&&(ref.field=="x"||ref.field=="y"||ref.field=="in.angle"||ref.field=="in.length"||ref.field=="out.angle"||ref.field=="out.length")&&
-        d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
+        d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).text&&
+        (!d.objects.at(ref.object).source||(d.objects.at(ref.object).source->type=="nect.shape.circle"&&(ref.field=="x"||ref.field=="y")&&origin!="authored"));
     Id paint_scalar_operation;std::string paint_scalar_parameter;
     const auto& paint_target=d.objects.at(ref.object);
     if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&!paint_target.text&&
@@ -10916,7 +10917,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         }
         if(point_scalar_fx) {
             const auto previous=*expected_point_object;const auto scalar=nect::property(host.session.document(),ref);
-            for(auto& contour:expected_point_object->value().contours)for(auto& point:contour.points)if(point.id==ref.point) {
+            if(expected_point_object->value().source) {
+                // Mirror only the canonical Point Edit delta for this exact scalar.
+                // The complete Object comparison still protects Source and other overrides.
+                auto& object=expected_point_object->value();
+                if(!object.point_edit)object.point_edit=PointEdit{object.source->id+"-point-edit",1,true,{}};
+                object.point_edit->enabled=true;object.point_edit->overrides[ref.point][ref.field]=scalar;
+            }else for(auto& contour:expected_point_object->value().contours)for(auto& point:contour.points)if(point.id==ref.point) {
                 if(ref.field=="x")point.x=scalar;else if(ref.field=="y")point.y=scalar;
                 else if(ref.field=="in.angle")point.in_angle=scalar;else if(ref.field=="in.length")point.in_length=scalar;
                 else if(ref.field=="out.angle")point.out_angle=scalar;else if(ref.field=="out.length")point.out_length=scalar;
