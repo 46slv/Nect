@@ -10824,14 +10824,19 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 }
         }
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
+    const bool batch_path_tx_fx=targets.size()>1&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        const auto found=d.objects.find(target.object);
+        return target.point.empty()&&target.field=="transform.tx"&&found!=d.objects.end()&&
+            found->second.kind==Kind::path&&!found->second.source&&!found->second.text;
+    });
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
-    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
+    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx||batch_path_tx_fx)?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
+    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx||batch_path_tx_fx)?new PreparedTextActionButton("↗"):nullptr;
     QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -10949,12 +10954,38 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the point property");
         if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The point property gesture context changed");
     };
-    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context](const PropertyActionContext& context) {
+    const auto batch_selection=canvas->selections();
+    const auto expected_batch_objects=std::make_shared<std::map<Id,Object>>();
+    if(batch_path_tx_fx)for(const auto& target:targets)expected_batch_objects->emplace(target.object,d.objects.at(target.object));
+    auto verify_batch_context=[this,batch_selection,expected_batch_objects](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The batch property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The batch property revision changed");
+        for(const auto& [id,expected]:*expected_batch_objects) {
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||found->second!=expected)
+                throw Error("PROPERTY_CONFLICT","An original batch target or authored source changed");
+        }
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=batch_selection)))
+            throw Error("SELECTION_CONFLICT","The batch property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the batch property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The batch property gesture context changed");
+    };
+
+    auto verify_scalar_context=[this,batch_path_tx_fx,verify_batch_context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context](const PropertyActionContext& context) {
+        if(batch_path_tx_fx){verify_batch_context(context);return;}
         if(point_scalar_fx||paint_scalar_fx)verify_point_context(context);else if(instance_scalar_fx)verify_instance_context(context);else if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
     };
     // Only a successful canonical edit may advance the frozen target scalar.
     // Keep the full snapshot afterwards so same-revision replacement is refused.
-    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
+    auto advance_scalar_context=[this,batch_path_tx_fx,expected_batch_objects,targets,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
+        if(batch_path_tx_fx) {
+            const auto previous=*expected_batch_objects;
+            for(const auto& target:targets)expected_batch_objects->at(target.object).transform.at(4)=nect::property(host.session.document(),target);
+            try{verify_scalar_context(context);}catch(...){*expected_batch_objects=previous;throw;}
+            return;
+        }
         if(paint_scalar_fx) {
             const auto previous=*expected_point_object;
             for(auto& operation:expected_point_object->value().stack)if(operation.id==paint_scalar_operation) {
@@ -11023,7 +11054,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         };
         // Browsing a source intentionally changes selection. Keep the target
         // identity, scope and edit generation frozen while allowing that view.
-        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context] {
+        prepared_pick->verify_context=[this,batch_path_tx_fx,verify_batch_context,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context] {
+            if(batch_path_tx_fx){verify_batch_context(*context,true);return;}
             if(point_scalar_fx||paint_scalar_fx){verify_point_context(*context,true);return;}
             if(instance_scalar_fx){verify_instance_context(*context,true);return;}
             if(image_scalar_fx){verify_image_context(*context,true);return;}
@@ -11069,10 +11101,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(!*scalar_prepared)return;const auto session=context->session;const auto document=context->document;
             QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();});
         };
-        connect(fx,&QPushButton::clicked,this,[this,ref,context,expand,verify_scalar_context]{perform([&]{
+        connect(fx,&QPushButton::clicked,this,[this,batch_path_tx_fx,targets,ref,context,expand,verify_scalar_context]{perform([&]{
             verify_scalar_context(*context);const auto frozen=*context;
             const auto formula=nect::property(host.session.document(),ref).expression;
-            const auto source=formula?qs(formula->source):QString::number(evaluate(host.session.document()).at(ref),'g',17);
+            const auto values=evaluate(host.session.document());
+            const bool batch_mixed=batch_path_tx_fx&&std::any_of(targets.begin(),targets.end(),[&](const Ref& target){return values.at(target)!=values.at(ref);});
+            const auto source=batch_mixed?QString{}:formula?qs(formula->source):QString::number(values.at(ref),'g',17);
             expand(source,frozen.revision,[frozen,verify_scalar_context]{verify_scalar_context(frozen);});
         });});
     } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
