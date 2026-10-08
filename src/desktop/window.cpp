@@ -10790,10 +10790,16 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;
                     }
             if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
-                for(const auto& stop:operation.gradient->stops)
+                for(const auto& stop:operation.gradient->stops) {
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+".offset")) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter="offset";
                     }
+                    if(operation.type=="nect.paint.fill")
+                        for(const auto* channel:{"r","g","b","a"})
+                            if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+"."+channel)) {
+                                paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter=channel;
+                            }
+                }
         }
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
@@ -10935,7 +10941,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 else {
                     auto& gradient=*operation.gradient;
                     if(!paint_scalar_stop.empty()) {
-                        for(auto& stop:gradient.stops)if(stop.id==paint_scalar_stop)stop.offset=scalar;
+                        for(auto& stop:gradient.stops)if(stop.id==paint_scalar_stop) {
+                            if(paint_scalar_parameter=="offset")stop.offset=scalar;
+                            else if(paint_scalar_parameter=="r")stop.rgba[0]=scalar;
+                            else if(paint_scalar_parameter=="g")stop.rgba[1]=scalar;
+                            else if(paint_scalar_parameter=="b")stop.rgba[2]=scalar;
+                            else if(paint_scalar_parameter=="a")stop.rgba[3]=scalar;
+                        }
                     }else if(paint_scalar_parameter=="start_x")gradient.start_x=scalar;
                     else if(paint_scalar_parameter=="start_y")gradient.start_y=scalar;
                     else if(paint_scalar_parameter=="end_x")gradient.end_x=scalar;
