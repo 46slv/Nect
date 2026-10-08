@@ -1948,9 +1948,9 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
 }
 
 
-void authored_point_coordinate_pointer(const std::string& field,bool picking,const std::string& mode="valid",bool generated_circle=false,bool canvas_selection=false,bool generated_rectangle=false){
-    const bool generated=generated_circle||generated_rectangle;
-    const Id target_point=generated_rectangle?"circle-point-source-top-right":generated?"circle-point-source-east":"text-second",first_point=generated_rectangle?"circle-point-source-top-left":generated?"circle-point-source-north":"text-first";
+void authored_point_coordinate_pointer(const std::string& field,bool picking,const std::string& mode="valid",bool generated_circle=false,bool canvas_selection=false,bool generated_rectangle=false,bool generated_polygon=false){
+    const bool generated=generated_circle||generated_rectangle||generated_polygon;
+    const Id target_point=generated_polygon?"circle-point-source-outer-1-6":generated_rectangle?"circle-point-source-top-right":generated?"circle-point-source-east":"text-second",first_point=generated_polygon?"circle-point-source-outer-0-1":generated_rectangle?"circle-point-source-top-left":generated?"circle-point-source-north":"text-first";
     const bool handle=field.starts_with("in.")||field.starts_with("out.");
     auto point_scalar=[&](Point& point)->Scalar&{
         if(field=="x")return point.x;if(field=="y")return point.y;
@@ -1962,7 +1962,7 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("authored-point-entry","composition","board");
-    Object target;target.id="text";target.name="Authored target";if(generated){target.kind=Kind::path;target.source=default_primitive("circle-point-source",generated_rectangle?"nect.shape.rectangle":"nect.shape.circle");}else make_scalar_path(target);
+    Object target;target.id="text";target.name="Authored target";if(generated){target.kind=Kind::path;target.source=default_primitive("circle-point-source",generated_polygon?"nect.shape.polygon":generated_rectangle?"nect.shape.rectangle":"nect.shape.circle");}else make_scalar_path(target);
     target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
     Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
     if(handle)point_scalar(source.contours.front().points.at(1)).literal=field=="in.angle"?450.5:field=="out.angle"?-725.25:field=="in.length"?36:28;
@@ -1979,6 +1979,11 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
         Object guard;guard.id="path-handle-guard";guard.name="Incoming handle Ref guard";make_scalar_path(guard);
         document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
         Session linked(document);linked.apply({Link{{guard.id,guard.id+"-first",field},{{"text",target_point,field},0.1,20,"copy_local_value"}}},linked.revision());document=linked.document();
+    }
+    if(generated_polygon){
+        const auto& primitive=*document.objects.at("text").source;
+        check(primitive.parameters.at("center_x").literal==0&&primitive.parameters.at("center_y").literal==0&&primitive.parameters.at("points").literal==6&&primitive.parameters.at("rotation").literal==-90,"Polygon fixture retains default center/count/rotation contract");
+        check(evaluate(document).contains({"text",target_point,field})&&evaluate(document).contains({"text",first_point,"x"}),"Exact reduced rational Polygon phases are active canonical properties");
     }
     const Ref ref{"text",target_point,field};Ref source_ref{"source","source-second",field};
     if(mode=="cycle"){Session cycle(document);cycle.apply({Link{{"source","source-second",field},{{"text",target_point,field},1,0,"copy_local_value"}}},cycle.revision());document=cycle.document();}
@@ -2031,9 +2036,20 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
             if(generated&&suffix!="document") {
                 if(suffix=="source")object.source->parameters.at(generated_rectangle?"width":"radius").literal=generated_rectangle?221:76;
+                else if(generated_polygon&&suffix=="count")object.source->parameters.at("points").literal=12;
                 else if(suffix=="source-id"||suffix=="type"||suffix=="missing-point") {
-                    const bool circle=generated_rectangle?suffix!="source-id":suffix=="source-id";object.source=default_primitive("replacement-point-source",circle?"nect.shape.circle":"nect.shape.rectangle");object.point_edit.reset();
-                    const Id replacement=circle?"replacement-point-source-east":"replacement-point-source-top-right";
+                    Id replacement;
+                    if(generated_polygon&&suffix!="type"){
+                        const auto id=suffix=="missing-point"?object.source->id:Id{"replacement-point-source"};
+                        object.source=default_primitive(id,"nect.shape.polygon");
+                        if(suffix=="missing-point")object.source->parameters.at("points").literal=5;
+                        replacement=id+(suffix=="missing-point"?"-outer-1-5":"-outer-1-6");
+                    }else{
+                        const bool circle=generated_polygon||generated_rectangle?suffix!="source-id":suffix=="source-id";
+                        object.source=default_primitive("replacement-point-source",circle?"nect.shape.circle":"nect.shape.rectangle");
+                        replacement=circle?"replacement-point-source-east":"replacement-point-source-top-right";
+                    }
+                    object.point_edit.reset();
                     auto& guard=*incoming.objects.at("path-ref-guard").source;guard.parameters.at("width").binding->source.point=replacement;guard.parameters.at("height").binding->source.point=replacement;
                     if(handle)point_scalar(incoming.objects.at("path-handle-guard").contours.front().points.front()).binding->source.point=replacement;
                 }else if(suffix=="coordinate"||suffix=="handle") {
@@ -3711,6 +3727,23 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--rectangle-point-handles-whip-pending-pointer")){
             for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode,false,false,true);
             std::cout<<"rectangle_point_handles_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-point-coordinates-entry-pending-pointer")){
+            bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
+                try{authored_point_coordinate_pointer(field,picking,"valid",false,false,false,true);}catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Four generated Polygon point coordinate first-pointer entries satisfy existing semantics");
+            std::cout<<"polygon_point_coordinates_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-point-coordinates-affected-pending-pointer")){
+            for(const auto* field:{"x","y"})for(bool picking:{false,true})for(const auto* mode:{"canvas-selection","fresh","point-edit","bypassed","zero","signed","cancel","invalid","expression-scalar","entry-revision","entry-session","entry-document","entry-source","entry-source-id","entry-count","entry-coordinate","entry-handle","entry-type","entry-missing-point","entry-point-edit-reset","entry-point-edit-enabled","entry-gesture","entry-cancelled-gesture","apply-revision","apply-session","apply-document","apply-source","apply-source-id","apply-count","apply-coordinate","apply-handle","apply-type","apply-missing-point","apply-point-edit-reset","apply-point-edit-enabled","apply-gesture","apply-cancelled-gesture"}){std::cerr<<"Polygon point "<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_point_coordinate_pointer(field,picking,mode,false,false,false,true);}
+            for(const auto* field:{"x","y"})for(const auto* mode:{"invalid-expression","apply-selection"})authored_point_coordinate_pointer(field,false,mode,false,false,false,true);
+            for(const auto* field:{"x","y"})for(const auto* mode:{"cycle","unit"})authored_point_coordinate_pointer(field,true,mode,false,false,false,true);
+            std::cout<<"polygon_point_coordinates_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-point-coordinates-whip-pending-pointer")){
+            for(const auto* field:{"x","y"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode,false,false,false,true);
+            std::cout<<"polygon_point_coordinates_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--rectangle-point-coordinates-entry-pending-pointer")){
             bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
