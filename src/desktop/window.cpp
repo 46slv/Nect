@@ -10759,7 +10759,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::group&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
     const bool path_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
         d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
-    const bool image_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+    const bool image_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity"||ref.field=="image.width"||ref.field=="image.height")&&
         d.objects.at(ref.object).kind==Kind::image&&d.objects.at(ref.object).image&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
@@ -10808,12 +10808,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     };
     const auto image_source=image_scalar_fx?d.objects.at(ref.object).image:std::optional<ImageSource>{};
     const auto image_asset=image_scalar_fx?std::optional<RasterAsset>{d.raster_assets.at(image_source->asset)}:std::optional<RasterAsset>{};
-    auto verify_image_context=[this,image_source,image_asset](const PropertyActionContext& context,bool browsing=false) {
+    const auto expected_image_source=std::make_shared<std::optional<ImageSource>>(image_source);
+    auto verify_image_context=[this,image_source,image_asset,expected_image_source](const PropertyActionContext& context,bool browsing=false) {
         if(host.session_id!=context.session||host.session.document().id!=context.document)
             throw Error("SESSION_CONFLICT","The Image property belongs to another document");
         if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Image property revision changed");
         const auto& document=host.session.document();const auto found=document.objects.find(context.object);
-        if(found==document.objects.end()||found->second.kind!=Kind::image||found->second.source||found->second.text||found->second.image!=image_source)
+        if(found==document.objects.end()||found->second.kind!=Kind::image||found->second.source||found->second.text||found->second.image!=*expected_image_source)
             throw Error("PROPERTY_CONFLICT","The original Image placement or source changed");
         const auto asset=document.raster_assets.find(image_source->asset);
         if(asset==document.raster_assets.end()||!(asset->second==*image_asset))
@@ -10827,18 +10828,30 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context](const PropertyActionContext& context) {
         if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
     };
+    // Only a successful canonical edit may advance the frozen target dimension.
+    // Keep the full snapshot afterwards so same-revision replacement is refused.
+    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context](const PropertyActionContext& context) {
+        if(!image_scalar_fx||(ref.field!="image.width"&&ref.field!="image.height")){verify_scalar_context(context);return;}
+        const auto previous=*expected_image_source;
+        const auto found=host.session.document().objects.find(ref.object);
+        if(found!=host.session.document().objects.end()&&found->second.image) {
+            if(ref.field=="image.width")expected_image_source->value().width=found->second.image->width;
+            else expected_image_source->value().height=found->second.image->height;
+        }
+        try{verify_scalar_context(context);}catch(...){*expected_image_source=previous;throw;}
+    };
     if(prepared_pick) {
         prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setFocusPolicy(Qt::StrongFocus);
         auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
             canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
-        prepared_pick->prepare=[this,input,context,verify_scalar_context] {
+        prepared_pick->prepare=[this,input,context,verify_scalar_context,advance_scalar_context] {
             bool ready=false;perform([&]{
                 verify_scalar_context(*context);
                 if(input->isModified()) {
                     input->setProperty("nect-finishing-text-scalar-pick",true);input->setProperty("nect-text-scalar-pick-committed-revision",QVariant{});
                     input->editingFinished();const auto committed=input->property("nect-text-scalar-pick-committed-revision");
                     input->setProperty("nect-finishing-text-scalar-pick",false);if(!committed.isValid())return;
-                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_scalar_context(advanced);*context=std::move(advanced);
+                    auto advanced=*context;advanced.revision=committed.toULongLong();advance_scalar_context(advanced);*context=std::move(advanced);
                     const auto session=context->session,document=qs(context->document);
                     QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&qs(host.session.document().id)==document)rebuild_inspector();});
                 }ready=true;
@@ -10874,14 +10887,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
             canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
         auto scalar_prepared=std::make_shared<bool>(false);
-        prepared_fx->prepare=[this,input,context,scalar_prepared,verify_scalar_context] {
+        prepared_fx->prepare=[this,input,context,scalar_prepared,verify_scalar_context,advance_scalar_context] {
             bool ready=false;perform([&]{
                 verify_scalar_context(*context);
                 if(input->isModified()) {
                     input->setProperty("nect-finishing-text-scalar-fx",true);input->setProperty("nect-text-scalar-fx-committed-revision",QVariant{});
                     input->editingFinished();const auto committed=input->property("nect-text-scalar-fx-committed-revision");
                     input->setProperty("nect-finishing-text-scalar-fx",false);if(!committed.isValid())return;
-                    auto advanced=*context;advanced.revision=committed.toULongLong();verify_scalar_context(advanced);
+                    auto advanced=*context;advanced.revision=committed.toULongLong();advance_scalar_context(advanced);
                     *context=std::move(advanced);*scalar_prepared=true;
                 }ready=true;
             });return ready;
@@ -10937,11 +10950,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-fx").toBool()&&
-           ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
+           ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y"||ref.field=="image.width"||ref.field=="image.height")&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-scalar-pick").toBool()&&
-           ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&focus&&
+           ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y"||ref.field=="image.width"||ref.field=="image.height")&&focus&&
            focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-path").toBool()&&
