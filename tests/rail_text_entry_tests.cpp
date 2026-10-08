@@ -2603,6 +2603,27 @@ int main(int argc,char** argv){
             for(const auto* field:{"transform.anchor_x","transform.anchor_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_anchor_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
+        if(app.arguments().contains("--star-common-scalars-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field,false,false,true,true);else scalar_pick_pending_pointer("valid",field,false,false,true,true);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Star common property first-pointer entries satisfy the existing source contract");
+            std::cout<<"star_common_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-common-scalars-fx-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","expression-scalar","invalid-expression","out-of-range-expression","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture","apply-selection"}){if((std::string(mode)=="out-of-range"||std::string(mode)=="out-of-range-expression")&&std::string(field)!="composite.opacity")continue;scalar_fx_pending_pointer(mode,field,false,false,true,true);}
+            std::cout<<"star_common_scalars_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-common-scalars-pick-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","entry-revision","entry-document","entry-session","entry-source","apply-revision","apply-document","apply-session","apply-source","apply-gesture","apply-cancelled-gesture"}){if(std::string(mode)=="out-of-range"&&std::string(field)!="composite.opacity")continue;scalar_pick_pending_pointer(mode,field,false,false,true,true);}
+            std::cout<<"star_common_scalars_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--star-common-scalars-whip-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"}){scalar_pick_pending_pointer("drag",field,false,false,true,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,true,true);}
+            std::cout<<"star_common_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
         if(app.arguments().contains("--polygon-common-scalars-entry-pending-pointer")){
             bool failed=false;
             for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* action:{"fx","pick"}){
