@@ -2034,6 +2034,7 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
                     const bool circle=suffix=="source-id";object.source=default_primitive("replacement-point-source",circle?"nect.shape.circle":"nect.shape.rectangle");object.point_edit.reset();
                     const Id replacement=circle?"replacement-point-source-east":"replacement-point-source-top-right";
                     auto& guard=*incoming.objects.at("path-ref-guard").source;guard.parameters.at("width").binding->source.point=replacement;guard.parameters.at("height").binding->source.point=replacement;
+                    if(handle)point_scalar(incoming.objects.at("path-handle-guard").contours.front().points.front()).binding->source.point=replacement;
                 }else if(suffix=="coordinate"||suffix=="handle") {
                     Session edit(incoming);edit.apply({Set{{"text",suffix=="coordinate"?target_point:first_point,suffix=="coordinate"?field:"out.length"},suffix=="coordinate"?65.0:26.0}},edit.revision());incoming=edit.document();
                 }else if(suffix=="point-edit-reset")object.point_edit.reset();
@@ -3665,6 +3666,28 @@ int main(int argc,char** argv){
             for(const auto* field:{"x","y"})for(bool picking:{false,true})for(const auto* mode:{"entry-cancelled-gesture","apply-cancelled-gesture"})
                 authored_point_coordinate_pointer(field,picking,mode,true,true);
             if(failed)return 1;std::cout<<"point_canvas_entry_pending_pointer: "<<checks<<" checks passed; Qt Window Canvas route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-point-handles-entry-pending-pointer")){
+            bool failed=false;for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true}){
+                try{authored_point_coordinate_pointer(field,picking,"valid",true);}catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Eight generated Circle point handle first-pointer entries satisfy existing semantics");
+            std::cout<<"circle_point_handles_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-point-handles-affected-pending-pointer")){
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true})for(const auto* mode:{"canvas-selection","fresh","point-edit","bypassed","zero","cancel","invalid","expression-scalar","entry-revision","entry-session","entry-document","entry-source","entry-source-id","entry-coordinate","entry-handle","entry-type","entry-missing-point","entry-point-edit-reset","entry-point-edit-enabled","entry-gesture","entry-cancelled-gesture","apply-revision","apply-session","apply-document","apply-source","apply-source-id","apply-coordinate","apply-handle","apply-type","apply-missing-point","apply-point-edit-reset","apply-point-edit-enabled","apply-gesture","apply-cancelled-gesture"}){std::cerr<<"Circle point "<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_point_coordinate_pointer(field,picking,mode,true);}
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"invalid-expression","apply-selection"})authored_point_coordinate_pointer(field,false,mode,true);
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"cycle","unit"})authored_point_coordinate_pointer(field,true,mode,true);
+            for(const auto* field:{"in.angle","out.angle"})for(bool picking:{false,true})for(const auto* mode:{"unwrapped","signed"})authored_point_coordinate_pointer(field,picking,mode,true);
+            for(const auto* field:{"in.length","out.length"}){
+                for(bool picking:{false,true})authored_point_coordinate_pointer(field,picking,"negative",true);
+                authored_point_coordinate_pointer(field,false,"negative-expression",true);
+            }
+            std::cout<<"circle_point_handles_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-point-handles-whip-pending-pointer")){
+            for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(const auto* mode:{"drag","drag-cancel"})authored_point_coordinate_pointer(field,true,mode,true);
+            std::cout<<"circle_point_handles_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-point-coordinates-entry-pending-pointer")){
             bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){
