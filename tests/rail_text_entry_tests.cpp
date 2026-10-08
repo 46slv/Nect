@@ -2287,18 +2287,18 @@ void authored_stroke_width_pointer(bool picking,const std::string& mode="valid")
     check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
 }
 
-void circle_stroke_width_pointer(bool picking,const std::string& mode="valid"){
-    const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";
+void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false){
+    const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("circle-stroke-entry","composition","board");
-    Object target;target.id="text";target.name="Authored target";target.kind=Kind::path;target.source=default_primitive("circle-stroke-source","nect.shape.circle");
+    Object target;target.id="text";target.name="Authored target";target.kind=Kind::path;target.source=default_primitive("circle-stroke-source",rectangle_source?"nect.shape.rectangle":"nect.shape.circle");
     target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
     Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
-    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};Session paint_seed(document);paint_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0},Set{{"text","circle-stroke-source-east","x"},87},Set{{"text","circle-stroke-source-east","out.length"},31}},paint_seed.revision());document=paint_seed.document();
+    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};Session paint_seed(document);paint_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0},Set{{"text",generated_point,"x"},87},Set{{"text",generated_point,"out.length"},31}},paint_seed.revision());document=paint_seed.document();
     Object guard;guard.id="path-ref-guard";guard.source=default_primitive("circle-stroke-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
-    paint_seed=Session(document);paint_seed.apply({Link{{guard.id,"","generator.width"},{{"text","circle-stroke-source-east","x"},0.1,0,"copy_local_value"}}},paint_seed.revision());document=paint_seed.document();
+    paint_seed=Session(document);paint_seed.apply({Link{{guard.id,"","generator.width"},{{"text",generated_point,"x"},0.1,0,"copy_local_value"}}},paint_seed.revision());document=paint_seed.document();
     auto target_stroke=default_operation("path-target-stroke","nect.paint.stroke");target_stroke.parameters.at("width").literal=4;
     auto source_stroke=default_operation("source-stroke","nect.paint.stroke");source_stroke.parameters.at("width").literal=12;
     Session seeded(document);seeded.apply({AddOperation{"text",target_stroke,1},AddOperation{"source",source_stroke,0},
@@ -2326,21 +2326,21 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid"){
         if(suffix=="session"){window.host.session_id="replacement-stroke-session";return;}
         if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.tx"},61}},window.host.session.revision());
         else if(suffix=="gesture"||suffix=="cancelled-gesture"){
-            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text","circle-stroke-source-east","y"},13}});
+            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text",generated_point,"y"},13}});
             if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
         }else if(suffix=="selection"){
             window.canvas->set_selection("source");events();window.canvas->set_selection(ref.object);events();
         }else{
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
             if(suffix=="document")incoming.id="replacement-stroke-document";
-            else if(suffix=="source")object.source->parameters.at("radius").literal=76;
+            else if(suffix=="source")object.source->parameters.at(rectangle_source?"width":"radius").literal=rectangle_source?221:76;
             else if(suffix=="coordinate")object.stack.at(1).parameters.at("width").literal=65;
-            else if(suffix=="handle")object.point_edit->overrides.at("circle-stroke-source-east").at("out.length").literal=26;
+            else if(suffix=="handle")object.point_edit->overrides.at(generated_point).at("out.length").literal=26;
             else if(suffix=="color")object.stack.at(1).parameters.at("r").literal=0.7;
             else if(suffix=="order")std::reverse(object.stack.begin(),object.stack.end());
             else if(suffix=="operation"){object.stack.at(1).id="replacement-stroke";incoming.objects.at("path-ref-guard").source->parameters.at("height").binding->source=operation_ref("text","replacement-stroke","width");}
-            else if(suffix=="type"){object.source=default_primitive("replacement-stroke-source","nect.shape.rectangle");object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-stroke-source-top-right","x"};}
-            else if(suffix=="identity"){object.source->id="replacement-stroke-source";object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-stroke-source-east","x"};}
+            else if(suffix=="type"){object.source=default_primitive("replacement-stroke-source",rectangle_source?"nect.shape.circle":"nect.shape.rectangle");object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text",rectangle_source?"replacement-stroke-source-east":"replacement-stroke-source-top-right","x"};}
+            else if(suffix=="identity"){object.source->id="replacement-stroke-source";object.point_edit.reset();incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text",rectangle_source?"replacement-stroke-source-top-right":"replacement-stroke-source-east","x"};}
             else if(suffix=="point-edit")object.point_edit->enabled=false;
             else throw std::runtime_error("Unknown Stroke context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.tx"},61}},replacement.revision());
@@ -3451,6 +3451,21 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--circle-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode,true);
             std::cout<<"circle_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-stroke-width-entry-pending-pointer")){
+            bool failed=false;for(bool picking:{false,true}){try{circle_stroke_width_pointer(picking,"valid",true);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
+            check(!failed,"Both generated Rectangle Stroke first-pointer entries satisfy existing semantics");
+            std::cout<<"rectangle_stroke_width_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-stroke-width-affected-pending-pointer")){
+            for(bool picking:{false,true})for(const auto* mode:{"valid","zero","invalid","negative","cancel","expression-scalar","entry-session","entry-document","entry-revision","entry-source","entry-identity","entry-point-edit","entry-coordinate","entry-handle","entry-color","entry-order","entry-operation","entry-type","entry-gesture","entry-cancelled-gesture","apply-session","apply-document","apply-revision","apply-source","apply-identity","apply-point-edit","apply-coordinate","apply-handle","apply-color","apply-order","apply-operation","apply-type","apply-selection","apply-gesture","apply-cancelled-gesture"}){std::cerr<<(picking?"pick":"fx")<<" / "<<mode<<"\n";circle_stroke_width_pointer(picking,mode,true);}
+            for(const auto* mode:{"invalid-expression","negative-expression"})circle_stroke_width_pointer(false,mode,true);
+            for(const auto* mode:{"cycle","unit"})circle_stroke_width_pointer(true,mode,true);
+            std::cout<<"rectangle_stroke_width_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--rectangle-stroke-width-whip-pending-pointer")){
+            for(const auto* mode:{"drag","drag-cancel"})circle_stroke_width_pointer(true,mode,true);
+            std::cout<<"rectangle_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-stroke-width-entry-pending-pointer")){
             bool failed=false;for(bool picking:{false,true}){try{circle_stroke_width_pointer(picking);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
