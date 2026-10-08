@@ -10837,7 +10837,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 return !operation.macro&&
                     ((operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
                       ((operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width"))||
-                       (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))))||
+                       (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))||
+                        (!operation.gradient&&std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                            const auto& key=parameter.first;
+                            return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                        }))))||
                      (operation.type=="nect.paint.fill"&&operation.version==1&&!operation.gradient&&
                       std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
                           const auto& key=parameter.first;
@@ -11017,7 +11021,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                             return !operation.macro&&
                                 ((operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
                                   ((operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width"))||
-                                   (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))))||
+                                   (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))||
+                                    (!operation.gradient&&std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                        const auto& key=parameter.first;
+                                        return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                                    }))))||
                                  (operation.type=="nect.paint.fill"&&operation.version==1&&!operation.gradient&&
                                   std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
                                       const auto& key=parameter.first;
