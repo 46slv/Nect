@@ -2528,7 +2528,7 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bo
 
 void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false,bool generated_polygon=false,bool generated_star=false,const std::string& gradient_endpoint="",const std::string& gradient_stop=""){
     const bool generated=generated_circle||generated_rectangle||generated_polygon||generated_star;const Id generated_point=generated_rectangle?"circle-paint-source-top-right":generated_polygon?"circle-paint-source-outer-1-6":generated_star?"circle-paint-source-outer-1-5":"circle-paint-source-east";
-    const bool handle=false;const bool stop_offset=!gradient_stop.empty();const bool gradient=!gradient_endpoint.empty()||stop_offset;const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const Id target_gradient_id=paint=="stroke"?"target-stroke-gradient":"target-gradient";const Id source_gradient_id=paint=="stroke"?"source-stroke-gradient":"source-gradient";const Id target_stop_id=gradient_stop=="last"?"target-last-stop":"target-first-stop";const Id source_stop_id=gradient_stop=="last"?"source-last-stop":"source-first-stop";const std::string gradient_field=stop_offset?"stop."+target_stop_id+".offset":gradient_endpoint;const std::string source_gradient_field=stop_offset?"stop."+source_stop_id+".offset":gradient_endpoint;const double other_offset=gradient_stop=="last"?0.1:0.8;const auto field=(gradient?gradient_ref("text",target_op,target_gradient_id,gradient_field):operation_ref("text",target_op,parameter)).field;const QString label=stop_offset?"Offset":gradient?(gradient_endpoint=="start_x"?"Start X":gradient_endpoint=="start_y"?"Start Y":gradient_endpoint=="end_x"?"End X":"End Y"):parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
+    const bool handle=false;const bool stop_offset=!gradient_stop.empty();const bool gradient=!gradient_endpoint.empty()||stop_offset;const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const Id target_gradient_id=paint=="stroke"?"target-stroke-gradient":"target-gradient";const Id source_gradient_id=paint=="stroke"?"source-stroke-gradient":"source-gradient";const Id target_stop_id=paint=="stroke"?(gradient_stop=="last"?"target-stroke-last":"target-stroke-first"):(gradient_stop=="last"?"target-last-stop":"target-first-stop");const Id other_target_stop_id=paint=="stroke"?(gradient_stop=="last"?"target-stroke-first":"target-stroke-last"):(gradient_stop=="last"?"target-first-stop":"target-last-stop");const Id source_stop_id=paint=="stroke"?(gradient_stop=="last"?"source-stroke-last":"source-stroke-first"):(gradient_stop=="last"?"source-last-stop":"source-first-stop");const std::string gradient_field=stop_offset?"stop."+target_stop_id+".offset":gradient_endpoint;const std::string source_gradient_field=stop_offset?"stop."+source_stop_id+".offset":gradient_endpoint;const double other_offset=gradient_stop=="last"?0.1:0.8;const auto field=(gradient?gradient_ref("text",target_op,target_gradient_id,gradient_field):operation_ref("text",target_op,parameter)).field;const QString label=stop_offset?"Offset":gradient?(gradient_endpoint=="start_x"?"Start X":gradient_endpoint=="start_y"?"Start Y":gradient_endpoint=="end_x"?"End X":"End Y"):parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
     QTemporaryDir scratch;check(scratch.isValid(),"Paint width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -2558,7 +2558,7 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
         Link{{"path-ref-guard","",gradient&&!stop_offset?"generator.height":"composite.opacity"},{target_ref,gradient&&!stop_offset?0.001:0.1,0.2,"copy_local_value"}}},seeded.revision());document=seeded.document();
     if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{other_ref,{target_ref,1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
     const Ref ref=target_ref;Ref source_ref=other_ref;if(mode=="unit")source_ref=operation_ref("source","source-stroke",gradient&&!stop_offset?"a":"width");
-    if(mode=="coincident-link")source_ref=gradient_ref("text",target_op,target_gradient_id,"stop."+(gradient_stop=="last"?Id{"target-first-stop"}:Id{"target-last-stop"})+".offset");
+    if(mode=="coincident-link")source_ref=gradient_ref("text",target_op,target_gradient_id,"stop."+other_target_stop_id+".offset");
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object);events();
     Session expected=window.host.session;
     auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
@@ -3582,6 +3582,25 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--circle-gradient-stop-offset-whip-pending-pointer")){
             for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,true,false,false,false,"",stop);
             std::cout<<"circle_gradient_stop_offset_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-stop-offset-entry-pending-pointer")){
+            bool failed=false;for(const auto* stop:{"first","last"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("stroke","a",picking,"valid",true,false,false,false,"",stop);}catch(const std::exception& error){std::cerr<<stop<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Circle Stroke Gradient stop offset first-pointer entries satisfy canonical Scalar contract");
+            std::cout<<"circle_stroke_gradient_stop_offset_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-stop-offset-affected-pending-pointer")){
+            for(const auto* stop:{"first","last"}){
+                for(bool picking:{false,true})for(const auto* mode:{"plain","cancel","invalid","zero","one","negative","above","coincident-scalar","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-stop-id","entry-stop-order","entry-other-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-stop-id","apply-stop-order","apply-other-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("stroke","a",picking,mode,true,false,false,false,"",stop);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression","coincident-expression","apply-selection"})authored_paint_scalar_pointer("stroke","a",false,mode,true,false,false,false,"",stop);
+                for(const auto* mode:{"cycle","unit","coincident-link"})authored_paint_scalar_pointer("stroke","a",true,mode,true,false,false,false,"",stop);
+            }
+            std::cout<<"circle_stroke_gradient_stop_offset_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-stop-offset-whip-pending-pointer")){
+            for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,true,false,false,false,"",stop);
+            std::cout<<"circle_stroke_gradient_stop_offset_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-paint-scalars-entry-pending-pointer")){
             bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){

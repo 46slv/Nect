@@ -10789,7 +10789,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,endpoint)) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;
                     }
-            if(operation.type=="nect.paint.fill"&&operation.gradient)
+            if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
                 for(const auto& stop:operation.gradient->stops)
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+".offset")) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter="offset";
