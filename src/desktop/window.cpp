@@ -10782,7 +10782,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 }
     // Freeze only these exact nested authored scalars; the complete Object
     // guard retains every other endpoint, stop, Source and Point Edit value.
-    if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&paint_target.source&&(paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star")&&!paint_target.text)
+    if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&(!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star")&&!paint_target.text)
         for(const auto& operation:paint_target.stack) {
             if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
                 for(const auto* endpoint:{"start_x","start_y","end_x","end_y"})

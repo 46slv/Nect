@@ -2579,14 +2579,14 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
         if(suffix=="session"){window.host.session_id="replacement-paint-session";return;}
         if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.tx"},61}},window.host.session.revision());
         else if(suffix=="gesture"||suffix=="cancelled-gesture"){
-            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text",gradient?generated_point:Id{"text-first"},"y"},13}});
+            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text",(gradient&&generated)?generated_point:Id{"text-first"},"y"},13}});
             if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
         }else if(suffix=="selection"){
             window.canvas->set_selection("source");events();window.canvas->set_selection(ref.object);events();
         }else{
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");auto op=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& o){return o.id==target_op;});check(op!=object.stack.end(),"Exact paint operation survives fixture context");
             if(gradient&&suffix!="document"){
-                if(suffix=="source")object.source->parameters.at(generated_star?"outer_radius":generated_rectangle?"width":"radius").literal=123;
+                if(suffix=="source"){if(generated)object.source->parameters.at(generated_star?"outer_radius":generated_rectangle?"width":"radius").literal=123;else object.contours.front().id="replacement-gradient-contour";}
                 else if(suffix=="coordinate"){
                     auto& g=*op->gradient;if(stop_scalar){for(auto& stop:g.stops)if(stop.id==target_stop_id){if(stop_offset)stop.offset.literal=0.65;else stop.rgba[gradient_channel=="r"?0:gradient_channel=="g"?1:gradient_channel=="b"?2:3].literal=0.65;}}else if(gradient_endpoint=="start_x")g.start_x.literal=65;else if(gradient_endpoint=="start_y")g.start_y.literal=65;else if(gradient_endpoint=="end_x")g.end_x.literal=65;else g.end_y.literal=65;
                 }else if(suffix=="gradient"){
@@ -3969,6 +3969,116 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--star-stroke-gradient-stop-color-whip-pending-pointer")){
             for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,true,"",stop,channel);
             std::cout<<"star_stroke_gradient_stop_color_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-endpoints-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("fill","a",picking,"valid",false,false,false,false,field);}catch(const std::exception& error){std::cerr<<field<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Gradient endpoint first-pointer entries satisfy the existing canonical Scalar contract");
+            std::cout<<"path_gradient_endpoints_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-endpoints-affected-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","zero","signed","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture","apply-selection"})authored_paint_scalar_pointer("fill","a",false,mode,false,false,false,false,field);
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","zero","signed","cycle","unit","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,field);
+            std::cout<<"path_gradient_endpoints_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-endpoints-whip-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,field);
+            std::cout<<"path_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-endpoints-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("stroke","a",picking,"valid",false,false,false,false,field);}catch(const std::exception& error){std::cerr<<field<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Stroke Gradient endpoint first-pointer entries satisfy the existing canonical Scalar contract");
+            std::cout<<"path_stroke_gradient_endpoints_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-endpoints-affected-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","zero","signed","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture","apply-selection"})authored_paint_scalar_pointer("stroke","a",false,mode,false,false,false,false,field);
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","zero","signed","cycle","unit","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,field);
+            std::cout<<"path_stroke_gradient_endpoints_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-endpoints-whip-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,field);
+            std::cout<<"path_stroke_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-offset-entry-pending-pointer")){
+            bool failed=false;for(const auto* stop:{"first","last"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("fill","a",picking,"valid",false,false,false,false,"",stop);}catch(const std::exception& error){std::cerr<<stop<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Fill Gradient stop offset first-pointer entries satisfy canonical Scalar contract");
+            std::cout<<"path_gradient_stop_offset_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-offset-affected-pending-pointer")){
+            for(const auto* stop:{"first","last"}){
+                for(bool picking:{false,true})for(const auto* mode:{"plain","cancel","invalid","zero","one","negative","above","coincident-scalar","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-stop-id","entry-stop-order","entry-other-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-stop-id","apply-stop-order","apply-other-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("fill","a",picking,mode,false,false,false,false,"",stop);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression","coincident-expression","apply-selection"})authored_paint_scalar_pointer("fill","a",false,mode,false,false,false,false,"",stop);
+                for(const auto* mode:{"cycle","unit","coincident-link"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,"",stop);
+            }
+            std::cout<<"path_gradient_stop_offset_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-offset-whip-pending-pointer")){
+            for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,"",stop);
+            std::cout<<"path_gradient_stop_offset_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-offset-entry-pending-pointer")){
+            bool failed=false;for(const auto* stop:{"first","last"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("stroke","a",picking,"valid",false,false,false,false,"",stop);}catch(const std::exception& error){std::cerr<<stop<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Stroke Gradient stop offset first-pointer entries satisfy canonical Scalar contract");
+            std::cout<<"path_stroke_gradient_stop_offset_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-offset-affected-pending-pointer")){
+            for(const auto* stop:{"first","last"}){
+                for(bool picking:{false,true})for(const auto* mode:{"plain","cancel","invalid","zero","one","negative","above","coincident-scalar","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-stop-id","entry-stop-order","entry-other-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-stop-id","apply-stop-order","apply-other-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("stroke","a",picking,mode,false,false,false,false,"",stop);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression","coincident-expression","apply-selection"})authored_paint_scalar_pointer("stroke","a",false,mode,false,false,false,false,"",stop);
+                for(const auto* mode:{"cycle","unit","coincident-link"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,"",stop);
+            }
+            std::cout<<"path_stroke_gradient_stop_offset_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-offset-whip-pending-pointer")){
+            for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,"",stop);
+            std::cout<<"path_stroke_gradient_stop_offset_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-color-entry-pending-pointer")){
+            bool failed=false;for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("fill","a",picking,"valid",false,false,false,false,"",stop,channel);}catch(const std::exception& error){std::cerr<<stop<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Fill Gradient stop color first-pointer entries satisfy canonical Scalar contract");
+            std::cout<<"path_gradient_stop_color_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-color-affected-pending-pointer")){
+            for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"}){
+                for(bool picking:{false,true})for(const auto* mode:{"plain","cancel","invalid","zero","one","negative","above","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-stop-id","entry-stop-order","entry-other-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-stop-id","apply-stop-order","apply-other-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("fill","a",picking,mode,false,false,false,false,"",stop,channel);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression","apply-selection"})authored_paint_scalar_pointer("fill","a",false,mode,false,false,false,false,"",stop,channel);
+                for(const auto* mode:{"cycle","unit"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,"",stop,channel);
+            }
+            std::cout<<"path_gradient_stop_color_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-gradient-stop-color-whip-pending-pointer")){
+            for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,false,false,false,false,"",stop,channel);
+            std::cout<<"path_gradient_stop_color_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-color-entry-pending-pointer")){
+            bool failed=false;for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("stroke","a",picking,"valid",false,false,false,false,"",stop,channel);}catch(const std::exception& error){std::cerr<<stop<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Authored Path Stroke Gradient stop color first-pointer entries satisfy canonical Scalar contract");
+            std::cout<<"path_stroke_gradient_stop_color_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-color-affected-pending-pointer")){
+            for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"}){
+                for(bool picking:{false,true})for(const auto* mode:{"plain","cancel","invalid","zero","one","negative","above","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-stop-id","entry-stop-order","entry-other-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-stop-id","apply-stop-order","apply-other-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("stroke","a",picking,mode,false,false,false,false,"",stop,channel);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression","apply-selection"})authored_paint_scalar_pointer("stroke","a",false,mode,false,false,false,false,"",stop,channel);
+                for(const auto* mode:{"cycle","unit"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,"",stop,channel);
+            }
+            std::cout<<"path_stroke_gradient_stop_color_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--path-stroke-gradient-stop-color-whip-pending-pointer")){
+            for(const auto* channel:{"r","g","b","a"})for(const auto* stop:{"first","last"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,false,false,false,false,"",stop,channel);
+            std::cout<<"path_stroke_gradient_stop_color_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-paint-scalars-entry-pending-pointer")){
             bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){
