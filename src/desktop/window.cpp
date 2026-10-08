@@ -10755,14 +10755,16 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.polygon";
     const bool star_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.points"||ref.field=="generator.outer_radius"||ref.field=="generator.inner_radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="generator.rotation"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.star";
+    const bool group_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::group&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
-    auto* prepared_fx=(text_scalar_fx||source_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
+    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
     QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* prepared_pick=(text_scalar_fx||source_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
+    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
     QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
@@ -10772,8 +10774,22 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const auto field_session=host.session_id;
     const auto field_revision=host.session.revision();
     const auto scalar_source=source_scalar_fx?d.objects.at(ref.object).source->id:text_scalar_fx?d.objects.at(ref.object).text->id:Id{};
-    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type](const PropertyActionContext& context) {
-        if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
+    const auto group_children=group_scalar_fx?d.objects.at(ref.object).children:std::vector<Id>{};
+    auto verify_group_context=[this,group_children](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Group property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Group property revision changed");
+        const auto found=host.session.document().objects.find(context.object);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::group||found->second.source||found->second.text||found->second.children!=group_children)
+            throw Error("PROPERTY_CONFLICT","The original Group or its children changed");
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Group property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Group property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Group property gesture context changed");
+    };
+    auto verify_scalar_context=[this,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context](const PropertyActionContext& context) {
+        if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
     };
     if(prepared_pick) {
         prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setFocusPolicy(Qt::StrongFocus);
@@ -10794,7 +10810,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         };
         // Browsing a source intentionally changes selection. Keep the target
         // identity, scope and edit generation frozen while allowing that view.
-        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type] {
+        prepared_pick->verify_context=[this,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context] {
+            if(group_scalar_fx){verify_group_context(*context,true);return;}
             if(source_scalar_fx){verify_primitive_scalar_context(*context,scalar_source_type,true);return;}
             if(host.session_id!=context->session||host.session.document().id!=context->document)throw Error("SESSION_CONFLICT","The source picker belongs to another document");
             if(host.session.revision()!=context->revision)throw Error("REVISION_CONFLICT","The source picker revision changed");
