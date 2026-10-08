@@ -10789,12 +10789,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,endpoint)) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;
                     }
-            if(paint_target.source->type=="nect.shape.circle"&&(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
+            if((paint_target.source->type=="nect.shape.circle"||(paint_target.source->type=="nect.shape.rectangle"&&operation.type=="nect.paint.fill"))&&(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
                 for(const auto& stop:operation.gradient->stops) {
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+".offset")) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter="offset";
                     }
-                    if(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")
+                    if(paint_target.source->type=="nect.shape.circle"&&(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke"))
                         for(const auto* channel:{"r","g","b","a"})
                             if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+"."+channel)) {
                                 paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter=channel;
