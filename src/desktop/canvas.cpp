@@ -2344,7 +2344,12 @@ void Canvas::finish_drag() {
             // second full projection here only adds latency to pointer release.
             if(document_changed)document_changed();
             update();
-        } else refresh(); // A cancellation/failure may have restored the start state.
+        } else {
+            refresh(); // A cancellation/failure may have restored the start state.
+            // Selection built the fields before begin_gesture changed its generation.
+            // Refresh only derived UI; an empty click must not dirty/save the document.
+            if(empty_gesture_finished)empty_gesture_finished();
+        }
     }
     drag_ = Drag::none;
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();

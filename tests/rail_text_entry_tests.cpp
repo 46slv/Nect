@@ -1948,7 +1948,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
 }
 
 
-void authored_point_coordinate_pointer(const std::string& field,bool picking,const std::string& mode="valid",bool generated_circle=false){
+void authored_point_coordinate_pointer(const std::string& field,bool picking,const std::string& mode="valid",bool generated_circle=false,bool canvas_selection=false){
     const Id target_point=generated_circle?"circle-point-source-east":"text-second",first_point=generated_circle?"circle-point-source-north":"text-first";
     const bool handle=field.starts_with("in.")||field.starts_with("out.");
     auto point_scalar=[&](Point& point)->Scalar&{
@@ -1991,6 +1991,17 @@ void authored_point_coordinate_pointer(const std::string& field,bool picking,con
     }
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object,ref.point);events();
     Session expected=window.host.session;
+    if(mode=="canvas-selection"||canvas_selection){
+        window.canvas->set_selection(ref.object);window.canvas->fit_artboard();events();click(window,"tool-direct-selection");
+        const auto values=evaluate(document);const auto world=evaluate_transforms(document,values).at(ref.object).world;
+        const auto px=values.at({ref.object,ref.point,"x"}),py=values.at({ref.object,ref.point,"y"});
+        const auto& board=document.compositions.front().artboards.front();
+        const QPoint at(qRound(window.canvas->width()/2.0+(world[0]*px+world[2]*py+world[4]-board.width/2.0)*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(world[1]*px+world[3]*py+world[5]-board.height/2.0)*window.canvas->zoom()));
+        QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,window.canvas->mapTo(&window,at));events();
+        check(window.canvas->selected_object==ref.object&&window.canvas->selected_point==ref.point,"Actual Canvas click/release selects exact stable point");
+        check(!window.host.session.gesture_active()&&snapshot(window.host.session)==snapshot(expected),"Empty selection gesture leaves full authored state/history neutral");
+    }
     auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
     for(auto* candidate:window.findChildren<QLineEdit*>()){
         const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
@@ -3642,6 +3653,18 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-stroke-width-whip-pending-pointer")){
             for(const auto* mode:{"drag","drag-cancel"})authored_stroke_width_pointer(true,mode);
             std::cout<<"path_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--point-canvas-entry-pending-pointer")){
+            bool failed=false;
+            for(bool generated:{true,false})for(const auto* field:{"x","y"})for(bool picking:{false,true}){
+                try{authored_point_coordinate_pointer(field,picking,"canvas-selection",generated);}
+                catch(const std::exception& error){failed=true;std::cerr<<(generated?"Circle":"Authored")<<" Canvas "<<field<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            for(const auto* field:{"in.angle","out.length"})for(bool picking:{false,true})
+                authored_point_coordinate_pointer(field,picking,"canvas-selection");
+            for(const auto* field:{"x","y"})for(bool picking:{false,true})for(const auto* mode:{"entry-cancelled-gesture","apply-cancelled-gesture"})
+                authored_point_coordinate_pointer(field,picking,mode,true,true);
+            if(failed)return 1;std::cout<<"point_canvas_entry_pending_pointer: "<<checks<<" checks passed; Qt Window Canvas route\n";return 0;
         }
         if(app.arguments().contains("--circle-point-coordinates-entry-pending-pointer")){
             bool failed=false;for(const auto* field:{"x","y"})for(bool picking:{false,true}){

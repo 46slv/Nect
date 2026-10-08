@@ -1784,6 +1784,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         host.edited();
     };
     canvas->selection_changed=[this,sync_tools]{++text_selection_generation_;if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();sync_tools();};
+    canvas->empty_gesture_finished=[this]{rebuild_inspector();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
     canvas->view_state_changed=[this,sync_tools]{sync_utility_view_state();sync_tools();};
     canvas->zoom_changed=[this](double zoom){

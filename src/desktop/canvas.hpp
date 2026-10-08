@@ -32,6 +32,8 @@ public:
     std::function<void()> selection_changed;
     // Sent after projecting a Canvas edit; failed projection remains explicit.
     std::function<void()> document_changed;
+    // Empty owned gestures also invalidate Inspector input contexts, not authored state.
+    std::function<void()> empty_gesture_finished;
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
     std::function<void()> text_mode_changed;
