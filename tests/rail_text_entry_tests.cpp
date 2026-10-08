@@ -3087,6 +3087,162 @@ void existing_repeater_scalar_pointer(const std::string& parameter,bool picking,
     check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
 }
 
+void text_repeater_numeric_pointer(const std::string& parameter,bool picking,const std::string& mode="valid",const std::string& kind="text"){
+    const bool authored_text=kind=="text",copies=parameter=="copies";const std::string generated_primitive=authored_text?"":kind;
+    const bool handle=!copies;const bool generated=!generated_primitive.empty();const std::string repeater_parameter=parameter;const std::string field="op.path-target-repeater."+repeater_parameter;const QString label=copies?"Copies":"Rotation · degree";const Id generated_point="repeater-target-source-"+std::string(generated_primitive=="nect.shape.rectangle"?"top-right":generated_primitive=="nect.shape.polygon"?"outer-1-6":generated_primitive=="nect.shape.star"?"outer-1-5":"east");
+    QTemporaryDir scratch;check(scratch.isValid(),"Repeater width owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("authored-repeater-entry","composition","board");
+    Object target;target.id="text";target.name="Authored target";if(authored_text){target.kind=Kind::text;target.text=default_text("text-repeater-source","Retain 日本語 (ABC123) and style");target.text->parameters.at("font_size").literal=24;target.text->parameters.at("tracking").literal=1.5;}else if(generated){target.kind=Kind::path;target.source=default_primitive("repeater-target-source",generated_primitive);}else make_scalar_path(target);
+    target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
+    Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
+    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};if(authored_text||generated){
+        Session text_seed(document);text_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0}},text_seed.revision());if(generated)text_seed.apply({Set{{"text",generated_point,"x"},87},Set{{"text",generated_point,"out.length"},31}},text_seed.revision());document=text_seed.document();
+        Object guard;guard.id="path-ref-guard";guard.source=default_primitive("text-repeater-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
+        text_seed=Session(document);text_seed.apply({Link{{guard.id,"","generator.width"},{{"text",generated?generated_point:Id{},generated?"x":"transform.tx"},0.1,0,"copy_local_value"}}},text_seed.revision());document=text_seed.document();
+    }else seed_scalar_path(document);
+    auto target_repeater=default_operation("path-target-repeater","nect.shape.repeater");target_repeater.parameters.at("copies").literal=4;target_repeater.parameters.at("rotation").literal=30.5;
+    auto source_repeater=default_operation("source-repeater","nect.shape.repeater");source_repeater.parameters.at("copies").literal=12;source_repeater.parameters.at("rotation").literal=725.5;source_repeater.composite="below";
+    auto target_paint=default_operation("retained-target-stroke","nect.paint.stroke");target_paint.parameters.at("width").literal=4;
+    auto source_paint=default_operation("retained-source-stroke","nect.paint.stroke");source_paint.parameters.at("width").literal=12;
+    Session seeded(document);seeded.apply({AddOperation{"text",target_repeater,1},AddOperation{"text",target_paint,2},AddOperation{"source",source_repeater,0},AddOperation{"source",source_paint,1},Link{copies?Ref{"path-ref-guard","","composite.opacity"}:Ref{"source","source-first","out.angle"},{operation_ref("text","path-target-repeater",parameter),0.0001,copies?0.2:20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{operation_ref("source","source-repeater",repeater_parameter),{operation_ref("text","path-target-repeater",repeater_parameter),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    const Ref ref=operation_ref("text","path-target-repeater",repeater_parameter);Ref source_ref=operation_ref("source","source-repeater",repeater_parameter);if(mode=="unit")source_ref=operation_ref("source","source-repeater",copies?"rotation":"copies");
+    const Ref gesture_ref={"text",authored_text?Id{}:generated?generated_point:Id{"text-second"},authored_text?"transform.tx":"x"};
+    const double gesture_value=authored_text?61:generated?88:81;
+    // Validate the real point/transform command against the existing evaluator
+    // preview before focusing a GUI draft, then use the same command below.
+    if(mode.ends_with("gesture")){
+        Session preflight(document);preflight.begin_gesture(preflight.revision());preflight.update_gesture({Set{gesture_ref,gesture_value}});preflight.cancel_gesture();
+    }
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    for(auto* button:window.findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))
+        if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
+    check(scroll&&input&&action,"Exact stable point width input/action exists");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    const double pending_value=mode=="zero"?0:mode=="one"?1:mode=="negative"?-1:mode=="fractional"?2.5:mode=="lower"?(copies?0:-1000000000):mode=="upper"?(copies?1000:1000000000):copies?6:450.5;
+    const QString pending_text=QString::number(pending_value,'g',17);
+    const QString expression_text=copies?"3 + 2":"720 + 5.5";const QString pending_formula=copies?"2 + 3":"40 + 2";
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):mode=="negative"?QString("-1"):mode=="below"?(copies?QString("-1"):QString("-1000000001")):mode=="above"?(copies?QString("1001"):QString("1000000001")):mode=="expression-scalar"?QString("=")+pending_formula:pending_text);events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Selected Repeater draft is full-state neutral");
+    const auto preview_before_entry=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    const auto selection=window.canvas->selections();
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits selected Repeater width action");
+    auto scalar_expected=[&]{if(mode=="expression-scalar")expected.apply({SetExpression{{ref},{pending_formula.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{{ref},pending_value,false}},expected.revision());};
+    auto undo_scalar=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate Repeater scalar Undo restores exact curve/IDs/handles/paint/Refs");};
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar_expected();
+        check(snapshot(window.host.session)==snapshot(expected),"Repeater whip press commits only independent width before freezing target");
+        if(mode=="drag-cancel"){
+            QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Repeater whip Escape retains scalar and exact target selection");
+        }else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* source_item=nullptr;
+            for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty()){tree=candidate;source_item=*it;}
+            check(tree&&source_item,"Repeater whip finds exact other authored Path tree row");tree->scrollToItem(source_item);events();
+            QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(source_item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Repeater whip browsing selects stable first source point with no authored mutation");
+            QLineEdit* source_field=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+                const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+                if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))source_field=candidate;
+            }
+            check(source_field,"Whip drop has exact stable source point width");scroll->ensureWidgetVisible(source_field);events();
+            const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual point whip drop hits visible width");
+            QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();
+            expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Repeater whip links exact Ref and restores frozen target");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Repeater whip link Undo retains independent scalar");
+        }
+        undo_scalar();return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="below"||mode=="above"||(copies&&(mode=="fractional"||mode=="negative"))||mode.rfind("entry-",0)==0){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused point entry preserves complete incoming authored state and opens no editor");
+        const auto message=window.statusBar()->currentMessage();
+        const auto reason=(mode=="below"||mode=="above"||(copies&&(mode=="fractional"||mode=="negative")))?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"||mode=="entry-cancelled-gesture"?"REVISION_CONFLICT":mode=="entry-session"||mode=="entry-document"?"SESSION_CONFLICT":mode=="entry-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+        check(message.contains(reason),"Repeater entry refusal identifies exact cause");
+        check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before_entry,"Repeater entry refusal preserves preview and gesture state");
+        if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar_expected();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
+        std::cerr<<field<<" repeater pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First Repeater picker commits only selected width and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))item=list->item(i);}
+        check(list&&buttons&&item,"Picker retains exact other stable point width Ref");list->setCurrentItem(item);events();
+        check(snapshot(window.host.session)==snapshot(expected),"Choosing other stable point is authored-state neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Repeater picker Cancel discards only link draft");undo_scalar();return;}
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode=="cycle"||mode=="unit"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Cycle/unit picker refusal is full-state atomic");
+            check(window.statusBar()->currentMessage().contains(mode=="cycle"?"CYCLE":"NO_SOURCE"),"Cycle/unit refusal identifies cause");
+            buttons->button(QDialogButtonBox::Cancel)->click();events();undo_scalar();return;
+        }
+        if(mode.rfind("apply-",0)==0&&mode!="apply-selection"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused point picker Apply preserves incoming source and complete history");
+            const auto reason=mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":mode=="apply-session"||mode=="apply-document"?"SESSION_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+            check(window.statusBar()->currentMessage().contains(reason),"Repeater picker refusal identifies exact cause");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Repeater picker refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+        std::cerr<<field<<" repeater fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&editor->toPlainText()==(mode=="expression-scalar"?pending_formula:pending_text)&&snapshot(window.host.session)==snapshot(expected),"First Repeater fx commits width and opens exact neutral editor");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):mode=="negative-expression"?QString("-1"):mode=="fractional-expression"?QString("2 + 0.5"):mode=="below-expression"?(copies?QString("-1"):QString("-1000000000 - 1")):mode=="above-expression"?(copies?QString("1000 + 1"):QString("1000000000 + 1")):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Repeater expression draft remains neutral");
+        QPushButton* apply=nullptr;for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+        check(apply,"Repeater inline Apply exists");
+        if(mode=="apply-selection"){
+            auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Repeater expression draft survives exact stable selection roundtrip");
+            apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;check(apply,"Repeater selection roundtrip recreated Apply");
+        }
+        if(mode=="cancel")for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        scroll->ensureWidgetVisible(apply);events();QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode.rfind("apply-",0)==0||mode=="invalid-expression"||mode=="below-expression"||mode=="above-expression"||(copies&&(mode=="negative-expression"||mode=="fractional-expression"))){
+            check(snapshot(window.host.session)==snapshot(expected),"Refused point fx Apply preserves incoming source and complete history");
+            auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Repeater expression refusal retains visible recovery status");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Repeater fx refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Repeater expression Cancel discards only expression draft");undo_scalar();return;}
+        expected.apply({SetExpression{{ref},{mode=="negative-expression"?"-1":mode=="fractional-expression"?"2 + 0.5":expression_text.toStdString(),1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Repeater operation exactly matches canonical Document/encode/history/revision");
+    if(handle){
+        QLineEdit* result=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+            const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+            if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))result=candidate;
+        }
+        check(result&&result->text().toDouble()==evaluate(expected.document()).at(ref),"Handle numeric field retains raw unwrapped canonical value without dial normalization");
+    }
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
+    const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
+    const auto actual_bounds=object_bounds(window.host.session.document(),"text",actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),"text",expected_values,expected_transforms,true);
+    check(actual_transforms.at("text").world==expected_transforms.at("text").world,"Repeater edit retains canonical nonidentity world matrix");
+    check(actual_bounds&&expected_bounds&&std::tuple{actual_bounds->left,actual_bounds->top,actual_bounds->right,actual_bounds->bottom}==std::tuple{expected_bounds->left,expected_bounds->top,expected_bounds->right,expected_bounds->bottom},"Repeater edit bounds match canonical curve geometry");
+    for(int i=0;i<2;++i){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Repeater scalar and later operation undo independently");}
+    check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
+}
+
+void text_repeater_pointer(const std::string& parameter,bool picking,const std::string& mode="valid"){
+    if(parameter=="copies"||parameter=="rotation")text_repeater_numeric_pointer(parameter,picking,mode);
+    else if(parameter=="position_x"||parameter=="position_y"||parameter=="anchor_x"||parameter=="anchor_y")existing_repeater_coordinate_pointer(parameter,picking,mode,"text");
+    else existing_repeater_scalar_pointer(parameter,picking,mode,"text");
+}
+
 void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
     const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
@@ -5105,6 +5261,23 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-repeater-entry-pending-pointer")){
+            bool failed=false;for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})for(bool picking:{false,true}){std::cerr<<"text repeater / "<<parameter<<" / "<<(picking?"pick":"fx")<<"\n";try{text_repeater_pointer(parameter,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
+            check(!failed,"All22 existing Text Repeater first actions satisfy canonical contract");
+            std::cout<<"text_repeater_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-repeater-affected-pending-pointer")){
+            for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"}){
+                for(bool picking:{false,true})for(const auto* mode:{"valid","cancel","expression-scalar"}){std::cerr<<parameter<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";text_repeater_pointer(parameter,picking,mode);}
+                std::cerr<<parameter<<" / fx / invalid-expression\n";text_repeater_pointer(parameter,false,"invalid-expression");
+                for(const auto* mode:{"cycle","unit"}){std::cerr<<parameter<<" / pick / "<<mode<<"\n";text_repeater_pointer(parameter,true,mode);}
+            }
+            std::cout<<"text_repeater_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-repeater-whip-pending-pointer")){
+            for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})for(const auto* mode:{"drag","drag-cancel"})text_repeater_pointer(parameter,true,mode);
+            std::cout<<"text_repeater_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--repeater-scalars-entry-pending-pointer")){
             bool failed=false;for(const auto* parameter:{"scale_x","scale_y","offset","start_opacity","end_opacity"})for(bool picking:{false,true}){std::cerr<<"repeater scalar / "<<parameter<<" / "<<(picking?"pick":"fx")<<"\n";try{existing_repeater_scalar_pointer(parameter,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
