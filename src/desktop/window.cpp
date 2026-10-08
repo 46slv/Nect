@@ -10828,7 +10828,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         const auto found=d.objects.find(target.object);
         return target.point.empty()&&(target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
             target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity")&&found!=d.objects.end()&&
-            found->second.kind==Kind::path&&!found->second.source&&!found->second.text;
+            ((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+                (target.field=="transform.tx"&&(found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
+                    found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))))||
+             (target.field=="transform.tx"&&found->second.kind==Kind::text&&found->second.text&&!found->second.source));
     });
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
