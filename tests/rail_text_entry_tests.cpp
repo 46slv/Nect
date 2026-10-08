@@ -3243,6 +3243,12 @@ void text_repeater_pointer(const std::string& parameter,bool picking,const std::
     else existing_repeater_scalar_pointer(parameter,picking,mode,"text");
 }
 
+void paths_repeater_pointer(const std::string& parameter,bool picking,const std::string& mode,const std::string& kind){
+    if(parameter=="copies"||parameter=="rotation")existing_repeater_entry_pointer(parameter,picking,mode,kind);
+    else if(parameter=="position_x"||parameter=="position_y"||parameter=="anchor_x"||parameter=="anchor_y")existing_repeater_coordinate_pointer(parameter,picking,mode,kind);
+    else existing_repeater_scalar_pointer(parameter,picking,mode,kind);
+}
+
 void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
     const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
@@ -5261,6 +5267,25 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--paths-repeater-entry-pending-pointer")){
+            bool failed=false;for(const auto* kind:{"","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"})for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})for(bool picking:{false,true}){std::cerr<<"path repeater / "<<kind<<" / "<<parameter<<" / "<<(picking?"pick":"fx")<<"\n";try{paths_repeater_pointer(parameter,picking,"valid",kind);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
+            check(!failed,"All88 existing Path Repeater first actions satisfy canonical contract");
+            std::cout<<"paths_repeater_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--paths-repeater-affected-pending-pointer")){
+            for(const auto* kind:{"","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"})for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"}){
+                for(bool picking:{false,true})for(const auto* mode:{"valid","cancel","expression-scalar"}){std::cerr<<kind<<" / "<<parameter<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";paths_repeater_pointer(parameter,picking,mode,kind);}
+                std::cerr<<kind<<" / "<<parameter<<" / fx / invalid-expression\n";paths_repeater_pointer(parameter,false,"invalid-expression",kind);
+                for(const auto* mode:{"cycle","unit"}){std::cerr<<kind<<" / "<<parameter<<" / pick / "<<mode<<"\n";paths_repeater_pointer(parameter,true,mode,kind);}
+            }
+            std::cout<<"paths_repeater_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--paths-repeater-whip-pending-pointer")){
+            for(const auto* kind:{"","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"})for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"}){
+                for(const auto* mode:{"drag","drag-cancel"})paths_repeater_pointer(parameter,true,mode,kind);
+            }
+            std::cout<<"paths_repeater_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--text-repeater-entry-pending-pointer")){
             bool failed=false;for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})for(bool picking:{false,true}){std::cerr<<"text repeater / "<<parameter<<" / "<<(picking?"pick":"fx")<<"\n";try{text_repeater_pointer(parameter,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}

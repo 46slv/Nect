@@ -10787,9 +10787,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
                         paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
                     }
-            if(operation.type=="nect.shape.repeater"&&operation.version==1&&!operation.macro&&
-               ((paint_target.kind==Kind::path&&paint_target.source&&paint_target.source->type=="nect.shape.circle")||
-                (paint_target.kind==Kind::text&&paint_target.text&&!paint_target.source)))
+            if(operation.type=="nect.shape.repeater"&&operation.version==1&&!operation.macro)
                 for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})
                     if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
                         paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
