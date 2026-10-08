@@ -10793,6 +10793,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                         paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
                     }
         }
+    if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::group&&!paint_target.source&&!paint_target.text)
+        for(const auto& operation:paint_target.stack)
+            if(operation.type=="nect.group.posterize"&&operation.version==1&&!operation.macro&&
+               operation.parameters.contains("levels")&&ref==operation_ref(ref.object,operation.id,"levels")) {
+                paint_scalar_operation=operation.id;paint_scalar_parameter="levels";
+            }
     // Freeze only these exact nested authored scalars; the complete Object
     // guard retains every other endpoint, stop, Source and Point Edit value.
     if(targets.size()==1&&ref.point.empty()&&

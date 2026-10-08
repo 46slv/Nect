@@ -3249,6 +3249,176 @@ void paths_repeater_pointer(const std::string& parameter,bool picking,const std:
     else existing_repeater_scalar_pointer(parameter,picking,mode,kind);
 }
 
+void group_posterize_pointer(bool picking,const std::string& mode="valid"){
+    const std::string parameter="levels";const bool copies=true,handle=false;const std::string repeater_parameter=parameter;const std::string field="op.group-target-posterize.levels";const QString label="Levels";
+    QTemporaryDir scratch;check(scratch.isValid(),"Group Posterize width owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("authored-repeater-entry","composition","board");
+    Object target;target.id="text";target.name="Retained Group target";target.kind=Kind::group;target.children={"text-child","text-second-child"};
+    target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
+    target.compositing.opacity.literal=0.9;target.compositing.blend="multiply";target.compositing.mask=GeometryMask{"retained-group-mask","mask-shape",1,true,"nonzero"};
+    Object source;source.id="source";source.name="Other Group source";source.kind=Kind::group;source.children={"source-child"};
+    Object mask;mask.id="mask-shape";mask.name="Retained Group mask source";mask.source=default_primitive("retained-mask-source","nect.shape.circle");mask.source->parameters.at("radius").literal=300;
+    document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.objects.emplace(mask.id,mask);document.compositions.front().roots={target.id,source.id,mask.id};
+    Object second;second.id="text-second-child";second.source=default_primitive("retained-second-source","nect.shape.rectangle");second.transform.at(4).literal=20;second.compositing.opacity.literal=0.5;document.objects.emplace(second.id,second);
+    seed_scalar_group(document);
+    Session children(document);auto blue=default_operation("retained-second-fill","nect.paint.fill");blue.parameters.at("b").literal=1;children.apply({AddOperation{second.id,blue,0},Set{{"text-child","","op.text-child-fill.r"},1},Set{{"text-child","","composite.opacity"},0.5}},children.revision());document=children.document();
+    auto target_repeater=default_operation("group-target-posterize","nect.group.posterize");target_repeater.parameters.at("levels").literal=4;
+    auto source_repeater=default_operation("source-posterize","nect.group.posterize");source_repeater.parameters.at("levels").literal=12;
+    auto retained=default_operation("retained-group-posterize","nect.group.posterize");retained.parameters.at("levels").literal=9;
+    Session seeded(document);seeded.apply({AddOperation{"text",target_repeater,0},AddOperation{"text",retained,1},AddOperation{"source",source_repeater,0},Link{{"group-ref-guard","","composite.opacity"},{operation_ref("text","group-target-posterize","levels"),0.0001,0.2,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{operation_ref("source","source-posterize","levels"),{operation_ref("text","group-target-posterize","levels"),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    const Ref ref=operation_ref("text","group-target-posterize","levels");Ref source_ref=operation_ref("source","source-posterize","levels");if(mode=="unit")source_ref={"source","","transform.tx"};
+    const Ref gesture_ref={"text","","transform.tx"};const double gesture_value=61;
+    if(mode.ends_with("gesture")){Session preflight(document);preflight.begin_gesture(preflight.revision());preflight.update_gesture({Set{gesture_ref,gesture_value}});preflight.cancel_gesture();}
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(ref.object);events();
+    Session expected=window.host.session;
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    for(auto* button:input?input->parentWidget()->findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"):QList<QPushButton*>{})
+        if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
+    check(scroll&&input&&action,"Exact stable point width input/action exists");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    const double pending_value=mode=="zero"?0:mode=="one"?1:mode=="negative"?-1:mode=="fractional"?2.5:mode=="lower"?2:mode=="upper"?16:8;
+    const QString pending_text=QString::number(pending_value,'g',17);
+    const QString expression_text="4 + 2";const QString pending_formula="2 + 3";
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):mode=="negative"?QString("-1"):mode=="below"?QString("1"):mode=="above"?QString("17"):mode=="expression-scalar"?QString("=")+pending_formula:pending_text);events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Selected Group Posterize draft is full-state neutral");
+    auto change_context=[&](bool applying){
+        const auto suffix=mode.substr(mode.find('-')+1);
+        if(suffix=="session"){window.host.session_id="replacement-posterize-session";return;}
+        if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.tx"},61}},window.host.session.revision());
+        else if(suffix=="gesture"||suffix=="cancelled-gesture"){window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{gesture_ref,gesture_value}});if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();}
+        else if(suffix=="selection"){window.canvas->set_selection("source");events();window.canvas->set_selection(ref.object);events();}
+        else{
+            auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");
+            if(suffix=="document")incoming.id="replacement-posterize-document";
+            else if(suffix=="children")std::reverse(object.children.begin(),object.children.end());
+            else if(suffix=="mask")object.compositing.mask->enabled=false;
+            else if(suffix=="coordinate")object.stack.at(0).parameters.at("levels").literal=5;
+            else if(suffix=="affine")object.transform.at(0).literal=0.81;
+            else if(suffix=="style")object.compositing.opacity.literal=0.8;
+            else if(suffix=="retained")object.stack.at(1).parameters.at("levels").literal=10;
+            else if(suffix=="order")std::reverse(object.stack.begin(),object.stack.end());
+            else if(suffix=="operation"){object.stack.at(0).id="replacement-posterize";incoming.objects.at("group-ref-guard").compositing.opacity.binding->source=operation_ref("text","replacement-posterize","levels");}
+            else throw std::runtime_error("Unknown Group Posterize context fixture");
+            Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.tx"},61}},replacement.revision());
+            check(replacement.revision()==window.host.session.revision(),"Group replacement collides at captured revision without retargeting Ref");window.host.session=replacement;
+        }
+        expected=window.host.session;
+    };
+    if(mode.rfind("entry-",0)==0)change_context(false);
+    const auto preview_before_entry=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    const auto selection=window.canvas->selections();
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits selected Group Posterize width action");
+    auto scalar_expected=[&]{if(mode=="expression-scalar")expected.apply({SetExpression{{ref},{pending_formula.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{{ref},pending_value,false}},expected.revision());};
+    auto undo_scalar=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate Group Posterize scalar Undo restores exact curve/IDs/handles/paint/Refs");};
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar_expected();
+        check(snapshot(window.host.session)==snapshot(expected),"Group Posterize whip press commits only independent width before freezing target");
+        if(mode=="drag-cancel"){
+            QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Group Posterize whip Escape retains scalar and exact target selection");
+        }else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* source_item=nullptr;
+            for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)
+                if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty()){tree=candidate;source_item=*it;}
+            check(tree&&source_item,"Group Posterize whip finds exact other authored Path tree row");tree->scrollToItem(source_item);events();
+            QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(source_item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Group Posterize whip browsing selects stable first source point with no authored mutation");
+            QLineEdit* source_field=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+                const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+                if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))source_field=candidate;
+            }
+            check(source_field,"Whip drop has exact stable source point width");scroll->ensureWidgetVisible(source_field);events();
+            const auto drop=source_field->mapTo(&window,source_field->rect().center());check(window.childAt(drop)==source_field,"Actual point whip drop hits visible width");
+            QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();
+            expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Group Posterize whip links exact Ref and restores frozen target");
+            window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Group Posterize whip link Undo retains independent scalar");
+        }
+        undo_scalar();return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="below"||mode=="above"||(copies&&(mode=="fractional"||mode=="negative"||mode=="zero"))||mode.rfind("entry-",0)==0){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused point entry preserves complete incoming authored state and opens no editor");
+        const auto message=window.statusBar()->currentMessage();
+        const auto reason=(mode=="below"||mode=="above"||(copies&&(mode=="fractional"||mode=="negative"||mode=="zero")))?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"||mode=="entry-cancelled-gesture"?"REVISION_CONFLICT":mode=="entry-session"||mode=="entry-document"?"SESSION_CONFLICT":mode=="entry-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+        check(message.contains(reason),"Group Posterize entry refusal identifies exact cause");
+        check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before_entry,"Group Posterize entry refusal preserves preview and gesture state");
+        if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar_expected();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
+        std::cerr<<field<<" posterize pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First Group Posterize picker commits only selected width and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(source_ref.field))item=list->item(i);}
+        check(list&&buttons&&item,"Picker retains exact other stable point width Ref");list->setCurrentItem(item);events();
+        check(snapshot(window.host.session)==snapshot(expected),"Choosing other stable point is authored-state neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Group Posterize picker Cancel discards only link draft");undo_scalar();return;}
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode=="cycle"||mode=="unit"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Cycle/unit picker refusal is full-state atomic");
+            check(window.statusBar()->currentMessage().contains(mode=="cycle"?"CYCLE":"NO_SOURCE"),"Cycle/unit refusal identifies cause");
+            buttons->button(QDialogButtonBox::Cancel)->click();events();undo_scalar();return;
+        }
+        if(mode.rfind("apply-",0)==0&&mode!="apply-selection"){
+            check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused point picker Apply preserves incoming source and complete history");
+            const auto reason=mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":mode=="apply-session"||mode=="apply-document"?"SESSION_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":"PROPERTY_CONFLICT";
+            check(window.statusBar()->currentMessage().contains(reason),"Group Posterize picker refusal identifies exact cause");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Group Posterize picker refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        expected.apply({LinkProperties{{ref},source_ref,false}},expected.revision());
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+        std::cerr<<field<<" posterize fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&editor->toPlainText()==(mode=="expression-scalar"?pending_formula:pending_text)&&snapshot(window.host.session)==snapshot(expected),"First Group Posterize fx commits width and opens exact neutral editor");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):mode=="negative-expression"?QString("-1"):mode=="fractional-expression"?QString("2 + 0.5"):mode=="below-expression"?QString("1"):mode=="above-expression"?QString("17"):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Group Posterize expression draft remains neutral");
+        QPushButton* apply=nullptr;for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;
+        check(apply,"Group Posterize inline Apply exists");
+        if(mode.rfind("apply-",0)==0)change_context(true);
+        if(mode=="apply-selection"){
+            auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Group Posterize expression draft survives exact stable selection roundtrip");
+            apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Apply")apply=button;check(apply,"Group Posterize selection roundtrip recreated Apply");
+        }
+        if(mode=="cancel")for(auto* button:editor->parentWidget()->findChildren<QPushButton*>())if(button->text()=="Cancel")apply=button;
+        const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+        scroll->ensureWidgetVisible(apply);events();QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode.rfind("apply-",0)==0||mode=="invalid-expression"||mode=="below-expression"||mode=="above-expression"||(copies&&(mode=="negative-expression"||mode=="fractional-expression"))){
+            check(snapshot(window.host.session)==snapshot(expected),"Refused point fx Apply preserves incoming source and complete history");
+            auto* result=window.findChild<QLabel*>("nect-expression-result");check(result&&result->text().contains("Committed result is unchanged"),"Group Posterize expression refusal retains visible recovery status");
+            check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Group Posterize fx refusal preserves preview and gesture state");
+            if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+        }
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Group Posterize expression Cancel discards only expression draft");undo_scalar();return;}
+        expected.apply({SetExpression{{ref},{mode=="negative-expression"?"-1":mode=="fractional-expression"?"2 + 0.5":expression_text.toStdString(),1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Group Posterize operation exactly matches canonical Document/encode/history/revision");
+    if(handle){
+        QLineEdit* result=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){
+            const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+            if(candidate->isVisible()&&data.value("object").toString()=="text"&&data.value("point").toString().isEmpty()&&data.value("field").toString()==QString::fromStdString(field))result=candidate;
+        }
+        check(result&&result->text().toDouble()==evaluate(expected.document()).at(ref),"Handle numeric field retains raw unwrapped canonical value without dial normalization");
+    }
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
+    const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
+    const auto actual_bounds=object_bounds(window.host.session.document(),"text",actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),"text",expected_values,expected_transforms,true);
+    check(actual_transforms.at("text").world==expected_transforms.at("text").world,"Group Posterize edit retains canonical nonidentity world matrix");
+    check(actual_bounds&&expected_bounds&&std::tuple{actual_bounds->left,actual_bounds->top,actual_bounds->right,actual_bounds->bottom}==std::tuple{expected_bounds->left,expected_bounds->top,expected_bounds->right,expected_bounds->bottom},"Group Posterize edit bounds match canonical curve geometry");
+    for(int i=0;i<2;++i){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Group Posterize scalar and later operation undo independently");}
+    check(expected.document()==document,"Two Undo restore exact authored curve/IDs/handles/paint/Ref and both sources");
+}
+
 void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
     const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
@@ -5267,6 +5437,20 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--group-posterize-entry-pending-pointer")){
+            bool failed=false;for(bool picking:{false,true}){try{group_posterize_pointer(picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}check(!failed,"Both Group Posterize first actions satisfy canonical contract");
+            std::cout<<"group_posterize_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--group-posterize-affected-pending-pointer")){
+            for(bool picking:{false,true})for(const auto* mode:{"valid","lower","upper","zero","negative","fractional","below","above","invalid","cancel","expression-scalar","entry-session","entry-document","entry-revision","entry-gesture","entry-cancelled-gesture","entry-children","entry-mask","entry-coordinate","entry-affine","entry-style","entry-retained","entry-order","entry-operation","apply-session","apply-document","apply-revision","apply-gesture","apply-cancelled-gesture","apply-children","apply-mask","apply-coordinate","apply-affine","apply-style","apply-retained","apply-order","apply-operation"}){std::cerr<<(picking?"pick":"fx")<<" / "<<mode<<"\n";group_posterize_pointer(picking,mode);}
+            for(const auto* mode:{"invalid-expression","negative-expression","fractional-expression","below-expression","above-expression"}){std::cerr<<"fx / "<<mode<<"\n";group_posterize_pointer(false,mode);}
+            for(const auto* mode:{"cycle","unit"}){std::cerr<<"pick / "<<mode<<"\n";group_posterize_pointer(true,mode);}
+            std::cout<<"group_posterize_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--group-posterize-whip-pending-pointer")){
+            for(const auto* mode:{"drag","drag-cancel"})group_posterize_pointer(true,mode);
+            std::cout<<"group_posterize_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--paths-repeater-entry-pending-pointer")){
             bool failed=false;for(const auto* kind:{"","nect.shape.rectangle","nect.shape.polygon","nect.shape.star"})for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})for(bool picking:{false,true}){std::cerr<<"path repeater / "<<kind<<" / "<<parameter<<" / "<<(picking?"pick":"fx")<<"\n";try{paths_repeater_pointer(parameter,picking,"valid",kind);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
