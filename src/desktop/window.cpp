@@ -10784,7 +10784,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     // guard retains every other endpoint, stop, Source and Point Edit value.
     if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&paint_target.source&&paint_target.source->type=="nect.shape.circle"&&!paint_target.text)
         for(const auto& operation:paint_target.stack)
-            if(operation.type=="nect.paint.fill"&&operation.gradient)
+            if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
                 for(const auto* endpoint:{"start_x","start_y","end_x","end_y"})
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,endpoint)) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;

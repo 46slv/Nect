@@ -2528,7 +2528,7 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bo
 
 void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false,bool generated_polygon=false,bool generated_star=false,const std::string& gradient_endpoint=""){
     const bool generated=generated_circle||generated_rectangle||generated_polygon||generated_star;const Id generated_point=generated_rectangle?"circle-paint-source-top-right":generated_polygon?"circle-paint-source-outer-1-6":generated_star?"circle-paint-source-outer-1-5":"circle-paint-source-east";
-    const bool handle=false;const bool gradient=!gradient_endpoint.empty();const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const auto field=(gradient?gradient_ref("text",target_op,"target-gradient",gradient_endpoint):operation_ref("text",target_op,parameter)).field;const QString label=gradient?(gradient_endpoint=="start_x"?"Start X":gradient_endpoint=="start_y"?"Start Y":gradient_endpoint=="end_x"?"End X":"End Y"):parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
+    const bool handle=false;const bool gradient=!gradient_endpoint.empty();const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const Id target_gradient_id=paint=="stroke"?"target-stroke-gradient":"target-gradient";const Id source_gradient_id=paint=="stroke"?"source-stroke-gradient":"source-gradient";const auto field=(gradient?gradient_ref("text",target_op,target_gradient_id,gradient_endpoint):operation_ref("text",target_op,parameter)).field;const QString label=gradient?(gradient_endpoint=="start_x"?"Start X":gradient_endpoint=="start_y"?"Start Y":gradient_endpoint=="end_x"?"End X":"End Y"):parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
     QTemporaryDir scratch;check(scratch.isValid(),"Paint width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -2551,8 +2551,8 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
         auto source_gradient=target_gradient;source_gradient.id="source-gradient";source_gradient.start_x.literal=51;source_gradient.start_y.literal=59;source_gradient.end_x.literal=103;source_gradient.end_y.literal=97;source_gradient.stops[0].id="source-first-stop";source_gradient.stops[1].id="source-last-stop";auto source_stroke_gradient=source_gradient;source_stroke_gradient.id="source-stroke-gradient";source_stroke_gradient.stops[0].id="source-stroke-first";source_stroke_gradient.stops[1].id="source-stroke-last";source_stroke.gradient=source_stroke_gradient;
         Session gradients(document);gradients.apply({SetGradient{"text","path-target-fill",target_gradient},AddOperation{"source",default_operation("source-fill","nect.paint.fill"),0},SetGradient{"source","source-fill",source_gradient}},gradients.revision());document=gradients.document();
     }
-    const auto target_ref=gradient?gradient_ref("text",target_op,"target-gradient",gradient_endpoint):operation_ref("text",target_op,parameter);
-    const auto other_ref=gradient?gradient_ref("source",source_op,"source-gradient",gradient_endpoint):operation_ref("source",source_op,parameter);
+    const auto target_ref=gradient?gradient_ref("text",target_op,target_gradient_id,gradient_endpoint):operation_ref("text",target_op,parameter);
+    const auto other_ref=gradient?gradient_ref("source",source_op,source_gradient_id,gradient_endpoint):operation_ref("source",source_op,parameter);
     Session seeded(document);seeded.apply({AddOperation{"text",target_stroke,1},AddOperation{"source",source_stroke,0},AddOperation{"source",default_operation(gradient?"unrelated-source-fill":"source-fill","nect.paint.fill"),gradient?2u:1u},
         Set{target_ref,gradient?43:0.4},Set{other_ref,gradient?97:0.2},
         Link{{"path-ref-guard","",gradient?"generator.height":"composite.opacity"},{target_ref,gradient?0.001:0.1,0.2,"copy_local_value"}}},seeded.revision());document=seeded.document();
@@ -3541,6 +3541,23 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--circle-gradient-endpoints-whip-pending-pointer")){
             for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("fill","a",true,mode,true,false,false,false,field);
             std::cout<<"circle_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-endpoints-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer("stroke","a",picking,"valid",true,false,false,false,field);}catch(const std::exception& error){std::cerr<<field<<": "<<error.what()<<"\n";failed=true;}
+            }
+            check(!failed,"Circle Stroke Gradient endpoint first-pointer entries satisfy the existing canonical Scalar contract");
+            std::cout<<"circle_stroke_gradient_endpoints_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-endpoints-affected-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","expression-scalar","invalid-expression","zero","signed","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture","apply-selection"})authored_paint_scalar_pointer("stroke","a",false,mode,true,false,false,false,field);
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"plain","cancel","invalid","zero","signed","cycle","unit","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-gradient","entry-gradient-type","entry-stop","entry-other-endpoint","entry-order","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-gradient","apply-gradient-type","apply-stop","apply-other-endpoint","apply-order","apply-gesture","apply-cancelled-gesture"})authored_paint_scalar_pointer("stroke","a",true,mode,true,false,false,false,field);
+            std::cout<<"circle_stroke_gradient_endpoints_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--circle-stroke-gradient-endpoints-whip-pending-pointer")){
+            for(const auto* field:{"start_x","start_y","end_x","end_y"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer("stroke","a",true,mode,true,false,false,false,field);
+            std::cout<<"circle_stroke_gradient_endpoints_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--circle-paint-scalars-entry-pending-pointer")){
             bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){
