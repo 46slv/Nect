@@ -2457,14 +2457,14 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bo
     check(expected.document()==document,"Two Undo restore exact Circle Source/Point Edit/stable IDs/handles/paint/Ref and both sources");
 }
 
-void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false){
-    const bool generated=generated_circle||generated_rectangle;const Id generated_point=generated_rectangle?"circle-paint-source-top-right":"circle-paint-source-east";
+void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false,bool generated_polygon=false){
+    const bool generated=generated_circle||generated_rectangle||generated_polygon;const Id generated_point=generated_rectangle?"circle-paint-source-top-right":generated_polygon?"circle-paint-source-outer-1-6":"circle-paint-source-east";
     const bool handle=false;const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const auto field=operation_ref("text",target_op,parameter).field;const QString label=parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
     QTemporaryDir scratch;check(scratch.isValid(),"Paint width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("authored-stroke-entry","composition","board");
-    Object target;target.id="text";target.name="Authored target";if(generated){target.kind=Kind::path;target.source=default_primitive("circle-paint-source",generated_rectangle?"nect.shape.rectangle":"nect.shape.circle");}else make_scalar_path(target);
+    Object target;target.id="text";target.name="Authored target";if(generated){target.kind=Kind::path;target.source=default_primitive("circle-paint-source",generated_rectangle?"nect.shape.rectangle":generated_polygon?"nect.shape.polygon":"nect.shape.circle");}else make_scalar_path(target);
     target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
     Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
     document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};if(generated){
@@ -3472,6 +3472,25 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--rectangle-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode,false,true);
             std::cout<<"rectangle_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-paint-scalars-entry-pending-pointer")){
+            bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer(paint,parameter,picking,"valid",false,false,true);}catch(const std::exception& error){failed=true;std::cerr<<paint<<"."<<parameter<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Sixteen generated Polygon paint first-pointer entries satisfy existing semantics");
+            std::cout<<"polygon_paint_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-paint-scalars-affected-pending-pointer")){
+            for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"}){
+                for(bool picking:{false,true})for(const auto* mode:{"zero","one","negative","above","invalid","cancel","expression-scalar"})authored_paint_scalar_pointer(paint,parameter,picking,mode,false,false,true);
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression"})authored_paint_scalar_pointer(paint,parameter,false,mode,false,false,true);
+                for(const auto* mode:{"cycle","unit"})authored_paint_scalar_pointer(paint,parameter,true,mode,false,false,true);
+            }
+            std::cout<<"polygon_paint_scalars_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--polygon-paint-scalars-whip-pending-pointer")){
+            for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode,false,false,true);
+            std::cout<<"polygon_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--rectangle-stroke-width-entry-pending-pointer")){
             bool failed=false;for(bool picking:{false,true}){try{circle_stroke_width_pointer(picking,"valid",true);}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}}
