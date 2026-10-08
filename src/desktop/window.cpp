@@ -10851,6 +10851,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                       std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
                           const auto& key=parameter.first;
                           return (key=="amount"||key=="miter_limit")&&target==operation_ref(target.object,operation.id,key);
+                      }))||
+                     (operation.type=="nect.shape.repeater"&&operation.version==1&&
+                      std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                          const auto& key=parameter.first;
+                          return (key=="copies"||key=="rotation"||key=="position_x"||key=="position_y"||key=="anchor_x"||key=="anchor_y"||
+                                  key=="scale_x"||key=="scale_y"||key=="offset"||key=="start_opacity"||key=="end_opacity")&&
+                              target==operation_ref(target.object,operation.id,key);
                       })));
             });
         return target.point.empty()&&found!=d.objects.end()&&
@@ -11040,6 +11047,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                                   std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
                                       const auto& key=parameter.first;
                                       return (key=="amount"||key=="miter_limit")&&target==operation_ref(target.object,operation.id,key);
+                                  }))||
+                                 (operation.type=="nect.shape.repeater"&&operation.version==1&&
+                                  std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                      const auto& key=parameter.first;
+                                      return (key=="copies"||key=="rotation"||key=="position_x"||key=="position_y"||key=="anchor_x"||key=="anchor_y"||
+                                              key=="scale_x"||key=="scale_y"||key=="offset"||key=="start_opacity"||key=="end_opacity")&&
+                                          target==operation_ref(target.object,operation.id,key);
                                   })));
                         });
                         if(batch_paint==object.stack.end())throw Error("PROPERTY_CONFLICT","The batch paint scalar changed");
