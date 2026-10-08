@@ -10828,8 +10828,17 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         const auto found=d.objects.find(target.object);
         const bool common_field=target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
             target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity";
+        const bool stroke_width_field=found!=d.objects.end()&&
+            ((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+                found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
+                found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
+             (found->second.kind==Kind::text&&found->second.text&&!found->second.source))&&
+            std::any_of(found->second.stack.begin(),found->second.stack.end(),[&](const ProcessingEntry& operation) {
+                return operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&!operation.macro&&
+                    operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width");
+            });
         return target.point.empty()&&found!=d.objects.end()&&
-            ((common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+            (stroke_width_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
                 found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
                 found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
                 (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
@@ -10839,6 +10848,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
              ((target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.star")||
              ((target.field=="text.font_size"||target.field=="text.frame_width"||target.field=="text.frame_height"||target.field=="text.tracking"||target.field=="text.line_spacing"||target.field=="text.origin_x"||target.field=="text.origin_y")&&found->second.kind==Kind::text&&found->second.text&&!found->second.source));
     });
+    const bool batch_stroke_width_fx=batch_path_scalar_fx&&ref.field.starts_with("op.");
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
     auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx||batch_path_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
@@ -10995,7 +11005,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             try {
                 for(const auto& target:targets) {
                     auto& object=expected_batch_objects->at(target.object);const auto scalar=nect::property(host.session.document(),target);
-                    if(target.field=="text.font_size"||target.field=="text.frame_width"||target.field=="text.frame_height"||target.field=="text.tracking"||target.field=="text.line_spacing"||target.field=="text.origin_x"||target.field=="text.origin_y") {
+                    if(target.field.starts_with("op.")) {
+                        const auto batch_stroke=std::find_if(object.stack.begin(),object.stack.end(),[&](const ProcessingEntry& operation) {
+                            return operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&!operation.macro&&
+                                operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width");
+                        });
+                        if(batch_stroke==object.stack.end())throw Error("PROPERTY_CONFLICT","The batch Stroke width changed");
+                        batch_stroke->parameters.at("width")=scalar;
+                    }else if(target.field=="text.font_size"||target.field=="text.frame_width"||target.field=="text.frame_height"||target.field=="text.tracking"||target.field=="text.line_spacing"||target.field=="text.origin_x"||target.field=="text.origin_y") {
                         if(object.kind!=Kind::text||!object.text||object.source)throw Error("PROPERTY_CONFLICT","The batch Text source changed");
                         object.text->parameters.at(target.field.substr(5))=scalar;
                     }else if(target.field=="generator.radius"||target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points") {
@@ -11140,7 +11157,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,paint_scalar_fx] {
+        input_session,input_document,input_revision,input_gesture,input_preview,paint_scalar_fx,batch_stroke_width_fx] {
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
@@ -11176,7 +11193,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
            ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
-        if(paint_scalar_fx&&!input->property("nect-finishing-text-scalar-fx").toBool()&&focus&&
+        if((paint_scalar_fx||batch_stroke_width_fx)&&!input->property("nect-finishing-text-scalar-fx").toBool()&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            focus->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
            focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)&&
@@ -11186,7 +11203,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             focus->property("nect-text-scalar-fx-action-point").toString()==qs(ref.point)&&focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)))&&focus&&
            focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
-        if(paint_scalar_fx&&!input->property("nect-finishing-text-scalar-pick").toBool()&&focus&&
+        if((paint_scalar_fx||batch_stroke_width_fx)&&!input->property("nect-finishing-text-scalar-pick").toBool()&&focus&&
            focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
            focus->property("nect-text-scalar-pick-action-point").toString().isEmpty()&&
            focus->property("nect-text-scalar-pick-action-field").toString()==qs(ref.field)&&
