@@ -1535,7 +1535,19 @@ void seed_scalar_path(Document& document){
     seeded.apply({Link{{guard.id,"","generator.width"},{{"text","text-second","x"},0.1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();
 }
 
-void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false,bool circle_transform=false,bool group_source=false,bool authored_path=false){
+void make_scalar_image(Object& object){
+    object.kind=Kind::image;object.text.reset();object.source.reset();object.contours.clear();object.children.clear();
+    object.image=ImageSource{"image-shared-asset",{120},{60}};
+}
+void seed_scalar_image(Document& document){
+    RasterPixels pixels{2,1,{240,30,10,255,20,60,220,128}};
+    document.raster_assets.emplace("image-shared-asset",RasterAsset{"image-shared-asset","Accepted two-pixel original","embedded","",make_raster(encode_raster_png(pixels))});
+    if(!document.objects.contains("source")){Object shared;shared.id="image-shared-copy";shared.name="Untouched shared image placement";make_scalar_image(shared);shared.image->width.literal=80;shared.image->height.literal=50;shared.transform[4].literal=300;document.objects.emplace(shared.id,shared);document.compositions.front().roots.push_back(shared.id);}
+    Object guard;guard.id="image-ref-guard";guard.name="Image transform incoming Ref";guard.source=default_primitive("image-ref-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
+    Session seeded(document);seeded.apply({Link{{guard.id,"","generator.width"},{{"text","","transform.tx"},0.1,20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+}
+
+void scalar_pick_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false,bool circle_transform=false,bool group_source=false,bool authored_path=false,bool image_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
     const bool opacity_source=scalar_field=="composite.opacity";
@@ -1563,8 +1575,9 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?(circle_transform?(star_source?"outer_radius":"radius"):scalar_field.substr(10)):"radius").literal=count_source?5:60;
     }
     if(authored_path)make_scalar_path(text);
+    if(image_source)make_scalar_image(text);
     if(group_source){text.kind=Kind::group;text.text.reset();text.children={"text-child"};}
-    Object source=text;source.id="source";source.name="Numeric picker source";if(authored_path){make_scalar_path(source);if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(group_source){source.children={"source-child"};if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(circle_transform){source.source->id="circle-pick-source";if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(opacity_source){source.text->id="source-text";source.compositing.opacity.literal=0.8;}else if(anchor_source){source.text->id="source-text";source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;}else if(affine_source){source.text->id="source-text";source.transform.at(affine_index).literal=affine_linear?0.75:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
+    Object source=text;source.id="source";source.name="Numeric picker source";if(image_source){make_scalar_image(source);source.image->width.literal=80;source.image->height.literal=50;if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(authored_path){make_scalar_path(source);if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(group_source){source.children={"source-child"};if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(circle_transform){source.source->id="circle-pick-source";if(opacity_source)source.compositing.opacity.literal=0.8;else if(anchor_source)source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;else source.transform.at(affine_index).literal=affine_linear?0.75:72;}else if(scalar_field.rfind("generator.",0)==0){source.source->id="circle-pick-source";source.source->parameters.at(field.substr(10)).literal=count_source?20:72;}else if(opacity_source){source.text->id="source-text";source.compositing.opacity.literal=0.8;}else if(anchor_source){source.text->id="source-text";source.anchor.at(field=="transform.anchor_y"?1:0).literal=72;}else if(affine_source){source.text->id="source-text";source.transform.at(affine_index).literal=affine_linear?0.75:72;}else{source.text->id="source-text";source.text->parameters.at(mode=="generic"?"font_size":field.substr(5)).literal=count_source?20:72;}
     document.objects.emplace(text.id,text);document.objects.emplace(source.id,source);document.compositions.front().roots={text.id,source.id};
     if((circle_transform||scalar_field.rfind("generator.",0)==0)){
         if((circle_transform||polystar_source||scalar_field!="generator.radius")&&document.objects.contains("source")){
@@ -1578,6 +1591,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     }
     if(group_source)seed_scalar_group(document);
     if(authored_path)seed_scalar_path(document);
+    if(image_source)seed_scalar_image(document);
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const Ref target{text.id,"",field}, source_ref{source.id,"",field};
@@ -1591,7 +1605,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     };
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPushButton* pick=nullptr;
     auto verify_circle_affine=[&]{
-        if(!circle_transform&&!group_source&&!authored_path)return;
+        if(!circle_transform&&!group_source&&!authored_path&&!image_source)return;
         const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
         const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
         const auto actual_bounds=object_bounds(window.host.session.document(),text.id,actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),text.id,expected_values,expected_transforms,true);
@@ -1608,11 +1622,11 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     const bool pending=mode!="plain"&&mode!="generic";
     if(pending){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="out-of-range"?"1.2":mode=="invalid"?"not-a-number":(mode=="topology-drop"?"6":pending_text));events();}
     check(size->hasFocus()&&size->isModified()==pending&&snapshot(window.host.session)==snapshot(expected),"Pending Font size remains full-state neutral before source picker");
-    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path||image_source)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-pick-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
-    if(mode=="entry-source"||mode=="entry-type"){
+    if(mode=="entry-source"||mode=="entry-type"||(image_source&&(mode=="entry-asset"||mode=="entry-dimensions"))){
         auto incoming=expected.document();auto& circle=incoming.objects.at("text");
-        if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
+        if(image_source){if(mode=="entry-asset"||mode=="apply-asset"){auto& asset=incoming.raster_assets.at("image-shared-asset");asset.payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,240,30,255,220,20,60,128}}));}else if(mode=="entry-dimensions"||mode=="apply-dimensions")circle.image->width.literal=121;else if(mode=="entry-type"||mode=="apply-type"){circle.image.reset();make_scalar_path(circle);}else {auto asset=incoming.raster_assets.at("image-shared-asset");asset.id="replacement-image-asset";incoming.raster_assets.emplace(asset.id,asset);circle.image->asset=asset.id;}}else if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
         if(mode=="entry-type"||mode=="apply-type")circle.source=default_primitive(circle.source->id,"nect.shape.circle");
         else circle.source->id="replacement-circle-source";
         circle.point_edit.reset();
@@ -1620,7 +1634,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):count_source?"replacement-circle-source-outer-1-5":"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         }
         Session replacement(incoming);
-        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",((authored_path||group_source||star_source||count_source)&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(image_source||((authored_path||group_source||star_source||count_source)&&mode!="apply-type"))?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1656,7 +1670,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");
     if(mode=="out-of-range"||mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(!picker&&snapshot(window.host.session)==snapshot(expected),"Refused picker entry preserves incoming full source/history");
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type"||(image_source&&(mode=="entry-asset"||mode=="entry-dimensions")))?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker entry identifies exact cause");return;
     }
     if(pending)expected.apply({EditProperties{{target},pending_value,false}},expected.revision());
     std::cerr<<field<<" numeric picker mode="<<mode<<" picker="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
@@ -1669,14 +1683,14 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Picker Cancel restores target and preserves only scalar");
         window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Cancelled picker scalar independently restores original source");return;
     }
-    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path||image_source)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
         auto incoming=document;incoming.id="incoming-pick-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{target},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming picker document collides at exact revision");window.host.session=replacement;expected=replacement;
     }
-    if(mode=="apply-source"||mode=="apply-type"){
+    if(mode=="apply-source"||mode=="apply-type"||(image_source&&(mode=="apply-asset"||mode=="apply-dimensions"))){
         auto incoming=expected.document();auto& circle=incoming.objects.at("text");
-        if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
+        if(image_source){if(mode=="entry-asset"||mode=="apply-asset"){auto& asset=incoming.raster_assets.at("image-shared-asset");asset.payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,240,30,255,220,20,60,128}}));}else if(mode=="entry-dimensions"||mode=="apply-dimensions")circle.image->width.literal=121;else if(mode=="entry-type"||mode=="apply-type"){circle.image.reset();make_scalar_path(circle);}else {auto asset=incoming.raster_assets.at("image-shared-asset");asset.id="replacement-image-asset";incoming.raster_assets.emplace(asset.id,asset);circle.image->asset=asset.id;}}else if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
         if(mode=="entry-type"||mode=="apply-type")circle.source=default_primitive(circle.source->id,"nect.shape.circle");
         else circle.source->id="replacement-circle-source";
         circle.point_edit.reset();
@@ -1684,7 +1698,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):count_source?"replacement-circle-source-outer-1-5":"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         }
         Session replacement(incoming);
-        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",((authored_path||group_source||star_source||count_source)&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(image_source||((authored_path||group_source||star_source||count_source)&&mode!="apply-type"))?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1693,13 +1707,14 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     if((circle_transform||scalar_field.rfind("generator.",0)==0)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
     if(group_source&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text-child","","generator.center_y"}},13,false}});
     if(authored_path&&mode=="apply-gesture")window.host.session.update_gesture({Set{{"text","text-first","y"},13}});
-    if(!authored_path&&!group_source&&!circle_transform&&(affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
+    if(image_source&&mode=="apply-gesture")window.host.session.update_gesture({Set{{"text","","image.width"},130}});
+    if(!image_source&&!authored_path&&!group_source&&!circle_transform&&(affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
     const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
 
     if(mode.rfind("apply-",0)==0){
         const auto current_selection=window.canvas->selections();buttons->button(QDialogButtonBox::Ok)->click();events();
         check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused picker Apply preserves exact incoming full source/history");
-        check(window.statusBar()->currentMessage().contains((mode=="apply-source"||mode=="apply-type")?"PROPERTY_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
+        check(window.statusBar()->currentMessage().contains((mode=="apply-source"||mode=="apply-type"||(image_source&&(mode=="apply-asset"||mode=="apply-dimensions")))?"PROPERTY_CONFLICT":mode=="apply-gesture"?"GESTURE_ACTIVE":mode=="apply-revision"||mode=="apply-cancelled-gesture"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Refused picker Apply identifies exact cause");
         if(mode=="apply-document"||mode=="apply-session"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(window.canvas->selections()==current_selection&&snapshot(window.host.session)==snapshot(expected),"Stale picker Cancel does not restore selection into replacement document");}
         if((circle_transform||scalar_field.rfind("generator.",0)==0)||affine_linear||anchor_source||opacity_source)check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview_before,"Circle refusal preserves complete preview/gesture state");
         if(mode=="apply-gesture"){check(window.host.session.gesture_active(),"Picker refusal preserves active gesture");window.host.session.cancel_gesture();}return;
@@ -1710,7 +1725,7 @@ void scalar_pick_pending_pointer(const std::string& mode,const std::string& scal
     if(pending){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Scalar Undo restores full original Text source/style/history");
 }
 
-void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false,bool circle_transform=false,bool group_source=false,bool authored_path=false){
+void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar_field="text.font_size",bool rectangle_centers=false,bool polygon_source=false,bool star_source=false,bool circle_transform=false,bool group_source=false,bool authored_path=false,bool image_source=false){
     const bool polystar_source=polygon_source||star_source;
     const bool count_source=scalar_field=="generator.points";
     const bool opacity_source=scalar_field=="composite.opacity";
@@ -1735,6 +1750,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         text.source=default_primitive("circle-target-source",rectangle_source?"nect.shape.rectangle":star_source?"nect.shape.star":polygon_source?"nect.shape.polygon":"nect.shape.circle");text.source->parameters.at(rectangle_source?((rectangle_centers&&!circle_transform)?scalar_field.substr(10):(vertical?"height":"width")):polystar_source?(circle_transform?(star_source?"outer_radius":"radius"):scalar_field.substr(10)):"radius").literal=count_source?5:60;
     }
     if(authored_path)make_scalar_path(text);
+    if(image_source)make_scalar_image(text);
     if(group_source){text.kind=Kind::group;text.text.reset();text.children={"text-child"};}
     document.objects.emplace(text.id,text);document.compositions.front().roots={text.id};
     if((circle_transform||scalar_field.rfind("generator.",0)==0)){
@@ -1749,6 +1765,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     }
     if(group_source)seed_scalar_group(document);
     if(authored_path)seed_scalar_path(document);
+    if(image_source)seed_scalar_image(document);
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selection(text.id);events();
     if(affine_source){auto* matrix=window.findChild<QPushButton*>("transform-matrix-toggle");check(matrix,"Existing Affine matrix view toggle available");matrix->setChecked(true);events();}
     const std::string field=mode=="other-field"?"text.tracking":scalar_field;
@@ -1763,7 +1780,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     };
     Session expected=window.host.session;auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* size=nullptr;QPointer<QPushButton> fx;
     auto verify_circle_affine=[&]{
-        if(!circle_transform&&!group_source&&!authored_path)return;
+        if(!circle_transform&&!group_source&&!authored_path&&!image_source)return;
         const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());
         const auto actual_transforms=evaluate_transforms(window.host.session.document(),actual_values),expected_transforms=evaluate_transforms(expected.document(),expected_values);
         const auto actual_bounds=object_bounds(window.host.session.document(),text.id,actual_values,actual_transforms,true),expected_bounds=object_bounds(expected.document(),text.id,expected_values,expected_transforms,true);
@@ -1778,11 +1795,11 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     check(scroll&&size&&fx,"Existing same-object Font size and inline fx controls available");scroll->ensureWidgetVisible(size);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,size->mapTo(&window,size->rect().center()));if((mode!="plain"&&mode!="other-field")){QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="out-of-range"?"1.2":mode=="invalid"?"not-a-number":mode=="expression-scalar"?(opacity_source?"=0.5 + 0.1":affine_linear?"=1 + 0.25":count_source?"=5 + 5":"=40 + 2"):(mode=="topology-drop"?"6":pending_text));events();}
     check(size->hasFocus()&&size->isModified()==((mode!="plain"&&mode!="other-field"))&&snapshot(window.host.session)==snapshot(expected),"Font size draft remains fully authored-state neutral");
-    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="entry-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path||image_source)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="entry-document"){auto incoming=document;incoming.id="incoming-fx-entry-document";window.host.session=Session(incoming);expected=window.host.session;}
-    if(mode=="entry-source"||mode=="entry-type"){
+    if(mode=="entry-source"||mode=="entry-type"||(image_source&&(mode=="entry-asset"||mode=="entry-dimensions"))){
         auto incoming=expected.document();auto& circle=incoming.objects.at("text");
-        if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
+        if(image_source){if(mode=="entry-asset"||mode=="apply-asset"){auto& asset=incoming.raster_assets.at("image-shared-asset");asset.payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,240,30,255,220,20,60,128}}));}else if(mode=="entry-dimensions"||mode=="apply-dimensions")circle.image->width.literal=121;else if(mode=="entry-type"||mode=="apply-type"){circle.image.reset();make_scalar_path(circle);}else {auto asset=incoming.raster_assets.at("image-shared-asset");asset.id="replacement-image-asset";incoming.raster_assets.emplace(asset.id,asset);circle.image->asset=asset.id;}}else if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
         if(mode=="entry-type"||mode=="apply-type")circle.source=default_primitive(circle.source->id,"nect.shape.circle");
         else circle.source->id="replacement-circle-source";
         circle.point_edit.reset();
@@ -1790,7 +1807,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):count_source?"replacement-circle-source-outer-1-5":"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         }
         Session replacement(incoming);
-        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",((authored_path||group_source||star_source||count_source)&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
+        if(std::string("entry")=="apply")replacement.apply({EditProperties{{{"text","",(image_source||((authored_path||group_source||star_source||count_source)&&mode!="apply-type"))?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1801,7 +1818,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     if(mode=="out-of-range"||mode=="invalid"||mode=="topology-drop"||mode.rfind("entry-",0)==0){
         check(snapshot(window.host.session)==snapshot(expected),"Rejected fx entry preserves full incoming source/history without scalar mutation");
         if(opacity_source)std::cerr<<"Opacity fx refusal mode="<<mode<<" status="<<window.statusBar()->currentMessage().toStdString()<<"\n";
-        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type")?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
+        check(window.statusBar()->currentMessage().contains((mode=="entry-source"||mode=="entry-type"||(image_source&&(mode=="entry-asset"||mode=="entry-dimensions")))?"PROPERTY_CONFLICT":mode=="topology-drop"?"MISSING_REFERENCE":mode=="out-of-range"?"OUT_OF_RANGE":mode=="invalid"?"INVALID_VALUE":mode=="entry-revision"?"REVISION_CONFLICT":"SESSION_CONFLICT"),"Rejected fx entry reports exact bound cause");return;
     }
     if(mode=="expression-scalar")expected.apply({SetExpression{{{"text","",field}},{(opacity_source?"0.5 + 0.1":affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"),1},false}},expected.revision());
     else if((mode!="plain"&&mode!="other-field"))expected.apply({EditProperties{{{"text","",field}},pending_value,false}},expected.revision());
@@ -1814,14 +1831,14 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     check(editor->toPlainText()==(mode=="expression-scalar"?(opacity_source?"0.5 + 0.1":affine_linear?"1 + 0.25":count_source?"5 + 5":"40 + 2"):(mode=="plain"||mode=="other-field")?QString::number(evaluate(expected.document()).at({"text","",field}),'g',17):(mode=="topology-drop"?QString("6"):opacity_source?QString::number(pending_value,'g',17):QString(pending_text))),"Inline initial source follows exactly its own committed scalar or expression");
     editor->setPlainText(mode=="out-of-range-expression"?"1.2":mode=="invalid-expression"?"broken(":(opacity_source?"0.25 + 0.1":affine_linear?"0.75 + 0.125":count_source?"10 + 5":"32 + 3"));events();
     check(snapshot(window.host.session)==snapshot(expected),"Inline expression draft is fully source/history neutral");scroll->ensureWidgetVisible(apply);events();
-    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
+    if(mode=="apply-revision"){window.host.session.apply({EditProperties{{{"text","",(group_source||authored_path||image_source)?"transform.tx":(circle_transform||scalar_field.rfind("generator.",0)==0)?((polystar_source&&vertical)?"generator.center_x":"generator.center_y"):"text.tracking"}},2,false}},window.host.session.revision());expected=window.host.session;}
     if(mode=="apply-document"){
         auto incoming=document;incoming.id="incoming-fx-apply-document";Session replacement(incoming);replacement.apply({EditProperties{{{"text","",field}},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"Incoming fx Document collides at exact revision");window.host.session=replacement;expected=replacement;
     }
-    if(mode=="apply-source"||mode=="apply-type"){
+    if(mode=="apply-source"||mode=="apply-type"||(image_source&&(mode=="apply-asset"||mode=="apply-dimensions"))){
         auto incoming=expected.document();auto& circle=incoming.objects.at("text");
-        if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
+        if(image_source){if(mode=="entry-asset"||mode=="apply-asset"){auto& asset=incoming.raster_assets.at("image-shared-asset");asset.payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,240,30,255,220,20,60,128}}));}else if(mode=="entry-dimensions"||mode=="apply-dimensions")circle.image->width.literal=121;else if(mode=="entry-type"||mode=="apply-type"){circle.image.reset();make_scalar_path(circle);}else {auto asset=incoming.raster_assets.at("image-shared-asset");asset.id="replacement-image-asset";incoming.raster_assets.emplace(asset.id,asset);circle.image->asset=asset.id;}}else if(authored_path){if(mode=="entry-type"||mode=="apply-type"){circle.contours.clear();circle.source=default_primitive("replacement-authored-path-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-authored-path-source-east","x"};}else circle.contours.front().id="replacement-authored-contour";}else if(group_source){circle.children.clear();incoming.compositions.front().roots.push_back("text-child");if(mode=="entry-type"||mode=="apply-type"){circle.kind=Kind::path;circle.source=default_primitive("replacement-group-path-source","nect.shape.circle");}}else {
         if(mode=="entry-type"||mode=="apply-type")circle.source=default_primitive(circle.source->id,"nect.shape.circle");
         else circle.source->id="replacement-circle-source";
         circle.point_edit.reset();
@@ -1829,7 +1846,7 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
         if(incoming.objects.contains("circle-ref-guard"))incoming.objects.at("circle-ref-guard").source->parameters.at("width").binding->source={"text",(mode=="entry-type"||mode=="apply-type")?(vertical?"circle-target-source-south":"circle-target-source-east"):rectangle_source?(vertical?"replacement-circle-source-bottom-right":"replacement-circle-source-top-right"):polystar_source?(vertical?(star_source?"replacement-circle-source-outer-2-5":"replacement-circle-source-outer-1-3"):scalar_field=="generator.rotation"?(star_source?"replacement-circle-source-outer-4-5":"replacement-circle-source-outer-5-6"):star_source?(scalar_field=="generator.inner_radius"?"replacement-circle-source-inner-1-10":"replacement-circle-source-outer-1-5"):count_source?"replacement-circle-source-outer-1-5":"replacement-circle-source-outer-1-6"):"replacement-circle-source-east",vertical?"y":"x"};
         }
         Session replacement(incoming);
-        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",((authored_path||group_source||star_source||count_source)&&mode!="apply-type")?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
+        if(std::string("apply")=="apply")replacement.apply({EditProperties{{{"text","",(image_source||((authored_path||group_source||star_source||count_source)&&mode!="apply-type"))?scalar_field:(mode=="apply-type"||(!rectangle_source))?"generator.radius":vertical?"generator.width":"generator.height"}},pending_value,false}},replacement.revision());
         check(replacement.revision()==window.host.session.revision(),"incoming Circle source collides at exact revision");
         window.host.session=replacement;expected=replacement;
     }
@@ -1840,7 +1857,8 @@ void scalar_fx_pending_pointer(const std::string& mode,const std::string& scalar
     if((circle_transform||scalar_field.rfind("generator.",0)==0)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","generator.center_y"}},13,false}});
     if(group_source&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text-child","","generator.center_y"}},13,false}});
     if(authored_path&&mode=="apply-gesture")window.host.session.update_gesture({Set{{"text","text-first","y"},13}});
-    if(!authored_path&&!group_source&&!circle_transform&&(affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
+    if(image_source&&mode=="apply-gesture")window.host.session.update_gesture({Set{{"text","","image.width"},130}});
+    if(!image_source&&!authored_path&&!group_source&&!circle_transform&&(affine_linear||anchor_source||opacity_source)&&mode=="apply-gesture")window.host.session.update_gesture({EditProperties{{{"text","","text.tracking"}},13,false}});
     const auto preview_before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
 
     if(mode=="apply-selection"){
@@ -2656,6 +2674,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--text-anchor-scalars-whip-pending-pointer")){
             for(const auto* field:{"transform.anchor_x","transform.anchor_y"}){scalar_pick_pending_pointer("drag",field);scalar_pick_pending_pointer("drag-cancel",field);}
             std::cout<<"text_anchor_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--image-common-scalars-entry-pending-pointer")){
+            bool failed=false;
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* action:{"fx","pick"}){
+                try{if(std::string(action)=="fx")scalar_fx_pending_pointer("valid",field,false,false,false,false,false,false,true);else scalar_pick_pending_pointer("valid",field,false,false,false,false,false,false,true);}
+                catch(const std::exception& error){failed=true;std::cerr<<field<<" / "<<action<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Image common property first-pointer entries satisfy the existing source contract");
+            std::cout<<"image_common_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--image-common-scalars-fx-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","expression-scalar","invalid-expression","out-of-range-expression","entry-revision","entry-document","entry-session","entry-source","entry-type","entry-asset","entry-dimensions","apply-revision","apply-document","apply-session","apply-source","apply-type","apply-asset","apply-dimensions","apply-gesture","apply-cancelled-gesture","apply-selection"}){if((std::string(mode)=="out-of-range"||std::string(mode)=="out-of-range-expression")&&std::string(field)!="composite.opacity")continue;scalar_fx_pending_pointer(mode,field,false,false,false,false,false,false,true);}
+            std::cout<<"image_common_scalars_fx_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--image-common-scalars-pick-affected-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"plain","cancel","invalid","out-of-range","entry-revision","entry-document","entry-session","entry-source","entry-type","entry-asset","entry-dimensions","apply-revision","apply-document","apply-session","apply-source","apply-type","apply-asset","apply-dimensions","apply-gesture","apply-cancelled-gesture"}){if(std::string(mode)=="out-of-range"&&std::string(field)!="composite.opacity")continue;scalar_pick_pending_pointer(mode,field,false,false,false,false,false,false,true);}
+            std::cout<<"image_common_scalars_pick_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--image-common-scalars-whip-pending-pointer")){
+            for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty","transform.anchor_x","transform.anchor_y","composite.opacity"}){scalar_pick_pending_pointer("drag",field,false,false,false,false,false,false,true);scalar_pick_pending_pointer("drag-cancel",field,false,false,false,false,false,false,true);}
+            std::cout<<"image_common_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--path-common-scalars-entry-pending-pointer")){
             bool failed=false;
