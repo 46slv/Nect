@@ -10772,11 +10772,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             d.objects.at(ref.object).source->type=="nect.shape.star")&&origin!="authored"));
     Id paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop;std::string paint_scalar_parameter;
     const auto& paint_target=d.objects.at(ref.object);
-    if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&!paint_target.text&&
-       (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))
+    if(targets.size()==1&&ref.point.empty()&&
+       ((paint_target.kind==Kind::path&&!paint_target.text&&
+         (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))||
+        (paint_target.kind==Kind::text&&paint_target.text&&!paint_target.source)))
         for(const auto& operation:paint_target.stack)
             for(const auto* parameter:{"width","r","g","b","a"})
                 if((operation.type=="nect.paint.stroke"||(operation.type=="nect.paint.fill"&&std::string(parameter)!="width"))&&
+                   (paint_target.kind==Kind::path||std::string(parameter)!="width")&&
                    operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
                     paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
                 }

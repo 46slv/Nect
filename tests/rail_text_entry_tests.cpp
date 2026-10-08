@@ -2526,20 +2526,24 @@ void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bo
     check(expected.document()==document,"Two Undo restore exact Circle Source/Point Edit/stable IDs/handles/paint/Ref and both sources");
 }
 
-void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false,bool generated_polygon=false,bool generated_star=false,const std::string& gradient_endpoint="",const std::string& gradient_stop="",const std::string& gradient_channel=""){
+void authored_paint_scalar_pointer(const std::string& paint,const std::string& parameter,bool picking,const std::string& mode="valid",bool generated_circle=false,bool generated_rectangle=false,bool generated_polygon=false,bool generated_star=false,const std::string& gradient_endpoint="",const std::string& gradient_stop="",const std::string& gradient_channel="",bool authored_text=false){
     const bool generated=generated_circle||generated_rectangle||generated_polygon||generated_star;const Id generated_point=generated_rectangle?"circle-paint-source-top-right":generated_polygon?"circle-paint-source-outer-1-6":generated_star?"circle-paint-source-outer-1-5":"circle-paint-source-east";
     const bool handle=false;const bool stop_scalar=!gradient_stop.empty();const bool stop_offset=stop_scalar&&gradient_channel.empty();const bool stop_color=stop_scalar&&!gradient_channel.empty();const bool gradient=!gradient_endpoint.empty()||stop_scalar;const Id target_op="path-target-"+paint;const Id source_op="source-"+paint;const Id target_gradient_id=paint=="stroke"?"target-stroke-gradient":"target-gradient";const Id source_gradient_id=paint=="stroke"?"source-stroke-gradient":"source-gradient";const Id target_stop_id=paint=="stroke"?(gradient_stop=="last"?"target-stroke-last":"target-stroke-first"):(gradient_stop=="last"?"target-last-stop":"target-first-stop");const Id other_target_stop_id=paint=="stroke"?(gradient_stop=="last"?"target-stroke-first":"target-stroke-last"):(gradient_stop=="last"?"target-first-stop":"target-last-stop");const Id source_stop_id=paint=="stroke"?(gradient_stop=="last"?"source-stroke-last":"source-stroke-first"):(gradient_stop=="last"?"source-last-stop":"source-first-stop");const std::string stop_component=stop_offset?"offset":gradient_channel;const std::string gradient_field=stop_scalar?"stop."+target_stop_id+"."+stop_component:gradient_endpoint;const std::string source_gradient_field=stop_scalar?"stop."+source_stop_id+"."+stop_component:gradient_endpoint;const double other_offset=gradient_stop=="last"?0.1:0.8;const auto field=(gradient?gradient_ref("text",target_op,target_gradient_id,gradient_field):operation_ref("text",target_op,parameter)).field;const QString label=stop_offset?"Offset":stop_color?(gradient_channel=="r"?"Red":gradient_channel=="g"?"Green":gradient_channel=="b"?"Blue":"Alpha"):gradient?(gradient_endpoint=="start_x"?"Start X":gradient_endpoint=="start_y"?"Start Y":gradient_endpoint=="end_x"?"End X":"End Y"):parameter=="r"?"Red":parameter=="g"?"Green":parameter=="b"?"Blue":"Paint opacity";
     QTemporaryDir scratch;check(scratch.isValid(),"Paint width owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("authored-stroke-entry","composition","board");
-    Object target;target.id="text";target.name="Authored target";if(generated){target.kind=Kind::path;target.source=default_primitive("circle-paint-source",generated_rectangle?"nect.shape.rectangle":generated_polygon?"nect.shape.polygon":generated_star?"nect.shape.star":"nect.shape.circle");}else make_scalar_path(target);
+    Object target;target.id="text";target.name="Authored target";if(authored_text){target.kind=Kind::text;target.text=default_text("text-paint-source","Retain 日本語 (ABC123) and style");target.text->parameters.at("font_size").literal=24;target.text->parameters.at("tracking").literal=1.5;}else if(generated){target.kind=Kind::path;target.source=default_primitive("circle-paint-source",generated_rectangle?"nect.shape.rectangle":generated_polygon?"nect.shape.polygon":generated_star?"nect.shape.star":"nect.shape.circle");}else make_scalar_path(target);
     target.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{60,{}},{50,{}}}};target.anchor={{{17,{}},{23,{}}}};
     Object source;source.id="source";source.name="Other authored source";make_scalar_path(source);source.contours.front().points.at(1).x.literal=72;source.contours.front().points.at(1).y.literal=90;
     document.objects.emplace(target.id,target);document.objects.emplace(source.id,source);document.compositions.front().roots={target.id,source.id};if(generated){
         Session paint_seed(document);paint_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0},Set{{"text",generated_point,"x"},87},Set{{"text",generated_point,"out.length"},31}},paint_seed.revision());document=paint_seed.document();
         Object guard;guard.id="path-ref-guard";guard.source=default_primitive("circle-paint-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
         paint_seed=Session(document);paint_seed.apply({Link{{guard.id,"","generator.width"},{{"text",generated_point,"x"},0.1,0,"copy_local_value"}}},paint_seed.revision());document=paint_seed.document();
+    }else if(authored_text){
+        Session text_seed(document);text_seed.apply({AddOperation{"text",default_operation("path-target-fill","nect.paint.fill"),0}},text_seed.revision());document=text_seed.document();
+        Object guard;guard.id="path-ref-guard";guard.source=default_primitive("text-paint-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
+        text_seed=Session(document);text_seed.apply({Link{{guard.id,"","generator.width"},{{"text","","transform.tx"},0.1,0,"copy_local_value"}}},text_seed.revision());document=text_seed.document();
     }else seed_scalar_path(document);
     auto target_stroke=default_operation("path-target-stroke","nect.paint.stroke");target_stroke.parameters.at("width").literal=4;
     auto source_stroke=default_operation("source-stroke","nect.paint.stroke");source_stroke.parameters.at("width").literal=12;
@@ -2579,13 +2583,15 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
         if(suffix=="session"){window.host.session_id="replacement-paint-session";return;}
         if(suffix=="revision")window.host.session.apply({Set{{"source","","transform.tx"},61}},window.host.session.revision());
         else if(suffix=="gesture"||suffix=="cancelled-gesture"){
-            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text",(gradient&&generated)?generated_point:Id{"text-first"},"y"},13}});
+            window.host.session.begin_gesture(window.host.session.revision());window.host.session.update_gesture({Set{{"text",authored_text?Id{}:(gradient&&generated)?generated_point:Id{"text-first"},authored_text?"transform.tx":"y"},13}});
             if(suffix=="cancelled-gesture")window.host.session.cancel_gesture();
         }else if(suffix=="selection"){
             window.canvas->set_selection("source");events();window.canvas->set_selection(ref.object);events();
         }else{
             auto incoming=window.host.session.document();auto& object=incoming.objects.at("text");auto op=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& o){return o.id==target_op;});check(op!=object.stack.end(),"Exact paint operation survives fixture context");
-            if(gradient&&suffix!="document"){
+            if(authored_text&&suffix=="source")object.text->content+=" changed context";
+            else if(authored_text&&suffix=="handle")object.text->parameters.at("tracking").literal=26;
+            else if(gradient&&suffix!="document"){
                 if(suffix=="source"){if(generated)object.source->parameters.at(generated_star?"outer_radius":generated_rectangle?"width":"radius").literal=123;else object.contours.front().id="replacement-gradient-contour";}
                 else if(suffix=="coordinate"){
                     auto& g=*op->gradient;if(stop_scalar){for(auto& stop:g.stops)if(stop.id==target_stop_id){if(stop_offset)stop.offset.literal=0.65;else stop.rgba[gradient_channel=="r"?0:gradient_channel=="g"?1:gradient_channel=="b"?2:3].literal=0.65;}}else if(gradient_endpoint=="start_x")g.start_x.literal=65;else if(gradient_endpoint=="start_y")g.start_y.literal=65;else if(gradient_endpoint=="end_x")g.end_x.literal=65;else g.end_y.literal=65;
@@ -2607,7 +2613,7 @@ void authored_paint_scalar_pointer(const std::string& paint,const std::string& p
             else if(suffix=="color")op->parameters.at(parameter=="r"?"g":"r").literal=0.7;
             else if(suffix=="order")std::reverse(object.stack.begin(),object.stack.end());
             else if(suffix=="operation"){op->id="replacement-paint";incoming.objects.at("path-ref-guard").compositing.opacity.binding->source=operation_ref("text","replacement-paint",parameter);}
-            else if(suffix=="type"){object.contours.clear();object.source=default_primitive("replacement-paint-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-paint-source-east","x"};}
+            else if(suffix=="type"){if(authored_text){object.kind=Kind::path;object.text.reset();}object.contours.clear();object.source=default_primitive("replacement-paint-source","nect.shape.circle");incoming.objects.at("path-ref-guard").source->parameters.at("width").binding->source={"text","replacement-paint-source-east","x"};}
             else throw std::runtime_error("Unknown Paint context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.tx"},61}},replacement.revision());
             check(replacement.revision()==window.host.session.revision(),"Paint replacement collides at captured revision without retargeting Ref");window.host.session=replacement;
@@ -4215,6 +4221,27 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--circle-stroke-width-whip-pending-pointer")){
             for(const auto* mode:{"drag","drag-cancel"})circle_stroke_width_pointer(true,mode);
             std::cout<<"circle_stroke_width_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-paint-scalars-entry-pending-pointer")){
+            bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){
+                try{authored_paint_scalar_pointer(paint,parameter,picking,"valid",false,false,false,false,"","","",true);}catch(const std::exception& error){failed=true;std::cerr<<paint<<"."<<parameter<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Sixteen Text paint first-pointer entries satisfy existing semantics");
+            std::cout<<"text_paint_scalars_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-paint-scalars-affected-pending-pointer")){
+            for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"}){
+                for(bool picking:{false,true})for(const auto* mode:{"valid","zero","one","negative","above","invalid","cancel","expression-scalar","entry-revision","entry-document","entry-session","entry-source","entry-coordinate","entry-handle","entry-type","entry-operation","entry-color","entry-order","entry-gesture","entry-cancelled-gesture","apply-revision","apply-document","apply-session","apply-source","apply-coordinate","apply-handle","apply-type","apply-operation","apply-color","apply-order","apply-selection","apply-gesture","apply-cancelled-gesture"}){
+                    std::cerr<<paint<<"."<<parameter<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";authored_paint_scalar_pointer(paint,parameter,picking,mode,false,false,false,false,"","","",true);
+                }
+                for(const auto* mode:{"invalid-expression","negative-expression","above-expression"})authored_paint_scalar_pointer(paint,parameter,false,mode,false,false,false,false,"","","",true);
+                for(const auto* mode:{"cycle","unit"})authored_paint_scalar_pointer(paint,parameter,true,mode,false,false,false,false,"","","",true);
+            }
+            std::cout<<"text_paint_scalars_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--text-paint-scalars-whip-pending-pointer")){
+            for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode,false,false,false,false,"","","",true);
+            std::cout<<"text_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--path-paint-scalars-entry-pending-pointer")){
             bool failed=false;for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(bool picking:{false,true}){
