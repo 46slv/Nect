@@ -10770,7 +10770,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             d.objects.at(ref.object).source->type=="nect.shape.rectangle"||
             d.objects.at(ref.object).source->type=="nect.shape.polygon"||
             d.objects.at(ref.object).source->type=="nect.shape.star")&&origin!="authored"));
-    Id paint_scalar_operation,paint_scalar_gradient;std::string paint_scalar_parameter;
+    Id paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop;std::string paint_scalar_parameter;
     const auto& paint_target=d.objects.at(ref.object);
     if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&!paint_target.text&&
        (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))
@@ -10783,12 +10783,18 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     // Freeze only these exact nested authored scalars; the complete Object
     // guard retains every other endpoint, stop, Source and Point Edit value.
     if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::path&&paint_target.source&&paint_target.source->type=="nect.shape.circle"&&!paint_target.text)
-        for(const auto& operation:paint_target.stack)
+        for(const auto& operation:paint_target.stack) {
             if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
                 for(const auto* endpoint:{"start_x","start_y","end_x","end_y"})
                     if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,endpoint)) {
                         paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;
                     }
+            if(operation.type=="nect.paint.fill"&&operation.gradient)
+                for(const auto& stop:operation.gradient->stops)
+                    if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+".offset")) {
+                        paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter="offset";
+                    }
+        }
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
     const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
     const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
@@ -10920,7 +10926,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     };
     // Only a successful canonical edit may advance the frozen target scalar.
     // Keep the full snapshot afterwards so same-revision replacement is refused.
-    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_gradient,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
+    auto advance_scalar_context=[this,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
         if(paint_scalar_fx) {
             const auto previous=*expected_point_object;
             for(auto& operation:expected_point_object->value().stack)if(operation.id==paint_scalar_operation) {
@@ -10928,7 +10934,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 if(paint_scalar_gradient.empty())operation.parameters.at(paint_scalar_parameter)=scalar;
                 else {
                     auto& gradient=*operation.gradient;
-                    if(paint_scalar_parameter=="start_x")gradient.start_x=scalar;
+                    if(!paint_scalar_stop.empty()) {
+                        for(auto& stop:gradient.stops)if(stop.id==paint_scalar_stop)stop.offset=scalar;
+                    }else if(paint_scalar_parameter=="start_x")gradient.start_x=scalar;
                     else if(paint_scalar_parameter=="start_y")gradient.start_y=scalar;
                     else if(paint_scalar_parameter=="end_x")gradient.end_x=scalar;
                     else if(paint_scalar_parameter=="end_y")gradient.end_y=scalar;
