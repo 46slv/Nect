@@ -10826,6 +10826,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
     const bool batch_path_scalar_fx=targets.size()>1&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         const auto found=d.objects.find(target.object);
+        if(!target.point.empty())return (target.field=="x"||target.field=="y")&&found!=d.objects.end()&&
+            found->second.kind==Kind::path&&!found->second.text&&inspector_values_.contains(target)&&
+            (!found->second.source||found->second.source->type=="nect.shape.circle"||
+             found->second.source->type=="nect.shape.rectangle"||found->second.source->type=="nect.shape.polygon"||
+             found->second.source->type=="nect.shape.star");
         const bool common_field=target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
             target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity";
         const bool paint_scalar_field=found!=d.objects.end()&&
@@ -11028,7 +11033,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             try {
                 for(const auto& target:targets) {
                     auto& object=expected_batch_objects->at(target.object);const auto scalar=nect::property(host.session.document(),target);
-                    if(target.field.starts_with("op.")) {
+                    if(!target.point.empty()) {
+                        if(object.source) {
+                            if(!object.point_edit)object.point_edit=PointEdit{object.source->id+"-point-edit",1,true,{}};
+                            object.point_edit->enabled=true;object.point_edit->overrides[target.point][target.field]=scalar;
+                        }else for(auto& contour:object.contours)for(auto& point:contour.points)if(point.id==target.point) {
+                            if(target.field=="x")point.x=scalar;else if(target.field=="y")point.y=scalar;
+                        }
+                    }else if(target.field.starts_with("op.")) {
                         const auto batch_paint=std::find_if(object.stack.begin(),object.stack.end(),[&](const ProcessingEntry& operation) {
                             return !operation.macro&&
                                 ((operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
