@@ -3525,6 +3525,103 @@ void batch_path_tx_pointer(bool picking,const std::string& mode="valid"){
     undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
 }
 
+void batch_path_common_pointer(const std::string& field,bool picking,const std::string& mode="valid"){
+    const bool opacity=field=="composite.opacity",linear=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d",scalar_unit=opacity||linear;
+    const QString label=opacity?"Object opacity":field=="transform.ty"?"Translation Y":field=="transform.anchor_x"?"Anchor X":field=="transform.anchor_y"?"Anchor Y":QString("Matrix ")+QString::fromStdString(field.substr(10));
+    auto set_literal=[&](Object& object,double value){
+        if(opacity)object.compositing.opacity.literal=value;
+        else if(field=="transform.anchor_x"||field=="transform.anchor_y")object.anchor.at(field=="transform.anchor_y"?1:0).literal=value;
+        else {const std::vector<std::string> fields={"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"};const auto at=std::find(fields.begin(),fields.end(),field);check(at!=fields.end(),"Exact batch affine field known");object.transform.at(std::distance(fields.begin(),at)).literal=value;}
+    };
+    QTemporaryDir scratch;check(scratch.isValid(),"Batch owns temporary state");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+    auto document=empty_document("batch-path-tx-document","composition","board");
+    for(const auto* id:{"first","second","source"}){
+        Object object;object.id=id;object.name=id;make_scalar_path(object);
+        object.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{std::string(id)=="first"?10.0:20.0,{}},{50,{}}}};object.anchor={{{17,{}},{23,{}}}};
+        if(std::string(id)!="source")set_literal(object,opacity?(std::string(id)=="first"?0.2:0.4):linear?(std::string(id)=="first"?0.8:1.2):(std::string(id)=="first"?4:8));else object.transform.at(0).literal=0.75;
+        document.objects.emplace(object.id,object);document.compositions.front().roots.push_back(object.id);
+    }
+    Object guard;guard.id="batch-ref-guard";guard.source=default_primitive("batch-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
+    Object second_guard=guard;second_guard.id="batch-second-ref-guard";second_guard.source->id="batch-second-guard-source";document.objects.emplace(second_guard.id,second_guard);document.compositions.front().roots.push_back(second_guard.id);
+    const std::vector<Ref> refs={{"first","",field},{"second","",field}};
+    Ref source_ref=scalar_unit?Ref{"source","","transform.a"}:operation_ref("source","source-stroke","width");if(mode=="unit")source_ref=scalar_unit?operation_ref("source","source-stroke","width"):Ref{"source","","composite.opacity"};
+    Session seeded(document);for(const auto* id:{"first","second","source"}){
+        auto fill=default_operation(std::string(id)+"-fill","nect.paint.fill");fill.parameters.at("r").literal=0.3;
+        auto stroke=default_operation(std::string(id)+"-stroke","nect.paint.stroke");stroke.parameters.at("width").literal=std::string(id)=="source"?72:4;
+        seeded.apply({AddOperation{id,fill,0},AddOperation{id,stroke,1}},seeded.revision());
+    }
+    seeded.apply({Link{scalar_unit?Ref{guard.id,"","composite.opacity"}:Ref{guard.id,"","generator.width"},{refs.at(0),scalar_unit?0.001:0.01,scalar_unit?0.2:20,"copy_local_value"}},Link{scalar_unit?Ref{second_guard.id,"","composite.opacity"}:Ref{guard.id,"","generator.height"},{refs.at(1),scalar_unit?0.001:0.01,scalar_unit?0.2:20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{source_ref,{refs.front(),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selections({{"first",{}},{"second",{}}});events();
+    Session expected=window.host.session;const auto selection=window.canvas->selections();
+    if(scalar_unit){auto* toggle=window.findChild<QPushButton*>("batch-matrix-toggle");check(toggle,"Batch matrix toggle exists");auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");check(scroll,"Owned Inspector exists");scroll->ensureWidgetVisible(toggle);events();if(!toggle->isChecked())QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,toggle->mapTo(&window,toggle->rect().center()));events();check(snapshot(window.host.session)==snapshot(expected),"Matrix disclosure is authored-state neutral");}
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
+    for(auto* candidate:window.findChildren<QLineEdit*>()){
+        const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
+        if(candidate->isVisible()&&data.value("object").toString()=="first"&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
+    }
+    check(scroll&&input,"Exact batch Translation X row exists");
+    check(input->property("nect-mixed").toBool()&&input->text().isEmpty(),"Unequal authored values remain Mixed, with no fabricated first-target value");
+    for(auto* button:input->parentWidget()->findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
+    check(action,"Exact batch row owns its action");scroll->ensureWidgetVisible(input);events();
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
+    const bool relative=mode=="relative"||mode=="partial",formula=mode=="expression-scalar";
+    const double pending=mode=="negative"?(opacity?-0.2:linear?-0.75:-64):mode=="zero"?0:opacity?0.6:linear?1.25:64;
+    const double delta=mode=="partial"?0.7:scalar_unit?0.1:5;
+    const QString pending_formula=opacity?"0.25 + 0.5":linear?"1 + 0.25":"40 + 2",expression=opacity?"0.2 + 0.3":linear?"1 + 0.25":"32 + 3";
+    QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):relative?QString("+=")+QString::number(delta,'g',17):formula?QString("=")+pending_formula:QString::number(pending,'g',17));events();
+    check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Mixed draft is full-state neutral");
+    const auto preview=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
+    auto scalar=[&]{if(formula)expected.apply({SetExpression{refs,{pending_formula.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{refs,relative?delta:pending,relative}},expected.revision());};
+    auto undo=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Batch command Undo restores all targets together");};
+    const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits batch action");
+    if(mode=="drag"||mode=="drag-cancel"){
+        QTest::mousePress(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();scalar();check(snapshot(window.host.session)==snapshot(expected),"Batch whip press commits one atomic independent scalar command");
+        if(mode=="drag-cancel"){QTest::keyClick(&window,Qt::Key_Escape);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Batch whip Escape retains both targets and scalar");}
+        else{
+            QTreeWidget* tree=nullptr;QTreeWidgetItem* item=nullptr;for(auto* candidate:window.findChildren<QTreeWidget*>())for(QTreeWidgetItemIterator it(candidate);*it;++it)if((*it)->data(0,Qt::UserRole).toString()=="source"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty()){tree=candidate;item=*it;}
+            check(tree&&item,"Batch whip finds exact source row");tree->scrollToItem(item);events();QTest::mouseMove(window.windowHandle(),tree->viewport()->mapTo(&window,tree->visualItemRect(item).center()),10);events();
+            check(window.canvas->selected_object=="source"&&snapshot(window.host.session)==snapshot(expected),"Source browsing is authored-state neutral");
+            QLineEdit* source=nullptr;for(auto* candidate:window.findChildren<QLineEdit*>()){const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();if(candidate->isVisible()&&data.value("object").toString()=="source"&&data.value("field").toString()==QString::fromStdString(source_ref.field))source=candidate;}
+            check(source,"Whip source field owns exact du Ref");scroll->ensureWidgetVisible(source);events();const auto drop=source->mapTo(&window,source->rect().center());check(window.childAt(drop)==source,"Actual pointer hits source field");QTest::mouseMove(window.windowHandle(),drop,10);QTest::mouseRelease(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,drop);events();expected.apply({LinkProperties{refs,source_ref,false}},expected.revision());
+            check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Whip links both frozen Refs and restores full selection");undo();
+        }
+        undo();check(expected.document()==document,"Whip Undo restores full authored paths/IDs/paint/Refs");return;
+    }
+    QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    if(mode=="invalid"||mode=="partial"||(opacity&&mode=="negative")){
+        check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused batch entry is atomic and opens no editor");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview,"Refused entry preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
+    }
+    scalar();
+    if(picking){
+        QPointer<QDialog> picker=window.findChild<QDialog*>("property-source-picker");std::cerr<<"batch common "<<field<<" pick="<<bool(picker)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"First batch picker commits only both scalar targets and opens neutral picker");
+        auto* list=picker->findChild<QListWidget*>("property-source-picker-list");auto* buttons=picker->findChild<QDialogButtonBox*>();QListWidgetItem* item=nullptr;
+        if(list)for(int i=0;i<list->count();++i){const auto data=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();if(data.value("object").toString()=="source"&&data.value("field").toString()==QString::fromStdString(source_ref.field))item=list->item(i);}
+        check(list&&buttons&&item,"Exact compatible/incompatible source Ref remains explicit");list->setCurrentItem(item);events();check(snapshot(window.host.session)==snapshot(expected),"Picker source selection is neutral");
+        if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Batch picker Cancel restores original full selection");undo();return;}
+        const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};buttons->button(QDialogButtonBox::Ok)->click();events();
+        if(mode=="cycle"||mode=="unit"||mode.rfind("apply-",0)==0){check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused batch Link preserves all targets and history");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused Link preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();buttons->button(QDialogButtonBox::Cancel)->click();events();return;}
+        expected.apply({LinkProperties{refs,source_ref,false}},expected.revision());
+    }else{
+        QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
+        std::cerr<<"batch common "<<field<<" fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
+        check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected)&&editor->toPlainText()==(relative?QString{}:formula?pending_formula:QString::number(pending,'g',17)),"First batch fx commits both scalar targets and retains Mixed/actual expression");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):expression);events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
+        auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Batch fx panel retained");QPushButton* apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()==(mode=="cancel"?"Cancel":"Apply"))apply=button;
+        check(apply,"Batch fx Apply/Cancel exists");scroll->ensureWidgetVisible(apply);events();const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
+        if(mode=="invalid-expression"||mode.rfind("apply-",0)==0){check(snapshot(window.host.session)==snapshot(expected),"Refused batch fx Apply is full-state atomic");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused fx preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;}
+        if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Batch fx Cancel discards only draft");undo();return;}
+        expected.apply({SetExpression{refs,{expression.toStdString(),1},false}},expected.revision());
+    }
+    check(snapshot(window.host.session)==snapshot(expected),"Batch matches canonical full Document/encode/revision/history");
+    const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());const auto actual_world=evaluate_transforms(window.host.session.document(),actual_values),expected_world=evaluate_transforms(expected.document(),expected_values);
+    for(const auto* id:{"first","second"}){check(actual_world.at(id).world==expected_world.at(id).world,"Both world matrices match canonical batch edit");const auto actual=object_bounds(window.host.session.document(),id,actual_values,actual_world,true),canonical=object_bounds(expected.document(),id,expected_values,expected_world,true);check(actual.has_value()==canonical.has_value()&&(!actual||std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom}),"Both curved bounds match canonical batch edit");}
+    undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
+}
+
 void circle_stroke_width_pointer(bool picking,const std::string& mode="valid",bool rectangle_source=false,bool polygon_source=false,bool star_source=false){
     const bool handle=false;const std::string field="op.path-target-stroke.width";const QString label="Width";const Id generated_point=rectangle_source?"circle-stroke-source-top-right":polygon_source?"circle-stroke-source-outer-1-6":star_source?"circle-stroke-source-outer-1-5":"circle-stroke-source-east";
     QTemporaryDir scratch;check(scratch.isValid(),"Stroke width owns temporary state");
@@ -5543,6 +5640,20 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-path-common-entry-pending-pointer")){
+            bool failed=false;for(const auto* field:{"transform.ty","transform.a","transform.b","transform.c","transform.d","transform.anchor_x","transform.anchor_y","composite.opacity"})for(bool picking:{false,true}){try{batch_path_common_pointer(field,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}check(!failed,"All16 batch Path common first actions satisfy canonical contract");
+            std::cout<<"batch_path_common_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-path-common-affected-pending-pointer")){
+            for(const auto* field:{"transform.ty","transform.a","transform.b","transform.c","transform.d","transform.anchor_x","transform.anchor_y","composite.opacity"}){for(bool picking:{false,true})for(const auto* mode:{"valid","relative","zero","negative","cancel","expression-scalar","invalid"}){std::cerr<<field<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_path_common_pointer(field,picking,mode);}
+                std::cerr<<field<<" / fx / invalid-expression\n";batch_path_common_pointer(field,false,"invalid-expression");for(const auto* mode:{"cycle","unit"}){std::cerr<<field<<" / pick / "<<mode<<"\n";batch_path_common_pointer(field,true,mode);}}
+            for(bool picking:{false,true})batch_path_common_pointer("composite.opacity",picking,"partial");
+            std::cout<<"batch_path_common_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-path-common-whip-pending-pointer")){
+            for(const auto* field:{"transform.ty","transform.a","transform.b","transform.c","transform.d","transform.anchor_x","transform.anchor_y","composite.opacity"})for(const auto* mode:{"drag","drag-cancel"})batch_path_common_pointer(field,true,mode);
+            std::cout<<"batch_path_common_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-path-tx-entry-pending-pointer")){
             bool failed=false;for(bool picking:{false,true}){try{batch_path_tx_pointer(picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}check(!failed,"Both batch Path Translation X first actions satisfy canonical contract");
