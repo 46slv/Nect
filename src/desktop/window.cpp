@@ -7958,7 +7958,29 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const bool direction_preview=host.session.gesture_active();
     auto prepared_revision=std::make_shared<std::uint64_t>(direction_revision);
     auto scalar_prepared=std::make_shared<bool>(false);
-    direction->prepare=[this,id,frozen_session,direction_document,direction_gesture,direction_preview,prepared_revision,scalar_prepared] {
+    auto direction_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        direction_revision,text_selection_generation_,direction_document,direction_gesture,direction_preview,object});
+    using DirectionLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextDirectionDriver>>>;
+    const auto direction_lineage=[this](const Id& root) {
+        DirectionLineage result;Id current=root;
+        while(!current.empty()&&!result.contains(current)) {
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained writing direction source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.direction,text.direction_driver});
+            current=text.direction_driver?text.direction_driver->link.object:Id{};
+        }
+        return result;
+    };
+    const auto retained_direction_lineage=direction_lineage(id);
+    const auto verify_direction=[this,id,direction_context,direction_lineage,retained_direction_lineage] {
+        verify_text_typography_context(*direction_context);
+        if(direction_lineage(id)!=retained_direction_lineage)
+            throw Error("SOURCE_CONFLICT","The retained writing direction driver changed; reopen this Text's direction controls");
+    };
+    direction->prepare=[this,id,frozen_session,direction_document,direction_gesture,direction_preview,prepared_revision,scalar_prepared,direction_context,verify_direction] {
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
@@ -7967,6 +7989,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing writing direction");
             if(direction_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing writing direction");
+            verify_direction();
             QPointer<QLineEdit> pending;
             for(auto* input:inspector_->findChildren<QLineEdit*>()) {
                 const auto data=input->property("nect-reference").toByteArray();
@@ -7984,8 +8007,13 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 if(host.session_id!=frozen_session||host.session.document().id!=direction_document||
                    host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=direction_gesture||host.session.gesture_active())
                     throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*direction_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*direction_context=std::move(advanced);
                 *prepared_revision=host.session.revision();*scalar_prepared=true;
             }
+            verify_direction();
             ready=true;
         });
         return ready;
@@ -7996,13 +8024,14 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session_id==frozen_session&&host.session.document().id==direction_document)rebuild_inspector();
         });
     };
-    connect(direction,qOverload<int>(&QComboBox::activated),this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_preview](int index){
+    connect(direction,qOverload<int>(&QComboBox::activated),this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_preview,verify_direction](int index){
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
             if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing writing direction");
             if(direction_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing writing direction");
+            verify_direction();
             const auto& object=host.session.document().objects.at(id);
             if(!object.text)throw Error("NOT_TEXT","Text no longer exists");
             if(object.text->direction_driver)throw Error("DRIVEN_PROPERTY","Unlink Text writing direction explicitly before editing");
@@ -8021,7 +8050,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* edit_direction=direction_menu->addAction("Edit writing direction…");
     auto* link_direction=direction_menu->addAction("Link to Text direction…");
     auto* unlink_direction=direction_menu->addAction("Unlink direction");unlink_direction->setEnabled(direction_state.driver.has_value());
-    connect(edit_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref,direction_state]{
+    connect(edit_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref,direction_state,verify_direction]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
@@ -8029,6 +8058,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing its writing source");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_direction();
             ready=true;
         });
         if(!ready)return;
@@ -8044,11 +8074,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,direction_ref,direction_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,direction_ref,direction_state,editor,unlink,status,verify_direction]{
             try {
                 if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
                 if(host.session.revision()!=direction_revision||host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed while the direction editor was open; reopen it");
-                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                verify_direction();
                 if(direction_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a direction edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -8070,7 +8101,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         direction_source_ids.push_back(source_id);direction_source_labels<<qs(source_object.name)+" — "+qs(source_id);
     }
     link_direction->setEnabled(!direction_source_ids.empty());const bool replace_direction_driver=direction_state.driver.has_value();
-    connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,replace_direction_driver,direction_source_ids,direction_source_labels]{
+    connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,replace_direction_driver,direction_source_ids,direction_source_labels,verify_direction,direction_lineage]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
@@ -8078,6 +8109,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing its writing source");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_direction();
             ready=true;
         });
         if(!ready)return;
@@ -8091,6 +8123,20 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         source->setCurrentIndex(-1);layout->addWidget(source);
         auto* status=new QLabel("Choose a visible Text direction source. Cancel keeps the current driver.",&dialog);
         status->setObjectName("text-direction-source-status");status->setWordWrap(true);layout->addWidget(status);
+        auto chosen_source=std::make_shared<std::optional<Object>>();
+        auto chosen_lineage=std::make_shared<DirectionLineage>();
+        const auto retain_direction_source=[this,source,status,direction_source_ids,chosen_source,chosen_lineage,verify_direction,direction_lineage](int index){
+            chosen_source->reset();chosen_lineage->clear();if(index<0)return;
+            try {
+                verify_direction();const int source_index=source->currentData().toInt();
+                if(source_index<0||static_cast<std::size_t>(source_index)>=direction_source_ids.size())
+                    throw Error("MISSING_REFERENCE","Choose a valid Text direction source");
+                const auto& source_id=direction_source_ids.at(static_cast<std::size_t>(source_index));
+                *chosen_source=host.session.document().objects.at(source_id);*chosen_lineage=direction_lineage(source_id);
+            }catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        };
+        connect(source,&QComboBox::currentIndexChanged,&dialog,retain_direction_source);
+        connect(source,&QComboBox::activated,&dialog,retain_direction_source);
         connect(search,&QLineEdit::textChanged,&dialog,[source,direction_source_labels,direction_source_ids](const QString& query){
             const int selected=source->currentIndex()<0?-1:source->currentData().toInt();
             const QSignalBlocker blocker(source);source->clear();
@@ -8104,15 +8150,21 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,replace_direction_driver,direction_source_ids,source,status]{
+            [this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,replace_direction_driver,direction_source_ids,source,status,verify_direction,direction_lineage,chosen_source,chosen_lineage]{
                 try {
                     if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
                     if(host.session.revision()!=direction_revision||host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_direction();
                     if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text direction source");
                     const int index=source->currentData().toInt();
                     if(index<0||static_cast<std::size_t>(index)>=direction_source_ids.size())
                         throw Error("MISSING_REFERENCE","Choose a valid Text direction source");
+                    const auto& chosen_id=direction_source_ids.at(static_cast<std::size_t>(index));
+                    const auto found=host.session.document().objects.find(chosen_id);
+                    if(!*chosen_source||(*chosen_source)->id!=chosen_id||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||direction_lineage(chosen_id)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The chosen direction source changed; choose it again before applying");
                     host.session.apply({LinkTextDirection{{id,"","text.direction"},
                         {direction_source_ids.at(static_cast<std::size_t>(index)),"","text.direction"},replace_direction_driver}},direction_revision);
                     host.edited();dialog.accept();
@@ -8120,9 +8172,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref]{
+    connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref,verify_direction]{
         perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
             if(host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its writing source");
+            verify_direction();
             host.session.apply({UnlinkTextDirection{direction_ref}},*prepared_revision);host.edited();});
     });
     // Writing is a primary Text edit, immediately after Content, ahead of the

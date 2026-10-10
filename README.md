@@ -109,6 +109,14 @@ and frame height complete separately from sizing, preserving independent Undo.
 The focused production Window pointer contract is `text_sizing_context_pointer_contract`;
 physical OS input remains a separate qualification.
 
+Single Text writing direction retains the complete authored target, Composition,
+selection and driver lineage across the direct Horizontal/Vertical combo and
+Driver Edit, Link/Replace and Unlink. The source chooser retains the explicitly
+chosen Text and refuses changed sources until they are chosen again. Pending
+Font size completes independently, preserving separate Undo. The focused Window
+contract is `text_direction_context_pointer_contract`; physical OS input and
+installed-font coverage remain separate qualifications.
+
 ## Build
 
 Requirements:

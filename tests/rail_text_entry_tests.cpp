@@ -1139,8 +1139,10 @@ void direction_link_pending_pointer(const std::string& mode){
         check(snapshot(window.host.session)==snapshot(expected),"First Writing Link equals exact independent scalar and stable enum source command");
     }
     check(window.canvas->selected_object=="text"&&window.canvas->selected_point.empty(),"Writing chooser retains exact target selection");
-    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    std::cout<<"DirectionLinkPhase "<<mode<<" first-undo begin"<<std::endl;
+    window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());std::cout<<"DirectionLinkPhase "<<mode<<" first-undo command done"<<std::endl;window.host.edited();std::cout<<"DirectionLinkPhase "<<mode<<" first-undo refresh done"<<std::endl;events();
     check(snapshot(window.host.session)==snapshot(expected),"One Writing source or fresh scalar Undo retains independently committed size");
+    std::cout<<"DirectionLinkPhase "<<mode<<" second-undo begin"<<std::endl;
     if(mode!="plain"){window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();}
     check(snapshot(window.host.session)==snapshot(expected)&&expected.document()==document,"Separate scalar Undo restores full original source/history");
     std::cout<<"text_direction_link_pending_pointer "<<mode<<": "<<checks<<" checks passed; Qt Window pointer route\n";
@@ -9568,6 +9570,7 @@ int main(int argc,char** argv){
             for(const auto* action:{"edit","unlink","linked-edit"})direction_source_action_pending_pointer(action);
             return 0;
         }
+        if(app.arguments().contains("--direction-link-isolated-valid")){direction_link_pending_pointer("valid");return 0;}
         if(app.arguments().contains("--direction-link-pending-pointer")){
             for(const auto* mode:{"valid","cancel","invalid","entry-revision","entry-document","apply-revision","apply-document","apply-session","plain"})direction_link_pending_pointer(mode);
             return 0;
