@@ -4182,6 +4182,39 @@ static void preflight_preset_macro_entries(const Document& document,const Preset
         }
     }
 }
+void validate_portable_preset_closure(const PortablePresetClosure& closure) {
+    Document dependencies;
+    std::set<Id> referenced;
+    for(const auto& entry:closure.definition.entries)
+        if(entry.kind=="macro")referenced.insert(entry.macro_definition);
+    for(const auto& [id,definition]:closure.macro_definitions) {
+        require(id==definition.id,"ID_MISMATCH",id);
+        require(id!=closure.definition.id,"DUPLICATE_ID",id);
+        require(referenced.contains(id),"UNUSED_PRESET_DEPENDENCY",id);
+        validate_portable_macro_definition(definition,portable_macro_payload_schema(definition));
+        dependencies.macro_definitions.emplace(id,definition);
+    }
+    validate_preset_definition(closure.definition.id,closure.definition,dependencies);
+    preflight_preset_macro_entries(dependencies,closure.definition);
+}
+
+PortablePresetClosure capture_portable_preset_closure(const Document& document,const Id& preset) {
+    const auto found=document.preset_definitions.find(preset);
+    require(found!=document.preset_definitions.end(),"MISSING_PRESET",preset);
+    PortablePresetClosure closure{found->second,{}};
+    for(const auto& entry:closure.definition.entries)if(entry.kind=="macro") {
+        const auto definition=document.macro_definitions.find(entry.macro_definition);
+        require(definition!=document.macro_definitions.end(),"MISSING_MACRO_DEFINITION",entry.macro_definition);
+        closure.macro_definitions.emplace(definition->first,definition->second);
+    }
+    validate_portable_preset_closure(closure);
+    return closure;
+}
+
+unsigned portable_preset_closure_schema(const PortablePresetClosure& closure) {
+    return closure.macro_definitions.empty()?closure.definition.schema_version:3u;
+}
+
 static bool same_public_parameter_contract(const MacroPublicParameter& a,const MacroPublicParameter& b) {
     return a.value_type==b.value_type&&a.unit==b.unit&&a.domain==b.domain;
 }
@@ -5731,7 +5764,6 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             "guide_artboard requires a Guide alignment reference without the legacy Artboard alias");
     }
     const bool baseline=alignment&&*alignment=="baseline";
-    if(baseline)require(axis=="y","INVALID_ALIGNMENT","First-line baseline alignment only supports y");
     if(alignment)require(!spacing,"UNEXPECTED_SPACING","Spacing is only valid for key-object distribution");
     if(!alignment&&target.kind!=ReferenceKind::key_object)
         require(!spacing,"UNEXPECTED_SPACING","Explicit spacing is only valid for key-object distribution");
@@ -5806,6 +5838,27 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
     }
     const auto values=evaluate(document);const auto transforms=evaluate_transforms(document,values);
+    const auto measured_baselines=[&](const std::map<Ref,double>& scalar_values,
+        const std::map<Id,EvaluatedTransform>& evaluated_transforms) {
+        std::map<Id,double> result;
+        for(const auto& id:objects) {
+            const auto& object=document.objects.at(id);
+            require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a measured metric: "+id);
+            const auto layout=evaluate_text_projection(document,id,scalar_values);
+            const auto metric=axis=="x"?
+                (layout.column_baselines_x.empty()?std::optional<double>{}:std::optional<double>{layout.column_baselines_x.front()}):
+                layout.first_line_baseline_y;
+            require(metric.has_value(),"UNSUPPORTED_BASELINE",axis=="x"?
+                "Text has no vertical first-column baseline metric: "+id:"Text has no horizontal first-line baseline metric: "+id);
+            const auto& world=evaluated_transforms.at(id).world;
+            require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
+            const auto coordinate=axis=="x"?world[0]*(*metric)+world[4]:world[3]*(*metric)+world[5];
+            finite(coordinate);result.emplace(id,coordinate);
+        }
+        return result;
+    };
+    // Validate every baseline before solving any displacement, including Text with no bounds.
+    const auto baselines=baseline?measured_baselines(values,transforms):std::map<Id,double>{};
     std::map<Id,Bounds> initial;std::optional<Bounds> selection_bounds;
     for(const auto& id:objects) {
         const auto bounds=object_bounds(document,id,values,transforms,true);require(bounds.has_value(),"EMPTY_BOUNDS","Object has no geometric bounds: "+id);
@@ -5829,33 +5882,23 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
         return std::nullopt;
     };
-    const auto first_line_baselines=[&](const std::map<Ref,double>& scalar_values,
-        const std::map<Id,EvaluatedTransform>& evaluated_transforms) {
-        std::map<Id,double> result;
-        for(const auto& id:objects) {
-            const auto& object=document.objects.at(id);
-            require(object.kind==Kind::text&&object.text.has_value(),"UNSUPPORTED_BASELINE","Baseline alignment requires Text objects with a first-line metric: "+id);
-            const auto layout=evaluate_text_projection(document,id,scalar_values);
-            require(layout.first_line_baseline_y.has_value(),"UNSUPPORTED_BASELINE","Text has no horizontal first-line baseline metric: "+id);
-            const auto& world=evaluated_transforms.at(id).world;
-            require(world[1]==0&&world[2]==0,"UNSUPPORTED_BASELINE","Rotated or non-axis-aligned Text has no supported baseline: "+id);
-            const auto y=world[3]*(*layout.first_line_baseline_y)+world[5];finite(y);result.emplace(id,y);
-        }
-        return result;
-    };
     std::map<Id,Vec2> displacements;
     for(const auto& id:objects)displacements.emplace(id,Vec2{});
     double baseline_target=0;
+    std::optional<std::pair<Id,Object>> fixed_baseline_object;
     if(alignment) {
         if(baseline) {
-            const auto baselines=first_line_baselines(values,transforms);
             Id source;
             if(target.kind==ReferenceKind::key_object)source=target.id;
             else source=*std::min_element(objects.begin(),objects.end(),[&](const Id& a,const Id& b){
                 return baselines.at(a)==baselines.at(b)?a<b:baselines.at(a)<baselines.at(b);
             });
             baseline_target=baselines.at(source);
-            for(const auto& id:objects)if(id!=source)displacements.at(id).y=baseline_target-baselines.at(id);
+            fixed_baseline_object.emplace(source,document.objects.at(source));
+            for(const auto& id:objects)if(id!=source) {
+                const auto delta=baseline_target-baselines.at(id);
+                displacements.at(id)=axis=="x"?Vec2{delta,0}:Vec2{0,delta};
+            }
         } else {
             const auto coordinate=[&](const Bounds& bounds){
                 const auto minimum=axis=="x"?bounds.left:bounds.top,maximum=axis=="x"?bounds.right:bounds.bottom;
@@ -5926,6 +5969,9 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
         }
     }
     translate_objects(document,objects,displacements);
+    if(fixed_baseline_object)
+        require(document.objects.at(fixed_baseline_object->first)==fixed_baseline_object->second,"ALIGNMENT_PRESERVATION",
+            "Fixed baseline Text authored state changed through a transform dependency");
     const auto after_values=evaluate(document);const auto after_transforms=evaluate_transforms(document,after_values);
     for(const auto& [id,before]:initial) {
         const auto after=object_bounds(document,id,after_values,after_transforms,true);const auto delta=displacements.at(id);
@@ -5934,9 +5980,9 @@ void arrange_objects(Document& document,const std::vector<Id>& objects,const std
             "Dependent geometry changed during layout; resolve the dependency before arranging");
     }
     if(baseline) {
-        const auto after_baselines=first_line_baselines(after_values,after_transforms);
+        const auto after_baselines=measured_baselines(after_values,after_transforms);
         for(const auto& [id,value]:after_baselines) {
-            (void)id;require(transform_equal(value,baseline_target),"ALIGNMENT_PRESERVATION","First-line baseline changed during alignment");
+            (void)id;require(transform_equal(value,baseline_target),"ALIGNMENT_PRESERVATION","Measured baseline changed during alignment");
         }
     }
 }
@@ -7374,6 +7420,16 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
             require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
             append_preset_to_target(candidate,found->second,mutation.object,mutation.operation_id_prefix);
+        } else if constexpr(std::is_same_v<T,ApplyPresetBatch>) {
+            require(mutation.targets.size()>=2&&mutation.targets.size()<=1000,
+                "INVALID_BATCH","Preset selection must contain 2..1000 distinct targets");
+            const auto found=candidate.preset_definitions.find(mutation.preset);
+            require(found!=candidate.preset_definitions.end(),"MISSING_PRESET",mutation.preset);
+            std::set<Id> targets;
+            for(const auto& target:mutation.targets) {
+                require(targets.insert(target.object).second,"INVALID_BATCH","Duplicate Preset target: "+target.object);
+                append_preset_to_target(candidate,found->second,target.object,target.operation_id_prefix);
+            }
         } else if constexpr(std::is_same_v<T,ImportAndApplyPreset>) {
             require(!mutation.asset_id.empty()&&mutation.accepted_revision>0,
                 "INVALID_PRESET_ASSET_REF","Portable Preset import requires an exact asset ID and positive accepted revision");
@@ -7391,6 +7447,43 @@ void edit_preset(Document& candidate,const PresetCommand& command) {
             candidate.preset_definitions.emplace(definition.id,definition);
             append_preset_to_target(candidate,candidate.preset_definitions.at(definition.id),
                 mutation.object,mutation.operation_id_prefix);
+        } else if constexpr(std::is_same_v<T,ImportAndApplyPresetClosure>) {
+            require(!mutation.asset_id.empty()&&mutation.accepted_revision>0&&mutation.accepted_revision<=9007199254740991ULL,
+                "INVALID_PRESET_ASSET_REF","Portable Preset import requires an exact asset ID and positive exact accepted revision");
+            identity(mutation.asset_id);
+            validate_portable_preset_closure(mutation.closure);
+            require(mutation.macro_definition_ids.size()==mutation.closure.macro_definitions.size(),
+                "INVALID_PRESET_DEPENDENCY_MAPPING","Every Macro dependency requires exactly one fresh Document ID");
+            const auto& source=mutation.closure.definition;
+            std::set<Id> source_ids{source.id};
+            for(const auto& [id,definition]:mutation.closure.macro_definitions){(void)definition;source_ids.insert(id);}
+            require(!source_ids.contains(mutation.asset_id),"PRESET_ASSET_ID_MISMATCH",
+                "Workspace AssetID must remain distinct from source definition IDs");
+            auto occupied=document_identity_ids(candidate);
+            occupied.insert(source_ids.begin(),source_ids.end());occupied.insert(mutation.asset_id);
+            const auto fresh=[&](const Id& id) {
+                identity(id);require(occupied.insert(id).second,"DUPLICATE_ID",id);
+                require(std::none_of(candidate.objects.begin(),candidate.objects.end(),[&](const auto& entry){return generated_point(entry.second,id);}),
+                    "DUPLICATE_ID",id);
+            };
+            fresh(mutation.document_definition_id);
+            for(const auto& [source_id,id]:mutation.macro_definition_ids) {
+                require(mutation.closure.macro_definitions.contains(source_id),"INVALID_PRESET_DEPENDENCY_MAPPING",source_id);
+                fresh(id);
+            }
+            auto definition=source;definition.id=mutation.document_definition_id;
+            // Generated application IDs also stay distinct from all source and
+            // workspace identities; the same global Document collision rule applies.
+            for(const auto& id:preset_operation_ids(definition,mutation.operation_id_prefix))fresh(id);
+            for(const auto& [source_id,source_definition]:mutation.closure.macro_definitions) {
+                auto imported=source_definition;imported.id=mutation.macro_definition_ids.at(source_id);
+                candidate.macro_definitions.emplace(imported.id,std::move(imported));
+            }
+            for(auto& entry:definition.entries)if(entry.kind=="macro")
+                entry.macro_definition=mutation.macro_definition_ids.at(entry.macro_definition);
+            candidate.preset_definitions.emplace(definition.id,definition);
+            append_preset_to_target(candidate,candidate.preset_definitions.at(definition.id),
+                mutation.object,mutation.operation_id_prefix);
         }
     },command.mutation);
 }
@@ -7403,10 +7496,13 @@ std::string preset_history_label(const PresetCommand& command,const Document& ca
         else if constexpr(std::is_same_v<T,RenamePreset>)return "Rename Preset: "+mutation.label;
         else if constexpr(std::is_same_v<T,UpdatePreset>)return "Update Preset: "+mutation.definition.label;
         else if constexpr(std::is_same_v<T,DeletePreset>)return "Delete Preset: "+mutation.preset;
-        else if constexpr(std::is_same_v<T,ApplyPreset>) {
+        else if constexpr(std::is_same_v<T,ApplyPreset>||std::is_same_v<T,ApplyPresetBatch>) {
             const auto found=candidate.preset_definitions.find(mutation.preset);
-            return "Apply Preset: "+(found==candidate.preset_definitions.end()?mutation.preset:found->second.label);
-        } else return "Import and Apply Preset: "+mutation.definition.label;
+            const auto label=found==candidate.preset_definitions.end()?mutation.preset:found->second.label;
+            if constexpr(std::is_same_v<T,ApplyPresetBatch>)return "Apply Preset to Selection: "+label;
+            else return "Apply Preset: "+label;
+        } else if constexpr(std::is_same_v<T,ImportAndApplyPresetClosure>)return "Import and Apply Preset: "+mutation.closure.definition.label;
+        else return "Import and Apply Preset: "+mutation.definition.label;
     },command.mutation);
 }
 

@@ -32,8 +32,11 @@ public:
     std::function<void()> selection_changed;
     // Sent after projecting a Canvas edit; failed projection remains explicit.
     std::function<void()> document_changed;
+    // Empty owned gestures also invalidate Inspector input contexts, not authored state.
+    std::function<void()> empty_gesture_finished;
     std::function<void()> scope_changed;
     std::function<void(bool)> draw_mode_changed;
+    std::function<void()> text_mode_changed;
     std::function<void()> gradient_edit_changed;
     std::function<void(bool)> anchor_edit_changed;
     std::function<void(bool)> circle_source_edit_changed;
@@ -59,6 +62,14 @@ public:
     void set_selection(Id object, Id point = {});
     void set_selections(std::vector<Selection> items);
     void set_draw_mode(bool enabled);
+    void set_text_mode(bool enabled, bool vertical=false);
+    bool text_mode() const {return text_mode_;}
+    void set_hand_mode(bool enabled);
+    bool hand_mode() const {return hand_mode_;}
+    void set_zoom_mode(bool enabled);
+    bool zoom_mode() const {return zoom_mode_;}
+    void set_direct_selection_mode(bool enabled);
+    bool direct_selection_mode() const {return direct_selection_mode_;}
     void set_anchor_edit(bool enabled);
     bool anchor_edit() const {return anchor_edit_;}
     void set_circle_source_edit(bool enabled);
@@ -68,6 +79,9 @@ public:
     bool draw_mode() const { return draw_mode_; }
     void set_gradient_edit(Id object, Id operation);
     const Id& gradient_operation() const { return gradient_operation_; }
+    bool gradient_edit_mode() const { return gradient_edit_mode_; }
+    struct GradientEditAvailability {std::vector<Id> operations;QString reason;};
+    GradientEditAvailability gradient_edit_availability() const;
     void cancel_interaction();
     const Id& drill_scope() const { return scope_; }
     QString breadcrumb() const;
@@ -220,19 +234,30 @@ private:
     std::vector<Artboard> artboards_;
     struct GradientControl { Id id; QPointF start, end; QTransform world; bool radial = false; };
     struct CircleSourceControl { QPointF center, radius; QTransform world; bool center_driven=false, radius_driven=false; };
-    Id gradient_object_, gradient_operation_;
+    Id gradient_object_, gradient_operation_, gradient_document_;
+    bool gradient_edit_mode_=false;
+    QString gradient_session_;
     std::optional<GradientControl> gradient_control_;
     Id circle_source_object_,circle_source_id_;
     bool draw_mode_ = false;
+    bool text_mode_ = false;
+    bool hand_mode_ = false;
+    bool zoom_mode_ = false;
+    bool direct_selection_mode_ = false;
+    bool zoom_out_cursor_ = false;
+    bool vertical_text_creation_ = false;
     bool anchor_edit_ = false;
     bool circle_source_edit_ = false;
     Id drawing_object_;
     Id drawing_contour_;
+    Id drawing_document_;
+    QString drawing_session_;
     bool initial_fit_ = true;
     double zoom_ = 1;
     QPointF pan_{40, 40};
     bool space_down_ = false;
     Drag drag_ = Drag::none;
+    Qt::MouseButton pan_button_ = Qt::NoButton;
     QPointF press_position_;
     QPointF marquee_position_;
     std::vector<Selection> marquee_start_;
@@ -324,10 +349,12 @@ private:
     void finish_drag();
     void finish_marquee();
     void append_draw_point(QPointF screen);
+    void finish_draw_path();
     void report_error(const std::exception&);
     void request_frame(const QString& operation, bool new_sequence = false);
     void update_cursor();
-    void clear_gradient_edit();
+    void zoom_at(double zoom,QPointF anchor,bool new_sequence=true);
+    void clear_gradient_edit(bool retain_tool=false);
     void clear_circle_source_edit(bool notify=true);
     std::optional<CircleSourceControl> circle_source_control() const;
     bool circle_drag_context_current() const;

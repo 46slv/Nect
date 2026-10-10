@@ -657,13 +657,26 @@ struct ReorderOperations { Id object; std::vector<Id> order; };
 struct CreatePreset { PresetDefinition definition; };
 struct CreatePresetFromStack { PresetDefinition metadata; Id object; };
 PresetDefinition capture_preset_definition(const Document&,PresetDefinition metadata,const Id& object);
-// Pure v1/v2 validation for the portable built-in literal slice. Macro entries
-// remain document-local because the workspace Library does not carry dependencies.
+// Pure v1/v2 validation for the portable built-in literal slice.
 void validate_portable_literal_preset(const PresetDefinition&);
+// Asset-only dependency closure. Document Presets retain their native v1/v2
+// shape; each referenced Macro is copied once with every retained revision.
+struct PortablePresetClosure {
+    PresetDefinition definition;
+    std::map<Id,MacroDefinition> macro_definitions;
+    bool operator==(const PortablePresetClosure&) const = default;
+};
+PortablePresetClosure capture_portable_preset_closure(const Document&,const Id& preset);
+void validate_portable_preset_closure(const PortablePresetClosure&);
+unsigned portable_preset_closure_schema(const PortablePresetClosure&);
 struct RenamePreset { Id preset; std::string label; };
 struct UpdatePreset { PresetDefinition definition; };
 struct DeletePreset { Id preset; };
 struct ApplyPreset { Id preset; Id object; Id operation_id_prefix; };
+// Applies one document Preset to exact retained targets in one candidate/Undo.
+// Every target requires its own caller-supplied fresh processing ID prefix.
+struct PresetApplyTarget { Id object; Id operation_id_prefix; };
+struct ApplyPresetBatch { Id preset; std::vector<PresetApplyTarget> targets; };
 // Imports a portable literal payload and applies it in the same Session commit.
 // Library identity is receipt context only; the Document receives a fresh local ID.
 struct ImportAndApplyPreset {
@@ -674,8 +687,17 @@ struct ImportAndApplyPreset {
     Id asset_id;
     std::uint64_t accepted_revision=0;
 };
-using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,
-    ImportAndApplyPreset>;
+struct ImportAndApplyPresetClosure {
+    PortablePresetClosure closure;
+    Id document_definition_id;
+    Id object;
+    Id operation_id_prefix;
+    Id asset_id;
+    std::uint64_t accepted_revision=0;
+    std::map<Id,Id> macro_definition_ids;
+};
+using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,ApplyPresetBatch,
+    ImportAndApplyPreset,ImportAndApplyPresetClosure>;
 struct PresetCommand { PresetMutation mutation; };
 struct CreateDefinition { Definition definition; };
 struct RenameDefinition { Id definition; std::string name; };
@@ -1164,8 +1186,9 @@ struct TextLayout {
     std::optional<double> first_line_baseline_y;
     // Measured horizontal line baselines in layout order; empty for vertical text.
     std::vector<double> line_baselines_y;
-    // Measured vertical column baseline origins in layout order. Empty if a
-    // column has no run or its DirectWrite run origins disagree.
+    // Measured vertical central column baselines in layout order, independent
+    // of each glyph run's Roman/central drawing origin. Empty if a column has
+    // no visible glyph run or its measured line metrics are unavailable.
     std::vector<double> column_baselines_x;
     bool overflow=false;
     std::size_t glyph_count=0;

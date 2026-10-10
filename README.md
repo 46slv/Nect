@@ -33,8 +33,11 @@ delay, a 34.75 ms dense-scene point-release measurement, and bounded output subs
 `CURRENT_GOAL.md` records the active daily-output Mission and continuous-development authority.
 
 Circle, Rectangle, Polygon and Star retain their generators after direct point edits, with
-visible Point Edit overrides/bypass and explicit Convert to Path. Ordered local
-Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
+visible Point Edit overrides/bypass and explicit Convert to Path.
+Conversion review follows ordinary property completion; Cancel keeps that edit,
+and explicit confirmation is a separate undoable conversion. A review refuses a
+changed Session, document, revision or gesture context without touching incoming state.
+Ordered local Fill/Stroke/Repeater stacks share one core evaluation for Canvas and SVG. Native
 0.13 saves Linked/Embedded PNG/JPEG assets and editable Image placements, retained Offset Paths, geometry masks, common compositing, expression source, procedural state, editable linear/radial gradients, ordered Artboards
 with parent-size inheritance, editable Text, named colors, retained Polygon/Star,
 authored Anchors and explicit Transform Parents. It migrates 0.1–0.12 without
@@ -83,6 +86,29 @@ Not implemented yet:
 
 The PS/AI parity backlog is **not** implementation authorization.
 
+Advanced Typography Add/Edit/Remove dialogs retain the complete authored Text and
+its Composition membership through entry and Apply. A replaced target refuses
+before consuming pending Font size; legitimate size completion and typography
+remain separate Undo steps. Exact four-byte feature/axis tags, significant spaces,
+case, feature order and values remain authored intent. This does not qualify font
+coverage or physical OS input. The focused production Window pointer contract is
+`text_typography_context_pointer_contract`.
+
+Single Text weight spin/literal and Driver Link/Replace, expression and Unlink
+retain the complete authored Text, Composition and exact source context. Stale
+target/source or external selection changes refuse atomically. Pending Font size
+and weight keep separate Undo steps, including Text-on-Path Inspector mirrors.
+The focused production Window pointer contract is `text_weight_context_pointer_contract`;
+physical OS input and installed-font coverage remain separate qualifications.
+
+Single Text sizing uses the existing Auto size/Fixed frame display and explicit
+Driver Edit sizing, Link/Replace and Unlink actions. The controls retain the complete
+authored target, Composition and chosen source. Changed targets or sources refuse
+atomically; a source can be explicitly chosen again. Pending Font size, frame width
+and frame height complete separately from sizing, preserving independent Undo.
+The focused production Window pointer contract is `text_sizing_context_pointer_contract`;
+physical OS input remains a separate qualification.
+
 ## Build
 
 Requirements:
@@ -126,8 +152,21 @@ the build script defaults work. It deploys Qt DLLs/plugins only into the local
 build output. Close the development executable before rebuilding it. No SDK is
 downloaded by configure or the script.
 
+Circle Properties → Edit Circle source handles first completes any ordinary pending
+radius edit on the first mouse click, then shows temporary Center/Radius controls.
+An invalid pending value keeps the mode closed. The entry and Finish buttons also
+support keyboard focus and Space activation. Escape or Finish exits
+without adding an authored command; the mode is excluded from native save.
+
 Add a Circle, Ellipse, Rectangle, Polygon or Star and adjust its parameters,
-create a Curve, or choose Draw Path and click anchors (Enter finishes).
+create a Curve, or choose Pen / Draw Path and click anchors. Enter finishes the
+current open Path; clicking its first anchor closes it. Pen stays active for the
+next Path, including after Artboard navigation. Escape exits Pen.
+Closing the pending contour through Edit also finishes that Path; the next Pen
+click starts a distinct Path, even if Undo later reopens the finished contour.
+Reselecting Pen with P/G or the Rail keeps the current unfinished Path. Opening
+a native document keeps Pen active but expires the previous Session's pending
+target, so the next click starts a new Path even when saved IDs are unchanged.
 Drag anchors/handles; Alt-drag an anchor to create handles. Escape cancels a drag.
 Shift-click adds/removes objects or points; Ctrl/Shift extended selection in the
 tree uses the same selection. Dragging multiple objects or points is one Undo.
@@ -150,6 +189,21 @@ field (hover Objects to inspect another source); click ↗ to search.
 Expressions use the same row (see below). With multiple targets, common
 properties show Mixed; a number sets every target and `+=`/`-=` preserves each
 target's differences. Source picking freezes all targets and returns to them.
+For multiple Group, Image or Instance targets (including mixed Path selections),
+Translation X/Y, Anchor X/Y, Matrix and Object opacity share this behavior:
+the first fx/↗ action finishes the
+pending scalar edit before opening its draft. The frozen targets include supported
+Group/Path/Text/Image/Instance descendants, mask sources and Transform Parents; changed dependency
+state rejects the stale action. Scalar completion and a subsequent expression/link
+remain separate Undo steps. Image placements also freeze their accepted raster asset
+contents, mode and locator; external file changes are handled by explicit Reload/Relink.
+Instance dependencies also freeze the exact Definition, its supported source subtree,
+accepted Image assets and pinned Macro revisions. Occurrence overrides stay on their
+original Instance; editing a placement scalar does not edit shared source content.
+With multiple Groups, a common Posterize Levels row also finishes its pending
+scalar edit on the first fx/↗ action. Each Group keeps its own operation ID and
+nested artwork; changing Levels and applying an expression/link are separate
+Undo steps. Levels remain integers from 2 through 16.
 
 Select adjacent objects and use the Canvas/Objects context menu → Mask With
 Top / Bottom. Labels identify the source by actual paint order. The operation
@@ -183,12 +237,56 @@ or Text stack order; driven or unsupported entries are reported with their sourc
 Refs. Apply appends fresh processing entries in one Session edit and one Undo.
 Rename, update from the current stack and delete edit the named definition;
 re-editing never changes already-applied snapshots. Publish Selected Preset to
-Library copies a built-in literal definition into the workspace Preset Library.
-Macro entries are not supported by the workspace Library yet.
+Library copies the definition and every referenced Macro, including all retained
+revisions, into one workspace asset. Update Asset retains its AssetID and Favorites.
+Favorite Apply imports fresh definition IDs and applies the pinned entries in one
+Undo step. Legacy literal assets remain readable; native documents stay at 0.87.
+
+Select two or more whole Path/Text objects to use **Apply Preset to Selection**
+or **Apply Macro to Selection** in Properties. Choose a document Preset, or a
+document Macro and retained revision, then Apply. Each target receives fresh
+processing entries appended to its stack in one Undo step. Browsing and Cancel
+leave the document unchanged; an incompatible target rejects the entire batch.
+Selecting editable Text objects also exposes **Text on Path**: choose an authored
+Path and Contour, adjust start/spacing/direction, then Apply or Detach for the
+selection. Blank mixed fields keep each target's value. Existing single-line
+horizontal Text-on-Path limits still apply.
+The controls retain complete Text objects and their Composition while drafting.
+If either changes, refresh the controls. If the chosen Path changes, choose it
+again before Apply. Detach ignores the Path draft; unrelated artwork remains independent.
+Single Text Attach / Detach also retains the whole Text and its Composition.
+Attach retains the chosen Path contour. Refresh changed Text controls or choose
+the changed Path contour again; Detach remains independent of the Path draft.
+A pending Font size completes before the attachment, with separate Undo steps.
+Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
+geometry. Invalid authored outlines still reject the entire edit atomically.
+For a published numeric Macro control, **Reset** discards an unfinished number
+and restores the value from the pinned revision. Releasing the Reset press away
+from the button keeps the draft. If the document, target, pinned definition or
+editing context changes, reopen Properties before completing or resetting it.
+Published Boolean Macro checkboxes and their **Reset** use the same context
+protection, including deferred clicks. Reset removes the explicit Boolean override
+and restores the pinned default, even when the override equals that default.
+**Edit new revision**, **Publish Macro controls** and **Edit Macro chain** retain the source revision
+used to create their drafts.
+If that source or the latest revision changes, Save keeps the draft open and asks
+you to reopen it. Older revisions and unrelated artwork remain independent.
+**Apply Macro to Selection** retains the complete authored targets, their existing
+Macro pins and the selected source revision while you browse. If a target or its
+pinned source changes, refresh the controls; if the selected source changes, choose
+it again before Apply. Unrelated artwork and later unselected revisions remain independent.
+**Apply Preset to Selection** retains the complete authored targets, their existing
+Macro pins, the chosen Preset definition and its referenced Macro revisions.
+If a target or its pinned source changes, refresh the controls; if only the chosen
+Preset or its source changes, choose it again before Apply. Unselected Presets,
+unrelated artwork and unreferenced older or later Macro revisions remain independent.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
-`update_preset`, `delete_preset`, `apply_preset` or `import_apply_preset`.
+`update_preset`, `delete_preset`, `apply_preset`, `apply_preset_batch`,
+`import_apply_preset` or `import_apply_preset_closure`.
+`apply_preset_batch` takes a Preset ID and distinct target/prefix pairs; it validates
+every target before committing and returns the fresh operation IDs per target.
 `create_preset_from_stack` returns the exact captured source operation IDs and
 types. A workspace Preset Favorite or Quick Access slot imports and applies to
 the current selected Path/Text in one Undo step; it does not look up the source
@@ -200,8 +298,27 @@ its stable IDs; it does not add duplicate authored source Objects. Instance plac
 visibility and compositing remain local, while source edits flow to live instances.
 The source root's affine/anchor/transform-parent/visibility are excluded from the
 shared appearance, while its content and compositing (including opacity) remain.
-Scalar overrides are limited to `composite.opacity` and Text `text.font_size`.
+Scalar overrides support `composite.opacity` and Text `text.font_size`.
+Descendant items also support local translation and retained Rectangle size.
 Reset restores source evaluation; Detach materializes a frozen copy in one Undo.
+Selecting one whole Instance exposes **Scalar overrides → Set… / Reset…** in
+Properties. These open the existing source-item/field chooser, edit only that
+Instance and preserve shared Definition source. Reset is available when a local
+Scalar override exists; Undo restores the previous override or inheritance.
+**Item Text content** keeps Apply local, Cancel draft, Clear draft and Use Source
+in two rows within the standard Properties pane. Clear proposes an explicit empty
+draft; Apply commits it locally. Use Source removes only that Text's local override.
+**Shared Definition → Go to source** selects that Definition's existing source
+root and reveals it in Structure. Navigation changes selection only; subsequent
+source edits affect every Instance of that Definition. Finish or cancel a preview
+before navigating. Multi-selection keeps its own Properties context.
+An assigned Artboard's **Artboard Template → Edit source frame** opens the exact
+source Artboard's frame and layout Properties, including when Artboards share
+names. Navigation preserves authored state, Undo history and zoom. Subsequent
+source edits propagate to inheriting Artboards while their local overrides remain.
+Finish or cancel a preview before navigating.
+Switching the edited frame or selection starts Properties at its left edge;
+refreshing the same target preserves manual scrolling.
 Dependencies must stay within the source subtree, and nested/cross-Composition use
 reject. Native 0.64 stores Definitions and Instances; 0.63 and older remain readable.
 
@@ -222,6 +339,29 @@ unlinking freezes the evaluated value into the authored literal. The native
 document retains editable text and font references. Text is outlined in SVG
 exports and fonts are not embedded.
 
+The left Tool Rail keeps Selection, Pen, Text, Anchor Edit and Guide Edit available.
+Hold Text to choose Horizontal or Vertical creation; an ordinary click reuses the
+last variant, including after restarting the desktop. This workspace preference
+does not change selected Text, native files or Undo history. Missing/invalid
+preferences default to Horizontal; a failed save keeps the choice for the current
+Window and reports that it could not be saved. Change existing Text directly in
+the Inspector's Writing control.
+Text placement keeps its I-beam cursor while hovering over empty Canvas or
+selected artwork. Space temporarily shows the Hand cursor; releasing Space
+restores the Text cursor and retains the chosen writing variant.
+A pan belongs to the button that started it. Pressing or releasing another
+button while panning keeps the view gesture active and does not place Text;
+ordinary Text placement resumes when the pan ends.
+Double-clicking while placing Text keeps its selection and placement parent;
+choose Selection explicitly to enter a Group.
+
+Guide Edit drags visible Guides. Dragging artwork while Guide Edit is active
+selects the whole Object without moving it or editing its points. Hidden Guides
+stay unavailable until Show Guides is enabled; the active Tool remains Guide Edit.
+Space-drag still pans the view, and Esc cancels a Guide drag or exits the Tool.
+Idle arrow keys also leave artwork unchanged; select Selection or Direct Selection
+to nudge artwork or points.
+
 Colors opens three separate views: document-authored named colors, actual enabled
 paint inputs grouped by exact RGBA, and colors explicitly copied through Nect's
 Color menu during this Window session. Each paint and gradient stop has Copy
@@ -239,7 +379,15 @@ Default Stroke v1 remains butt/miter/4. Inspector controls and SVG style import
 are pending the next checkpoint; see [the contract](docs/model-v0.md#stroke-behavior-v2-within-native-013).
 
 The Shape stack supports multiple solid Fill/Stroke entries, HEX RGBA/color
-editing, enable/reorder/remove and Repeater. Add a radial repeater for a fixed-step
+editing, enable/reorder/remove and Repeater.
+Gradient stop HEX drafts commit RGBA together in one Undo step. Editing a HEX
+channel preserves the exact numeric values of the other channels;
+confirming the displayed HEX unchanged adds no History entry. An intervening
+document edit, reload or preview invalidates the old draft before it can overwrite
+the current color. Fields opened during a preview stay invalid after cancellation;
+edit the refreshed field. Linked or expression-driven channels reject atomically.
+
+Add a radial repeater for a fixed-step
 12 × 30° starting point. Repeater before paint creates a compound path; after
 paint it repeats separately painted copies. Source points remain directly editable.
 Open `examples/radial-ornament.nect` for an original procedural sample, or reproduce
@@ -251,6 +399,12 @@ Add → Polygon / Star exposes center, point count, rotation and radii. Count is
 normal linkable integer property. Point edits follow stable angular roles; a
 count change that would remove an edited/referenced vertex rejects atomically.
 Reset point edits explicitly removes corrections in one undoable command.
+Clicking Reset first commits an ordinary pending point value; Cancel keeps that
+value, while confirming Reset adds a separate undoable edit. Reset keeps the
+generator, stable point IDs, incoming point references and appearance stack;
+referenced points follow their generated fallback. A confirmation from an older
+document, revision or gesture context is refused without changing the incoming
+Session. Reopen Reset to review the current corrections.
 `examples/polystar-field.nect` combines linked counts, a retained point edit,
 Repeater, gradient, named colors and editable Text; recreate it with
 `scripts/create_polystar_demo.py --endpoint <name> --output <file.nect>`.
@@ -260,6 +414,30 @@ Anchor and one-shot rotation/scale about that pivot. Edit → Edit Anchor (`Y`)
 drags its Canvas crosshair without moving the artwork. The original affine
 properties remain available under Affine matrix. Rotation/scale actions do not
 create separately linkable TRS properties.
+
+Position X/Y drafts belong to their original document, revision and gesture context.
+Refreshing after another canonical edit discards the old draft and shows the incoming
+Position without changing its source or Undo history. An active preview is preserved.
+Absolute values and `+=` / `-=` adjustments remain in the effective parent's coordinates.
+
+Group Path Follow child Distance and Normal offset drafts also belong to their
+original document, revision and gesture context. Refreshing after another canonical
+edit discards the old numeric draft, preserving the incoming relation and Undo history.
+Return applies one child item edit; an active preview keeps its source and ownership.
+
+Path Follow's Mode, Deform axis, Normalized start and Reverse traversal controls
+are uncommitted until Apply. Selecting
+another object discards those drafts. Deform projects retained child geometry along
+the selected contour using X or Y as the longitudinal source axis; Tangent is a
+rigid-only option. Changing mode or axis preserves child source geometry, Point Edit,
+references, transforms and item membership, with one ordinary Undo per Apply.
+Select a deformed child or its generated point in the expanded Structure tree to
+edit its retained source in Properties. Generator size and absolute Point Edit
+coordinates reevaluate the bend and linked properties without flattening the child;
+projected Canvas point dragging still requires source editing.
+Select the guide Path's point in Structure to edit its source coordinates in
+Properties, including an invisible guide. Its changed contour reevaluates the
+retained children while their source geometry and Path Follow settings stay editable.
 
 Transform Parent chooses a same-Composition object to follow, with Keep artwork
 in place enabled by default. Detach returns to structural inheritance. Structure
@@ -290,11 +468,26 @@ authors the linked linear/radial gradient variant from an empty live document.
 The editable result and SVG are checked in as `examples/gradient-ornament.*`.
 Select a paint's Linear/Radial mode, edit coordinates/stops numerically, or enable
 Edit gradient handles in its Inspector. Solid bypass retains its stops and links.
+The Gradient Edit Rail tool stays selected when the current Object has no enabled
+Gradient; its disabled button explains why handles are unavailable. Selecting an
+Object with one eligible Gradient restores its handles. Multiple Gradients require
+an explicit Rail choice. Escape exits the tool even while no handles are available.
+Canvas drags in Gradient Edit change Gradient endpoints only; use Selection or
+Direct Selection to move artwork or Path points.
+Double-clicking a Group enters its child scope while keeping Gradient Edit selected.
+An eligible child restores its exact paint handles; returning to an ineligible
+parent clears the handle target. These navigation steps add no authored command.
+An old paint-choice popup is refused after its document or edit context changes;
+finish or cancel the edit and reopen the selector to choose the current paint.
 
 The Artboards list selects a frame and its Composition. Add/Duplicate places a
 frame to the right; up/down changes export order without moving artwork. Edit
 active frame exposes crop coordinates and dimensions, with independent width/
 height overrides of a same-Composition parent. Detach keeps the current size.
+Frame name and numeric drafts belong to the document and edit context where they opened.
+Refresh, another edit or preview cancellation discards an obsolete draft; a
+field opened during a preview cannot commit after that preview ends. Fresh
+X/Y edits change only the crop; size edits keep the existing inheritance rules.
 Fit focuses the active frame; View > Fit all artboards shows that Composition.
 SVG export uses the active frame. CLI callers can use
 `nect --svg <composition-id> <artboard-id>` with native JSON on stdin.
@@ -345,6 +538,12 @@ writes in the final rename race. See the persistence contract in `docs/model-v0.
 
 ## Property expressions
 
+Scalar drafts in Properties keep the document, revision and gesture context
+where they opened. Refresh discards an obsolete unfinished draft; a field opened
+during a preview cannot commit after that preview ends. Finish or cancel the
+preview, then use a fresh field. This also applies to effect parameters reached
+through **Edit in Properties**. A fresh Return keeps the normal single Undo step.
+
 Type `=expression` in a numeric field, or click **fx**. Use **Insert reference…**
 for searchable stable property references. Arithmetic, min/max/clamp, rounding,
 sqrt and degree-based sin/cos are supported; units and normal property ranges
@@ -389,6 +588,9 @@ Image sources cannot themselves be geometry masks or use vector Shape stacks.
 Both modes keep accepted original source bytes in the native document. A linked
 asset also remembers an absolute local drive path. **Check link** (or File →
 Image Assets → Check links) compares the current file without changing artwork.
+The first Check link click also works after an unfinished dimension edit: normal
+property blur commits that edit, and the current Properties show the observation.
+Checking adds no Undo entry or accepted image bytes.
 There is no automatic filesystem scan or pixel replacement. **Reload** accepts
 changed bytes; **Relink…** accepts a new file and locator; **Embed accepted image**
 keeps cached bytes and removes the link, including when the source is missing.
@@ -398,14 +600,38 @@ The Image Assets dialog reuses accepted sources and removes unused assets;
 deleting a placement alone keeps its asset. Reopening starts link status at
 `unchecked` and never fetches external files. Missing/unreadable files leave
 accepted pixels available for editing, export and recovery.
+Opening Image Assets after a pending dimension keeps the ordinary property edit.
+Each explicit Place selected adds a separate shared placement at the active
+Artboard origin, using the accepted source's pixel dimensions. Repeated placement
+keeps the selected asset row and advances the dialog's revision after its own
+actions. An incoming Session, Document, revision or gesture change makes the old
+dialog refuse actions; close and reopen it to use the current context.
+**Fit width to Artboard** replaces Width and Height using the accepted image's
+aspect ratio in one Undo, including when a dimension field has an unfinished
+draft. Cancelling the button press keeps that draft.
+**Reload**, **Embed accepted image** and **Relink…** finish an unfinished dimension through
+the ordinary property edit before updating the asset on the same click. Undo
+reverses the asset action first, then the dimension edit. A cancelled button press
+keeps the draft; an invalid dimension blocks the asset action. If Reload cannot
+read the link, the committed dimension remains and accepted pixels stay intact.
+Relink then opens its file chooser. Cancelling the chooser keeps the committed
+dimension and original asset. Accepting a file updates the shared asset in a
+separate Undo step. A document or gesture change while choosing refuses the
+asset update and preserves the incoming state.
 
 **Library → Folder Library…** registers selected local folders for hierarchical
 browse, search and explicit Refresh. Choose a PNG/JPEG item to Place Linked or
 Place Embedded through the same image import path. Favorites retain their exact
 folder/file, built-in Effect or workspace Preset AssetID and may use Quick Access
-slots 1–9; missing or unavailable items remain visible. Preset updates preserve
-the AssetID and Favorite while advancing its accepted revision. The bounded
-canonical Preset payload files are separate from the workspace roots/Favorites
+slots 1–9; missing or unavailable items remain visible.
+Folder Favorites and Quick Access check the current source before navigating;
+missing folders or paths replaced with files report the reason without changing
+the selected browse item or artwork. Refresh and reopening retain their exact
+Favorite identities and slots so restoring the source makes them usable again.
+Successful Folder navigation clears the prior search to reveal its hierarchy;
+unavailable Folder invocation retains the current search and browse selection.
+Preset updates preserve the AssetID and Favorite while advancing its accepted
+revision. The bounded canonical Preset payload files are separate from the workspace roots/Favorites
 settings; publication does not silently create a Favorite.
 
 Windows WIC uses only its built-in PNG/JPEG codecs from bounded memory. Eight-bit
@@ -448,6 +674,14 @@ API/MCP `apply` accepts `{"type":"align_objects","objects":["a","b"],
 "axis":"x","alignment":"min","artboard":null}`. Axis is x/y; alignment is
 min/center/max; artboard is null for selection bounds or an Artboard ID.
 
+For axis-aligned Text, **Align first-line baseline** aligns horizontal text on y;
+**Align first-column baseline** aligns vertical text on x, including mixed Japanese
+and Latin runs. Both use measured layout baselines, retain text/style, and keep the
+minimum baseline or exact selected key Text fixed. Incompatible directions, blank
+columns, rotated/skewed Text and unsupported reference types reject atomically.
+API/MCP uses `alignment:"baseline"` with `reference:"selection"` or
+`reference:"key_object:ID"` and the corresponding axis.
+
 Inspector **Equal H gaps / Equal V gaps** (also in Edit → Align objects) spaces
 3–1000 non-overlapping whole objects by their geometric bounds. Spatial order is
 independent of selection order; the outer two stay fixed. This ignores the
@@ -477,8 +711,26 @@ explicit pivot is `[x,y]`. Negative/zero factors reflect/collapse an axis.
 
 On the Canvas, **Ctrl+A** selects visible artwork in the current Composition or
 entered Group, treating child Groups as whole objects. In point-edit context it
-selects all anchors of the currently selected objects. Edit → Select all in
+selects all anchors of the currently selected objects. Direct Selection uses this
+point context even when a Path body is selected and no anchor is selected yet;
+with no target it does not select unrelated Objects. Edit → Select all in
 editing context offers the same operation. Text fields keep their normal Ctrl+A.
+
+Object-name edits commit on Return or focus loss in their original document
+and revision. Opening a native file or refreshing after another edit discards
+an outdated name draft; it cannot rename an incoming object with the same ID.
+Reentering the current name leaves Undo history unchanged.
+
+Text Weight drafts also belong to the original document and revision. Refreshing
+after another canonical edit discards an outdated draft and displays the updated
+weight. Return commits one Text update; an unchanged weight adds no Undo entry.
+Font family drafts use the same source context. Typing/Return and the installed-font
+popup keep their usual behavior; a stale draft cannot replace a newer family edit.
+
+Edit → **Close / open contour** changes the contour containing the active selected
+point, preserving the other contours in that Path. A removed point refuses the
+operation. With a whole Object selected, it keeps the first-contour behavior.
+Retained generator topology still requires explicit Convert to Path.
 
 **Ctrl+2** / View → Fit selection frames selected geometric bounds (stroke width
 excluded). Canvas **Shift+F** does the same; **F** still fits the active Artboard.
@@ -490,7 +742,9 @@ Canvas **arrow keys** move selected whole objects or points by1 world du;
 auto-repeat) is one undoable Session transaction. Rotated/scaled point coordinates
 are inverse-mapped; retained shapes gain ordinary Point Edit overrides. Driven
 changes reject the whole transaction. Text/tree keys remain their usual editing
-keys; draw/drag, Anchor Edit and gradient-handle modes do not nudge artwork.
+keys; draw/drag, Text placement, Anchor Edit, Guide, gradient-handle, Hand and Zoom modes do not
+nudge artwork. Select Selection or Direct Selection to move artwork or points
+with arrows; idle Text and navigation arrows preserve the Tool, selection and viewport.
 
 Drag from empty Canvas to select objects fully contained by the rectangle;
 **Shift-drag** adds them. In point context, only anchors in the current target

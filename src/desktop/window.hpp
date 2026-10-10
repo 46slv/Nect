@@ -29,9 +29,13 @@ class SemanticScrub;
 // Pure presentation of an existing derived receipt; does not shape or infer runs.
 QString format_text_font_receipt(const TextLayout& result);
 class ColorTools;
+class ToolRail;
 class Window : public QMainWindow {
 public:
-    explicit Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library = {});
+    // The caller owns the optional workspace store for this Window's lifetime.
+    // Omission keeps tools transient; the production entrypoint supplies QSettings.
+    explicit Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library = {},
+        QSettings* workspace_preferences = nullptr);
     ~Window() override;
     Host host;
     Canvas* canvas;
@@ -43,6 +47,9 @@ protected:
 private:
     ColorTools* color_tools_;
     std::unique_ptr<FolderLibrary> folder_library_;
+    QSettings* workspace_preferences_ = nullptr;
+    ToolRail* tool_rail_=nullptr;
+    void sync_tool_rail();
     QStringListModel* font_families_=nullptr;
     QString font_discovery_error_;
     std::uint64_t text_selection_generation_=0;
@@ -107,11 +114,13 @@ private:
     QString tree_signature_;
     QString inspector_context_;
     std::optional<int> inspector_pending_scroll_;
+    std::optional<int> inspector_pending_horizontal_scroll_;
     std::uint64_t inspector_scroll_generation_=0;
     struct ExpressionDraft {
         QString session,source;
         std::uint64_t revision=0;
         bool replace_binding=false;
+        std::function<void()> verify_context;
     };
     struct ArtboardTemplateContext {
         QString session;
@@ -125,6 +134,8 @@ private:
     Id whip_composition_,whip_artboard_;
     std::uint64_t whip_revision_=0;
     QString whip_session_;
+    Id whip_document_;
+    std::function<void()> whip_verify_;
     QPoint whip_start_;
     bool whip_dragged_=false;
     QWidget* whip_overlay_=nullptr;
@@ -156,6 +167,7 @@ private:
         const std::optional<Id>& guide_artboard={});
     std::string alignment_reference_="selection";
     std::optional<Id> alignment_guide_artboard_;
+    std::string distribution_spacing_draft_;
     struct AngleAdapterCancellation { QPointer<QWidget> control; std::function<void(bool)> cancel; };
     std::vector<AngleAdapterCancellation> angle_adapters_;
     void register_angle_adapter(QWidget* control,std::function<void(bool)> cancel);
@@ -178,7 +190,7 @@ private:
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
-    void pick_source(std::vector<Ref> targets,bool relative=false);
+    void pick_source(std::vector<Ref> targets,bool relative=false,std::function<void()> verify_context={});
     void save(bool choose);
     void export_png();
     void import_svg();
@@ -193,12 +205,20 @@ private:
     void show_folder_library();
     void add_image_properties(QVBoxLayout*,const Object&);
     void add_text_properties(QVBoxLayout* layout,const Object& object);
-    struct TextTypographyContext {
+    struct PropertyActionContext {
         QString session;
         Id object,source,composition,artboard;
         std::uint64_t revision=0,selection_generation=0;
+        Id document;
+        std::uint64_t gesture_generation=0;
+        bool preview=false;
+        // Typography and authored-family actions retain a complete target.
+        // Scalar fx/picker contexts retain their existing independent contracts.
+        std::optional<Object> typography_target;
     };
-    void verify_text_typography_context(const TextTypographyContext& context) const;
+    using TextTypographyContext=PropertyActionContext;
+    void verify_text_typography_context(const TextTypographyContext& context,bool browsing=false) const;
+    void verify_primitive_scalar_context(const PropertyActionContext& context,const std::string& source_type,bool browsing=false) const;
     QLabel* add_text_typography(QVBoxLayout* layout,const Object& object);
     void edit_text_typography(const TextTypographyContext& context,bool axis,
         const std::optional<std::string>& tag={},bool remove=false);

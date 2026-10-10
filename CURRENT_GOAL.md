@@ -1,56 +1,27 @@
-# Nect — Fast Build / Bug Harvest
+# Nect — fast authoring implementation
 
-## Mission
-Advance the accepted Nect Completion Route toward a useful integrated graphics authoring app. Preserve confirmed product semantics and final L1/L2/L3 acceptance boundaries. Dot remains an active critical-path implementer with independently owned parallel Sol implementation scopes.
+## Mission Brief
 
-## Execution cadence
-Build a coherent usable vertical, run minimum useful smoke and changed high-risk checks, use the candidate, then fix demonstrated failures in parallel and batch-integrate. Full regression, every-platform matrices and exhaustive review belong at meaningful milestones, not every small edit. `USABLE_UNHARDENED` does not mean release-ready or fully verified.
+**Goal:** Continue accepted contextual authoring; measure existing production Window paths before freezing each bounded repair.
+**Completion conditions:** A selected accepted gap satisfies active Done for next and sufficient focused validation with durable evidence and synchronization or a concrete blocker. Overall Mission/Requirement closure remains the canonical Completion Route/Outcome obligation; PASS counts, packets and pushes do not close it.
+**Authority:** Direct user2026-10-04/05/06/07/08, DEC71, Completion Route/REQ209/210 and formal rollover continuation. Owner/every Worker GPT-6.1 Sol. Focused reversible edits/build/tests/coherent commits/dev nonforce pushes/Draft maintenance authorized; protected-main/release/publication/force/history/account/irreversible gated.
+**Constraints:** One scope/one writer; exact Local plus one U+005C plus NectBuild(length15), nodeReuse:false. Session/native0.87/asset1/2/envelope1/stable IDs/full source/atomic refusal/Undo protected. Original D:/Documents/Nect NEVER edit/build; task10/25/27 caches/sample1597048/unknown Undo/unrelated apps protected. Canvas primary/fixed regions/no Timeline/stable Rail/Text variants. Reuse valid proof; no qualification/count chase.
+**Coarse route:** Selection/portable authoring/Rail/Japanese Text/Guide/Gradient/Hand/Zoom/Direct/Grid/Margin -> contextual authoring/accepted gaps. Later waves coarse; exact base/scope immediately before dispatch.
 
-Keep Save/Save As, native migration, stable identity, Undo/History and trust boundaries protected from the start. One source scope has one writer. Development-branch publication does not authorize primary-branch merge or release.
+**Execution contract (2026-10-07):** Fresh-read this execution Brief at start/resume/semantic boundaries and before next-task selection. Follow accepted scope/priority and incorporate dot design/priority updates at boundaries. Keep one active checkpoint with Next task, Done for next and sufficient validation. Continue approved independent work without individual dispatch instructions. Pause only dependent obligations; record exact cause/proof/resume trigger and report to the parent. Physical input/OS Space LOCAL_WAIT does not block independent accepted work.
+**Fresh-task execution (2026-10-09):** Judge KEEP/COMPACT/ROLLOVER from actual useful context, carry cost/drift and compact-Brief resume cost. Save/sync -> exactly one fresh same-Project Sol -> independently verified identity/access/HEAD/scoped-state/TAKEOVER_ACK -> exact release and parent-only canonical C0 transfer -> successor own persisted/read-back takeover-active BEFORE mutation. No timer/quota/ordinary checkpoint stop/extra approval gate; future genuine rollover remains allowed.
 
-## Current integrated candidate
-Native 0.81 development candidate combines:
-- Existing native 0.80 typography, source-preserving Text Apply, arithmetic compositing and save/Undo work.
-- Read-only SVG compatibility planning with source provenance and bounded local derivative closures. AI/PDF policies and encoders remain explicitly unqualified; planned bakes are not executed.
-- Metadata-driven numeric Offset, angle Repeater and Macro Amount controls.
-- An OFF-by-default developer-only Windows extension-loader fixture. No normal product autoload or production extension capability is claimed.
-- Atomic Text-content fan-out core safeguards; retained multi-target UI is the next independent UI task.
-- Optional Artboard background values with Template inheritance, local override, Reset and full detach freeze. Background is an output underlay after transparent artwork, not an object-blend backdrop. PNG/viewport/SVG include it; region analysis does not.
+## ACTIVE CHECKPOINT
 
-## Current evidence and remaining work
-The `dot/req65-contour-path` candidate starts from verified public
-`dot/fast-build-native081@f3c61ef708342c379cd8d587c126b3e32ced3105`. It adds a
-REQ-65 outer-contour adoption entry through Host/API/MCP and Add > Outer contour
-to Path, using the existing CreatePath command and native schema. Exact snapshot
-and contour IDs are rechecked; original artwork is retained, each corner receives
-a fresh authored ID, and adoption is one Undo. No holes or curve fitting are claimed.
-
-The batch includes the portable helper from `5dcffeb`, standalone Macro authoring
-from `74330ad`, its Effects-panel entry, and the qualified background precision
-repair from `37dd7dd`. These additions retain native 0.81. Shared Windows builds
-use `Local\NectBuild`; prior task-18 worktrees, launchers and processes are preserved.
-
-Windows Release build and five focused contracts passed: geometry helper (36),
-Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart,
-and Macro authoring UI (48). Adoption covers
-real Canvas analysis, nonzero Artboard origin/scale, original artwork/native
-preservation, point edit, Undo/Redo, cold process reopen, stale Session/revision/
-snapshot/contour rejection, gesture refusal and draft cancellation. The background
-repair was then integrated and the desktop rebuilt. Final integration passed both
-background UI (14) and actual desktop/MCP cold restart (16 semantic checks). A
-shell-wrapper launch failure was isolated to copied Python PATH/Qt resolution;
-the explicit-Qt Python runner passes. This is USABLE_UNHARDENED;
-physical input/visual comfort, broad regression, whole REQ-65 and full Macro graph
-authoring remain open.
-
-The earlier Linux desktop compiler kill remains historical evidence. These Windows
-primary-path checks do not establish final interoperability or milestone hardening.
-
-## Next
-Use the supported candidate and collect demonstrated authoring failures. The parent
-owns the next independent DefinitionInstance/Template visibility lane; keep its core
-and native-version changes separate until the next batch integration. Current scope
-is released after source publication and remote SHA verification; no primary merge
-or release is authorized by this checkpoint.
-
-Source policy: [Fast Build / Bug Harvest Directive](https://app.notion.com/p/3eefd279a6f381e8a206ef658c90714a).
+**Goal:** Measure complete target/source/context retention in the existing single Text writing-direction Horizontal/Vertical combo and Driver Edit, Link/Replace and Unlink before freezing a bounded repair.
+**Current phase:** DISCOVERY_READY / HANDOFF_READY. Sizing is repaired and sufficiently validated; no writing-direction product defect or repair is frozen. Accepted contextual authoring/REQ3/4/16/209/210, not a new feature Candidate.
+**Proven:** OWN=C:/Users/shiro/.codex/scratch/01a1275f-ea8e-77c1-8538-7ac1677ca1f0. OWN/sizing-checkpoint.json SHA4C1103A2E5DA6C694936AC858596F02C51FD5F702E39A754549188F764BEEA58 binds original15 native-valid product REDs to repaired143 Windows Qt cases/3618 complete-Session checks, independent complete Document/canonical commands, separate Font size/frame width/frame height and sizing Undo/Redo, native cold Window. All seven selected sizing CTests PASS on exact final source/binaries (width9/62, height9/62, Link71, Edit/Unlink24); Release Desktop PASS. Same native source option rechoose retains the new explicit source. OWN/sizing-diagnostic-reconciliation.json separates the incompatible Text-on-Path fixture, three insufficient30sec aggregate deadlines (isolated width62 PASS at30.944sec; unchanged cases/assertions now90sec) and repaired2-case same-option candidate regression. Window prefix/suffix outside the sizing section remain exact; Core/IO/schema/dependencies unchanged.
+**Next task:** After exact successor activation, inspect existing direction source/tests and reuse native-valid complete authored Text/Composition/native/history fixtures. Measure actual production Window-pointer combo and Driver Edit/Link Replace/Unlink with full target/chosen source, Session/document/revision/gesture/selection/scope and existing legitimate pending Font size. Do not freeze a repair without native-valid product RED.
+**Approach:** Existing canonical typed Session commands and shared full-target context guards; preserve explicit Apply/Cancel and source-replacement intent, exact text/style/IDs/Refs and atomic refusals. Inspect supported native combinations before GUI; avoid deleted/expired widget dereferences. No Core/IO/schema/dependency/new-feature expansion.
+**Validation / sufficient condition:** Independent complete Document/canonical commands/full native/history/preview/revision/generation, source/draft lifetime, separate Undo/Redo/cold Window; proportionate affected contracts and Release Desktop if repair is needed. Physical input/font coverage/full CTest remain separate obligations. No replay of valid sizing/italic/weight/family/typography proof.
+**Done for next:** Native-valid direction discovery produces precise bounded RED/repair scope or proves an intact existing path, followed by sufficient repair/checkpoint/sync as needed. Mission/Requirements OPEN; fully VERIFIED43/89 unchanged.
+**State:** Canonical D:/Documents/Nect-worktrees/sol-integration-20261004; branch codex/sol-integration-20261004; activated base0606cfc88894748fa71efe7d1ae519005f34f6fd. Coherent sizing checkpoint exact local/remote/OPEN Draft22 HEAD/body and tree are sealed in OWN/sizing-sync.json and fresh-task-handoff-ready.json after synchronization. Six changed/new files belong solely to01a1275f. Serial build/test under exact Local plus one U+005C plus NectBuild(length15), nodeReuse:false.
+**Ownership:** Sole ACTIVE_RESERVED writer01a1275f-ea8e-77c1-8538-7ac1677ca1f0 until verified release; Projectba717fc6-6ac8-4504-9c7e-cf82c25e42e1/local; actual openai/gpt-6.1-sol/high/danger-full-access/never. Own ACK4A9CBF6031268460844FFCC5E6FF4B4C8113E9A637296CA0067559E984D7064C; predecessor01a12724 RELEASEDB7DAB518843932A40845E56A035D96A1DB672CE8BB7BA669DAC27E5E88292F50; own saved/readback activation68150D01AEFE9EBB450F0122172E18B4B69107E2567C9FEB4B1859E5E94697E1. Parent-only Notion/C0 writer; observer01a1253a nonwriter; no duplicate worker/successor.
+**Authority / Sources:** Direct autonomous Mission/DEC71/applicable AGENTS/formal continuation. Accepted intake REUSE through incoming sealed42-file manifest F8038FFFF13FC2A3C91FFA1A8F7B5240CA068BB993E27F73D3523211E5F2977C. OWN/sizing-boundary-route-readback.json fresh-reads Completion Route3e3fd279a6f381b4ba9dd2d1bf066e0f(lastEdited2026-10-04T05:45:13.956Z). C0 exact owner transfer keynect-c0-transfer-20261011-01a1275f is saved in OWN/c0-activation.json. No observed design/priority change. Handoff owner C:/Users/shiro/.agents/knowledge/shared/orchestration/handoff.md; project exact release -> parent-only C0 -> own persisted/readback activation order controls over generic lifecycle.
+**Reuse / LOCAL_WAIT:** Previous italic135/2551/four contracts/Release Desktop atcddec307 and prior weight154/2938/four contracts, family97/1762/five contracts, typography129/2765/four contracts remain candidate-bound REUSE through immutable incoming manifests/receipts; no rerun on this new source is claimed. Physical OS input/Space/subjective/font/platform/interop/durability/DPI LOCAL_WAIT/NOT_RUN; full CTest NOT_RUN. Original D:/Documents/Nect NEVER edit/build; task10/25/27 caches/sample1597048/unknown Undo/unrelated apps protected. No identical unavailable GUI inventory retry.
+**Handoff:** NEW_TASK / HANDOFF_READY. This context carries takeover verification, native fixture/Text-on-Path incompatibility, source-rechoose regression and aggregate-deadline reconciliation. The next independent writing-direction direct combo domain resumes cheaply from compact Brief/checkpoint/exact HEAD; fresh ownership reduces completed-history carry/drift and total resume cost. No timer/count/ordinary PASS stop. Independently confirm no successor exists, then create exactly one same-Project Sol ACK-only successor. Remain reserved until independent ACK verification; exact ACK -> predecessor saved/readback release -> parent-only C0 -> successor own saved/readback activation before mutation. No duplicate successor/concurrent writer; future necessary formal rollover remains authorized.

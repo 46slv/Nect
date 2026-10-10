@@ -10,6 +10,7 @@
 #include "multi_visibility_control.hpp"
 #include "multi_blend_mode_control.hpp"
 #include "text_direction_batch_control.hpp"
+#include "tool_rail.hpp"
 #include "text_layout_batch_control.hpp"
 #include "text_italic_batch_control.hpp"
 #include "text_family_batch_control.hpp"
@@ -20,6 +21,9 @@
 #include "macro_revision_control.hpp"
 #include "macro_chain_control.hpp"
 #include "text_alignment_batch_control.hpp"
+#include "text_path_batch_control.hpp"
+#include "preset_batch_control.hpp"
+#include "macro_batch_control.hpp"
 #include "analysis_line_control.hpp"
 #include "window.hpp"
 #include "nect/blend.hpp"
@@ -110,6 +114,40 @@
 
 namespace nect::desktop {
 namespace {
+// Keep frame actions readable in the existing pane; wider panes reuse a row.
+class FrameActionLayout final : public QLayout {
+public:
+    explicit FrameActionLayout(QWidget* parent=nullptr):QLayout(parent){setContentsMargins(0,0,0,0);setSpacing(6);}
+    ~FrameActionLayout() override {while(auto* item=takeAt(0))delete item;}
+    void addItem(QLayoutItem* item) override {items_.push_back(item);}
+    int count() const override {return static_cast<int>(items_.size());}
+    QLayoutItem* itemAt(int index) const override {
+        return index>=0&&index<count()?items_[static_cast<std::size_t>(index)]:nullptr;
+    }
+    QLayoutItem* takeAt(int index) override {
+        auto* item=itemAt(index);if(item)items_.erase(items_.begin()+index);return item;
+    }
+    Qt::Orientations expandingDirections() const override {return {};}
+    bool hasHeightForWidth() const override {return true;}
+    int heightForWidth(int width) const override {return arrange(QRect(0,0,width,0),false);}
+    QSize minimumSize() const override {
+        QSize result;for(auto* item:items_)result=result.expandedTo(item->minimumSize());return result;
+    }
+    QSize sizeHint() const override {return minimumSize();}
+    void setGeometry(const QRect& rect) override {QLayout::setGeometry(rect);arrange(rect,true);}
+private:
+    int arrange(const QRect& rect,bool place) const {
+        int x=0,y=0,row_height=0;
+        for(auto* item:items_) {
+            const auto size=item->sizeHint().expandedTo(item->minimumSize());
+            if(x>0&&x+size.width()>rect.width()){x=0;y+=row_height+spacing();row_height=0;}
+            if(place)item->setGeometry(QRect(rect.topLeft()+QPoint(x,y),size));
+            x+=size.width()+spacing();row_height=std::max(row_height,size.height());
+        }
+        return y+row_height;
+    }
+    std::vector<QLayoutItem*> items_;
+};
 QString qs(const std::string& s) { return QString::fromStdString(s); }
 // Grid scopes carry the exact edit context and acquired Session gesture. These
 // guards apply only to Grid dismissal; other layout editors keep their contract.
@@ -224,6 +262,8 @@ TextSourcePicker make_text_source_picker(QWidget* parent,const Document& documen
 }
 QLineEdit* add_artboard_source_search(QWidget* parent,QVBoxLayout* layout,QComboBox* source,
         const std::vector<Ref>& refs,const QStringList& labels,const std::optional<Ref>& selected_ref) {
+    source->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    source->setMinimumContentsLength(10);source->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     auto* search=new QLineEdit(parent);
     search->setObjectName(source->objectName()+"-search");
     search->setAccessibleName("Search Artboard source name, ID or field path");
@@ -275,6 +315,92 @@ std::vector<Ref> read_refs(const QByteArray& data) {
     return refs;
 }
 const char* reference_mime="application/x-nect-property-reference";
+class PreparedTextCombo : public QComboBox {
+public:
+    std::function<bool()> prepare;
+    std::function<void()> closed;
+    void showPopup() override {
+        setProperty("nect-retain-text-inspector",true);
+        const bool ready=!prepare||prepare();
+        setProperty("nect-retain-text-inspector",false);
+        if(ready) {
+            QComboBox::showPopup();popup_=view()->window();
+            popup_->installEventFilter(this);
+        }
+    }
+protected:
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        // Escape can hide Qt's popup container without calling hidePopup().
+        if(watched==popup_&&event->type()==QEvent::Hide&&closed)closed();
+        return QComboBox::eventFilter(watched,event);
+    }
+private:
+    QPointer<QWidget> popup_;
+};
+class PreparedTextSpin final : public QSpinBox {
+public:
+    std::function<bool()> prepare;
+    PreparedTextSpin(){lineEdit()->installEventFilter(this);}
+protected:
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        if(watched==lineEdit()&&event->type()==QEvent::MouseButtonPress&&prepare&&
+           static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton) {
+            setProperty("nect-retain-text-inspector",true);const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);if(!ready)return true;
+        }
+        return QSpinBox::eventFilter(watched,event);
+    }
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+        }
+        QSpinBox::mousePressEvent(event);
+    }
+};
+class PreparedTextMenuButton final : public QToolButton {
+public:
+    std::function<bool()> prepare;
+    std::function<void()> closed;
+protected:
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+            if(menu())menu()->installEventFilter(this);
+        }
+        QToolButton::mousePressEvent(event);
+    }
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        if(watched==menu()&&event->type()==QEvent::Hide&&closed)closed();
+        return QToolButton::eventFilter(watched,event);
+    }
+};
+class PreparedTextActionButton final : public QPushButton {
+public:
+    using QPushButton::QPushButton;
+    std::function<bool()> prepare;
+    std::function<void()> completed;
+    std::function<void()> verify_context;
+protected:
+    void mousePressEvent(QMouseEvent* event)override {
+        if(event->button()==Qt::LeftButton&&prepare) {
+            setProperty("nect-retain-text-inspector",true);
+            const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);
+            if(!ready){event->accept();return;}
+        }
+        QPushButton::mousePressEvent(event);
+    }
+    void mouseReleaseEvent(QMouseEvent* event)override {
+        QPushButton::mouseReleaseEvent(event);
+        if(completed)completed();
+    }
+};
 class PropertyInput final : public QLineEdit {
 public:
     using QLineEdit::QLineEdit;
@@ -305,7 +431,7 @@ QString expression_ref(const Ref& ref) {
     auto args=QJsonDocument(QJsonArray{qs(ref.object),qs(ref.point),qs(ref.field)}).toJson(QJsonDocument::Compact);
     return "ref("+QString::fromUtf8(args.mid(1,args.size()-2))+")";
 }
-class FontFamilyCombo final : public QComboBox {
+class FontFamilyCombo final : public PreparedTextCombo {
     QStringListModel* families_;
 public:
     explicit FontFamilyCombo(QStringListModel* families):families_(families) {
@@ -315,17 +441,34 @@ public:
         auto* completion=new QCompleter(families_,this);
         completion->setCaseSensitivity(Qt::CaseInsensitive);completion->setCompletionMode(QCompleter::InlineCompletion);
         setCompleter(completion);
+        lineEdit()->installEventFilter(this);
     }
+protected:
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        if(watched==lineEdit()&&event->type()==QEvent::MouseButtonPress&&prepare) {
+            const auto* mouse=static_cast<QMouseEvent*>(event);
+            if(mouse->button()==Qt::LeftButton) {
+                setProperty("nect-retain-text-inspector",true);
+                const bool ready=prepare();
+                setProperty("nect-retain-text-inspector",false);
+                if(!ready)return true;
+            }
+        }
+        return PreparedTextCombo::eventFilter(watched,event);
+    }
+public:
     void showPopup() override {
         // Binding the complete list during every Inspector rebuild makes Qt
         // measure it repeatedly. Completion is ready immediately; the popup
         // needs the full list only when the user opens it (mouse or keyboard).
+        setProperty("nect-text-family-popup-opening",true);
         if(model()!=families_) {
             const auto value=currentText();
             const QSignalBlocker combo_blocker(this),edit_blocker(lineEdit());
             setModel(families_);setCurrentIndex(findText(value));setEditText(value);
         }
-        QComboBox::showPopup();
+        PreparedTextCombo::showPopup();
+        setProperty("nect-text-family-popup-opening",false);
     }
 };
 class WhipOverlay final : public QWidget {
@@ -898,8 +1041,10 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     }
 }
 
-Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library)
-    : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)) {
+Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder_library,
+    QSettings* workspace_preferences)
+    : host(std::move(recovery_directory),this), folder_library_(std::move(folder_library)),
+      workspace_preferences_(workspace_preferences) {
     if (!folder_library_) folder_library_ = std::make_unique<FolderLibrary>();
     resize(1400,900);
     setMinimumSize(1000,650);
@@ -959,6 +1104,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     auto* effects_root_layout=new QVBoxLayout(effects_body);
     effects_root_layout->setContentsMargins(8,8,8,8);effects_root_layout->setSpacing(6);
     effects_tabs_=new QTabWidget(effects_body);effects_tabs_->setObjectName("effects-tabs");
+    auto scroll_page=[this](QWidget* page,const char* name) {
+        auto* scroll=new QScrollArea(effects_tabs_);scroll->setObjectName(name);
+        scroll->setFrameShape(QFrame::NoFrame);scroll->setWidgetResizable(true);
+        scroll->setMinimumWidth(300);scroll->setWidget(page);return scroll;
+    };
     auto* effects_page=new QWidget(effects_tabs_);
     auto* effects_layout=new QVBoxLayout(effects_page);
     effects_layout->setContentsMargins(4,4,4,4);effects_layout->setSpacing(6);
@@ -1016,7 +1166,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     effects_operations_layout_->setContentsMargins(0,0,0,0);effects_operations_layout_->setSpacing(4);
     auto* applied_layout=new QVBoxLayout(applied);applied_layout->addWidget(effects_operations_);
     effects_layout->addWidget(applied);effects_layout->addStretch();
-    effects_tabs_->addTab(effects_page,"Effects");
+    effects_tabs_->addTab(scroll_page(effects_page,"effects-scroll"),"Effects");
 
     auto* presets_page=new QWidget(effects_tabs_);
     auto* presets_layout=new QVBoxLayout(presets_page);
@@ -1034,7 +1184,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     presets_save_->setToolTip("Captures the supported built-in and pinned Macro entries in the current Path/Text processing order. Driven or unsupported entries are reported.");
     presets_layout->addWidget(presets_save_);
     presets_publish_=new QPushButton("Publish Selected Preset to Library",presets_page);presets_publish_->setObjectName("preset-publish-library");
-    presets_publish_->setToolTip("Copy selected Preset to workspace Library; Macro entries are not supported yet.");
+    presets_publish_->setToolTip("Copy the selected Preset and its complete retained Macro dependencies to the workspace Library.");
     presets_layout->addWidget(presets_publish_);
     presets_apply_=new QPushButton("Apply Preset",presets_page);presets_apply_->setObjectName("preset-apply");
     presets_layout->addWidget(presets_apply_);
@@ -1044,7 +1194,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     presets_layout->addWidget(presets_update_);
     presets_delete_=new QPushButton("Delete Preset",presets_page);presets_delete_->setObjectName("preset-delete");
     presets_layout->addWidget(presets_delete_);presets_layout->addStretch();
-    effects_tabs_->addTab(presets_page,"Presets");
+    effects_tabs_->addTab(scroll_page(presets_page,"presets-scroll"),"Presets");
     effects_root_layout->addWidget(effects_tabs_);
     effects_dock_->setWidget(effects_body);
     addDockWidget(Qt::RightDockWidgetArea,effects_dock_);
@@ -1129,7 +1279,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
             preset_context_current(generation,session,target,revision);
             const auto found=host.session.document().preset_definitions.find(id);
             if(found==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",id);
-            const auto published=folder_library_->publish_preset(found->second);
+            const auto published=folder_library_->publish_preset(capture_portable_preset_closure(host.session.document(),id));
             set_preset_status("Published “"+QString::fromStdString(found->second.label)+"” to Workspace Preset Library · AssetID "+
                 published.ref.asset_id+" · revision 1.");
         } catch(const Error& error) {set_preset_status(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -1367,7 +1517,15 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         const auto& o=host.session.document().objects.at(canvas->selected_object);
         const auto contours=path_contours(o,&canvas->evaluated_values());
         if(contours.empty()) throw Error("NO_CONTOUR","Select a path");
-        const auto& c=contours.front();
+        auto target=contours.begin();
+        if(!canvas->selected_point.empty()) {
+            target=std::find_if(contours.begin(),contours.end(),[&](const auto& contour){
+                return std::any_of(contour.points.begin(),contour.points.end(),
+                    [&](const auto& point){return point.id==canvas->selected_point;});
+            });
+            if(target==contours.end())throw Error("MISSING_POINT","Select a current point before changing its contour");
+        }
+        const auto& c=*target;
         host.session.apply({CloseContour{o.id,c.id,!c.closed}},host.session.revision());host.edited();
     });
     auto* convert=action(edit,"Convert to Path…",{},[this]{convert_to_path();});
@@ -1394,9 +1552,88 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     radial->setObjectName("add-radial-repeater");
     add->addSeparator();
     auto* add_curve_action=action(add,"Curve",QKeySequence("Ctrl+Shift+P"),[this]{add_curve();});add_curve_action->setObjectName("add-curve");
-    auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
+    auto* draw=action(add,"Draw Path",QKeySequence("P"),[this]{if(!canvas->draw_mode())canvas->set_draw_mode(true);canvas->setFocus();statusBar()->showMessage("Click to add points · Enter finishes the path · Escape exits",10000);});
     draw->setObjectName("draw-path");draw->setShortcuts({QKeySequence("P"),QKeySequence("G")});
     draw->setShortcutContext(Qt::WidgetShortcut);canvas->addAction(draw);
+    auto* rail=new ToolRail(this);tool_rail_=rail;addToolBar(Qt::LeftToolBarArea,rail);
+    auto* gradient_choices=new QMenu(rail);gradient_choices->setObjectName("gradient-tool-targets");
+    constexpr auto text_variant_key="workspace/tools/textCreationDirection";
+    if(workspace_preferences_) {
+        workspace_preferences_->setFallbacksEnabled(false);
+        workspace_preferences_->setAtomicSyncRequired(true);
+        workspace_preferences_->sync();
+        rail->set_vertical_text(workspace_preferences_->status()==QSettings::NoError&&
+            workspace_preferences_->value(text_variant_key).toString()=="vertical");
+    }
+    rail->variant_chosen=[this,text_variant_key](bool vertical){
+        const auto failed=[this]{statusBar()->showMessage(
+            "Text variant is active in this window; workspace preference could not be saved.",15000);};
+        if(!workspace_preferences_){failed();return;}
+        auto& settings=*workspace_preferences_;
+        settings.sync();
+        if(settings.status()!=QSettings::NoError||!settings.isWritable()){failed();return;}
+        const auto direction=QString(vertical?"vertical":"horizontal");
+        settings.setValue(text_variant_key,direction);settings.sync();
+        if(settings.status()!=QSettings::NoError){failed();return;}
+        // Read the actual backing store, retaining injected filenames and groups.
+        QSettings readback(settings.fileName(),settings.format());
+        readback.setFallbacksEnabled(false);readback.beginGroup(settings.group());readback.sync();
+        if(readback.status()!=QSettings::NoError||readback.value(text_variant_key).toString()!=direction)failed();
+    };
+    const auto sync_tools=[this]{sync_tool_rail();};
+    rail->activate=[this,rail,sync_tools,gradient_choices](ToolRail::Tool tool){
+        canvas->cancel_interaction();
+        if(tool==ToolRail::Tool::pen){if(!canvas->draw_mode())canvas->set_draw_mode(true);}
+        else if(tool==ToolRail::Tool::text)canvas->set_text_mode(true,rail->vertical_text());
+        else if(tool==ToolRail::Tool::anchor)canvas->set_anchor_edit(true);
+        else if(tool==ToolRail::Tool::guide)canvas->set_guide_edit_mode(true);
+        else if(tool==ToolRail::Tool::hand){canvas->set_hand_mode(true);statusBar()->clearMessage();}
+        else if(tool==ToolRail::Tool::zoom){canvas->set_zoom_mode(true);statusBar()->clearMessage();}
+        else if(tool==ToolRail::Tool::direct_selection){canvas->set_direct_selection_mode(true);statusBar()->clearMessage();}
+        else if(tool==ToolRail::Tool::gradient) {
+            const auto available=canvas->gradient_edit_availability();
+            const auto object=canvas->selected_object;
+            const auto session=host.session_id;const auto revision=host.session.revision();
+            const auto document=host.session.document().id;const auto generation=host.session.gesture_generation();
+            const auto preview=host.session.gesture_active();
+            const bool popup_choice=available.operations.size()>1;
+            const auto activate=[this,object,session,revision,document,generation,preview,popup_choice,sync_tools](const Id& operation){
+                const auto current=canvas->gradient_edit_availability();
+                // Only the asynchronous paint choice outlives its document/gesture context.
+                if(host.session_id!=session||host.session.revision()!=revision||
+                    (popup_choice&&(host.session.document().id!=document||host.session.gesture_generation()!=generation||preview||host.session.gesture_active()))||
+                    canvas->selected_object!=object||
+                    std::find(current.operations.begin(),current.operations.end(),operation)==current.operations.end()) {
+                    statusBar()->showMessage("Gradient target changed. Select it again.",10000);sync_tools();return;
+                }
+                // Canvas also supports an Inspector Finish toggle; Rail reselects an active tool.
+                if(canvas->gradient_operation()!=operation)canvas->set_gradient_edit(object,operation);
+                sync_tools();canvas->setFocus();
+            };
+            if(available.operations.size()==1)activate(available.operations.front());
+            else if(!available.operations.empty()) {
+                gradient_choices->clear();
+                const auto& stack=host.session.document().objects.at(object).stack;
+                for(const auto& id:available.operations) {
+                    const auto& operation=*std::find_if(stack.begin(),stack.end(),[&](const auto& op){return op.id==id;});
+                    auto* choice=gradient_choices->addAction(QString("%1 · %2 · %3").arg(
+                        operation.type=="nect.paint.stroke"?"Stroke":"Fill",qs(operation.gradient->type),qs(id)));
+                    choice->setObjectName("gradient-tool-target-"+qs(id));choice->setCheckable(true);
+                    choice->setChecked(canvas->gradient_operation()==id);
+                    connect(choice,&QAction::triggered,this,[activate,id]{activate(id);});
+                }
+                const auto* button=rail->findChild<QToolButton*>("tool-gradient");
+                gradient_choices->popup(button->mapToGlobal(QPoint(button->width(),0)));
+            }
+        }
+        else {canvas->set_direct_selection_mode(false);canvas->set_zoom_mode(false);canvas->set_hand_mode(false);canvas->set_text_mode(false);canvas->set_draw_mode(false);canvas->set_anchor_edit(false);
+            canvas->set_gradient_edit({},{});canvas->set_circle_source_edit(false);canvas->set_guide_edit_mode(false);}
+        sync_tools();canvas->setFocus();
+    };
+    canvas->draw_mode_changed=[sync_tools](bool){sync_tools();};
+    const auto anchor_changed=canvas->anchor_edit_changed;
+    canvas->anchor_edit_changed=[anchor_changed,sync_tools](bool enabled){if(anchor_changed)anchor_changed(enabled);sync_tools();};
+    canvas->text_mode_changed=sync_tools;
     action(view,"Fit Artboard",QKeySequence("Ctrl+0"),[this]{canvas->fit_artboard();});
     action(view,"Fit selection",QKeySequence("Ctrl+2"),[this]{canvas->fit_selection();})->setObjectName("fit-selection");
     action(view,"Fit all artboards",QKeySequence("Ctrl+Shift+0"),[this]{canvas->fit_all_artboards();});
@@ -1572,13 +1809,14 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         else canvas_notification_.reset();
         host.edited();
     };
-    canvas->selection_changed=[this]{++text_selection_generation_;if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();};
+    canvas->selection_changed=[this,sync_tools]{++text_selection_generation_;if(!canvas->selected_object.empty())artboard_editing_=false;sync_tree_selection();rebuild_inspector();rebuild_effects_panel();update_batch_rename_action();update_sort_paint_order_action();sync_tools();};
+    canvas->empty_gesture_finished=[this]{rebuild_inspector();};
     canvas->active_artboard_changed=[this]{if(!refreshing_)refresh();};
-    canvas->view_state_changed=[this]{sync_utility_view_state();};
+    canvas->view_state_changed=[this,sync_tools]{sync_utility_view_state();sync_tools();};
     canvas->zoom_changed=[this](double zoom){
         if(!utility_zoom_)return;const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(zoom*100.0);
     };
-    canvas->gradient_edit_changed=[this]{rebuild_inspector();};
+    canvas->gradient_edit_changed=[this,sync_tools]{rebuild_inspector();sync_tools();};
     canvas->circle_source_edit_changed=[this](bool){rebuild_inspector();};
     canvas->scope_changed=[this]{breadcrumb_->setText(canvas->breadcrumb());};
     canvas->error=[this](const QString& message){statusBar()->showMessage(message,10000);};
@@ -1632,12 +1870,24 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
     if(event->type()==QEvent::MouseButtonPress&&!whip_target_) {
         const auto* mouse=static_cast<QMouseEvent*>(event);
         if(mouse->button()==Qt::LeftButton&&watched->property("nect-pick-whip").toBool()) {
+            // The application filter owns both click and drag; prepare before
+            // freezing the whip so its revision follows only its own scalar.
+            std::function<void()> verify;
+            if(watched->property("nect-text-scalar-pick-action-object").isValid()) {
+                auto* button=static_cast<PreparedTextActionButton*>(watched);
+                button->setProperty("nect-retain-text-inspector",true);
+                const bool ready=button->prepare();
+                button->setProperty("nect-retain-text-inspector",false);
+                if(!ready)return true;
+                verify=button->verify_context;
+            }
             whip_target_=read_ref(watched->property("nect-reference").toByteArray());
             whip_targets_=read_refs(watched->property("nect-targets").toByteArray());
             if(whip_targets_.empty())whip_targets_={*whip_target_};
             whip_selection_=canvas->selections();whip_revision_=host.session.revision();
             whip_composition_=canvas->active_composition();whip_artboard_=canvas->active_artboard();
             whip_session_=host.session_id;whip_start_=mouse->globalPosition().toPoint();whip_dragged_=false;
+            whip_document_=host.session.document().id;whip_verify_=std::move(verify);
             grabMouse();
             statusBar()->showMessage("Drag to a property · hover an object to inspect its source · Shift: relative link · Esc: cancel");
             return true;
@@ -1698,9 +1948,15 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
             if(!source_bytes.isEmpty())break;
         }
     }
+    const auto verify=whip_verify_;
     cancel_whip();
-    if(!dragged) {pick_source(targets);return true;}
+    if(!dragged) {
+        if(verify)perform([&]{verify();pick_source(targets,false,verify);});
+        else pick_source(targets);
+        return true;
+    }
     perform([&] {
+        if(verify)verify();
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The pick-whip belongs to another document");
         if(source_bytes.isEmpty())throw Error("NO_SOURCE","Drop the pick-whip on a numeric property field");
         const auto source=read_ref(source_bytes);
@@ -1724,7 +1980,8 @@ void Window::reveal_whip_source() {
 }
 void Window::cancel_whip() {
     if(!whip_target_)return;
-    const auto selection=whip_selection_;const auto same_session=whip_session_==host.session_id;
+    const auto selection=whip_selection_;const auto same_session=whip_session_==host.session_id&&(!whip_verify_||whip_document_==host.session.document().id);
+    whip_verify_={};whip_document_.clear();
     whip_target_.reset();whip_targets_.clear();whip_selection_.clear();releaseMouse();
     if(whip_overlay_) {whip_overlay_->hide();whip_overlay_->deleteLater();whip_overlay_=nullptr;}
     statusBar()->clearMessage();
@@ -1820,6 +2077,15 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
     }
 }
 
+void Window::sync_tool_rail() {
+    if(!tool_rail_)return;
+    const auto available=canvas->gradient_edit_availability();
+    tool_rail_->set_gradient_available(!available.operations.empty(),available.reason);
+    tool_rail_->set_active(canvas->direct_selection_mode()?ToolRail::Tool::direct_selection:canvas->zoom_mode()?ToolRail::Tool::zoom:canvas->hand_mode()?ToolRail::Tool::hand:canvas->text_mode()?ToolRail::Tool::text:canvas->draw_mode()?ToolRail::Tool::pen:
+        canvas->anchor_edit()?ToolRail::Tool::anchor:canvas->gradient_edit_mode()?ToolRail::Tool::gradient:
+        canvas->guide_edit_mode()?ToolRail::Tool::guide:ToolRail::Tool::selection);
+}
+
 void Window::refresh(bool project_canvas) {
     if(refreshing_)return;
     if(layout_preview_active_&&!layout_draft_current()) {
@@ -1891,6 +2157,7 @@ void Window::refresh(bool project_canvas) {
     color_tools_->refresh();
     refresh_history();
     update_utility_strip();
+    sync_tool_rail();
 }
 
 void Window::rebuild_effects_panel() {
@@ -1945,7 +2212,10 @@ void Window::rebuild_effects_panel() {
     const auto effect_name=entry?entry->text():QStringLiteral("Unavailable effect");
     const bool macro_effect=effect_type.startsWith("macro:");
     const bool matches=entry&&!entry->isHidden();
-    effects_apply_->setText("Apply "+effect_name);
+    // Macro labels are authored text. Give the action its own line so adding
+    // another card (and a vertical scrollbar) keeps the whole button reachable.
+    effects_apply_->setText((macro_effect?QStringLiteral("Apply\n"):QStringLiteral("Apply "))+effect_name);
+    effects_apply_->setAccessibleName("Apply "+effect_name);
     if(auto* empty=effects_dock_->findChild<QLabel*>("effects-no-results")) {
         empty->setVisible(!matches);
         if(!first_match)empty->setText("No supported effect matches “"+query+"”.");
@@ -2014,9 +2284,18 @@ void Window::rebuild_effects_panel() {
             const auto panel_target_label=effects_target_->text();
             const auto card_title=operation.macro?operation_name+" · Macro revision v"+
                 QString::number(operation.macro->pinned_revision):operation_name+" · behavior v"+QString::number(operation.version);
-            auto* card=new QGroupBox(card_title,effects_operations_);
+            // Authored Macro names must not force every Effects control wider
+            // than the standard pane. Keep the complete caption in a wrapped row.
+            auto* card=new QGroupBox(operation.macro?QString{}:card_title,effects_operations_);
             card->setObjectName("effects-operation-"+qs(operation.id));
             auto* card_layout=new QVBoxLayout(card);
+            if(operation.macro) {
+                card->setAccessibleName(card_title);
+                auto* caption=new QLabel(card_title,card);
+                caption->setObjectName("effects-operation-caption-"+qs(operation.id));
+                caption->setTextFormat(Qt::PlainText);caption->setWordWrap(true);
+                card_layout->addWidget(caption);
+            }
             auto* identity=new QLabel("Instance ID: "+qs(operation.id),card);
             identity->setObjectName("effects-operation-id-"+qs(operation.id));
             identity->setTextFormat(Qt::PlainText);identity->setWordWrap(true);card_layout->addWidget(identity);
@@ -2494,11 +2773,27 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* note=new QLabel("Frame X/Y changes the crop only. Artwork stays at its existing composition coordinates. List order does not change placement.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");layout->addWidget(note);
     auto* group=new QGroupBox("Frame");auto* form=new QFormLayout(group);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(group);
+    const auto name_document=host.session.document().id;
+    const auto name_gesture=host.session.gesture_generation();
+    const auto name_preview=host.session.gesture_active();
     auto* name=new QLineEdit(qs(board.name));name->setObjectName("artboard-name");form->addRow("Name",name);
-    connect(name,&QLineEdit::editingFinished,this,[this,name,composition,read,apply]{
+    connect(name,&QLineEdit::editingFinished,this,[this,name,composition,read,apply,
+        frozen_session,frozen_revision,name_document,name_gesture,name_preview]{
         if(!name->isModified())return;name->setModified(false);
-        perform([&]{auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});});
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Frame name draft belongs to another document");
+            if(host.session.revision()!=frozen_revision||host.session.gesture_generation()!=name_gesture)
+                throw Error("REVISION_CONFLICT","Frame edit context changed; edit it again");
+            // A form created during a preview must stay ineligible after cancel.
+            if(name_preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            auto board=read();board.name=name->text().toStdString();apply({UpdateArtboard{composition,board}});
+        });
     });
+    const auto numeric_document=host.session.document().id;
+    const auto numeric_gesture=host.session.gesture_generation();
+    const auto numeric_preview=host.session.gesture_active();
     auto number=[&](const char* key,const QString& label,double Artboard::* member) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
@@ -2514,9 +2809,20 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 "Typing a size creates a local override. Use Inherit below to reset to the parent size.");
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
-        connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key)]{
+        connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key),
+            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview]{
             if(!input->isModified())return;input->setModified(false);
-            perform([&]{bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
+            perform([&]{
+                // Hiding a focused field during refresh can finish its old draft.
+                // Validate the original context before reading the current Artboard.
+                if(host.session_id!=frozen_session||host.session.document().id!=numeric_document)
+                    throw Error("SESSION_CONFLICT","Frame numeric draft belongs to another document");
+                if(host.session.revision()!=frozen_revision||host.session.gesture_generation()!=numeric_gesture)
+                    throw Error("REVISION_CONFLICT","Frame edit context changed; edit it again");
+                // Cancel keeps revision/generation, so preview-born fields remain ineligible.
+                if(numeric_preview||host.session.gesture_active())
+                    throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
                 if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
                 auto board=read();
                 if(board.template_assignment&&(key=="width"||key=="height")) {
@@ -2573,7 +2879,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* replace=new QCheckBox("Replace current source",source_box);
         replace->setObjectName("artboard-"+axis+"-replace");replace->setEnabled(parent_driven||driver.has_value());
         source_layout->addWidget(replace);
-        auto* actions=new QHBoxLayout;source_layout->addLayout(actions);
+        auto* actions=new FrameActionLayout;source_layout->addLayout(actions);
         auto* link=new QPushButton("Link",source_box);link->setObjectName("artboard-"+axis+"-link");actions->addWidget(link);
         auto* set_expression=new QPushButton("Apply expression",source_box);
         set_expression->setObjectName("artboard-"+axis+"-apply-expression");actions->addWidget(set_expression);
@@ -2605,7 +2911,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(set_expression,&QPushButton::clicked,this,apply_expression);
         connect(unlink,&QPushButton::clicked,this,[this,target,commit]{perform([&]{commit({UnlinkArtboardSize{target}});});});
         connect(cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
-        form->addRow("",source_box);
+        form->addRow(source_box);
     };
     size_source(true);size_source(false);
 
@@ -2772,7 +3078,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_replace=new QCheckBox("Replace current left source",margin_source_box);
     margin_replace->setObjectName("margin-left-replace");margin_replace->setEnabled(margin_left_is_driven);
     margin_source_layout->addWidget(margin_replace);
-    auto* margin_source_actions=new QHBoxLayout;margin_source_layout->addLayout(margin_source_actions);
+    auto* margin_source_actions=new FrameActionLayout;margin_source_layout->addLayout(margin_source_actions);
     auto* margin_link=new QPushButton("Link",margin_source_box);margin_link->setObjectName("margin-left-link");
     const bool margin_link_available=board.layout&&board.layout->margin&&!margin_left_sources.empty();
     margin_link->setEnabled(margin_link_available&&margin_left_source->currentIndex()>=0);margin_source_actions->addWidget(margin_link);
@@ -2790,7 +3096,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_left_expression)margin_expression->setPlainText(qs(margin_left_expression->source));
     margin_source_layout->addWidget(margin_expression);
-    auto* margin_expression_actions=new QHBoxLayout;margin_source_layout->addLayout(margin_expression_actions);
+    auto* margin_expression_actions=new FrameActionLayout;margin_source_layout->addLayout(margin_expression_actions);
     auto* margin_expression_apply=new QPushButton("Apply expression",margin_source_box);
     margin_expression_apply->setObjectName("margin-left-apply-expression");
     margin_expression_apply->setEnabled(board.layout&&board.layout->margin);margin_expression_actions->addWidget(margin_expression_apply);
@@ -2848,7 +3154,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_top_replace=new QCheckBox("Replace current top source",margin_top_source_box);
     margin_top_replace->setObjectName("margin-top-replace");margin_top_replace->setEnabled(margin_top_is_driven);
     margin_top_source_layout->addWidget(margin_top_replace);
-    auto* margin_top_actions=new QHBoxLayout;margin_top_source_layout->addLayout(margin_top_actions);
+    auto* margin_top_actions=new FrameActionLayout;margin_top_source_layout->addLayout(margin_top_actions);
     auto* margin_top_link=new QPushButton("Link",margin_top_source_box);margin_top_link->setObjectName("margin-top-link");
     const bool margin_top_link_available=board.layout&&board.layout->margin&&!margin_top_sources.empty();
     margin_top_link->setEnabled(margin_top_link_available&&margin_top_source->currentIndex()>=0);margin_top_actions->addWidget(margin_top_link);
@@ -2866,7 +3172,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_top_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_top_authored_expression)margin_top_expression->setPlainText(qs(margin_top_authored_expression->source));
     margin_top_source_layout->addWidget(margin_top_expression);
-    auto* margin_top_expression_actions=new QHBoxLayout;margin_top_source_layout->addLayout(margin_top_expression_actions);
+    auto* margin_top_expression_actions=new FrameActionLayout;margin_top_source_layout->addLayout(margin_top_expression_actions);
     auto* margin_top_expression_apply=new QPushButton("Apply expression",margin_top_source_box);
     margin_top_expression_apply->setObjectName("margin-top-apply-expression");
     margin_top_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -2922,7 +3228,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_right_replace=new QCheckBox("Replace current right source",margin_right_source_box);
     margin_right_replace->setObjectName("margin-right-replace");margin_right_replace->setEnabled(margin_right_is_driven);
     margin_right_source_layout->addWidget(margin_right_replace);
-    auto* margin_right_actions=new QHBoxLayout;margin_right_source_layout->addLayout(margin_right_actions);
+    auto* margin_right_actions=new FrameActionLayout;margin_right_source_layout->addLayout(margin_right_actions);
     auto* margin_right_link=new QPushButton("Link",margin_right_source_box);margin_right_link->setObjectName("margin-right-link");
     const bool margin_right_link_available=board.layout&&board.layout->margin&&!margin_right_sources.empty();
     margin_right_link->setEnabled(margin_right_link_available&&margin_right_source->currentIndex()>=0);
@@ -2942,7 +3248,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_right_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_right_expression)margin_right_expression_input->setPlainText(qs(margin_right_expression->source));
     margin_right_source_layout->addWidget(margin_right_expression_input);
-    auto* margin_right_expression_actions=new QHBoxLayout;margin_right_source_layout->addLayout(margin_right_expression_actions);
+    auto* margin_right_expression_actions=new FrameActionLayout;margin_right_source_layout->addLayout(margin_right_expression_actions);
     auto* margin_right_expression_apply=new QPushButton("Apply expression",margin_right_source_box);
     margin_right_expression_apply->setObjectName("margin-right-apply-expression");
     margin_right_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -3006,7 +3312,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_bottom_replace=new QCheckBox("Replace current bottom source",margin_bottom_source_box);
     margin_bottom_replace->setObjectName("margin-bottom-replace");
     margin_bottom_replace->setEnabled(margin_bottom_is_driven);margin_bottom_source_layout->addWidget(margin_bottom_replace);
-    auto* margin_bottom_actions=new QHBoxLayout;margin_bottom_source_layout->addLayout(margin_bottom_actions);
+    auto* margin_bottom_actions=new FrameActionLayout;margin_bottom_source_layout->addLayout(margin_bottom_actions);
     auto* margin_bottom_link=new QPushButton("Link",margin_bottom_source_box);
     margin_bottom_link->setObjectName("margin-bottom-link");
     const bool margin_bottom_link_available=board.layout&&board.layout->margin&&!margin_bottom_sources.empty();
@@ -3032,7 +3338,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_bottom_expression_input->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(margin_bottom_expression)margin_bottom_expression_input->setPlainText(qs(margin_bottom_expression->source));
     margin_bottom_source_layout->addWidget(margin_bottom_expression_input);
-    auto* margin_bottom_expression_actions=new QHBoxLayout;margin_bottom_source_layout->addLayout(margin_bottom_expression_actions);
+    auto* margin_bottom_expression_actions=new FrameActionLayout;margin_bottom_source_layout->addLayout(margin_bottom_expression_actions);
     auto* margin_bottom_expression_apply=new QPushButton("Apply expression",margin_bottom_source_box);
     margin_bottom_expression_apply->setObjectName("margin-bottom-apply-expression");
     margin_bottom_expression_apply->setEnabled(board.layout&&board.layout->margin);
@@ -3060,7 +3366,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
     });});
     connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
-    auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new QHBoxLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
+    auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
     if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
@@ -3269,7 +3575,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_x_replace=new QCheckBox("Replace current X source",grid_source_box);
     grid_x_replace->setObjectName("grid-bounds-x-replace");grid_x_replace->setEnabled(grid_bounds_x_is_driven);
     grid_source_layout->addWidget(grid_x_replace);
-    auto* grid_source_actions=new QHBoxLayout;grid_source_layout->addLayout(grid_source_actions);
+    auto* grid_source_actions=new FrameActionLayout;grid_source_layout->addLayout(grid_source_actions);
     auto* grid_x_link=new QPushButton("Link",grid_source_box);grid_x_link->setObjectName("grid-bounds-x-link");
     const bool grid_link_available=board.layout&&board.layout->grid&&!grid_x_sources.empty();
     grid_x_link->setEnabled(grid_link_available&&grid_x_source->currentIndex()>=0);grid_source_actions->addWidget(grid_x_link);
@@ -3286,7 +3592,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_x_expression->setAccessibleName("Grid bounds x expression draft");grid_x_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(grid_bounds_x_expression)grid_x_expression->setPlainText(qs(grid_bounds_x_expression->source));
     grid_source_layout->addWidget(grid_x_expression);
-    auto* grid_expression_actions=new QHBoxLayout;grid_source_layout->addLayout(grid_expression_actions);
+    auto* grid_expression_actions=new FrameActionLayout;grid_source_layout->addLayout(grid_expression_actions);
     auto* grid_x_expression_apply=new QPushButton("Apply expression",grid_source_box);
     grid_x_expression_apply->setObjectName("grid-bounds-x-apply-expression");
     grid_x_expression_apply->setEnabled(board.layout&&board.layout->grid);grid_expression_actions->addWidget(grid_x_expression_apply);
@@ -3332,7 +3638,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_columns_replace=new QCheckBox("Replace current columns source",grid_columns_source_box);
     grid_columns_replace->setObjectName("grid-columns-replace");
     grid_columns_replace->setEnabled(grid_columns_is_driven);grid_columns_source_layout->addWidget(grid_columns_replace);
-    auto* grid_columns_actions=new QHBoxLayout;grid_columns_source_layout->addLayout(grid_columns_actions);
+    auto* grid_columns_actions=new FrameActionLayout;grid_columns_source_layout->addLayout(grid_columns_actions);
     auto* grid_columns_link=new QPushButton("Link",grid_columns_source_box);
     grid_columns_link->setObjectName("grid-columns-link");
     const bool grid_columns_link_available=board.layout&&board.layout->grid&&!grid_columns_sources.empty();
@@ -3357,7 +3663,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_columns_expression_input->setPlaceholderText("unitless expression using Grid columns ref() values");
     if(grid_columns_expression)grid_columns_expression_input->setPlainText(qs(grid_columns_expression->source));
     grid_columns_source_layout->addWidget(grid_columns_expression_input);
-    auto* grid_columns_expression_actions=new QHBoxLayout;grid_columns_source_layout->addLayout(grid_columns_expression_actions);
+    auto* grid_columns_expression_actions=new FrameActionLayout;grid_columns_source_layout->addLayout(grid_columns_expression_actions);
     auto* grid_columns_expression_apply=new QPushButton("Apply expression",grid_columns_source_box);
     grid_columns_expression_apply->setObjectName("grid-columns-apply-expression");
     grid_columns_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3420,7 +3726,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_rows_replace=new QCheckBox("Replace current rows source",grid_rows_source_box);
     grid_rows_replace->setObjectName("grid-rows-replace");
     grid_rows_replace->setEnabled(grid_rows_is_driven);grid_rows_source_layout->addWidget(grid_rows_replace);
-    auto* grid_rows_actions=new QHBoxLayout;grid_rows_source_layout->addLayout(grid_rows_actions);
+    auto* grid_rows_actions=new FrameActionLayout;grid_rows_source_layout->addLayout(grid_rows_actions);
     auto* grid_rows_link=new QPushButton("Link",grid_rows_source_box);
     grid_rows_link->setObjectName("grid-rows-link");
     const bool grid_rows_link_available=board.layout&&board.layout->grid&&!grid_rows_sources.empty();
@@ -3460,7 +3766,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_rows_expression_input->setPlaceholderText("unitless expression using Grid rows ref() values");
     if(grid_rows_expression)grid_rows_expression_input->setPlainText(qs(grid_rows_expression->source));
     grid_rows_source_layout->addWidget(grid_rows_expression_input);
-    auto* grid_rows_expression_actions=new QHBoxLayout;grid_rows_source_layout->addLayout(grid_rows_expression_actions);
+    auto* grid_rows_expression_actions=new FrameActionLayout;grid_rows_source_layout->addLayout(grid_rows_expression_actions);
     auto* grid_rows_expression_apply=new QPushButton("Apply expression",grid_rows_source_box);
     grid_rows_expression_apply->setObjectName("grid-rows-apply-expression");
     grid_rows_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3509,7 +3815,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_y_replace=new QCheckBox("Replace current Y source",grid_y_source_box);
     grid_y_replace->setObjectName("grid-bounds-y-replace");grid_y_replace->setEnabled(grid_bounds_y_is_driven);
     grid_y_source_layout->addWidget(grid_y_replace);
-    auto* grid_y_source_actions=new QHBoxLayout;grid_y_source_layout->addLayout(grid_y_source_actions);
+    auto* grid_y_source_actions=new FrameActionLayout;grid_y_source_layout->addLayout(grid_y_source_actions);
     auto* grid_y_link=new QPushButton("Link",grid_y_source_box);grid_y_link->setObjectName("grid-bounds-y-link");
     const bool grid_y_link_available=board.layout&&board.layout->grid&&!grid_y_sources.empty();
     grid_y_link->setEnabled(grid_y_link_available&&grid_y_source->currentIndex()>=0);grid_y_source_actions->addWidget(grid_y_link);
@@ -3527,7 +3833,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_y_expression->setPlaceholderText("du expression using Artboard width/height ref() values");
     if(grid_bounds_y_expression)grid_y_expression->setPlainText(qs(grid_bounds_y_expression->source));
     grid_y_source_layout->addWidget(grid_y_expression);
-    auto* grid_y_expression_actions=new QHBoxLayout;grid_y_source_layout->addLayout(grid_y_expression_actions);
+    auto* grid_y_expression_actions=new FrameActionLayout;grid_y_source_layout->addLayout(grid_y_expression_actions);
     auto* grid_y_expression_apply=new QPushButton("Apply expression",grid_y_source_box);
     grid_y_expression_apply->setObjectName("grid-bounds-y-apply-expression");
     grid_y_expression_apply->setEnabled(board.layout&&board.layout->grid);grid_y_expression_actions->addWidget(grid_y_expression_apply);
@@ -3603,7 +3909,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_width_replace=new QCheckBox("Replace current width source",grid_width_source_box);
     grid_width_replace->setObjectName("grid-bounds-width-replace");grid_width_replace->setEnabled(grid_bounds_width_is_driven);
     grid_width_source_layout->addWidget(grid_width_replace);
-    auto* grid_width_source_actions=new QHBoxLayout;grid_width_source_layout->addLayout(grid_width_source_actions);
+    auto* grid_width_source_actions=new FrameActionLayout;grid_width_source_layout->addLayout(grid_width_source_actions);
     auto* grid_width_link=new QPushButton("Link",grid_width_source_box);grid_width_link->setObjectName("grid-bounds-width-link");
     const bool grid_width_link_available=board.layout&&board.layout->grid&&!grid_width_sources.empty();
     grid_width_link->setEnabled(grid_width_link_available&&grid_width_source->currentIndex()>=0);
@@ -3624,7 +3930,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_width_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.width\")");
     if(grid_bounds_width_expression)grid_width_expression->setPlainText(qs(grid_bounds_width_expression->source));
     grid_width_source_layout->addWidget(grid_width_expression);
-    auto* grid_width_expression_actions=new QHBoxLayout;grid_width_source_layout->addLayout(grid_width_expression_actions);
+    auto* grid_width_expression_actions=new FrameActionLayout;grid_width_source_layout->addLayout(grid_width_expression_actions);
     auto* grid_width_expression_apply=new QPushButton("Apply expression",grid_width_source_box);
     grid_width_expression_apply->setObjectName("grid-bounds-width-apply-expression");
     grid_width_expression_apply->setEnabled(board.layout&&board.layout->grid);
@@ -3692,7 +3998,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_height_replace->setObjectName("grid-bounds-height-replace");
     grid_height_replace->setEnabled(grid_bounds_height_is_driven);
     grid_height_source_layout->addWidget(grid_height_replace);
-    auto* grid_height_source_actions=new QHBoxLayout;
+    auto* grid_height_source_actions=new FrameActionLayout;
     grid_height_source_layout->addLayout(grid_height_source_actions);
     auto* grid_height_link=new QPushButton("Link",grid_height_source_box);
     grid_height_link->setObjectName("grid-bounds-height-link");
@@ -3717,7 +4023,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_height_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.height\")");
     if(grid_bounds_height_expression)grid_height_expression->setPlainText(qs(grid_bounds_height_expression->source));
     grid_height_source_layout->addWidget(grid_height_expression);
-    auto* grid_height_expression_actions=new QHBoxLayout;
+    auto* grid_height_expression_actions=new FrameActionLayout;
     grid_height_source_layout->addLayout(grid_height_expression_actions);
     auto* grid_height_expression_apply=new QPushButton("Apply expression",grid_height_source_box);
     grid_height_expression_apply->setObjectName("grid-bounds-height-apply-expression");
@@ -3787,7 +4093,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_column_gutter_replace->setObjectName("grid-column-gutter-replace");
     grid_column_gutter_replace->setEnabled(grid_column_gutter_is_driven);
     grid_column_gutter_source_layout->addWidget(grid_column_gutter_replace);
-    auto* grid_column_gutter_source_actions=new QHBoxLayout;
+    auto* grid_column_gutter_source_actions=new FrameActionLayout;
     grid_column_gutter_source_layout->addLayout(grid_column_gutter_source_actions);
     auto* grid_column_gutter_link=new QPushButton("Link",grid_column_gutter_source_box);
     grid_column_gutter_link->setObjectName("grid-column-gutter-link");
@@ -3882,7 +4188,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_row_gutter_replace->setObjectName("grid-row-gutter-replace");
     grid_row_gutter_replace->setEnabled(grid_row_gutter_is_driven);
     grid_row_gutter_source_layout->addWidget(grid_row_gutter_replace);
-    auto* grid_row_gutter_source_actions=new QHBoxLayout;
+    auto* grid_row_gutter_source_actions=new FrameActionLayout;
     grid_row_gutter_source_layout->addLayout(grid_row_gutter_source_actions);
     auto* grid_row_gutter_link=new QPushButton("Link",grid_row_gutter_source_box);
     grid_row_gutter_link->setObjectName("grid-row-gutter-link");
@@ -3935,7 +4241,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
     connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_grid_editor);
-    auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new QHBoxLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
+    auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new FrameActionLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
     auto* grid_clear=new QPushButton("Clear Grid",grid_actions);grid_clear->setObjectName("grid-clear");grid_clear->setEnabled(resolved.layout&&resolved.layout->grid);grid_buttons->addWidget(grid_clear);
@@ -4053,7 +4359,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
         form->addRow("Position source",position_status);form->addRow("Position expression · du",expression);
         form->addRow("",replace_source);form->addRow("",apply_expression);form->addRow(unlink_position);
-        auto* actions=new QWidget(row);auto* buttons=new QHBoxLayout(actions);buttons->setContentsMargins(0,0,0,0);
+        auto* actions=new QWidget(row);auto* buttons=new FrameActionLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
         const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
@@ -4144,41 +4450,85 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             "Assigned: "+qs(found->name)+" · source Artboard "+qs(find_artboard(comp,found->source_artboard).name));
     } else template_status->setText("No Template assigned to this Artboard");
     template_status->setWordWrap(true);template_form->addRow(template_status);
+    if(board.template_assignment) {
+        const auto assigned=std::find_if(comp.templates.begin(),comp.templates.end(),[&](const ArtboardTemplate& item) {
+            return item.id==board.template_assignment->template_id;
+        });
+        if(assigned!=comp.templates.end()) {
+            auto* source_button=new QPushButton("Edit source frame",template_box);
+            source_button->setObjectName("artboard-template-source-go");
+            source_button->setToolTip("Open this Template's source Artboard in Properties. Source frame and layout edits affect Artboards that inherit them.");
+            source_button->setEnabled(!host.session.gesture_active());template_form->addRow(source_button);
+            const auto source_document=host.session.document().id;
+            const auto source_gesture=host.session.gesture_generation();
+            const auto source_generation=inspector_scroll_generation_;
+            connect(source_button,&QPushButton::clicked,this,[this,composition,id,frozen_session,frozen_revision,
+                source_document,source_gesture,source_generation,assignment=*board.template_assignment,
+                template_id=assigned->id,source_id=assigned->source_artboard] {
+                const auto& document=host.session.document();
+                // Resolve only the captured assignment; navigation must not
+                // cancel a preview or reuse an old same-ID document/frame.
+                if(host.session_id!=frozen_session||document.id!=source_document||host.session.revision()!=frozen_revision||
+                   host.session.gesture_generation()!=source_gesture||host.session.gesture_active()||
+                   inspector_scroll_generation_!=source_generation||!artboard_editing_||!canvas->selections().empty()||
+                   canvas->active_composition()!=composition||canvas->active_artboard()!=id)return;
+                const auto current_comp=std::find_if(document.compositions.begin(),document.compositions.end(),
+                    [&](const auto& item){return item.id==composition;});
+                if(current_comp==document.compositions.end())return;
+                const auto target=std::find_if(current_comp->artboards.begin(),current_comp->artboards.end(),
+                    [&](const auto& item){return item.id==id;});
+                const auto source=std::find_if(current_comp->artboards.begin(),current_comp->artboards.end(),
+                    [&](const auto& item){return item.id==source_id;});
+                const auto current_template=std::find_if(current_comp->templates.begin(),current_comp->templates.end(),
+                    [&](const auto& item){return item.id==template_id;});
+                if(target==current_comp->artboards.end()||source==current_comp->artboards.end()||
+                   current_template==current_comp->templates.end()||target->template_assignment!=assignment||
+                   current_template->source_artboard!=source_id)return;
+                canvas->set_active_artboard(composition,source_id,false);
+                if(auto* structure=findChild<QDockWidget*>("structure")){structure->show();structure->raise();}
+                artboards_->scrollToItem(artboards_->currentItem(),QAbstractItemView::PositionAtCenter);
+                if(auto* properties=findChild<QDockWidget*>("properties")){properties->show();properties->raise();}
+                if(auto* name=inspector_->findChild<QLineEdit*>("artboard-name"))name->setFocus();
+            });
+        }
+    }
     auto* template_selector=new QComboBox(template_box);template_selector->setObjectName("artboard-template-selector");
+    template_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);template_selector->setMinimumContentsLength(10);template_selector->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     template_selector->addItem("Choose a Template…",QString{});
     for(const auto& item:comp.templates)template_selector->addItem(
         template_choice_label(host.session.document(),comp,item),qs(item.id));
     if(board.template_assignment)template_selector->setCurrentIndex(template_selector->findData(qs(board.template_assignment->template_id)));
     template_form->addRow("Template",template_selector);
-    auto* template_actions=new QGridLayout;template_form->addRow(template_actions);
-    const auto template_button=[&](const QString& label,const char* object_name,int row,int column,
+    auto* template_actions=new FrameActionLayout;template_form->addRow(template_actions);
+    const auto template_button=[&](const QString& label,const char* object_name,
                                    const std::function<void(const ArtboardTemplateContext&)>& action,bool enabled=true) {
         auto* button=new QPushButton(label,template_box);button->setObjectName(QString::fromLatin1(object_name));
-        button->setEnabled(enabled);template_actions->addWidget(button,row,column);
+        button->setEnabled(enabled);template_actions->addWidget(button);
         connect(button,&QPushButton::clicked,this,[this,action,template_context]{perform([&]{action(template_context);});});
     };
-    template_button("Create from source…","artboard-template-create",0,0,
+    template_button("Create from source…","artboard-template-create",
         [this](const auto& context){create_artboard_template(context);});
-    template_button("Rename…","artboard-template-rename",0,1,
+    template_button("Rename…","artboard-template-rename",
         [this](const auto& context){rename_artboard_template(context);},!comp.templates.empty());
-    template_button("Delete…","artboard-template-delete",0,2,
+    template_button("Delete…","artboard-template-delete",
         [this](const auto& context){delete_artboard_template(context);},!comp.templates.empty());
-    template_button("Assign selected","artboard-template-assign",1,0,
+    template_button("Assign selected","artboard-template-assign",
         [this,template_selector](const auto& context) {
             const auto selected=template_selector->currentData().toString().toStdString();
             assign_artboard_template(context,selected.empty()?std::nullopt:std::optional<Id>{selected});
         },!comp.templates.empty());
-    template_button("Set frame / layout…","artboard-template-set-override",1,1,
+    template_button("Set frame / layout…","artboard-template-set-override",
         [this](const auto& context){set_artboard_template_override(context);},board.template_assignment.has_value());
-    template_button("Reset override…","artboard-template-reset-override",1,2,
+    template_button("Reset override…","artboard-template-reset-override",
         [this](const auto& context){reset_artboard_template_override(context);},board.template_assignment.has_value());
-    template_button("Detach Template","artboard-template-detach",2,0,
+    template_button("Detach Template","artboard-template-detach",
         [this](const auto& context){detach_artboard_template(context);},board.template_assignment.has_value());
     auto* template_note=new QLabel("Choose a source Artboard or Definition, assign a Template to this frame, and reset individual fields to restore inheritance.",template_box);
     template_note->setWordWrap(true);template_form->addRow(template_note);
     auto* guide_box=new QGroupBox("Artboard Guides",template_box);guide_box->setObjectName("artboard-guide-panel");
-    auto* guide_form=new QFormLayout(guide_box);
+    auto* guide_form=new QFormLayout(guide_box);guide_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     auto* guide_selector=new QComboBox(guide_box);guide_selector->setObjectName("artboard-guide-selector");
+    guide_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);guide_selector->setMinimumContentsLength(10);guide_selector->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
     const auto occurrences=effective_artboard_guides(host.session.document(),composition,id);
     for(const auto& guide:occurrences) {
         const auto label=(guide.inherited?QStringLiteral("Inherited"):QStringLiteral("Local"))+QStringLiteral(" · ")+
@@ -4187,7 +4537,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         guide_selector->addItem(label,qs(guide.guide_id));
     }
     guide_form->addRow("Guide occurrence",guide_selector);
-    auto* guide_actions=new QGridLayout;guide_form->addRow(guide_actions);
+    auto* guide_actions=new FrameActionLayout;guide_form->addRow(guide_actions);
     auto* guide_add=new QPushButton("Add local…",guide_box);guide_add->setObjectName("artboard-guide-add");
     auto* guide_edit_button=new QPushButton("Edit local…",guide_box);guide_edit_button->setObjectName("artboard-guide-edit");
     auto* guide_delete=new QPushButton("Delete local",guide_box);guide_delete->setObjectName("artboard-guide-delete");
@@ -4196,9 +4546,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* guide_detach=new QPushButton("Detach occurrence",guide_box);guide_detach->setObjectName("artboard-guide-detach");
     auto* guide_drag=new QPushButton("Drag once…",guide_box);guide_drag->setObjectName("artboard-guide-drag");
     guide_drag->setToolTip("Arm only the selected visible Guide occurrence, then drag its clipped line once on Canvas. Escape cancels.");
-    guide_actions->addWidget(guide_drag,2,0,1,3);
-    guide_actions->addWidget(guide_add,0,0);guide_actions->addWidget(guide_edit_button,0,1);guide_actions->addWidget(guide_delete,0,2);
-    guide_actions->addWidget(guide_override,1,0);guide_actions->addWidget(guide_reset,1,1);guide_actions->addWidget(guide_detach,1,2);
+    guide_actions->addWidget(guide_add);guide_actions->addWidget(guide_edit_button);guide_actions->addWidget(guide_delete);
+    guide_actions->addWidget(guide_override);guide_actions->addWidget(guide_reset);guide_actions->addWidget(guide_detach);guide_actions->addWidget(guide_drag);
     const auto update_guide_buttons=[guide_selector,guide_edit_button,guide_delete,guide_override,guide_reset,guide_detach,guide_drag,
         occurrences,assignment=board.template_assignment](int) {
         const auto selected=guide_selector->currentData().toString().toStdString();
@@ -4636,26 +4985,72 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 
 void Window::rebuild_inspector(bool use_canvas_values) {
     if(rebuilding_inspector_)return;
+    // Text-on-Path queues a Canvas-value mirror after an ordinary scalar edit.
+    // It must not destroy the family/weight control that just received that edit.
+    // Explicit refresh/selection changes still use the normal context path.
+    if(use_canvas_values) {
+        const auto* family=inspector_->findChild<QComboBox*>("text-family");
+        if(family&&(family->property("nect-text-family-popup-opening").toBool()||
+           (family->lineEdit()&&family->lineEdit()->hasFocus())||family->view()->isVisible()))return;
+        const auto* driver=inspector_->findChild<QToolButton*>("text-family-driver");
+        if(driver&&driver->menu()&&driver->menu()->isVisible())return;
+        const auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
+        if(weight&&weight->property("nect-text-weight-draft-open").toBool()&&
+           (weight->hasFocus()||(weight->findChild<QLineEdit*>()&&weight->findChild<QLineEdit*>()->hasFocus())))return;
+        const auto* weight_driver=inspector_->findChild<QToolButton*>("text-weight-driver");
+        if(weight_driver&&weight_driver->menu()&&weight_driver->menu()->isVisible())return;
+        const auto* italic_driver=inspector_->findChild<QToolButton*>("text-italic-driver");
+        if(italic_driver&&italic_driver->menu()&&italic_driver->menu()->isVisible())return;
+    }
+    // Direct Text popups own only their synchronous scalar preparation.
+    // Canvas/recovery still refresh; keep this control alive until it can open.
+    if(auto* writing=inspector_->findChild<QComboBox*>("text-direction");
+       writing&&writing->property("nect-retain-text-inspector").toBool())return;
+    if(auto* family=inspector_->findChild<QComboBox*>("text-family");
+       family&&family->property("nect-retain-text-inspector").toBool())return;
+    if(auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
+       weight&&weight->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-family-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-weight-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-italic-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-direction-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-layout-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-alignment-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    for(auto* action:inspector_->findChildren<QPushButton*>())
+        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid()||action->property("nect-text-scalar-pick-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
-    QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_artboard()):QString{});
+    QString context=host.session_id+(artboard_editing_?"/frame/"+qs(canvas->active_composition())+"/"+qs(canvas->active_artboard()):QString{});
     for(const auto& item:canvas->selections())context+="/"+qs(item.object)+":"+qs(item.point);
     // Preserve a queued context reset across back-to-back selection and host refreshes.
     const auto scroll=context==inspector_context_?
         inspector_pending_scroll_.value_or(inspector_scroll_->verticalScrollBar()->value()):0;
+    const auto horizontal=context==inspector_context_?
+        inspector_pending_horizontal_scroll_.value_or(inspector_scroll_->horizontalScrollBar()->value()):0;
     inspector_context_=context;inspector_pending_scroll_=scroll;
+    inspector_pending_horizontal_scroll_=horizontal;
     const auto generation=++inspector_scroll_generation_;
     // Qt may scroll to a disappearing focused field while the new form lays out.
     // Restore the previous viewport only for the same editing context.
-    const auto restore_scroll=[this,context,scroll,generation]{QTimer::singleShot(0,this,[this,context,scroll,generation]{
+    const auto restore_scroll=[this,context,scroll,horizontal,generation]{QTimer::singleShot(0,this,[this,context,scroll,horizontal,generation]{
         if(inspector_context_!=context||inspector_scroll_generation_!=generation)return;
         if(auto* current_layout=inspector_->layout()) {
             current_layout->activate();
             inspector_->updateGeometry();
         }
         inspector_scroll_->verticalScrollBar()->setValue(scroll);
+        inspector_scroll_->horizontalScrollBar()->setValue(horizontal);
         inspector_pending_scroll_.reset();
+        inspector_pending_horizontal_scroll_.reset();
     });};
     // Avoid deleting a focused field synchronously from its editingFinished signal.
     if(auto* old=inspector_->layout()) {
@@ -4677,13 +5072,82 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     if(canvas->selections().size()>1){add_multi_properties(layout);restore_scroll();return;}
     if(canvas->selections().size()==1&&canvas->selections().front().point.empty())
         add_alignment_controls(layout,canvas->selections());
-    auto* name=new QLineEdit(qs(o.name));name->setAccessibleName("Object name");layout->addWidget(name);
-    connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id]{
+    auto* name=new QLineEdit(qs(o.name));name->setObjectName("object-name");name->setAccessibleName("Object name");layout->addWidget(name);
+    const auto name_session=host.session_id;
+    const auto name_document=d.id;
+    const auto name_revision=host.session.revision(),name_gesture=host.session.gesture_generation();
+    connect(name,&QLineEdit::editingFinished,this,[this,name,id=o.id,name_session,name_document,name_revision,name_gesture]{
         if(!name->isModified()) return;
         name->setModified(false);
-        perform([&]{host.session.apply({Rename{id,name->text().toStdString()}},host.session.revision());host.edited();});
+        perform([&]{
+            if(host.session_id!=name_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Object name draft belongs to another document");
+            if(host.session.revision()!=name_revision||host.session.gesture_generation()!=name_gesture)
+                throw Error("REVISION_CONFLICT","Object changed; edit its name again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            const auto value=name->text().toStdString();
+            if(host.session.document().objects.at(id).name==value)return;
+            host.session.apply({Rename{id,value}},name_revision);host.edited();
+        });
     });
     if(o.instance) {
+        const auto& definition=d.definitions.at(o.instance->definition);
+        auto* source_box=new QGroupBox("Shared Definition",inspector_);
+        auto* source_layout=new QVBoxLayout(source_box);
+        auto* source_name=new QLabel(qs(definition.name),source_box);
+        source_name->setToolTip(qs(definition.id));source_layout->addWidget(source_name);
+        auto* go_source=new QPushButton("Go to source",source_box);go_source->setObjectName("instance-source-go");
+        go_source->setToolTip("Select the shared source in Structure. Source edits affect every Instance of this Definition.");
+        go_source->setEnabled(!host.session.gesture_active());source_layout->addWidget(go_source);layout->addWidget(source_box);
+        const auto source_selection=canvas->selections();
+        connect(go_source,&QPushButton::clicked,this,[this,id=o.id,definition_id=definition.id,root=definition.root,
+            name_session,name_document,name_revision,name_gesture,source_selection] {
+            // View-only navigation must not cancel a preview or retarget an old
+            // Properties control after an external edit or document replacement.
+            const auto& current=host.session.document();
+            if(host.session_id!=name_session||current.id!=name_document||host.session.revision()!=name_revision||
+               host.session.gesture_generation()!=name_gesture||host.session.gesture_active()||
+               canvas->selections()!=source_selection||canvas->selected_object!=id||
+               !current.definitions.contains(definition_id)||current.definitions.at(definition_id).root!=root||
+               !current.objects.contains(root)) {
+                statusBar()->showMessage("Instance context changed; select it again before going to its source.",6000);return;
+            }
+            canvas->set_selection(root);
+            if(auto* item=tree_->currentItem()) {
+                for(auto* parent=item->parent();parent;parent=parent->parent())parent->setExpanded(true);
+                tree_->scrollToItem(item,QAbstractItemView::PositionAtCenter);
+            }
+            if(auto* structure=findChild<QDockWidget*>("structure")){structure->show();structure->raise();}
+            tree_->setFocus();
+        });
+        auto* scalar_box=new QGroupBox("Scalar overrides",inspector_);
+        scalar_box->setObjectName("instance-scalar-actions");
+        auto* scalar_layout=new QVBoxLayout(scalar_box);
+        auto* scalar_state=new QLabel(QString("%1 local override(s)").arg(o.instance->overrides.size()),scalar_box);
+        scalar_state->setObjectName("instance-scalar-state");scalar_layout->addWidget(scalar_state);
+        auto* scalar_buttons=new QHBoxLayout;scalar_layout->addLayout(scalar_buttons);
+        auto* set_scalar=new QPushButton("Set…",scalar_box);set_scalar->setObjectName("instance-scalar-set");
+        set_scalar->setToolTip("Choose a source item and set a Scalar override for this Instance only.");
+        auto* reset_scalar=new QPushButton("Reset…",scalar_box);reset_scalar->setObjectName("instance-scalar-reset");
+        reset_scalar->setToolTip("Remove one Scalar override and follow the current Definition source.");
+        set_scalar->setEnabled(!host.session.gesture_active());
+        reset_scalar->setEnabled(!host.session.gesture_active()&&!o.instance->overrides.empty());
+        scalar_buttons->addWidget(set_scalar);scalar_buttons->addWidget(reset_scalar);layout->addWidget(scalar_box);
+        const auto scalar_selection=canvas->selections();
+        const auto verify_scalar_context=[this,id=o.id,name_session,name_document,name_revision,name_gesture,scalar_selection] {
+            if(host.session_id!=name_session||host.session.document().id!=name_document)
+                throw Error("SESSION_CONFLICT","Instance actions belong to another document");
+            if(host.session.revision()!=name_revision||host.session.gesture_generation()!=name_gesture||
+               canvas->selections()!=scalar_selection||canvas->selected_object!=id)
+                throw Error("REVISION_CONFLICT","Instance context changed; select it again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        };
+        connect(set_scalar,&QPushButton::clicked,this,[this,verify_scalar_context]{perform([&]{
+            verify_scalar_context();set_instance_override();
+        });});
+        connect(reset_scalar,&QPushButton::clicked,this,[this,verify_scalar_context]{perform([&]{
+            verify_scalar_context();reset_instance_override();
+        });});
         layout->addWidget(make_instance_visibility_controls(host,o.id,inspector_));
         layout->addWidget(make_instance_color_controls(host,o.id,inspector_));
         layout->addWidget(make_instance_text_content_controls(host,o.id,inspector_));
@@ -4700,7 +5164,7 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     auto section=[&](const QString& title){auto* box=new QGroupBox(title);auto* form=new QFormLayout(box);
         form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);return form;};
     if(o.kind==Kind::group) {
-        auto* follow_box=new QGroupBox("Rigid Path Follow");follow_box->setObjectName("group-path-follow");
+        auto* follow_box=new QGroupBox("Path Follow");follow_box->setObjectName("group-path-follow");
         auto* follow_form=new QFormLayout(follow_box);follow_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
         const auto composition_id=canvas->active_composition();
         const auto& composition=find_composition(d,composition_id);
@@ -4718,20 +5182,31 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         };
         for(const auto& root:composition.roots)collect_paths(root);
         auto* path_picker=new QComboBox(follow_box);path_picker->setObjectName("group-path-follow-source");
+        path_picker->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        path_picker->setMinimumContentsLength(10);path_picker->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         for(const auto& path_id:path_ids) {
             const auto& source=d.objects.at(path_id);
             path_picker->addItem(qs(source.name)+" · "+qs(path_id),qs(path_id));
+            path_picker->setItemData(path_picker->count()-1,path_picker->itemText(path_picker->count()-1),Qt::ToolTipRole);
         }
+        path_picker->setToolTip(path_picker->currentText());
+        connect(path_picker,&QComboBox::currentTextChanged,path_picker,&QWidget::setToolTip);
         follow_form->addRow("Authored Path",path_picker);
         auto* contour_picker=new QComboBox(follow_box);contour_picker->setObjectName("group-path-follow-contour");
+        contour_picker->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        contour_picker->setMinimumContentsLength(10);contour_picker->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
+        connect(contour_picker,&QComboBox::currentTextChanged,contour_picker,&QWidget::setToolTip);
         follow_form->addRow("Contour",contour_picker);
         auto populate_contours=[this,path_picker,contour_picker](const QString& preferred) {
             const QSignalBlocker blocker(contour_picker);contour_picker->clear();
             const auto selected=path_picker->currentData().toString().toStdString();
             const auto& document=host.session.document();
-            if(document.objects.contains(selected))for(const auto& contour:document.objects.at(selected).contours)
+            if(document.objects.contains(selected))for(const auto& contour:document.objects.at(selected).contours) {
                 contour_picker->addItem(qs(contour.id),qs(contour.id));
+                contour_picker->setItemData(contour_picker->count()-1,qs(contour.id),Qt::ToolTipRole);
+            }
             const auto index=contour_picker->findData(preferred);if(index>=0)contour_picker->setCurrentIndex(index);
+            contour_picker->setToolTip(contour_picker->currentText());
         };
         auto* start_mode=new QComboBox(follow_box);start_mode->setObjectName("group-path-follow-start-mode");
         start_mode->addItem("Distance",QStringLiteral("distance"));start_mode->addItem("Normalized",QStringLiteral("normalized"));
@@ -4798,22 +5273,25 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             canvas->cancel_interaction();host.session.apply({GroupPathFollowCommand{ClearGroupPathFollow{id}}},host.session.revision());host.edited();
         });});
         if(existing) {
-            auto* item_note=new QLabel("Child placement stays authored; the relation adds a derived Group-local frame during evaluation.",follow_box);
+            auto* item_note=new QLabel(existing->mode=="deform"
+                ?"Deform bends child geometry along the selected contour. Source geometry remains editable."
+                :"Path Follow places children along the selected contour. Source geometry remains editable.",follow_box);
             item_note->setWordWrap(true);follow_form->addRow(item_note);
             for(const auto& child_id:o.children) {
                 const auto& child=d.objects.at(child_id);
                 const auto found=existing->items.find(child_id);const bool active=found!=existing->items.end();
                 const GroupPathFollowItem item=active?found->second:GroupPathFollowItem{};
-                auto* row=new QWidget(follow_box);auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
+                auto* row=new QWidget(follow_box);auto* row_layout=new QFormLayout(row);row_layout->setContentsMargins(0,0,0,0);
+                row_layout->setRowWrapPolicy(QFormLayout::WrapLongRows);
                 auto* enabled=new QCheckBox(qs(child.name),row);enabled->setObjectName("group-path-follow-item-"+qs(child_id));
-                enabled->setToolTip(qs(child_id));enabled->setChecked(active);row_layout->addWidget(enabled);
+                enabled->setToolTip(qs(child_id));enabled->setChecked(active);row_layout->addRow(enabled);
                 auto* distance=make_follow_number(("group-path-follow-distance-"+child_id).c_str(),item.distance);
-                distance->setToolTip("Distance along the authored source contour");row_layout->addWidget(distance);
+                distance->setToolTip("Distance along the authored source contour");row_layout->addRow("Distance",distance);
                 auto* offset=make_follow_number(("group-path-follow-item-offset-"+child_id).c_str(),item.normal_offset);
-                offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addWidget(offset);
+                offset->setToolTip("Normal offset from this Path Follow relation");row_layout->addRow("Normal offset",offset);
                 auto* tangent=new QCheckBox("Tangent",row);tangent->setObjectName("group-path-follow-tangent-"+qs(child_id));
                 tangent->setChecked(item.follow_tangent);tangent->setEnabled(active&&existing->mode=="rigid");
-                tangent->setToolTip("Rigid placement only; Deform always uses the sampled tangent/normal frame");row_layout->addWidget(tangent);
+                tangent->setToolTip("Rigid placement only; Deform always uses the sampled tangent/normal frame");row_layout->addRow(tangent);
                 distance->setEnabled(active);offset->setEnabled(active);follow_form->addRow(row);
                 connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,child_id,session_id,active](bool checked) {
                     bool applied=false;perform([&] {
@@ -4824,10 +5302,20 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                     });
                     if(!applied){const QSignalBlocker blocker(enabled);enabled->setChecked(active);}
                 });
-                const auto update_item=[this,id=o.id,child_id,session_id,enabled,distance,offset,tangent](int changed) {
+                const auto item_document=d.id;
+                const auto item_revision=host.session.revision(),item_gesture=host.session.gesture_generation();
+                const auto item_preview=host.session.gesture_active();
+                const auto update_item=[this,id=o.id,child_id,session_id,enabled,distance,offset,tangent,item_document,item_revision,item_gesture,item_preview](int changed) {
                     if(!enabled->isChecked())return;
                     perform([&] {
                         if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+                        if(changed<2) {
+                            if(host.session.document().id!=item_document)
+                                throw Error("SESSION_CONFLICT","Group Path Follow child draft belongs to another document");
+                            if(host.session.revision()!=item_revision||host.session.gesture_generation()!=item_gesture)
+                                throw Error("REVISION_CONFLICT","Group Path Follow child changed; edit it again");
+                            if(item_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                        }
                         const auto& relation=host.session.document().objects.at(id).path_follow;
                         if(!relation)throw Error("MISSING_GROUP_PATH_FOLLOW","Group Path Follow was cleared");
                         const auto current=relation->items.find(child_id);
@@ -4861,12 +5349,49 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         if(o.source->type=="nect.shape.circle") {
             auto* handles=new QPushButton(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
             handles->setObjectName("circle-source-handles");
+            // This action owns blur during its pointer gesture so the ordinary
+            // scalar commit cannot rebuild away the pressed button.
+            handles->setProperty("nect-circle-source-action-object",qs(o.id));
             handles->setAccessibleName(canvas->circle_source_edit()?"Finish Circle source handles":"Edit Circle source handles");
             handles->setToolTip("Temporarily show Center and Radius controls on the Canvas. Escape exits; this mode is not saved.");
             generator->addRow(handles);
-            connect(handles,&QPushButton::clicked,this,[this]{
+            connect(handles,&QPushButton::clicked,this,[this,identity=host.session_id,
+                document=d.id,object=o.id,source=o.source->id,revision=host.session.revision(),
+                gesture=host.session.gesture_generation(),preview=host.session.gesture_active()]{try {
+                if(host.session_id!=identity||host.session.document().id!=document)
+                    throw Error("SESSION_CONFLICT","Circle belongs to another document");
+                if(host.session.revision()!=revision||host.session.gesture_generation()!=gesture)
+                    throw Error("REVISION_CONFLICT","Circle changed; reopen its Properties");
+                if(preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                if(canvas->selected_object!=object)return;
+                QPointer<QLineEdit> input;
+                for(auto* candidate:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=candidate->property("nect-reference").toByteArray();
+                    if(!candidate->isVisible()||!candidate->isModified()||data.isEmpty()||read_ref(data).object!=object)continue;
+                    if(input)throw Error("INVALID_VALUE","Finish the pending property edits before entering Circle handles");
+                    input=candidate;
+                }
+                if(input) {
+                    // Complete the ordinary scalar transaction before entering
+                    // the temporary mode. A failed draft must not enter handles.
+                    input->setProperty("nect-finishing-circle-source",true);
+                    input->setProperty("nect-circle-source-committed-revision",QVariant{});
+                    input->clearFocus();
+                    if(input&&input->isModified())input->editingFinished();
+                    const auto committed=input?input->property("nect-circle-source-committed-revision"):QVariant{};
+                    if(input)input->setProperty("nect-finishing-circle-source",false);
+                    if(!committed.isValid())return;
+                    if(host.session_id!=identity||host.session.document().id!=document||
+                       host.session.revision()!=committed.toULongLong()||
+                       host.session.gesture_generation()!=gesture||host.session.gesture_active())
+                        throw Error("REVISION_CONFLICT","Circle changed while finishing its property draft");
+                }
+                const auto& current=host.session.document().objects.at(object);
+                if(canvas->selected_object!=object||!current.source||current.source->id!=source||
+                   current.source->type!="nect.shape.circle")return;
                 canvas->set_circle_source_edit(!canvas->circle_source_edit());canvas->setFocus();
-            });
+            } catch(const Error& e) {statusBar()->showMessage(qs(e.code)+": "+QString::fromUtf8(e.what()),12000);}
+              catch(const std::exception& e) {statusBar()->showMessage(QString::fromUtf8(e.what()),12000);}});
         }
         for(const auto* parameter:{"center_x","center_y","points","rotation","radius","outer_radius","inner_radius","width","height"})
             if(o.source->parameters.contains(parameter)) {
@@ -5021,9 +5546,14 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,field_count]{perform([&]{
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 const auto before=host.session.revision();
+                const auto document=host.session.document().id;
+                const auto generation=host.session.gesture_generation();
                 const auto choice=QMessageBox::question(this,"Reset point edits",QString("Remove all %1 point/handle overrides and their bindings? The generator and appearance stay editable. This is one undoable edit.").arg(field_count),QMessageBox::Reset|QMessageBox::Cancel,QMessageBox::Cancel);
                 if(choice!=QMessageBox::Reset)return;
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
+                if(host.session_id!=frozen_session||host.session.document().id!=document)
+                    throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
+                if(host.session.revision()!=before||host.session.gesture_generation()!=generation||host.session.gesture_active())
+                    throw Error("REVISION_CONFLICT","The document changed. Reopen Reset point edits to review the current corrections.");
                 canvas->cancel_interaction();host.session.apply({ClearPointEdit{id}},before);host.edited();
             });});
         }
@@ -5348,7 +5878,10 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     mask_status->setText(QString("Authored literal: %1 · Source: %2 · Evaluated enabled: %3")
         .arg(mask_state.literal?"true":"false",mask_source,mask_state.evaluated?"true":"false"));
     mask_form->addRow("Mask enabled state",mask_status);
-    auto* edit=new QPushButton("Edit: "+qs(host.session.document().objects.at(mask.source).name));edit->setObjectName("mask-edit-source");edit->setToolTip("Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
+    const auto mask_source_name=qs(host.session.document().objects.at(mask.source).name);
+    auto* edit=new QPushButton("Edit source");edit->setObjectName("mask-edit-source");
+    edit->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
+    edit->setToolTip("Edit source: "+mask_source_name+" ("+qs(mask.source)+"). Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
     connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
     auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");
     rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);rule->setEnabled(mask.mode=="geometry");mask_form->addRow("Fill rule",rule);
@@ -5375,14 +5908,22 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
     };
     const auto position=map_point(canvas->evaluated_transforms().at(id).local,
         {inspector_values_.at({id,"","transform.anchor_x"}),inspector_values_.at({id,"","transform.anchor_y"})});
+    const auto position_document=host.session.document().id;
+    const auto position_revision=host.session.revision();const auto position_gesture=host.session.gesture_generation();
     for(int axis=0;axis<2;++axis) {
         auto* input=new QLineEdit(display_value(axis?position.y:position.x));
         input->setObjectName(axis?"transform-position-y":"transform-position-x");input->setAccessibleName(axis?"Position Y":"Position X");
         input->setToolTip("Anchor position in the effective parent's coordinates. Enter a value or += / -= adjustment.");form->addRow(axis?"Position Y":"Position X",input);
-        connect(input,&QLineEdit::editingFinished,this,[this,id,input,axis,apply,frozen_session]{
+        connect(input,&QLineEdit::editingFinished,this,[this,id,input,axis,apply,frozen_session,position_document,position_revision,position_gesture]{
             if(!input->isModified())return;input->setModified(false);
             const auto focused=input->hasFocus();const auto name=input->objectName();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
-            perform([&]{const auto values=evaluate(host.session.document());const auto tf=evaluate_transforms(host.session.document(),values).at(id);
+            perform([&]{
+                if(host.session_id!=frozen_session||host.session.document().id!=position_document)
+                    throw Error("SESSION_CONFLICT","Position draft belongs to another document");
+                if(host.session.revision()!=position_revision||host.session.gesture_generation()!=position_gesture)
+                    throw Error("REVISION_CONFLICT","Position changed; edit it again");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                const auto values=evaluate(host.session.document());const auto tf=evaluate_transforms(host.session.document(),values).at(id);
                 auto p=map_point(tf.local,{values.at({id,"","transform.anchor_x"}),values.at({id,"","transform.anchor_y"})});
                 auto text=input->text().trimmed();const bool relative=text.startsWith("+=")||text.startsWith("-=");bool ok=false;
                 auto value=(relative?text.mid(2):text).toDouble(&ok);if(!ok||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite position or += / -= adjustment");
@@ -5417,7 +5958,10 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
         if(x!=1||y!=1)apply(TransformAroundAnchor{id,0,x,y});});};
     connect(scale,&QPushButton::clicked,this,scale_action);connect(sx,&QLineEdit::returnPressed,this,scale_action);connect(sy,&QLineEdit::returnPressed,this,scale_action);
     auto* parent=new QPushButton(object.transform_parent?"Follows: "+qs(host.session.document().objects.at(*object.transform_parent).name):"Follow structure…");
-    parent->setObjectName("transform-parent");parent->setToolTip("Choose Transform Parent; structure still controls order and grouping.");
+    parent->setObjectName("transform-parent");
+    const QString parent_help="Choose Transform Parent; structure still controls order and grouping.";
+    parent->setToolTip(object.transform_parent?
+        QString("Current Transform Parent: %1 (%2)\n%3").arg(qs(host.session.document().objects.at(*object.transform_parent).name),qs(*object.transform_parent),parent_help):parent_help);
     parent->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);form->addRow("Parent",parent);
     connect(parent,&QPushButton::clicked,this,[this]{perform([this]{choose_transform_parent();});});
     auto* note=new QLabel("Anchor moves preserve artwork. Rotation and scale apply once about that anchor; they are not persistent formulas.");note->setWordWrap(true);note->setStyleSheet("color:#a4acb8;font-size:11px;");form->addRow(note);
@@ -5468,30 +6012,80 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     details->setWordWrap(true);form->addRow(details);
     auto* status=new QLabel;status->setObjectName("image-link-status");status->setWordWrap(true);
     const auto describe=[&]{const auto state=host.asset_status(id);return state.value("state").toString()+
-        (asset.mode=="linked"?QString(" · accepted pixels shown\nCheck link to compare the current file."):QString(" · self-contained"));};
+        (asset.mode=="linked"?QString(" · accepted pixels shown\n")+
+            (state.value("checked_at").toString().isEmpty()?QString("Check link to compare the current file."):
+                QString("Checked ")+state.value("checked_at").toString()):QString(" · self-contained"));};
     status->setText(describe());form->addRow(status);
     if(asset.mode=="linked") {auto* location=new QLabel(qs(asset.locator));location->setWordWrap(true);location->setTextInteractionFlags(Qt::TextSelectableByMouse);form->addRow(location);}
     add_property(form,{object.id,"","image.width"},"Width");add_property(form,{object.id,"","image.height"},"Height");
     auto* fit=new QPushButton("Fit width to Artboard");fit->setObjectName("image-fit-width");form->addRow(fit);
-    connect(fit,&QPushButton::clicked,this,[this,identity,revision,object_id=object.id,id]{perform([&]{
+    // Fit owns both dimension drafts during its pointer gesture. The numeric
+    // blur handler defers their commit so this button survives through release.
+    fit->setProperty("nect-image-fit-object",qs(object.id));
+    std::vector<QPointer<QLineEdit>> dimensions;
+    for(auto* input:box->findChildren<QLineEdit*>()) {
+        const auto reference_data=input->property("nect-reference").toByteArray();if(reference_data.isEmpty())continue;
+        const auto ref=read_ref(reference_data);
+        if(ref.object==object.id&&ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))dimensions.push_back(input);
+    }
+    const auto fit_gesture=host.session.gesture_generation();const bool fit_preview=host.session.gesture_active();
+    connect(fit,&QPushButton::clicked,this,[this,identity,revision,fit_gesture,fit_preview,dimensions,object_id=object.id,id]{perform([&]{
         if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+        if(host.session.revision()!=revision||host.session.gesture_generation()!=fit_gesture)
+            throw Error("REVISION_CONFLICT","Image changed; reopen its Properties");
+        if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         const auto& asset=host.session.document().raster_assets.at(id);const auto board=evaluate_artboard(find_composition(host.session.document(),canvas->active_composition()),canvas->active_artboard());
-        host.session.apply({Set{{object_id,"","image.width"},board.width},Set{{object_id,"","image.height"},board.width*asset.payload->height()/asset.payload->width()}},revision);host.edited();
+        // Discard only drafts which this explicit action supersedes, after its
+        // canonical transaction succeeds and before Inspector focus changes.
+        host.session.apply({Set{{object_id,"","image.width"},board.width},Set{{object_id,"","image.height"},board.width*asset.payload->height()/asset.payload->width()}},revision);
+        for(const auto& input:dimensions)if(input)input->setModified(false);
+        host.edited();
     });});
     if(asset.mode=="linked") {
         auto* check=new QPushButton("Check link");check->setObjectName("image-check-link");form->addRow(check);
-        connect(check,&QPushButton::clicked,this,[this,identity,id,status]{perform([&]{
+        connect(check,&QPushButton::clicked,this,[this,identity,id]{perform([&]{
             if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
-            const auto result=host.check_asset(id);status->setText(result.value("state").toString()+" · accepted pixels shown\nChecked "+result.value("checked_at").toString());
+            host.check_asset(id);
+            // Ordinary property blur may already have rebuilt this form. Show
+            // the observation in the current form, never a retired label.
+            rebuild_inspector();
         });});
     }
     const auto operation=[&](const QString& label,const char* action) {
         auto* button=new QPushButton(label);button->setObjectName("image-"+QString::fromLatin1(action));form->addRow(button);
-        connect(button,&QPushButton::clicked,this,[this,identity,revision,id,action=std::string(action)]{perform([&]{
+        const bool finish_dimension=std::string_view(action)=="reload"||std::string_view(action)=="embed"||std::string_view(action)=="relink";
+        if(finish_dimension)button->setProperty("nect-image-source-action-object",qs(object.id));
+        connect(button,&QPushButton::clicked,this,[this,identity,revision,id,dimensions,fit_gesture,fit_preview,
+            document_id=host.session.document().id,finish_dimension,action=std::string(action)]{perform([&]{
+            if(finish_dimension) {
+                if(host.session_id!=identity||host.session.document().id!=document_id)
+                    throw Error("SESSION_CONFLICT","Image belongs to another document");
+                if(host.session.revision()!=revision||host.session.gesture_generation()!=fit_gesture)
+                    throw Error("REVISION_CONFLICT","Image changed; reopen its Properties");
+                if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                // Keep the button alive through its pointer gesture, then finish
+                // the ordinary scalar edit. Only that exact successful commit
+                // may advance this action's frozen revision.
+                for(const auto& input:dimensions)if(input&&input->isModified()) {
+                    input->setProperty("nect-image-draft-committed-revision",QVariant{});
+                    input->editingFinished();
+                    const auto committed=input?input->property("nect-image-draft-committed-revision"):QVariant{};
+                    if(!committed.isValid())return;
+                    if(host.session_id!=identity||host.session.document().id!=document_id||
+                       host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=fit_gesture||host.session.gesture_active())
+                        throw Error("REVISION_CONFLICT","Image changed while finishing its dimension draft");
+                }
+            }
+            // A modal chooser may run arbitrary document/gesture work. Freeze
+            // only after our ordinary scalar commit, never adopt a later edit.
+            const auto action_revision=finish_dimension?host.session.revision():revision;
             QString path;
             if(action=="relink") {path=QFileDialog::getOpenFileName(this,"Relink Image",{},"PNG / JPEG (*.png *.jpg *.jpeg)");if(path.isEmpty())return;}
             if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
-            host.update_asset(id,action,path,revision);
+            if(host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Image belongs to another document");
+            if(host.session.gesture_generation()!=fit_gesture)throw Error("REVISION_CONFLICT","Image changed while choosing its source");
+            if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.update_asset(id,action,path,action_revision);
         });});
     };
     if(asset.mode=="linked") {operation("Reload from link","reload");operation("Embed accepted image","embed");}
@@ -5506,7 +6100,8 @@ void Window::show_assets() {
     auto* list=new QListWidget;list->setObjectName("image-assets-list");layout->addWidget(list);
     auto* buttons=new QHBoxLayout;layout->addLayout(buttons);auto* check=new QPushButton("Check links"),*place=new QPushButton("Place selected"),*remove=new QPushButton("Delete unused"),*close=new QPushButton("Close");
     check->setObjectName("assets-check");place->setObjectName("assets-place");remove->setObjectName("assets-delete");buttons->addWidget(check);buttons->addWidget(place);buttons->addWidget(remove);buttons->addStretch();buttons->addWidget(close);
-    const auto identity=host.session_id;auto revision=host.session.revision();
+    const auto identity=host.session_id;const auto document_id=host.session.document().id;
+    const auto generation=host.session.gesture_generation();auto revision=host.session.revision();
     const auto refresh=[&] {
         const auto selected=list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString{};list->clear();
         for(const auto& [id,asset]:host.session.document().raster_assets) {
@@ -5516,7 +6111,13 @@ void Window::show_assets() {
         }
         if(!list->currentItem()&&list->count())list->setCurrentRow(0);revision=host.session.revision();
     };
-    const auto guard=[&]{if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Asset list belongs to another document");if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Close and reopen Image Assets to refresh changes");};
+    const auto guard=[&]{
+        if(host.session_id!=identity||host.session.document().id!=document_id)
+            throw Error("SESSION_CONFLICT","Asset list belongs to another document");
+        if(host.session.revision()!=revision||host.session.gesture_generation()!=generation)
+            throw Error("REVISION_CONFLICT","Close and reopen Image Assets to refresh changes");
+        if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+    };
     connect(check,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();for(const auto& [id,asset]:host.session.document().raster_assets){(void)asset;host.check_asset(id);}refresh();});});
     connect(place,&QPushButton::clicked,&dialog,[&]{perform([&]{guard();if(!list->currentItem())return;
         const auto asset_id=list->currentItem()->data(Qt::UserRole).toString().toStdString();const auto& asset=host.session.document().raster_assets.at(asset_id);
@@ -5895,10 +6496,17 @@ void Window::show_folder_library() {
     auto invoke_favorite=[&](const LibraryFavoriteV1& favorite) {
         if(const auto* item_ref=std::get_if<LibraryItemRefV1>(&favorite.target)) {
             if(item_ref->kind=="folder") {
-                const auto identity=library.comparison_key(*item_ref);auto* item=node_by_identity.value(identity,nullptr);
-                if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
-                tree->setCurrentItem(item);tree->scrollToItem(item);
-                status->setText("Favorite opened "+display_ref(*item_ref));return;
+                try {
+                    const auto resolved=library.resolve(*item_ref);
+                    const auto identity=library.comparison_key(resolved.ref);auto* item=node_by_identity.value(identity,nullptr);
+                    if(!item)throw Error("MISSING_LIBRARY_ROOT","The Favorite folder is no longer registered");
+                    search->clear();
+                    tree->setCurrentItem(item);tree->scrollToItem(item);
+                    status->setText("Favorite opened "+display_ref(resolved.ref));return;
+                } catch(const Error& error) {
+                    status->setText(display_ref(*item_ref)+" · "+qs(error.code)+": "+QString::fromUtf8(error.what()));
+                    throw;
+                }
             }
             place_ref(*item_ref,"linked",frozen_session,expected_revision);
             frozen_effect_revision=host.session.revision();frozen_effect_generation=effects_generation_;
@@ -5944,12 +6552,13 @@ void Window::show_folder_library() {
             if(host.session.revision()!=frozen_effect_revision)
                 throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
             LibraryPresetAssetV1 metadata;
-            auto definition=library.read_preset_asset(preset,&metadata);
-            Id fresh_definition_id;
-            do {fresh_definition_id=new_id();}
-            while(fresh_definition_id==definition.id||QString::fromStdString(fresh_definition_id)==preset.asset_id);
-            host.session.apply_preset_command(PresetCommand{ImportAndApplyPreset{std::move(definition),
-                fresh_definition_id,frozen_effect_target,new_id(),preset.asset_id.toStdString(),metadata.accepted_revision}},frozen_effect_revision);
+            auto closure=library.read_preset_closure_asset(preset,&metadata);
+            ImportAndApplyPresetClosure import{std::move(closure),new_id(),frozen_effect_target,
+                new_id(),preset.asset_id.toStdString(),metadata.accepted_revision,{}};
+            for(const auto& [id,definition]:import.closure.macro_definitions) {
+                (void)definition;import.macro_definition_ids.emplace(id,new_id());
+            }
+            apply_serializable_preset(host.session,PresetCommand{std::move(import)},frozen_effect_revision);
             host.edited();
             frozen_effect_revision=host.session.revision();
             expected_revision=frozen_effect_revision;
@@ -5990,7 +6599,7 @@ void Window::show_folder_library() {
                 throw Error("UNAVAILABLE_PRESET_ASSET","Refresh the Library and choose an available Preset asset");
             const auto source=host.session.document().preset_definitions.find(source_id);
             if(source==host.session.document().preset_definitions.end())throw Error("MISSING_PRESET",source_id);
-            const auto updated=library.update_preset_asset({asset_id},source->second,
+            const auto updated=library.update_preset_asset({asset_id},capture_portable_preset_closure(host.session.document(),source_id),
                 accepted_revision,expected_hash);
             refresh_preset_assets();rebuild_favorites();sync_preset_controls();
             status->setText("Updated Workspace Preset asset “"+updated.label+"” · revision "+QString::number(updated.accepted_revision)+
@@ -6182,7 +6791,36 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* content_status=new QLabel(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(qs(content_state.literal).left(80),content_driver_name(content_state.driver),qs(content_state.evaluated).left(80)));
     content_status->setObjectName("text-content-state");content_status->setWordWrap(true);content_status->setTextFormat(Qt::PlainText);form->addRow("",content_status);
-    connect(edit,&QPushButton::clicked,this,[this,id]{perform([&]{edit_text_content(id);});});
+    edit->setProperty("nect-text-content-action-object",qs(id));
+    const auto content_document=host.session.document().id;
+    const auto content_gesture=host.session.gesture_generation();const bool content_preview=host.session.gesture_active();
+    connect(edit,&QPushButton::clicked,this,[this,id,frozen_session,content_document,content_revision,content_gesture,content_preview]{perform([&]{
+        if(host.session_id!=frozen_session||host.session.document().id!=content_document)
+            throw Error("SESSION_CONFLICT","Text belongs to another document");
+        if(host.session.revision()!=content_revision||host.session.gesture_generation()!=content_gesture)
+            throw Error("REVISION_CONFLICT","Text changed; reopen its Properties");
+        if(content_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its content");
+        QPointer<QLineEdit> pending;
+        for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+            const auto data=input->property("nect-reference").toByteArray();
+            if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+            const auto ref=read_ref(data);
+            if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+        }
+        if(pending) {
+            pending->setProperty("nect-finishing-text-content",true);
+            pending->setProperty("nect-text-content-committed-revision",QVariant{});
+            pending->editingFinished();
+            const auto committed=pending?pending->property("nect-text-content-committed-revision"):QVariant{};
+            if(pending)pending->setProperty("nect-finishing-text-content",false);
+            if(!committed.isValid())return;
+            if(host.session_id!=frozen_session||host.session.document().id!=content_document||
+               host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=content_gesture||host.session.gesture_active()||canvas->selected_object!=id)
+                throw Error("REVISION_CONFLICT","Text changed while finishing Font size");
+        }
+        edit_text_content(id);
+    });});
     auto update=[this,id,frozen_session](const std::function<void(TextSource&)>& change) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
         const auto found=host.session.document().objects.find(id);
@@ -6223,8 +6861,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* path_reversed=new QCheckBox("Reverse contour traversal",path_group);path_reversed->setObjectName("text-path-reversed");
     path_reversed->setChecked(source.path_attachment&&source.path_attachment->reversed);path_form->addRow(path_reversed);
     auto* path_actions=new QWidget(path_group);auto* path_action_row=new QHBoxLayout(path_actions);path_action_row->setContentsMargins(0,0,0,0);
-    auto* path_apply=new QPushButton("Attach / update",path_actions);path_apply->setObjectName("text-path-apply");path_action_row->addWidget(path_apply);
-    auto* path_detach=new QPushButton("Detach",path_actions);path_detach->setObjectName("text-path-detach");
+    auto* path_apply=new PreparedTextActionButton("Attach / update",path_actions);path_apply->setObjectName("text-path-apply");path_action_row->addWidget(path_apply);
+    auto* path_detach=new PreparedTextActionButton("Detach",path_actions);path_detach->setObjectName("text-path-detach");
     path_detach->setEnabled(source.path_attachment.has_value());path_action_row->addWidget(path_detach);path_action_row->addStretch();
     path_form->addRow(path_actions);
     auto* path_status=new QLabel(source.path_attachment?
@@ -6234,18 +6872,100 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto refresh_path_inspector=[this,id,frozen_session]{QTimer::singleShot(0,this,[this,id,frozen_session]{
         if(host.session_id==frozen_session&&canvas->selected_object==id)rebuild_inspector(true);
     });};
-    connect(path_apply,&QPushButton::clicked,this,[this,path_contour,path_start_mode,path_start,path_spacing,path_reversed,update,refresh_path_inspector]{perform([&]{
-        const auto parts=path_contour->currentData().toString().split('\n');
-        if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())throw Error("MISSING_PATH_ATTACHMENT","Choose an authored Path contour by ID");
-        bool start_ok=false,spacing_ok=false;
-        const auto start=path_start->text().trimmed().toDouble(&start_ok);
-        const auto spacing=path_spacing->text().trimmed().toDouble(&spacing_ok);
-        if(!start_ok||!std::isfinite(start))throw Error("TEXT_PATH_START_INVALID","Enter a finite Text-on-Path start value");
-        if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
-        update([&](TextSource& next){next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),
-            path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};});
-    });});
-    connect(path_detach,&QPushButton::clicked,this,[this,update,refresh_path_inspector]{perform([&]{update([](TextSource& next){next.path_attachment.reset();});refresh_path_inspector();});});
+    const auto path_document=host.session.document().id,path_source=source.id;
+    const auto path_target=std::make_shared<Object>(host.session.document().objects.at(id));
+    const auto path_revision=host.session.revision(),path_generation=text_selection_generation_,path_gesture=host.session.gesture_generation();
+    const auto path_composition_id=canvas->active_composition(),path_artboard=canvas->active_artboard();
+    const bool path_preview=host.session.gesture_active();
+    const auto path_contains=[this,path_composition_id](const Id& target){
+        const auto& document=host.session.document();const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==path_composition_id;});
+        if(composition==document.compositions.end())return false;
+        std::function<bool(const Id&)> contains=[&](const Id& object_id){
+            if(object_id==target)return true;const auto found=document.objects.find(object_id);
+            return found!=document.objects.end()&&std::any_of(found->second.children.begin(),found->second.children.end(),contains);
+        };
+        return std::any_of(composition->roots.begin(),composition->roots.end(),contains);
+    };
+    const auto verify_path=[this,id,frozen_session,path_document,path_source,path_target,path_contains,path_generation,path_gesture,path_composition_id,path_artboard,path_preview](std::uint64_t revision) {
+        if(host.session_id!=frozen_session||host.session.document().id!=path_document)throw Error("SESSION_CONFLICT","This Path edit belongs to another document");
+        if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Text changed; reopen its Path controls");
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=path_source)
+            throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists");
+        if(found->second!=*path_target)throw Error("PROPERTY_CONFLICT","The retained Text changed; reopen its Path controls");
+        if(artboard_editing_||text_selection_generation_!=path_generation||canvas->selections()!=std::vector<Canvas::Selection>{{id,{}}}||
+           canvas->active_composition()!=path_composition_id||canvas->active_artboard()!=path_artboard||!path_contains(id))
+            throw Error("SELECTION_CONFLICT","Select the original whole Text before editing its Path attachment");
+        if(path_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the active edit first");
+        if(host.session.gesture_generation()!=path_gesture)throw Error("REVISION_CONFLICT","The gesture context changed; reopen Path controls");
+    };
+    const auto path_choice=std::make_shared<std::optional<Object>>();
+    const auto retain_path_choice=[this,path_contour,path_choice]{
+        path_choice->reset();const auto parts=path_contour->currentData().toString().split('\n');
+        if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())return;
+        const auto found=host.session.document().objects.find(parts[0].toStdString());
+        if(found!=host.session.document().objects.end())*path_choice=found->second;
+    };
+    retain_path_choice();
+    connect(path_contour,qOverload<int>(&QComboBox::currentIndexChanged),path_group,[this,verify_path,path_revision,retain_path_choice](int){
+        perform([&]{verify_path(path_revision);retain_path_choice();});
+    });
+    const auto verify_path_choice=[this,path_choice,path_contains]{
+        if(!*path_choice)return; // Existing missing-choice validation runs after scalar completion.
+        const auto found=host.session.document().objects.find((**path_choice).id);
+        if(found==host.session.document().objects.end()||found->second!=**path_choice)
+            throw Error("PROPERTY_CONFLICT","The chosen Path changed; choose its contour again");
+        if(!path_contains(found->first))throw Error("SELECTION_CONFLICT","The chosen Path Composition changed; choose its contour again");
+    };
+    for(auto* button:{path_apply,path_detach}) {
+        const bool detach=button==path_detach;
+        button->setProperty("nect-text-path-action-object",qs(id));button->setFocusPolicy(Qt::StrongFocus);
+        auto revision=std::make_shared<std::uint64_t>(path_revision);auto refresh_needed=std::make_shared<bool>(false);
+        button->prepare=[this,id,detach,verify_path,verify_path_choice,path_target,revision,refresh_needed] {
+            bool ready=false;
+            perform([&]{
+                verify_path(*revision);if(!detach)verify_path_choice();QPointer<QLineEdit> pending;
+                for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=input->property("nect-reference").toByteArray();
+                    if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                    const auto ref=read_ref(data);if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+                }
+                if(pending) {
+                    pending->setProperty("nect-finishing-text-path",true);pending->setProperty("nect-text-path-committed-revision",QVariant{});
+                    pending->editingFinished();const auto committed=pending?pending->property("nect-text-path-committed-revision"):QVariant{};
+                    if(pending)pending->setProperty("nect-finishing-text-path",false);
+                    if(!committed.isValid())return;
+                    // Only the completed ordinary Font size Scalar may advance
+                    // the retained target; every other authored field stays frozen.
+                    path_target->text->parameters.at("font_size")=host.session.document().objects.at(id).text->parameters.at("font_size");
+                    verify_path(committed.toULongLong());*revision=committed.toULongLong();*refresh_needed=true;
+                }
+                ready=true;
+            });return ready;
+        };
+        button->completed=[refresh_needed,refresh_path_inspector]{if(*refresh_needed)refresh_path_inspector();};
+        connect(button,&QPushButton::clicked,this,[this,id,button,detach,verify_path,verify_path_choice,revision,refresh_needed,path_contour,path_start_mode,path_start,path_spacing,path_reversed]{
+            // A changed Path attachment synchronously emits host.edited too.
+            // Retain this pressed control until release; refresh is queued.
+            button->setProperty("nect-retain-text-inspector",true);
+            perform([&]{
+                verify_path(*revision);if(!detach)verify_path_choice();auto next=*host.session.document().objects.at(id).text;
+                if(detach)next.path_attachment.reset();
+                else {
+                    const auto parts=path_contour->currentData().toString().split('\n');
+                    if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())throw Error("MISSING_PATH_ATTACHMENT","Choose an authored Path contour by ID");
+                    bool start_ok=false,spacing_ok=false;
+                    const auto start=path_start->text().trimmed().toDouble(&start_ok),spacing=path_spacing->text().trimmed().toDouble(&spacing_ok);
+                    if(!start_ok||!std::isfinite(start))throw Error("TEXT_PATH_START_INVALID","Enter a finite Text-on-Path start value");
+                    if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
+                    next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};
+                }
+                if(next==*host.session.document().objects.at(id).text)return;
+                host.session.apply({UpdateText{id,std::move(next)}},*revision);*refresh_needed=true;host.edited();
+            });
+            button->setProperty("nect-retain-text-inspector",false);
+        });
+    }
     if(!font_families_) {
         font_families_=new QStringListModel(this);
         auto reload=[this]{
@@ -6263,12 +6983,43 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     const Ref family_ref{id,"","text.family"};const auto family_state=text_family_property(host.session.document(),family_ref);
     const auto family_revision=host.session.revision();
+    const auto family_document=host.session.document().id;
+    const auto family_gesture=host.session.gesture_generation();
+    auto prepared_family_revision=std::make_shared<std::uint64_t>(family_revision);
+    auto family_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        family_revision,text_selection_generation_,family_document,family_gesture,host.session.gesture_active(),object});
+    // Existing driver dependencies retain their family lineage. Other source
+    // typography/content is independent of the authored family property.
+    using FamilyLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextFamilyDriver>>>;
+    const auto family_lineage=[this](const Id& root) {
+        FamilyLineage result;Id current=root;
+        while(!current.empty()&&!result.contains(current)) {
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained family source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.family,text.family_driver});
+            current=text.family_driver?text.family_driver->link.object:Id{};
+        }
+        return result;
+    };
+    const auto retained_family_lineage=family_lineage(id);
+    const auto verify_family=[this,id,family_context,family_lineage,retained_family_lineage](bool browsing=false) {
+        verify_text_typography_context(*family_context,browsing);
+        if(family_lineage(id)!=retained_family_lineage)
+            throw Error("SOURCE_CONFLICT","The retained family driver changed; reopen this Text's family controls");
+    };
     auto* family_row=new QWidget(box);auto* family_layout=new QHBoxLayout(family_row);family_layout->setContentsMargins(0,0,0,0);
     auto* family=new FontFamilyCombo(font_families_);family->setObjectName("text-family");
+    family->setProperty("nect-text-family-action-object",qs(id));
+    family->lineEdit()->setProperty("nect-text-family-action-object",qs(id));
     family->addItem(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setCurrentText(qs(family_state.driver?family_state.evaluated:family_state.literal));
     family->setEnabled(!family_state.driver);family_layout->addWidget(family);
-    auto* family_driver_button=new QToolButton(family_row);family_driver_button->setObjectName("text-family-driver");
+    auto* family_driver_button=new PreparedTextMenuButton;family_driver_button->setObjectName("text-family-driver");
+    family_driver_button->setProperty("nect-text-family-action-object",qs(id));
+    family_driver_button->setFocusPolicy(Qt::StrongFocus);
     family_driver_button->setText(family_state.driver?"Driver…":"Drive…");family_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* family_menu=new QMenu(family_driver_button);family_driver_button->setMenu(family_menu);family_layout->addWidget(family_driver_button);
     auto* link_family=family_menu->addAction("Link to Text family…");
@@ -6279,29 +7030,70 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_family->setEnabled(!family_source_ids.empty());
     const bool replace_family_driver=family_state.driver.has_value();
-    connect(link_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,replace_family_driver,family_source_ids]{
+    connect(link_family,&QAction::triggered,this,[this,id,frozen_session,family_document,prepared_family_revision,family_gesture,replace_family_driver,family_source_ids,verify_family,family_lineage]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_family_revision||host.session.gesture_generation()!=family_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its family");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_family();
+            ready=true;
+        });
+        if(!ready)return;
+        const auto family_revision=*prepared_family_revision;
         const auto target=Ref{id,"","text.family"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,family_source_ids,"Link Text family");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        auto chosen_source=std::make_shared<std::optional<Object>>();
+        auto chosen_lineage=std::make_shared<FamilyLineage>();
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker=[this,verify_family,picker_selection,picker_generation] {
+            verify_family(true);
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The source chooser selection changed outside this chooser");
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[this,status,verify_picker,family_lineage,chosen_source,chosen_lineage,picker_selection,picker_generation](QListWidgetItem* item,QListWidgetItem*){
+            chosen_source->reset();chosen_lineage->clear();
+            if(!item||item->isHidden())return;
+            try {
+                verify_picker();
+                const auto ref=read_ref(item->data(Qt::UserRole).toByteArray());
+                *chosen_source=host.session.document().objects.at(ref.object);
+                *chosen_lineage=family_lineage(ref.object);
+                canvas->set_selection(ref.object,{});
+                *picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+            }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,family_document,composition,artboard,picker_selection,picker_generation]{
+            if(host.session_id==frozen_session&&host.session.document().id==family_document&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation) {
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);
+            }
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,family_revision,replace_family_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,family_document,family_revision,family_gesture,replace_family_driver,selection,composition,artboard,verify_picker,family_lineage,chosen_source,chosen_lineage]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=family_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=family_revision||host.session.gesture_generation()!=family_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_picker();
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||family_lineage(source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text source changed; choose it again before linking");
                     host.session.apply({LinkTextFamily{target,source,replace_family_driver}},family_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6309,7 +7101,15 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(edit_linked_family,&QAction::triggered,this,[this,id,frozen_session,family_revision,family_state]{
+    connect(edit_linked_family,&QAction::triggered,this,[this,id,frozen_session,family_document,prepared_family_revision,family_state,verify_family]{
+        if(host.session_id!=frozen_session||host.session.document().id!=family_document) {
+            perform([&]{throw Error("SESSION_CONFLICT","Text family belongs to another document");});return;
+        }
+        if(host.session.revision()!=*prepared_family_revision) {
+            perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its family");});return;
+        }
+        const auto family_revision=*prepared_family_revision;
+        bool ready=false;perform([&]{verify_family();ready=true;});if(!ready)return;
         QDialog dialog(this);dialog.setObjectName("text-family-dialog");dialog.setWindowTitle("Edit linked font family");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new FontFamilyCombo(font_families_);editor->setObjectName("text-family-editor");
@@ -6320,10 +7120,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,family_revision,family_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,family_document,family_revision,family_state,editor,unlink,status,verify_family]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                    throw Error("SESSION_CONFLICT","Text belongs to another document");
                 if(host.session.revision()!=family_revision)throw Error("STALE_CONTEXT","Text changed while the family editor was open; copy this value and reopen the editor");
+                verify_family();
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
                 auto commands=std::vector<Command>{UnlinkTextFamily{{id,"","text.family"}}};
@@ -6334,15 +7136,77 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 }
                 if(!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a family edit");
                 host.session.apply(commands,family_revision);host.edited();dialog.accept();
-            } catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
         });
         dialog.exec();
     });
     form->addRow("Font family",family_row);
-    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update,before=family_state.literal,linked=family_state.driver.has_value()]{
+    auto family_scalar_prepared=std::make_shared<bool>(false);
+    const bool family_preview=host.session.gesture_active();
+    family->prepare=[this,id,frozen_session,family_document,family_gesture,family_preview,prepared_family_revision,family_scalar_prepared,family_context,verify_family] {
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_family_revision||host.session.gesture_generation()!=family_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its family");
+            if(family_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its family");
+            verify_family();
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-family",true);
+                pending->setProperty("nect-text-family-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-family-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-family",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=family_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=family_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*family_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);
+                *family_context=std::move(advanced);
+                *prepared_family_revision=host.session.revision();*family_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    family->closed=[this,frozen_session,family_document,family_scalar_prepared] {
+        if(!*family_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,family_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==family_document)rebuild_inspector();
+        });
+    };
+    family_driver_button->prepare=family->prepare;
+    family_driver_button->closed=family->closed;
+    auto update_family=[this,id,frozen_session,family_document,prepared_family_revision,family_gesture,update,verify_family](const std::string& value){
+        if(host.session_id!=frozen_session||host.session.document().id!=family_document)
+            throw Error("SESSION_CONFLICT","Text family draft belongs to another document");
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+        // Return can deliver both signals after the first has rebuilt the Inspector.
+        if(found->second.text->family==value)return;
+        if(host.session.revision()!=*prepared_family_revision||host.session.gesture_generation()!=family_gesture)
+            throw Error("REVISION_CONFLICT","Text changed; edit its family again");
+        if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        verify_family();
+        update([&](auto& s){s.family=value;});
+    };
+    connect(family->lineEdit(),&QLineEdit::editingFinished,this,[this,family,update_family,before=family_state.literal,linked=family_state.driver.has_value()]{
         if(linked)return;
-        const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update([&](auto& s){s.family=value;});});});
-    connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update]{perform([&]{update([&](auto& s){s.family=family->currentText().toStdString();});});});
+        const auto value=family->currentText().toStdString();if(value!=before)perform([&]{update_family(value);});});
+    connect(family,QOverload<int>::of(&QComboBox::activated),this,[this,family,update_family]{perform([&]{update_family(family->currentText().toStdString());});});
     const auto family_driver_name=[this](const std::optional<TextFamilyDriver>& driver) {
         if(!driver)return QString("none");
         const auto found=host.session.document().objects.find(driver->link.object);
@@ -6353,14 +7217,92 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     family_status->setObjectName("text-family-state");family_status->setWordWrap(true);family_status->setTextFormat(Qt::PlainText);form->addRow("",family_status);
     const Ref weight_ref{id,"","text.weight"};const auto weight_state=text_weight_property(host.session.document(),weight_ref);
     const auto weight_revision=host.session.revision();
+    const auto weight_document=host.session.document().id;
+    const auto weight_gesture=host.session.gesture_generation();
+    auto weight_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        weight_revision,text_selection_generation_,weight_document,weight_gesture,host.session.gesture_active(),object});
+    using WeightLineage=std::map<Id,std::tuple<Id,unsigned,std::optional<TextWeightDriver>,std::optional<Expression>>>;
+    const auto weight_lineage=[this](const Id& root) {
+        WeightLineage result;
+        std::function<void(const Id&)> visit=[&](const Id& current) {
+            if(result.contains(current))return;
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained weight source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.weight,text.weight_driver,text.weight_expression});
+            if(text.weight_driver)visit(text.weight_driver->link.object);
+            if(text.weight_expression)for(const auto& ref:expression_dependencies(*text.weight_expression))visit(ref.object);
+        };
+        visit(root);return result;
+    };
+    const auto retained_weight_lineage=weight_lineage(id);
+    const auto verify_weight=[this,id,weight_context,weight_lineage,retained_weight_lineage](bool browsing=false) {
+        verify_text_typography_context(*weight_context,browsing);
+        if(weight_lineage(id)!=retained_weight_lineage)
+            throw Error("SOURCE_CONFLICT","The retained weight driver changed; reopen this Text's weight controls");
+    };
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
-    auto* weight=new QSpinBox;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
+    auto* weight=new PreparedTextSpin;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
+    weight->setProperty("nect-text-weight-action-object",qs(id));
+    weight->findChild<QLineEdit*>()->setProperty("nect-text-weight-action-object",qs(id));
     weight->setValue(static_cast<int>(weight_state.evaluated));weight->setKeyboardTracking(false);
     const bool weight_is_driven=weight_state.driver.has_value()||weight_state.expression.has_value();
     weight->setEnabled(!weight_is_driven);
     if(weight_is_driven)weight->setToolTip("Unlink the source before editing the authored weight.");
     weight_layout->addWidget(weight);
-    auto* weight_driver_button=new QToolButton(weight_row);weight_driver_button->setObjectName("text-weight-driver");
+    auto prepared_weight_revision=std::make_shared<std::uint64_t>(weight_revision);
+    auto weight_scalar_prepared=std::make_shared<bool>(false);
+    const bool weight_preview=host.session.gesture_active();
+    weight->prepare=[this,id,weight,frozen_session,weight_document,weight_gesture,weight_preview,prepared_weight_revision,weight_scalar_prepared,weight_context,verify_weight] {
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight");
+            if(weight_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its weight");
+            verify_weight();
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-weight",true);
+                pending->setProperty("nect-text-weight-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-weight-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-weight",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=weight_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=weight_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*weight_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*weight_context=std::move(advanced);
+                *prepared_weight_revision=host.session.revision();*weight_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        if(ready)weight->setProperty("nect-text-weight-draft-open",true);
+        return ready;
+    };
+    auto* weight_driver_button=new PreparedTextMenuButton;weight_driver_button->setObjectName("text-weight-driver");
+    weight_driver_button->setProperty("nect-text-weight-action-object",qs(id));
+    weight_driver_button->setFocusPolicy(Qt::StrongFocus);
+    weight_driver_button->prepare=weight->prepare;
+    weight_driver_button->closed=[this,frozen_session,weight_document,weight_scalar_prepared]{
+        if(!*weight_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,weight_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document)rebuild_inspector();
+        });
+    };
     weight_driver_button->setText(weight_is_driven?"Source…":"Drive…");weight_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* weight_menu=new QMenu(weight_driver_button);weight_driver_button->setMenu(weight_menu);weight_layout->addWidget(weight_driver_button);
     auto* link_weight=weight_menu->addAction("Link to Text weight…");
@@ -6372,29 +7314,64 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_weight->setEnabled(!weight_source_ids.empty());
     const bool replace_weight_driver=weight_is_driven;
-    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,replace_weight_driver,weight_source_ids]{
+    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_gesture,replace_weight_driver,weight_source_ids,verify_weight,weight_lineage]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its weight");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_weight();
+            ready=true;
+        });
+        if(!ready)return;
+        const auto weight_revision=*prepared_weight_revision;
         const auto target=Ref{id,"","text.weight"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,weight_source_ids,"Link Text weight");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        auto chosen_source=std::make_shared<std::optional<Object>>();auto chosen_lineage=std::make_shared<WeightLineage>();
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker=[this,verify_weight,picker_selection,picker_generation] {
+            verify_weight(true);
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The source chooser selection changed outside this chooser");
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[this,status,verify_picker,weight_lineage,chosen_source,chosen_lineage,picker_selection,picker_generation](QListWidgetItem* item,QListWidgetItem*){
+            chosen_source->reset();chosen_lineage->clear();if(!item||item->isHidden())return;
+            try {
+                verify_picker();const auto ref=read_ref(item->data(Qt::UserRole).toByteArray());
+                *chosen_source=host.session.document().objects.at(ref.object);*chosen_lineage=weight_lineage(ref.object);
+                canvas->set_selection(ref.object,{});*picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+            }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,weight_document,composition,artboard,picker_selection,picker_generation]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation){
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,weight_revision,replace_weight_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,weight_document,weight_revision,weight_gesture,replace_weight_driver,selection,composition,artboard,verify_picker,weight_lineage,chosen_source,chosen_lineage]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=weight_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=weight_revision||host.session.gesture_generation()!=weight_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_picker();
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||weight_lineage(source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text source changed; choose it again before linking");
                     host.session.apply({LinkTextWeight{target,source,replace_weight_driver}},weight_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6402,7 +7379,15 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision,weight_state,weight_is_driven]{
+    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_state,weight_is_driven,verify_weight]{
+        if(host.session_id!=frozen_session||host.session.document().id!=weight_document) {
+            perform([&]{throw Error("SESSION_CONFLICT","Text weight belongs to another document");});return;
+        }
+        if(host.session.revision()!=*prepared_weight_revision) {
+            perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight source");});return;
+        }
+        bool ready=false;perform([&]{verify_weight();ready=true;});if(!ready)return;
+        const auto weight_revision=*prepared_weight_revision;
         QDialog dialog(this);dialog.setObjectName("text-weight-expression-dialog");dialog.setWindowTitle("Text weight expression");
         auto* layout=new QVBoxLayout(&dialog);
         auto* editor=new ExpressionInput;editor->setObjectName("text-weight-expression-draft");
@@ -6419,9 +7404,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,weight_revision,editor,replace,status]{
+            [this,&dialog,id,frozen_session,weight_document,weight_revision,editor,replace,status,verify_weight]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                        throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    verify_weight();
                     host.session.apply({SetTextWeightExpression{{id,"","text.weight"},
                         Expression{editor->toPlainText().toStdString(),1},replace->isChecked()}},weight_revision);
                     host.edited();dialog.accept();
@@ -6430,9 +7417,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_revision]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},weight_revision);host.edited();});
+    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,verify_weight]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            verify_weight();host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},*prepared_weight_revision);host.edited();});
     });
     form->addRow("Weight",weight_row);
     auto* weight_status=new QLabel(weight_row);weight_status->setObjectName("text-weight-state");
@@ -6448,16 +7436,123 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
     weight_status->setWordWrap(true);form->addRow("",weight_status);
-    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state]{
+    connect(weight,&QSpinBox::editingFinished,this,[this,id,weight,update,weight_state,frozen_session,weight_document,prepared_weight_revision,weight_gesture,verify_weight]{
+        weight->setProperty("nect-text-weight-draft-open",false);
         if(weight_state.driver||weight_state.expression)return;
-        if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});});});
+        if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
+                throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+            // Return may deliver both signals after the first rebuilt the Inspector.
+            if(found->second.text->weight==static_cast<unsigned>(weight->value()))return;
+            if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
+                throw Error("REVISION_CONFLICT","Text changed; edit its weight again");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_weight();
+            update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});
+        });});
+    connect(weight,&QSpinBox::editingFinished,this,[this,frozen_session,weight_document,weight_scalar_prepared]{
+        if(!*weight_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,weight_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document)rebuild_inspector();
+        });
+    });
     const Ref italic_ref{id,"","text.italic"};const auto italic_state=text_italic_property(host.session.document(),italic_ref);
     const auto italic_revision=host.session.revision();
+    const auto italic_document=host.session.document().id;
+    const auto italic_gesture=host.session.gesture_generation();
+    const bool italic_preview=host.session.gesture_active();
+    auto italic_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        italic_revision,text_selection_generation_,italic_document,italic_gesture,italic_preview,object});
+    using ItalicLineage=std::map<Id,std::tuple<Id,bool,std::optional<TextItalicDriver>>>;
+    const auto italic_lineage=[this](const Id& root) {
+        ItalicLineage result;
+        std::function<void(const Id&)> visit=[&](const Id& current) {
+            if(result.contains(current))return;
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained italic source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.italic,text.italic_driver});
+            if(text.italic_driver) {
+                if(const auto* link=std::get_if<Ref>(&*text.italic_driver))visit(link->object);
+                else {
+                    // Core validates the bounded boolean grammar. Its sole Ref
+                    // has an unescaped ASCII object ID as the first quoted arg;
+                    // true/false have no quoted args. Scalar parsing is different.
+                    (void)evaluate_text_italic(host.session.document(),current);
+                    const auto& expression=std::get<Expression>(*text.italic_driver).source;
+                    const auto begin=expression.find('"');
+                    if(begin!=std::string::npos) {
+                        const auto end=expression.find('"',begin+1);
+                        visit(expression.substr(begin+1,end-begin-1));
+                    }
+                }
+            }
+        };
+        visit(root);return result;
+    };
+    const auto retained_italic_lineage=italic_lineage(id);
+    const auto verify_italic=[this,id,italic_context,italic_lineage,retained_italic_lineage](bool browsing=false) {
+        verify_text_typography_context(*italic_context,browsing);
+        if(italic_lineage(id)!=retained_italic_lineage)
+            throw Error("SOURCE_CONFLICT","The retained italic driver changed; reopen this Text's italic controls");
+    };
     auto* italic_row=new QWidget(box);auto* italic_layout=new QHBoxLayout(italic_row);italic_layout->setContentsMargins(0,0,0,0);
     auto* italic=new QCheckBox("Italic");italic->setObjectName("text-italic");italic->setChecked(italic_state.evaluated);
+    italic->setProperty("nect-text-italic-action-object",qs(id));
     italic->setEnabled(!italic_state.driver);if(italic_state.driver)italic->setToolTip("Unlink or replace the driver before editing the literal.");
     italic_layout->addWidget(italic);
-    auto* italic_driver_button=new QToolButton(italic_row);italic_driver_button->setObjectName("text-italic-driver");
+    auto* italic_driver_button=new PreparedTextMenuButton;italic_driver_button->setObjectName("text-italic-driver");
+    italic_driver_button->setProperty("nect-text-italic-action-object",qs(id));
+    italic_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_italic_revision=std::make_shared<std::uint64_t>(italic_revision);
+    auto italic_scalar_prepared=std::make_shared<bool>(false);
+    italic_driver_button->prepare=[this,id,frozen_session,italic_document,prepared_italic_revision,italic_gesture,italic_preview,italic_scalar_prepared,italic_context,verify_italic]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its italic source");
+            if(italic_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its italic source");
+            verify_italic();
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-italic",true);
+                pending->setProperty("nect-text-italic-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-italic-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-italic",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=italic_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=italic_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*italic_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*italic_context=std::move(advanced);
+                *prepared_italic_revision=host.session.revision();*italic_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    italic_driver_button->closed=[this,frozen_session,italic_document,italic_scalar_prepared]{
+        if(!*italic_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,italic_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==italic_document)rebuild_inspector();
+        });
+    };
     italic_driver_button->setText(italic_state.driver?"Driver…":"Drive…");italic_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* italic_menu=new QMenu(italic_driver_button);italic_driver_button->setMenu(italic_menu);italic_layout->addWidget(italic_driver_button);italic_layout->addStretch();
     auto* link_italic=italic_menu->addAction("Link to Text italic…");
@@ -6469,29 +7564,64 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_italic->setEnabled(!italic_source_ids.empty());
     const bool replace_italic_driver=italic_state.driver.has_value();
-    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,italic_source_ids]{
+    connect(link_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision,italic_gesture,replace_italic_driver,italic_source_ids,verify_italic,italic_lineage]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
+            if(host.session.revision()!=*prepared_italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its italic");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_italic();
+            ready=true;
+        });
+        if(!ready)return;
+        const auto italic_revision=*prepared_italic_revision;
         const auto target=Ref{id,"","text.italic"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,italic_source_ids,"Link Text italic");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        auto chosen_source=std::make_shared<std::optional<Object>>();auto chosen_lineage=std::make_shared<ItalicLineage>();
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker=[this,verify_italic,picker_selection,picker_generation] {
+            verify_italic(true);
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The source chooser selection changed outside this chooser");
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[this,status,verify_picker,italic_lineage,chosen_source,chosen_lineage,picker_selection,picker_generation](QListWidgetItem* item,QListWidgetItem*){
+            chosen_source->reset();chosen_lineage->clear();if(!item||item->isHidden())return;
+            try {
+                verify_picker();const auto ref=read_ref(item->data(Qt::UserRole).toByteArray());
+                *chosen_source=host.session.document().objects.at(ref.object);*chosen_lineage=italic_lineage(ref.object);
+                canvas->set_selection(ref.object,{});*picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+            }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,italic_document,composition,artboard,picker_selection,picker_generation]{
+            if(host.session_id==frozen_session&&host.session.document().id==italic_document&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation){
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,italic_revision,replace_italic_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,italic_document,italic_revision,italic_gesture,replace_italic_driver,selection,composition,artboard,verify_picker,italic_lineage,chosen_source,chosen_lineage]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=italic_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=italic_revision||host.session.gesture_generation()!=italic_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_picker();
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||italic_lineage(source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text source changed; choose it again before linking");
                     host.session.apply({LinkTextItalic{target,source,replace_italic_driver}},italic_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6501,15 +7631,37 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     });
     const auto initial_italic_expression=italic_state.driver&&std::holds_alternative<Expression>(*italic_state.driver)?
         qs(std::get<Expression>(*italic_state.driver).source):QStringLiteral("false");
-    connect(expression_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision,replace_italic_driver,initial_italic_expression]{
-        bool accepted=false;const auto expression=QInputDialog::getText(this,"Text italic expression","Expression",
-            QLineEdit::Normal,initial_italic_expression,&accepted);if(!accepted)return;
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({SetTextItalicExpression{{id,"","text.italic"},{expression.toStdString(),1},replace_italic_driver}},italic_revision);host.edited();});
+    connect(expression_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision,initial_italic_expression,replace_italic_driver,verify_italic]{
+        bool ready=false;perform([&]{verify_italic();ready=true;});if(!ready)return;
+        const auto italic_revision=*prepared_italic_revision;
+        QDialog dialog(this);dialog.setObjectName("text-italic-expression-dialog");dialog.setWindowTitle("Text italic expression");
+        auto* layout=new QVBoxLayout(&dialog);
+        auto* editor=new ExpressionInput;editor->setObjectName("text-italic-expression-draft");
+        editor->setAccessibleName("Text italic expression draft");editor->setFixedHeight(68);
+        editor->setPlaceholderText("Boolean expression using ref(\"Text ID\",\"\",\"text.italic\")");
+        editor->setPlainText(initial_italic_expression);layout->addWidget(editor);
+        auto* replace=new QCheckBox("Replace the current italic source",&dialog);
+        replace->setObjectName("text-italic-expression-replace");replace->setVisible(replace_italic_driver);layout->addWidget(replace);
+        auto* status=new QLabel("Apply commits; Cancel keeps the current italic source.",&dialog);
+        status->setObjectName("text-italic-expression-status");status->setWordWrap(true);layout->addWidget(status);
+        auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
+        connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
+            [this,&dialog,id,italic_revision,editor,replace,status,verify_italic]{
+                try {
+                    verify_italic();
+                    host.session.apply({SetTextItalicExpression{{id,"","text.italic"},
+                        Expression{editor->toPlainText().toStdString(),1},replace->isChecked()}},italic_revision);
+                    host.edited();dialog.accept();
+                }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+                catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+            });
+        dialog.exec();
     });
-    connect(unlink_italic,&QAction::triggered,this,[this,id,frozen_session,italic_revision]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextItalic{{id,"","text.italic"}}},italic_revision);host.edited();});
+    connect(unlink_italic,&QAction::triggered,this,[this,id,frozen_session,italic_document,prepared_italic_revision,verify_italic]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            verify_italic();host.session.apply({UnlinkTextItalic{{id,"","text.italic"}}},*prepared_italic_revision);host.edited();});
     });
     form->addRow("Italic",italic_row);
     auto* italic_status=new QLabel(italic_row);italic_status->setObjectName("text-italic-state");
@@ -6524,8 +7676,42 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     italic_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(italic_state.literal?"true":"false",driver_description,italic_state.evaluated?"true":"false"));
     italic_status->setWordWrap(true);form->addRow("",italic_status);
-    connect(italic,&QCheckBox::toggled,this,[this,update,italic_state](bool value){if(italic_state.driver)return;
-        perform([&]{update([&](auto& s){s.italic=value;});});});
+    connect(italic,&QCheckBox::toggled,this,[this,id,update,italic_state,frozen_session,italic_document,italic_revision,italic_gesture,italic_preview,italic_context,verify_italic](bool value){
+        if(italic_state.driver)return;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=italic_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=italic_revision||host.session.gesture_generation()!=italic_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing italic");
+            if(italic_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing italic");
+            verify_italic();
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-italic",true);
+                pending->setProperty("nect-text-italic-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-italic-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-italic",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=italic_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=italic_gesture||host.session.gesture_active()||
+                   canvas->selected_object!=id||!canvas->selected_point.empty())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*italic_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*italic_context=std::move(advanced);
+            }
+            verify_italic();update([&](auto& s){s.italic=value;});
+        });
+    });
     auto choices=[&](const QString& name,const QString& label,const QStringList& labels,const std::vector<std::string>& values,
                      const std::string& selected,std::string TextSource::*member) {
         auto* combo=new QComboBox;combo->setObjectName(name);combo->addItems(labels);
@@ -6540,13 +7726,100 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* layout_choice=new QComboBox;layout_choice->setObjectName("text-layout");layout_choice->addItems({"Auto size","Fixed frame"});
     layout_choice->setCurrentIndex(layout_state.evaluated=="frame"?1:0);layout_choice->setEnabled(false);
     layout_choice->setToolTip("Use Edit sizing to stage and apply a change.");layout_row_layout->addWidget(layout_choice);
-    auto* layout_driver_button=new QToolButton(layout_row);layout_driver_button->setObjectName("text-layout-driver");
+    const auto layout_document=host.session.document().id;
+    const auto layout_gesture=host.session.gesture_generation();
+    const bool layout_preview=host.session.gesture_active();
+    auto layout_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        layout_revision,text_selection_generation_,layout_document,layout_gesture,layout_preview,object});
+    using LayoutLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextLayoutDriver>>>;
+    const auto layout_lineage=[this](const Id& root) {
+        LayoutLineage result;Id current=root;
+        while(!current.empty()&&!result.contains(current)) {
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained sizing source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.layout,text.layout_driver});
+            current=text.layout_driver?text.layout_driver->link.object:Id{};
+        }
+        return result;
+    };
+    const auto retained_layout_lineage=layout_lineage(id);
+    const auto verify_layout=[this,id,layout_context,layout_lineage,retained_layout_lineage] {
+        verify_text_typography_context(*layout_context);
+        if(layout_lineage(id)!=retained_layout_lineage)
+            throw Error("SOURCE_CONFLICT","The retained sizing driver changed; reopen this Text's sizing controls");
+    };
+    auto* layout_driver_button=new PreparedTextMenuButton;layout_driver_button->setObjectName("text-layout-driver");
+    layout_driver_button->setProperty("nect-text-layout-action-object",qs(id));
+    layout_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_layout_revision=std::make_shared<std::uint64_t>(layout_revision);
+    auto layout_scalar_prepared=std::make_shared<bool>(false);
+    layout_driver_button->prepare=[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_preview,layout_scalar_prepared,layout_context,verify_layout]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its layout source");
+            if(layout_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its layout source");
+            verify_layout();
+            QPointer<QLineEdit> pending;
+            std::string pending_parameter;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height")) {
+                    pending=input;pending_parameter=ref.field.substr(5);
+                }
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-layout",true);
+                pending->setProperty("nect-text-layout-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-layout-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-layout",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=layout_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=layout_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing its sizing property");
+                auto advanced=*layout_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at(pending_parameter)=
+                    host.session.document().objects.at(id).text->parameters.at(pending_parameter);
+                verify_text_typography_context(advanced);*layout_context=std::move(advanced);
+                *prepared_layout_revision=host.session.revision();*layout_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    layout_driver_button->closed=[this,frozen_session,layout_document,layout_scalar_prepared]{
+        if(!*layout_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,layout_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==layout_document)rebuild_inspector();
+        });
+    };
     layout_driver_button->setText(layout_state.driver?"Driver…":"Drive…");layout_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* layout_menu=new QMenu(layout_driver_button);layout_driver_button->setMenu(layout_menu);layout_row_layout->addWidget(layout_driver_button);
     auto* edit_layout=layout_menu->addAction("Edit sizing…");
     auto* link_layout=layout_menu->addAction("Link to Text sizing…");
     auto* unlink_layout=layout_menu->addAction("Unlink sizing");unlink_layout->setEnabled(layout_state.driver.has_value());
-    connect(edit_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,layout_ref,layout_state]{
+    connect(edit_layout,&QAction::triggered,this,[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_ref,layout_state,verify_layout]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text sizing source belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its sizing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_layout();
+            ready=true;
+        });
+        if(!ready)return;
+        const auto layout_revision=*prepared_layout_revision;
         QDialog dialog(this);dialog.setObjectName("text-layout-dialog");dialog.setWindowTitle("Edit Text sizing");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QComboBox(&dialog);editor->setObjectName("text-layout-editor");editor->addItems({"Auto size","Fixed frame"});
@@ -6558,10 +7831,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,layout_revision,layout_ref,layout_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,layout_document,layout_revision,layout_gesture,layout_ref,layout_state,editor,unlink,status,verify_layout]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the sizing editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=layout_revision||host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed while the sizing editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                verify_layout();
                 if(layout_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a sizing edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -6583,7 +7858,19 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         layout_source_ids.push_back(source_id);layout_source_labels<<qs(source_object.name)+" — "+qs(source_id);
     }
     link_layout->setEnabled(!layout_source_ids.empty());const bool replace_layout_driver=layout_state.driver.has_value();
-    connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,layout_source_labels]{
+    connect(link_layout,&QAction::triggered,this,[this,id,frozen_session,layout_document,prepared_layout_revision,layout_gesture,replace_layout_driver,layout_source_ids,layout_source_labels,verify_layout,layout_lineage]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=layout_document)
+                throw Error("SESSION_CONFLICT","Text sizing source belongs to another document");
+            if(host.session.revision()!=*prepared_layout_revision||host.session.gesture_generation()!=layout_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its sizing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_layout();
+            ready=true;
+        });
+        if(!ready)return;
+        const auto layout_revision=*prepared_layout_revision;
         QDialog dialog(this);dialog.setObjectName("text-layout-source-dialog");dialog.setWindowTitle("Link Text sizing");
         auto* layout=new QVBoxLayout(&dialog);
         auto* search=new QLineEdit(&dialog);search->setObjectName("text-layout-source-search");
@@ -6593,6 +7880,20 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         source->setCurrentIndex(-1);layout->addWidget(source);
         auto* status=new QLabel("Choose a visible Text sizing source. Cancel keeps the current driver.",&dialog);
         status->setObjectName("text-layout-source-status");status->setWordWrap(true);layout->addWidget(status);
+        auto chosen_source=std::make_shared<std::optional<Object>>();
+        auto chosen_lineage=std::make_shared<LayoutLineage>();
+        const auto retain_layout_source=[this,source,status,layout_source_ids,chosen_source,chosen_lineage,verify_layout,layout_lineage](int index){
+            chosen_source->reset();chosen_lineage->clear();if(index<0)return;
+            try {
+                verify_layout();const int source_index=source->currentData().toInt();
+                if(source_index<0||static_cast<std::size_t>(source_index)>=layout_source_ids.size())
+                    throw Error("MISSING_REFERENCE","Choose a valid Text sizing source");
+                const auto& source_id=layout_source_ids.at(static_cast<std::size_t>(source_index));
+                *chosen_source=host.session.document().objects.at(source_id);*chosen_lineage=layout_lineage(source_id);
+            }catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        };
+        connect(source,&QComboBox::currentIndexChanged,&dialog,retain_layout_source);
+        connect(source,&QComboBox::activated,&dialog,retain_layout_source);
         connect(search,&QLineEdit::textChanged,&dialog,[source,layout_source_labels,layout_source_ids](const QString& query){
             const int selected=source->currentIndex()<0?-1:source->currentData().toInt();
             const QSignalBlocker blocker(source);source->clear();
@@ -6606,14 +7907,21 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,layout_revision,replace_layout_driver,layout_source_ids,source,status]{
+            [this,&dialog,id,frozen_session,layout_document,layout_revision,layout_gesture,replace_layout_driver,layout_source_ids,source,status,verify_layout,layout_lineage,chosen_source,chosen_lineage]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                    if(host.session.revision()!=layout_revision)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session.revision()!=layout_revision||host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_layout();
                     if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text sizing source");
                     const int index=source->currentData().toInt();
                     if(index<0||static_cast<std::size_t>(index)>=layout_source_ids.size())
                         throw Error("MISSING_REFERENCE","Choose a valid Text sizing source");
+                    const auto& chosen_id=layout_source_ids.at(static_cast<std::size_t>(index));
+                    const auto found=host.session.document().objects.find(chosen_id);
+                    if(!*chosen_source||(*chosen_source)->id!=chosen_id||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||layout_lineage(chosen_id)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The chosen sizing source changed; choose it again before applying");
                     host.session.apply({LinkTextLayout{{id,"","text.layout"},
                         {layout_source_ids.at(static_cast<std::size_t>(index)),"","text.layout"},replace_layout_driver}},layout_revision);
                     host.edited();dialog.accept();
@@ -6621,9 +7929,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_revision,layout_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextLayout{layout_ref}},layout_revision);host.edited();});
+    connect(unlink_layout,&QAction::triggered,this,[this,frozen_session,layout_document,prepared_layout_revision,layout_gesture,layout_ref,verify_layout]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=layout_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.gesture_generation()!=layout_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its sizing source");
+            verify_layout();
+            host.session.apply({UnlinkTextLayout{layout_ref}},*prepared_layout_revision);host.edited();});
     });
     layout_row_layout->addStretch();form->addRow("Sizing",layout_row);
     const auto layout_driver_name=[this](const std::optional<TextLayoutDriver>& driver) {
@@ -6637,16 +7947,92 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const Ref direction_ref{id,"","text.direction"};const auto direction_state=text_direction_property(host.session.document(),direction_ref);
     const auto direction_revision=host.session.revision();
     auto* direction_row=new QWidget(box);auto* direction_layout=new QHBoxLayout(direction_row);direction_layout->setContentsMargins(0,0,0,0);
-    auto* direction=new QComboBox;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
-    direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(false);
-    direction->setToolTip("Use Edit writing direction to stage and apply a change.");direction_layout->addWidget(direction);
-    auto* direction_driver_button=new QToolButton(direction_row);direction_driver_button->setObjectName("text-direction-driver");
+    auto* direction=new PreparedTextCombo;direction->setObjectName("text-direction");direction->addItems({"Horizontal","Vertical"});
+    direction->setProperty("nect-text-writing-action-object",qs(id));
+    direction->setCurrentIndex(direction_state.evaluated=="vertical"?1:0);direction->setEnabled(!direction_state.driver);
+    direction->setAccessibleName("Text writing direction");
+    direction->setToolTip(direction_state.driver?"Writing direction is linked. Unlink it explicitly using Driver before editing.":
+        "Change this Text object's writing direction. Content, font and style stay editable; one Undo restores the change.");direction_layout->addWidget(direction);
+    const auto direction_gesture=host.session.gesture_generation();
+    const auto direction_document=host.session.document().id;
+    const bool direction_preview=host.session.gesture_active();
+    auto prepared_revision=std::make_shared<std::uint64_t>(direction_revision);
+    auto scalar_prepared=std::make_shared<bool>(false);
+    direction->prepare=[this,id,frozen_session,direction_document,direction_gesture,direction_preview,prepared_revision,scalar_prepared] {
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing writing direction");
+            if(direction_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing writing direction");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-writing",true);
+                pending->setProperty("nect-text-writing-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-writing-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-writing",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=direction_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=direction_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_revision=host.session.revision();*scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    direction->closed=[this,frozen_session,direction_document,scalar_prepared] {
+        if(!*scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,direction_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==direction_document)rebuild_inspector();
+        });
+    };
+    connect(direction,qOverload<int>(&QComboBox::activated),this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_preview](int index){
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing writing direction");
+            if(direction_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing writing direction");
+            const auto& object=host.session.document().objects.at(id);
+            if(!object.text)throw Error("NOT_TEXT","Text no longer exists");
+            if(object.text->direction_driver)throw Error("DRIVEN_PROPERTY","Unlink Text writing direction explicitly before editing");
+            const auto value=index==1?std::string("vertical"):std::string("horizontal");
+            if(object.text->direction==value)return;
+            auto source=*object.text;source.direction=value;
+            host.session.apply({UpdateText{id,std::move(source)}},*prepared_revision);host.edited();
+        });
+    });
+    auto* direction_driver_button=new PreparedTextMenuButton;direction_driver_button->setObjectName("text-direction-driver");
+    direction_driver_button->setProperty("nect-text-writing-action-object",qs(id));
+    direction_driver_button->setFocusPolicy(Qt::StrongFocus);
+    direction_driver_button->prepare=direction->prepare;direction_driver_button->closed=direction->closed;
     direction_driver_button->setText(direction_state.driver?"Driver…":"Drive…");direction_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* direction_menu=new QMenu(direction_driver_button);direction_driver_button->setMenu(direction_menu);direction_layout->addWidget(direction_driver_button);
     auto* edit_direction=direction_menu->addAction("Edit writing direction…");
     auto* link_direction=direction_menu->addAction("Link to Text direction…");
     auto* unlink_direction=direction_menu->addAction("Unlink direction");unlink_direction->setEnabled(direction_state.driver.has_value());
-    connect(edit_direction,&QAction::triggered,this,[this,id,frozen_session,direction_revision,direction_ref,direction_state]{
+    connect(edit_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref,direction_state]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
+                throw Error("SESSION_CONFLICT","Writing source belongs to another document");
+            if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its writing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto direction_revision=*prepared_revision;
         QDialog dialog(this);dialog.setObjectName("text-direction-dialog");dialog.setWindowTitle("Edit writing direction");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QComboBox(&dialog);editor->setObjectName("text-direction-editor");editor->addItems({"Horizontal","Vertical"});
@@ -6658,10 +8044,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,direction_revision,direction_ref,direction_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,direction_ref,direction_state,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=direction_revision)throw Error("STALE_CONTEXT","Text changed while the direction editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=direction_revision||host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed while the direction editor was open; reopen it");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(direction_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a direction edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -6683,7 +8070,18 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         direction_source_ids.push_back(source_id);direction_source_labels<<qs(source_object.name)+" — "+qs(source_id);
     }
     link_direction->setEnabled(!direction_source_ids.empty());const bool replace_direction_driver=direction_state.driver.has_value();
-    connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_revision,replace_direction_driver,direction_source_ids,direction_source_labels]{
+    connect(link_direction,&QAction::triggered,this,[this,id,frozen_session,direction_document,prepared_revision,direction_gesture,replace_direction_driver,direction_source_ids,direction_source_labels]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=direction_document)
+                throw Error("SESSION_CONFLICT","Writing source belongs to another document");
+            if(host.session.revision()!=*prepared_revision||host.session.gesture_generation()!=direction_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its writing source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto direction_revision=*prepared_revision;
         QDialog dialog(this);dialog.setObjectName("text-direction-source-dialog");dialog.setWindowTitle("Link Text direction");
         auto* layout=new QVBoxLayout(&dialog);
         auto* search=new QLineEdit(&dialog);search->setObjectName("text-direction-source-search");
@@ -6706,10 +8104,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,direction_revision,replace_direction_driver,direction_source_ids,source,status]{
+            [this,&dialog,id,frozen_session,direction_document,direction_revision,direction_gesture,replace_direction_driver,direction_source_ids,source,status]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                    if(host.session.revision()!=direction_revision)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    if(host.session.revision()!=direction_revision||host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed while the source chooser was open; reopen it");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Text direction source");
                     const int index=source->currentData().toInt();
                     if(index<0||static_cast<std::size_t>(index)>=direction_source_ids.size())
@@ -6721,11 +8120,14 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_revision,direction_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextDirection{direction_ref}},direction_revision);host.edited();});
+    connect(unlink_direction,&QAction::triggered,this,[this,frozen_session,direction_document,prepared_revision,direction_gesture,direction_ref]{
+        perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=direction_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.gesture_generation()!=direction_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its writing source");
+            host.session.apply({UnlinkTextDirection{direction_ref}},*prepared_revision);host.edited();});
     });
-    direction_layout->addStretch();form->addRow("Writing",direction_row);
+    // Writing is a primary Text edit, immediately after Content, ahead of the
+    // optional Text-on-Path and secondary font/driver details.
+    direction_layout->addStretch();form->insertRow(2,"Writing",direction_row);
     const auto direction_driver_name=[this](const std::optional<TextDirectionDriver>& driver) {
         if(!driver)return QString("none");
         const auto found=host.session.document().objects.find(driver->link.object);
@@ -6736,17 +8138,73 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     direction_status->setObjectName("text-direction-state");direction_status->setWordWrap(true);direction_status->setTextFormat(Qt::PlainText);form->addRow("",direction_status);
     const Ref alignment_ref{id,"","text.alignment"};const auto alignment_state=text_alignment_property(host.session.document(),alignment_ref);
     const auto alignment_revision=host.session.revision();
+    const auto alignment_document=host.session.document().id;
+    const auto alignment_gesture=host.session.gesture_generation();
+    const bool alignment_preview=host.session.gesture_active();
     auto* alignment_row=new QWidget(box);auto* alignment_row_layout=new QHBoxLayout(alignment_row);alignment_row_layout->setContentsMargins(0,0,0,0);
     auto* text_alignment=new QComboBox;text_alignment->setObjectName("text-alignment");text_alignment->addItems({"Start","Center","End"});
     text_alignment->setCurrentIndex(alignment_state.evaluated=="center"?1:alignment_state.evaluated=="end"?2:0);text_alignment->setEnabled(false);
     text_alignment->setToolTip("Use Edit alignment to stage and apply a change.");alignment_row_layout->addWidget(text_alignment);
-    auto* alignment_driver_button=new QToolButton(alignment_row);alignment_driver_button->setObjectName("text-alignment-driver");
+    auto* alignment_driver_button=new PreparedTextMenuButton;alignment_driver_button->setObjectName("text-alignment-driver");
+    alignment_driver_button->setProperty("nect-text-alignment-action-object",qs(id));
+    alignment_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_alignment_revision=std::make_shared<std::uint64_t>(alignment_revision);
+    auto alignment_scalar_prepared=std::make_shared<bool>(false);
+    alignment_driver_button->prepare=[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_preview,alignment_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(alignment_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its alignment source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-alignment",true);
+                pending->setProperty("nect-text-alignment-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-alignment-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-alignment",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=alignment_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=alignment_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_alignment_revision=host.session.revision();*alignment_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    alignment_driver_button->closed=[this,frozen_session,alignment_document,alignment_scalar_prepared]{
+        if(!*alignment_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,alignment_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==alignment_document)rebuild_inspector();
+        });
+    };
     alignment_driver_button->setText(alignment_state.driver?"Driver…":"Drive…");alignment_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* alignment_menu=new QMenu(alignment_driver_button);alignment_driver_button->setMenu(alignment_menu);alignment_row_layout->addWidget(alignment_driver_button);
     auto* edit_alignment=alignment_menu->addAction("Edit alignment…");
     auto* link_alignment=alignment_menu->addAction("Link to Text alignment…");
     auto* unlink_alignment=alignment_menu->addAction("Unlink alignment");unlink_alignment->setEnabled(alignment_state.driver.has_value());
-    connect(edit_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,alignment_state]{
+    connect(edit_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref,alignment_state]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text alignment source belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto alignment_revision=*prepared_alignment_revision;
         QDialog dialog(this);dialog.setObjectName("text-alignment-dialog");dialog.setWindowTitle("Edit Text alignment");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QComboBox(&dialog);editor->setObjectName("text-alignment-editor");editor->addItems({"Start","Center","End"});
@@ -6759,10 +8217,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,alignment_revision,alignment_ref,alignment_state,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,alignment_document,alignment_revision,alignment_gesture,alignment_ref,alignment_state,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=alignment_revision)throw Error("STALE_CONTEXT","Text changed while the alignment editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("STALE_CONTEXT","Text changed while the alignment editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(alignment_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying an alignment edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -6785,29 +8244,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         alignment_source_ids.push_back(source_id);
     }
     link_alignment->setEnabled(!alignment_source_ids.empty());const bool replace_alignment_driver=alignment_state.driver.has_value();
-    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_revision,alignment_ref,replace_alignment_driver,alignment_source_ids]{
+    connect(link_alignment,&QAction::triggered,this,[this,id,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref,replace_alignment_driver,alignment_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)
+                throw Error("SESSION_CONFLICT","Text alignment source belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto alignment_revision=*prepared_alignment_revision;
         const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,alignment_ref.field,alignment_source_ids,"Link Text alignment");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,alignment_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=alignment_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,alignment_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==alignment_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,alignment_ref,frozen_session,alignment_revision,replace_alignment_driver,selection,composition,artboard]{
+            [this,dialog,list,status,alignment_ref,frozen_session,alignment_document,alignment_revision,alignment_gesture,replace_alignment_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=alignment_ref.field||!source.point.empty()||source.object==alignment_ref.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=alignment_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextAlignment{alignment_ref,source,replace_alignment_driver}},alignment_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6815,9 +8286,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_revision,alignment_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextAlignment{alignment_ref}},alignment_revision);host.edited();});
+    connect(unlink_alignment,&QAction::triggered,this,[this,frozen_session,alignment_document,prepared_alignment_revision,alignment_gesture,alignment_ref]{
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=alignment_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_alignment_revision||host.session.gesture_generation()!=alignment_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its alignment source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.session.apply({UnlinkTextAlignment{alignment_ref}},*prepared_alignment_revision);host.edited();});
     });
     alignment_row_layout->addStretch();form->addRow("Alignment",alignment_row);
     const auto alignment_driver_name=[this](const std::optional<TextAlignmentDriver>& driver) {
@@ -6830,17 +8304,73 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     alignment_status->setObjectName("text-alignment-state");alignment_status->setWordWrap(true);alignment_status->setTextFormat(Qt::PlainText);form->addRow("",alignment_status);
     const Ref locale_ref{id,"","text.locale"};const auto locale_state=text_locale_property(host.session.document(),locale_ref);
     const auto locale_revision=host.session.revision();
+    const auto locale_document=host.session.document().id;
+    const auto locale_gesture=host.session.gesture_generation();
+    const bool locale_preview=host.session.gesture_active();
     auto* locale_row=new QWidget(box);auto* locale_layout=new QHBoxLayout(locale_row);locale_layout->setContentsMargins(0,0,0,0);
     auto* locale_value=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal));
     locale_value->setObjectName("text-locale");locale_value->setReadOnly(true);
     locale_value->setToolTip("Use Edit locale to stage and apply a change.");locale_layout->addWidget(locale_value);
-    auto* locale_driver_button=new QToolButton(locale_row);locale_driver_button->setObjectName("text-locale-driver");
+    auto* locale_driver_button=new PreparedTextMenuButton;locale_driver_button->setObjectName("text-locale-driver");
+    locale_driver_button->setProperty("nect-text-locale-action-object",qs(id));
+    locale_driver_button->setFocusPolicy(Qt::StrongFocus);
+    auto prepared_locale_revision=std::make_shared<std::uint64_t>(locale_revision);
+    auto locale_scalar_prepared=std::make_shared<bool>(false);
+    locale_driver_button->prepare=[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_preview,locale_scalar_prepared]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(locale_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its locale source");
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-locale",true);
+                pending->setProperty("nect-text-locale-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-locale-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-locale",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=locale_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=locale_gesture||host.session.gesture_active())
+                    throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                *prepared_locale_revision=host.session.revision();*locale_scalar_prepared=true;
+            }
+            ready=true;
+        });
+        return ready;
+    };
+    locale_driver_button->closed=[this,frozen_session,locale_document,locale_scalar_prepared]{
+        if(!*locale_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,locale_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==locale_document)rebuild_inspector();
+        });
+    };
     locale_driver_button->setText(locale_state.driver?"Driver…":"Drive…");locale_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* locale_menu=new QMenu(locale_driver_button);locale_driver_button->setMenu(locale_menu);locale_layout->addWidget(locale_driver_button);
     auto* edit_locale=locale_menu->addAction("Edit locale…");
     auto* link_locale=locale_menu->addAction("Link to Text locale…");
     auto* unlink_locale=locale_menu->addAction("Unlink locale");unlink_locale->setEnabled(locale_state.driver.has_value());
-    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_state,locale_ref]{
+    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_state,locale_ref]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text locale source belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto locale_revision=*prepared_locale_revision;
         QDialog dialog(this);dialog.setObjectName("text-locale-dialog");dialog.setWindowTitle("Edit Text locale");
         auto* box_layout=new QVBoxLayout(&dialog);
         auto* editor=new QLineEdit(qs(locale_state.driver?locale_state.evaluated:locale_state.literal),&dialog);
@@ -6852,10 +8382,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_revision,locale_state,locale_ref,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_document,locale_revision,locale_gesture,locale_state,locale_ref,editor,unlink,status]{
             try {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-                if(host.session.revision()!=locale_revision)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
+                if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+                if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(locale_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a locale edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
@@ -6877,29 +8408,41 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         locale_source_ids.push_back(source_id);
     }
     link_locale->setEnabled(!locale_source_ids.empty());const bool replace_locale_driver=locale_state.driver.has_value();
-    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,replace_locale_driver,locale_source_ids]{
+    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,replace_locale_driver,locale_source_ids]{
+        bool ready=false;
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                throw Error("SESSION_CONFLICT","Text locale source belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
+                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            ready=true;
+        });
+        if(!ready)return;
+        const auto locale_revision=*prepared_locale_revision;
         const auto target=Ref{id,"","text.locale"};const auto selection=canvas->selections();
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,locale_source_ids,"Link Text locale");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,locale_document](QListWidgetItem* item,QListWidgetItem*){
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=locale_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-            if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,locale_document,composition,artboard]{
+            if(host.session_id==frozen_session&&host.session.document().id==locale_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,locale_revision,replace_locale_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,locale_document,locale_revision,locale_gesture,replace_locale_driver,selection,composition,artboard]{
                 try {
-                    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=locale_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                     host.session.apply({LinkTextLocale{target,source,replace_locale_driver}},locale_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -6907,9 +8450,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(unlink_locale,&QAction::triggered,this,[this,id,frozen_session,locale_revision,locale_ref]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextLocale{locale_ref}},locale_revision);host.edited();});
+    connect(unlink_locale,&QAction::triggered,this,[this,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_ref]{
+        perform([&]{
+            if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
+            if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its locale source");
+            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            host.session.apply({UnlinkTextLocale{locale_ref}},*prepared_locale_revision);host.edited();});
     });
     form->addRow("Language tag",locale_row);
     const auto locale_driver_name=[this](const std::optional<TextLocaleDriver>& driver) {
@@ -6988,17 +8534,45 @@ QString format_text_font_receipt(const TextLayout& result) {
     return evidence.join('\n');
 }
 
-void Window::verify_text_typography_context(const TextTypographyContext& context) const {
-    if(host.session_id!=context.session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft, cancel, and reopen the current Text.");
+void Window::verify_text_typography_context(const TextTypographyContext& context,bool browsing) const {
+    if(host.session_id!=context.session||host.session.document().id!=context.document)throw Error("SESSION_CONFLICT","The document changed. Copy this draft, cancel, and reopen the current Text.");
     if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The document was edited. Copy this draft, cancel, and reopen the latest Text.");
     const auto found=host.session.document().objects.find(context.object);
     if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context.source)
         throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists. This draft cannot target a replacement.");
-    if(artboard_editing_||text_selection_generation_!=context.selection_generation||
-       canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}}||
+    if(context.typography_target&&found->second!=*context.typography_target)
+        throw Error("PROPERTY_CONFLICT","The retained Text changed. Copy this draft, cancel, and reopen its typography controls.");
+    if(context.typography_target) {
+        const auto& document=host.session.document();
+        const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==context.composition;});
+        std::function<bool(const Id&)> contains=[&](const Id& id){
+            if(id==context.object)return true;const auto object=document.objects.find(id);
+            return object!=document.objects.end()&&std::any_of(object->second.children.begin(),object->second.children.end(),contains);
+        };
+        if(composition==document.compositions.end()||!std::any_of(composition->roots.begin(),composition->roots.end(),contains))
+            throw Error("SELECTION_CONFLICT","The retained Text belongs to another Composition. Copy this draft, cancel, and reopen the intended Text.");
+    }
+    if(artboard_editing_||(!browsing&&(text_selection_generation_!=context.selection_generation||
+       canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}}))||
        canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard)
         throw Error("SELECTION_CONFLICT","The whole-Text selection changed. Copy this draft, cancel, and reopen the intended Text.");
-    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying typography.");
+    if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying typography.");
+    if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The gesture context changed. Copy this draft, cancel, and reopen the latest Text.");
+}
+
+void Window::verify_primitive_scalar_context(const PropertyActionContext& context,const std::string& source_type,bool browsing) const {
+    if(host.session_id!=context.session||host.session.document().id!=context.document)
+        throw Error("SESSION_CONFLICT","The Primitive property belongs to another document");
+    if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Primitive property revision changed");
+    const auto found=host.session.document().objects.find(context.object);
+    if(found==host.session.document().objects.end()||found->second.kind!=Kind::path||!found->second.source||
+       found->second.source->id!=context.source||found->second.source->type!=source_type)
+        throw Error("PROPERTY_CONFLICT","The original primitive source changed");
+    if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+       (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+        throw Error("SELECTION_CONFLICT","The Primitive property selection or scope changed");
+    if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Primitive property");
+    if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Primitive property gesture context changed");
 }
 
 QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
@@ -7008,9 +8582,49 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
     label("Authored settings apply to the entire Text, including Text on Path. Exact four-character tags are case-sensitive; spaces inside [brackets] are significant. Unsupported intent is retained.");
     const bool whole=object.kind==Kind::text&&canvas->selections()==std::vector<Canvas::Selection>{{object.id,{}}};
     const TextTypographyContext context{host.session_id,object.id,object.text->id,canvas->active_composition(),canvas->active_artboard(),
-        host.session.revision(),text_selection_generation_};
+        host.session.revision(),text_selection_generation_,host.session.document().id,host.session.gesture_generation(),host.session.gesture_active(),object};
     const auto action=[&](const QString& title,const QString& name,bool axis,const std::optional<std::string>& tag,bool remove,QHBoxLayout* row=nullptr) {
-        auto* button=new QPushButton(title,box);button->setObjectName(name);button->setEnabled(whole);
+        auto* button=new PreparedTextActionButton(title,box);button->setObjectName(name);button->setEnabled(whole);
+        button->setProperty("nect-text-typography-action-object",qs(object.id));button->setFocusPolicy(Qt::StrongFocus);
+        auto prepared_context=std::make_shared<TextTypographyContext>(context);
+        auto scalar_prepared=std::make_shared<bool>(false);
+        button->prepare=[this,prepared_context,scalar_prepared] {
+            bool ready=false;
+            perform([&]{
+                verify_text_typography_context(*prepared_context);
+                QPointer<QLineEdit> pending;
+                for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                    const auto data=input->property("nect-reference").toByteArray();
+                    if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                    const auto ref=read_ref(data);
+                    if(ref.object==prepared_context->object&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+                }
+                if(pending) {
+                    pending->setProperty("nect-finishing-text-typography",true);
+                    pending->setProperty("nect-text-typography-committed-revision",QVariant{});
+                    pending->editingFinished();
+                    const auto committed=pending?pending->property("nect-text-typography-committed-revision"):QVariant{};
+                    if(pending)pending->setProperty("nect-finishing-text-typography",false);
+                    if(!committed.isValid())return;
+                    auto advanced=*prepared_context;advanced.revision=committed.toULongLong();
+                    // Rearm only the legitimate ordinary Font size completion;
+                    // never recapture other authored fields from incoming state.
+                    advanced.typography_target->text->parameters.at("font_size")=
+                        host.session.document().objects.at(advanced.object).text->parameters.at("font_size");
+                    verify_text_typography_context(advanced);
+                    *prepared_context=std::move(advanced);*scalar_prepared=true;
+                }
+                ready=true;
+            });
+            return ready;
+        };
+        button->completed=[this,prepared_context,scalar_prepared] {
+            if(!*scalar_prepared)return;
+            const auto session=prepared_context->session;const auto document=prepared_context->document;
+            QTimer::singleShot(0,this,[this,session,document] {
+                if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();
+            });
+        };
         const auto subject=axis?QString("additional axis"):QString("whole-text feature");
         const auto description=tag?subject+" ["+qs(*tag)+"]":subject;
         button->setAccessibleName((remove?"Remove ":tag?"Edit ":"Add ")+description);
@@ -7020,7 +8634,7 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
             ". Apply commits one Undo step; Cancel leaves authored settings unchanged.</qt>");
         if(tag)button->setProperty("font-tag",qs(*tag));
         if(row)row->addWidget(button);else rows->addWidget(button);
-        connect(button,&QPushButton::clicked,this,[this,context,axis,tag,remove]{perform([&]{edit_text_typography(context,axis,tag,remove);});});
+        connect(button,&QPushButton::clicked,this,[this,prepared_context,axis,tag,remove]{perform([&]{edit_text_typography(*prepared_context,axis,tag,remove);});});
     };
     label("Whole-text features · authored order")->setObjectName("text-font-features-heading");
     for(std::size_t index=0;index<object.text->font_features.size();++index) {
@@ -7206,6 +8820,7 @@ void Window::edit_text_content(const Id& id) {
 void Window::add_text() {
     canvas->set_draw_mode(false);const auto& comp=find_composition(host.session.document(),canvas->active_composition());
     const auto board=evaluate_artboard(comp,canvas->active_artboard());auto source=default_text(new_id());
+    source.direction=tool_rail_->vertical_text()?"vertical":"horizontal";
     source.parameters.at("origin_x").literal=board.x+board.width*.15;
     source.parameters.at("origin_y").literal=board.y+board.height*.2;
     const auto id=new_id();host.session.apply({CreateText{comp.id,"",id,"Text "+std::to_string(host.session.document().objects.size()+1),source}},host.session.revision());
@@ -7434,27 +9049,47 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             form->addRow(make_macro_revision_controls(host,object.id,operation.id,group));
             const auto& definition=host.session.document().macro_definitions.at(operation.macro->definition);
             const auto& macro_revision=definition.revisions.at(operation.macro->pinned_revision);
+            const auto frozen_macro_session=host.session_id;
+            const auto frozen_macro_revision=host.session.revision();
+            const auto verify_macro_control_context=[this,session=frozen_macro_session,revision=frozen_macro_revision,
+                document_id=host.session.document().id,generation=host.session.gesture_generation(),preview=host.session.gesture_active(),
+                owner=object,definition_id=operation.macro->definition,pinned_revision=operation.macro->pinned_revision,graph=macro_revision] {
+                const auto& document=host.session.document();
+                if(host.session_id!=session||document.id!=document_id)
+                    throw Error("SESSION_CONFLICT","Macro control belongs to another document");
+                if(host.session.revision()!=revision)
+                    throw Error("REVISION_CONFLICT","Macro control context changed; reopen the Inspector");
+                if(preview||host.session.gesture_active())
+                    throw Error("GESTURE_ACTIVE","Finish the active edit before changing Macro controls");
+                if(host.session.gesture_generation()!=generation)
+                    throw Error("REVISION_CONFLICT","Macro control context changed; reopen the Inspector");
+                const auto found=document.objects.find(owner.id);
+                if(found==document.objects.end()||found->second!=owner)
+                    throw Error("PROPERTY_CONFLICT","The original Macro target or override changed");
+                const auto definition=document.macro_definitions.find(definition_id);
+                if(definition==document.macro_definitions.end()||!definition->second.revisions.contains(pinned_revision)||
+                   definition->second.revisions.at(pinned_revision)!=graph)
+                    throw Error("PROPERTY_CONFLICT","The pinned Macro graph or published interface changed");
+            };
             for(auto parameter=macro_revision.public_parameters.begin();parameter!=macro_revision.public_parameters.end();++parameter) {
                 const auto parameter_id=parameter->id;
                 const auto amount_ref=macro_parameter_ref(object.id,operation.id,parameter_id);
                 const auto metadata=macro_semantic_descriptor(host.session.document(),amount_ref);
                 if(parameter->value_type=="boolean") {
                     const auto initial=macro_parameter_boolean_value(host.session.document(),object.id,operation.id,parameter_id);
-                    const auto session=host.session_id;const auto revision=host.session.revision();
+                    const auto revision=frozen_macro_revision;
                     auto* row=new QWidget(group);auto* buttons=new QHBoxLayout(row);buttons->setContentsMargins(0,0,0,0);
                     auto* toggle=semantic_toggle_input(metadata,initial,row);
                     toggle->setObjectName("macro-boolean-"+qs(operation.id)+"-"+qs(parameter_id));
                     toggle->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
                     toggle->setAccessibleName(name+" / "+qs(parameter->label));buttons->addWidget(toggle);
                     const QPointer<QCheckBox> safe_toggle(toggle);
-                    connect(toggle,&QCheckBox::clicked,this,[this,safe_toggle,initial,session,revision,id=object.id,instance=operation.id,parameter_id](bool checked) {
+                    connect(toggle,&QCheckBox::clicked,this,[this,safe_toggle,initial,revision,verify_macro_control_context,id=object.id,instance=operation.id,parameter_id](bool checked) {
                         if(checked==initial)return;
-                        QTimer::singleShot(0,this,[this,safe_toggle,initial,session,revision,id,instance,parameter_id,checked] {
+                        QTimer::singleShot(0,this,[this,safe_toggle,initial,revision,verify_macro_control_context,id,instance,parameter_id,checked] {
                             if(!safe_toggle)return;bool applied=false;
                             perform([&]{
-                                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
-                                if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
-                                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before editing Macro controls");
+                                verify_macro_control_context();
                                 host.session.apply({MacroCommand{SetMacroBooleanOverride{id,instance,parameter_id,checked}}},revision);host.edited();applied=true;
                             });
                             if(!applied&&safe_toggle){const QSignalBlocker blocker(safe_toggle);safe_toggle->setChecked(initial);}
@@ -7462,13 +9097,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     });
                     if(operation.macro->boolean_overrides.contains(parameter_id)) {
                         auto* reset=new QPushButton("Reset",row);reset->setObjectName("macro-reset-boolean-"+qs(operation.id)+"-"+qs(parameter_id));buttons->addWidget(reset);
-                        connect(reset,&QPushButton::clicked,this,[this,safe_toggle,session,revision,id=object.id,instance=operation.id,parameter_id] {
-                            QTimer::singleShot(0,this,[this,safe_toggle,session,revision,id,instance,parameter_id] {
+                        connect(reset,&QPushButton::clicked,this,[this,safe_toggle,revision,verify_macro_control_context,id=object.id,instance=operation.id,parameter_id] {
+                            QTimer::singleShot(0,this,[this,safe_toggle,revision,verify_macro_control_context,id,instance,parameter_id] {
                                 if(!safe_toggle)return;
                                 perform([&]{
-                                    if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
-                                    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
-                                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before resetting Macro controls");
+                                    verify_macro_control_context();
                                     host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},revision);host.edited();
                                 });
                             });
@@ -7477,8 +9110,6 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     buttons->addStretch();form->addRow(row);continue;
                 }
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
-                const auto frozen_macro_session=host.session_id;
-                const auto frozen_macro_revision=host.session.revision();
                 // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
                 auto* editor=semantic_number_input(metadata,QString::number(initial,'g',17),group);
                 editor->setObjectName("macro-amount-"+qs(operation.id));
@@ -7493,16 +9124,15 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     editor->setText(QString::number(initial,'g',17));editor->setModified(false);
                 });
                 auto finish_amount=[this,editor,reset,initial,id=object.id,
-                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{
+                    instance=operation.id,parameter_id,verify_macro_control_context,frozen_macro_revision]{
                     if(!editor->isModified())return;
                     // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
                     if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
-                    editor->setModified(false);
                     perform([&]{
-                        if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                        if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                        verify_macro_control_context();
                         bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        editor->setModified(false);
                         if(value==initial)return;
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         host.edited();
@@ -7527,11 +9157,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);
                     reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);reset_row->addStretch();amount_column->addLayout(reset_row);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
-                        frozen_macro_session,frozen_macro_revision]{
-                        editor->setModified(false);
+                        verify_macro_control_context,frozen_macro_revision]{
                         perform([&]{
-                            if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                            if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                            verify_macro_control_context();
+                            editor->setModified(false);
                             host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
                             host.edited();
                         });
@@ -8015,6 +9644,9 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         add_property(form,gradient_ref(id,op,gradient_id,field),parameter_label(field));
     auto* note=new QLabel("Local coordinates; radial uses Start as its center and the distance to End as radius. Stops use sRGB. Paint opacity multiplies stop alpha.");
     note->setWordWrap(true);note->setStyleSheet("color: #a4acb8; font-size: 11px;");form->addRow(note);
+    const auto hex_document=document.id;
+    const auto hex_revision=host.session.revision(),hex_gesture=host.session.gesture_generation();
+    const auto hex_preview=host.session.gesture_active();
     for(std::size_t index=0;index<gradient.stops.size();++index) {
         const auto& stop=gradient.stops[index];const auto stop_id=stop.id;
         auto* group=new QGroupBox("Stop "+QString::number(index+1));
@@ -8030,17 +9662,36 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         remove->setObjectName("gradient-stop-remove-"+qs(stop_id));remove->setToolTip("Remove this stop; keep at least two");
         row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
         stop_form->addRow(color_tools_->menu_button(ref("color")));
-        connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply]{
+        connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply,
+            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview,displayed_color=color]{
             if(!hex->isModified())return;hex->setModified(false);
             perform([&]{
-                const auto color=parse_hex_color(hex->text());const auto values=evaluate(host.session.document());
+                // Refresh hides the old focused input. Refuse its draft before reading current channels.
+                if(host.session_id!=frozen_session||host.session.document().id!=hex_document)
+                    throw Error("SESSION_CONFLICT","Gradient HEX draft belongs to another document");
+                if(host.session.revision()!=hex_revision||host.session.gesture_generation()!=hex_gesture)
+                    throw Error("REVISION_CONFLICT","Gradient color changed; edit it again");
+                // Cancel retains revision/generation, so a preview-born form must also refuse after cancel.
+                if(hex_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                const auto text=hex->text().trimmed();
+                const bool opaque_alpha=(text.startsWith('#')?text.size()-1:text.size())==6;
+                const auto color=parse_hex_color(text);const auto values=evaluate(host.session.document());
                 const std::array<double,4> rgba{color.redF(),color.greenF(),color.blueF(),color.alphaF()};
+                const std::array<int,4> edited_bytes{color.red(),color.green(),color.blue(),color.alpha()};
+                const std::array<int,4> displayed_bytes{displayed_color.red(),displayed_color.green(),displayed_color.blue(),displayed_color.alpha()};
                 const std::array<std::string,4> fields{"r","g","b","a"};std::vector<Command> commands;
                 for(std::size_t i=0;i<fields.size();++i) {
                     const auto ref=gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+fields[i]);
-                    if(std::abs(values.at(ref)-rgba[i])>1e-8)commands.push_back(Set{ref,rgba[i]});
+                    // HEX is a rounded display; editing one byte must not quantize the others.
+                    if((edited_bytes[i]!=displayed_bytes[i]||(i==3&&opaque_alpha))&&values.at(ref)!=rgba[i])commands.push_back(Set{ref,rgba[i]});
                 }
-                if(!commands.empty())apply(commands);
+                if(!commands.empty()) {
+                    for(const auto& field:fields) {
+                        const auto scalar=nect::property(host.session.document(),gradient_ref(id,op,gradient_id,"stop."+stop_id+"."+field));
+                        if(scalar.binding||scalar.expression)throw Error("DRIVEN_PROPERTY","Unlink driven color channels before replacing the color");
+                    }
+                    apply(commands);
+                }
             });
         });
         connect(remove,&QPushButton::clicked,this,[this,id,op,stop_id,apply]{perform([&]{
@@ -8847,6 +10498,10 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
     auto* spacing_row=new QVBoxLayout;alignment_layout->addLayout(spacing_row);
     spacing_row->addWidget(new QLabel("Key spacing (du):"));
     auto* spacing_input=new QLineEdit;spacing_input->setObjectName("distribution-spacing");
+    spacing_input->setText(qs(distribution_spacing_draft_));
+    connect(spacing_input,&QLineEdit::textChanged,this,[this](const QString& value){
+        distribution_spacing_draft_=value.toStdString();
+    });
     spacing_input->setPlaceholderText("Enter explicit gap");
     spacing_input->setToolTip("Explicit nonnegative spacing in Composition du. Text entry is a draft; a Distribute button applies it.");
     spacing_row->addWidget(spacing_input);
@@ -8890,6 +10545,13 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         const auto reference=alignment_target->currentData().toString().toStdString();
         perform([&]{align_selection("y","baseline",reference);});
     });alignment_layout->addWidget(baseline_button);
+    auto* column_baseline_button=new QPushButton("Align first-column baseline");
+    column_baseline_button->setObjectName("quick-align-x-baseline");
+    column_baseline_button->setToolTip("Align measured first-column baselines for vertical, axis-aligned Text. Selection keeps the source with minimum Composition x fixed; a key-object reference keeps that Text fixed.");
+    connect(column_baseline_button,&QPushButton::clicked,this,[this,alignment_target]{
+        const auto reference=alignment_target->currentData().toString().toStdString();
+        perform([&]{align_selection("x","baseline",reference);});
+    });alignment_layout->addWidget(column_baseline_button);
     auto* distribute_row=new QHBoxLayout;alignment_layout->addLayout(distribute_row);
     for(const auto axis:{"x","y"}) {
         auto* button=new QPushButton(std::string(axis)=="x"?"Distribute H":"Distribute V");button->setObjectName(QString("quick-distribute-%1").arg(axis));
@@ -8918,7 +10580,8 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
         for(const auto axis:{"x","y"})for(const auto mode:{"min","center","max"})
             if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-%2").arg(axis,mode)))
                 button->setEnabled(ordinary&&(!reference.starts_with("guide:")||guide_axis==QString::fromLatin1(axis)));
-        if(auto* button=alignment_box->findChild<QPushButton*>("quick-align-y-baseline"))button->setEnabled(baseline_ok);
+        for(const auto axis:{"x","y"})
+            if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-align-%1-baseline").arg(axis)))button->setEnabled(baseline_ok);
         for(const auto axis:{"x","y"})if(auto* button=alignment_box->findChild<QPushButton*>(QString("quick-distribute-%1").arg(axis)))button->setEnabled(distribution);
         spacing_input->setEnabled(reference.starts_with("key_object:"));
         spacing_hint->setText(reference.starts_with("key_object:")?
@@ -8956,6 +10619,13 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     std::vector<Id> whole_object_targets;whole_object_targets.reserve(selected.size());
     for(const auto& item:selected)whole_object_targets.push_back(item.object);
+    if(std::any_of(whole_object_targets.begin(),whole_object_targets.end(),[&](const auto& id){
+        const auto found=d.objects.find(id);
+        return found!=d.objects.end()&&(found->second.kind==Kind::path||found->second.kind==Kind::text);
+    })) {
+        layout->addWidget(make_preset_batch_controls(host,whole_object_targets,inspector_));
+        layout->addWidget(make_macro_batch_controls(host,whole_object_targets,inspector_));
+    }
     layout->addWidget(make_multi_visibility_controls(host,whole_object_targets,inspector_));
     layout->addWidget(make_multi_blend_mode_controls(host,whole_object_targets,inspector_));
         layout->addWidget(make_composite_isolation_batch_controls(host,whole_object_targets,inspector_));
@@ -8967,11 +10637,12 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     })) {
         std::vector<Id> targets;targets.reserve(selected.size());
         for(const auto& item:selected)targets.push_back(item.object);
-        layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
         const bool all_text=std::all_of(targets.begin(),targets.end(),[&](const auto& id){
             const auto& object=host.session.document().objects.at(id);return object.kind==Kind::text&&object.text.has_value();
         });
         if(all_text) {
+            layout->addWidget(make_text_alignment_batch_controls(host,targets,inspector_));
+            layout->addWidget(make_text_path_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_content_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_string_source_batch_controls(host,targets,inspector_));
             layout->addWidget(make_text_family_batch_controls(host,targets,inspector_));
@@ -9343,6 +11014,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         try {
             if(host.session_id!=current.session||host.session.revision()!=current.revision)
                 throw Error("DRAFT_CONFLICT","Document changed. Cancel and reopen the draft against the current values.");
+            if(current.verify_context)current.verify_context();
             Session preview(host.session.document());preview.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},preview.revision());
             const auto values=evaluate(preview.document());const auto first=values.at(targets.front());
             const bool mixed=std::any_of(targets.begin(),targets.end(),[&](const auto& r){return values.at(r)!=first;});
@@ -9359,6 +11031,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
         const auto current=found->second;
         try {
             if(host.session_id!=current.session)throw Error("SESSION_CONFLICT","Expression belongs to another document");
+            if(current.verify_context)current.verify_context();
             canvas->cancel_interaction();host.session.apply({SetExpression{targets,{current.source.toStdString(),1},current.replace_binding}},current.revision);
             expression_drafts_.erase(key);host.edited();
         } catch(const std::exception& e){result->setText(QString::fromUtf8(e.what())+"\nCommitted result is unchanged.");result->setStyleSheet("color: #e4be82;");}
@@ -9386,6 +11059,11 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
     timer->start();editor->setFocus();
 }
 void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label) {
+    const auto input_session=host.session_id;
+    const auto input_document=host.session.document().id;
+    const auto input_revision=host.session.revision();
+    const auto input_gesture=host.session.gesture_generation();
+    const auto input_preview=host.session.gesture_active();
     const auto& ref=targets.front();
     const auto& d=host.session.document();
     const auto origin=property_origin(d,ref);
@@ -9429,49 +11107,691 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
-    auto* fx=new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
+    const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
+    const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.circle";
+    const bool rectangle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.width"||ref.field=="generator.height"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.rectangle";
+    const bool polygon_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.points"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="generator.rotation"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.polygon";
+    const bool star_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.points"||ref.field=="generator.outer_radius"||ref.field=="generator.inner_radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="generator.rotation"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.star";
+    const bool group_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::group&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
+    const bool path_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
+    const bool image_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity"||ref.field=="image.width"||ref.field=="image.height")&&
+        d.objects.at(ref.object).kind==Kind::image&&d.objects.at(ref.object).image&&!d.objects.at(ref.object).source&&!d.objects.at(ref.object).text;
+    const bool instance_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
+        d.objects.at(ref.object).kind==Kind::instance&&d.objects.at(ref.object).instance;
+    const bool point_scalar_fx=targets.size()==1&&!ref.point.empty()&&(ref.field=="x"||ref.field=="y"||ref.field=="in.angle"||ref.field=="in.length"||ref.field=="out.angle"||ref.field=="out.length")&&
+        d.objects.at(ref.object).kind==Kind::path&&!d.objects.at(ref.object).text&&
+        (!d.objects.at(ref.object).source||((d.objects.at(ref.object).source->type=="nect.shape.circle"||
+            d.objects.at(ref.object).source->type=="nect.shape.rectangle"||
+            d.objects.at(ref.object).source->type=="nect.shape.polygon"||
+            d.objects.at(ref.object).source->type=="nect.shape.star")&&origin!="authored"));
+    Id paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop;std::string paint_scalar_parameter;
+    const auto& paint_target=d.objects.at(ref.object);
+    if(targets.size()==1&&ref.point.empty()&&
+       ((paint_target.kind==Kind::path&&!paint_target.text&&
+         (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))||
+        (paint_target.kind==Kind::text&&paint_target.text&&!paint_target.source)))
+        for(const auto& operation:paint_target.stack) {
+            for(const auto* parameter:{"width","miter_limit","r","g","b","a"})
+                if((operation.type=="nect.paint.stroke"||(operation.type=="nect.paint.fill"&&std::string(parameter)!="width"&&std::string(parameter)!="miter_limit"))&&
+                   operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
+                    paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
+                }
+            if(operation.type=="nect.shape.offset"&&operation.version==1&&!operation.macro)
+                for(const auto* parameter:{"amount","miter_limit"})
+                    if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
+                        paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
+                    }
+            if(operation.type=="nect.shape.repeater"&&operation.version==1&&!operation.macro)
+                for(const auto* parameter:{"copies","rotation","position_x","position_y","anchor_x","anchor_y","scale_x","scale_y","offset","start_opacity","end_opacity"})
+                    if(operation.parameters.contains(parameter)&&ref==operation_ref(ref.object,operation.id,parameter)) {
+                        paint_scalar_operation=operation.id;paint_scalar_parameter=parameter;
+                    }
+        }
+    if(targets.size()==1&&ref.point.empty()&&paint_target.kind==Kind::group&&!paint_target.source&&!paint_target.text)
+        for(const auto& operation:paint_target.stack)
+            if(operation.type=="nect.group.posterize"&&operation.version==1&&!operation.macro&&
+               operation.parameters.contains("levels")&&ref==operation_ref(ref.object,operation.id,"levels")) {
+                paint_scalar_operation=operation.id;paint_scalar_parameter="levels";
+            }
+    // Freeze only these exact nested authored scalars; the complete Object
+    // guard retains every other endpoint, stop, Source and Point Edit value.
+    if(targets.size()==1&&ref.point.empty()&&
+       ((paint_target.kind==Kind::path&&!paint_target.text&&
+         (!paint_target.source||paint_target.source->type=="nect.shape.circle"||paint_target.source->type=="nect.shape.rectangle"||paint_target.source->type=="nect.shape.polygon"||paint_target.source->type=="nect.shape.star"))||
+        (paint_target.kind==Kind::text&&paint_target.text&&!paint_target.source)))
+        for(const auto& operation:paint_target.stack) {
+            if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
+                for(const auto* endpoint:{"start_x","start_y","end_x","end_y"})
+                    if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,endpoint)) {
+                        paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_parameter=endpoint;
+                    }
+            if((operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")&&operation.gradient)
+                for(const auto& stop:operation.gradient->stops) {
+                    if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+".offset")) {
+                        paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter="offset";
+                    }
+                    if(operation.type=="nect.paint.fill"||operation.type=="nect.paint.stroke")
+                        for(const auto* channel:{"r","g","b","a"})
+                            if(ref==gradient_ref(ref.object,operation.id,operation.gradient->id,"stop."+stop.id+"."+channel)) {
+                                paint_scalar_operation=operation.id;paint_scalar_gradient=operation.gradient->id;paint_scalar_stop=stop.id;paint_scalar_parameter=channel;
+                            }
+                }
+        }
+    const bool paint_scalar_fx=!paint_scalar_operation.empty();
+    // Group scalar actions must freeze their entire supported dependency closure,
+    // including nested content and external mask/Transform Parent sources.
+    const auto batch_group_objects=std::make_shared<std::map<Id,Object>>();
+    const auto batch_group_assets=std::make_shared<std::map<Id,RasterAsset>>();
+    const auto batch_group_definitions=std::make_shared<std::map<Id,Definition>>();
+    const auto batch_group_macros=std::make_shared<std::map<std::pair<Id,std::uint64_t>,MacroDefinitionRevision>>();
+    const auto group_common_scalar_field=[](const std::string& field) {
+        return field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d"||
+            field=="transform.tx"||field=="transform.ty"||field=="transform.anchor_x"||
+            field=="transform.anchor_y"||field=="composite.opacity";
+    };
+    const auto group_posterize_scalar_field=[&](const Ref& target) {
+        const auto found=d.objects.find(target.object);
+        return found!=d.objects.end()&&found->second.kind==Kind::group&&target.point.empty()&&
+            std::any_of(found->second.stack.begin(),found->second.stack.end(),[&](const ProcessingEntry& operation) {
+                return operation.type=="nect.group.posterize"&&operation.version==1&&!operation.macro&&
+                    operation.parameters.contains("levels")&&target==operation_ref(target.object,operation.id,"levels");
+            });
+    };
+    const bool batch_group_common_scalar_fx=targets.size()>1&&
+        std::any_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            const auto found=d.objects.find(target.object);
+            return found!=d.objects.end()&&(found->second.kind==Kind::group||
+                found->second.kind==Kind::image||found->second.kind==Kind::instance);
+        })&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            return target.point.empty()&&(group_common_scalar_field(target.field)||group_posterize_scalar_field(target))&&inspector_values_.contains(target);
+        })&&[&] {
+            std::function<bool(const Id&)> capture=[&](const Id& id) {
+                if(batch_group_objects->contains(id))return true;
+                const auto found=d.objects.find(id);if(found==d.objects.end())return false;
+                const auto& object=found->second;
+                const bool supported=(object.kind==Kind::group&&!object.source&&!object.text)||
+                    (object.kind==Kind::path&&!object.text&&(!object.source||
+                     object.source->type=="nect.shape.circle"||object.source->type=="nect.shape.rectangle"||
+                     object.source->type=="nect.shape.polygon"||object.source->type=="nect.shape.star"))||
+                    (object.kind==Kind::text&&object.text&&!object.source)||
+                    (object.kind==Kind::image&&object.image&&!object.source&&!object.text)||
+                    (object.kind==Kind::instance&&object.instance&&!object.source&&!object.text);
+                if(!supported)return false;
+                batch_group_objects->emplace(id,object);
+                if(object.image) {
+                    const auto asset=d.raster_assets.find(object.image->asset);
+                    if(asset==d.raster_assets.end())return false;
+                    batch_group_assets->emplace(asset->first,asset->second);
+                }
+                if(object.instance) {
+                    const auto definition=d.definitions.find(object.instance->definition);
+                    if(definition==d.definitions.end())return false;
+                    batch_group_definitions->emplace(definition->first,definition->second);
+                    if(!capture(definition->second.root))return false;
+                }
+                for(const auto& operation:object.stack)if(operation.macro) {
+                    const auto& macro=*operation.macro;const auto definition=d.macro_definitions.find(macro.definition);
+                    if(definition==d.macro_definitions.end())return false;
+                    const auto revision=definition->second.revisions.find(macro.pinned_revision);
+                    if(revision==definition->second.revisions.end())return false;
+                    batch_group_macros->emplace(std::make_pair(macro.definition,macro.pinned_revision),revision->second);
+                }
+                for(const auto& child:object.children)if(!capture(child))return false;
+                if(object.compositing.mask&&!capture(object.compositing.mask->source))return false;
+                if(object.transform_parent&&!capture(*object.transform_parent))return false;
+                return true;
+            };
+            return std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return capture(target.object);});
+        }();
+    const bool batch_path_scalar_fx=targets.size()>1&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        const auto found=d.objects.find(target.object);
+        if(!target.point.empty())return (target.field=="x"||target.field=="y"||target.field=="in.angle"||target.field=="in.length"||target.field=="out.angle"||target.field=="out.length")&&found!=d.objects.end()&&
+            found->second.kind==Kind::path&&!found->second.text&&inspector_values_.contains(target)&&
+            (!found->second.source||found->second.source->type=="nect.shape.circle"||
+             found->second.source->type=="nect.shape.rectangle"||found->second.source->type=="nect.shape.polygon"||
+             found->second.source->type=="nect.shape.star");
+        const bool common_field=target.field=="transform.a"||target.field=="transform.b"||target.field=="transform.c"||target.field=="transform.d"||
+            target.field=="transform.tx"||target.field=="transform.ty"||target.field=="transform.anchor_x"||target.field=="transform.anchor_y"||target.field=="composite.opacity";
+        const bool paint_scalar_field=found!=d.objects.end()&&
+            ((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+                found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
+                found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
+             (found->second.kind==Kind::text&&found->second.text&&!found->second.source))&&
+            std::any_of(found->second.stack.begin(),found->second.stack.end(),[&](const ProcessingEntry& operation) {
+                return !operation.macro&&
+                    ((operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
+                      ((operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width"))||
+                       (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))||
+                        (!operation.gradient&&std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                            const auto& key=parameter.first;
+                            return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                        }))))||
+                     (operation.type=="nect.paint.fill"&&operation.version==1&&!operation.gradient&&
+                      std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                          const auto& key=parameter.first;
+                          return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                      }))||
+                     (operation.type=="nect.shape.offset"&&operation.version==1&&
+                      std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                          const auto& key=parameter.first;
+                          return (key=="amount"||key=="miter_limit")&&target==operation_ref(target.object,operation.id,key);
+                      }))||
+                     (operation.type=="nect.shape.repeater"&&operation.version==1&&
+                      std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                          const auto& key=parameter.first;
+                          return (key=="copies"||key=="rotation"||key=="position_x"||key=="position_y"||key=="anchor_x"||key=="anchor_y"||
+                                  key=="scale_x"||key=="scale_y"||key=="offset"||key=="start_opacity"||key=="end_opacity")&&
+                              target==operation_ref(target.object,operation.id,key);
+                      })));
+            });
+        return target.point.empty()&&found!=d.objects.end()&&
+            ((batch_group_common_scalar_fx&&(group_common_scalar_field(target.field)||group_posterize_scalar_field(target)))||paint_scalar_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+                found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
+                found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
+                (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
+             ((target.field=="generator.radius"||target.field=="generator.center_x"||target.field=="generator.center_y")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.circle")||
+             ((target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.center_x"||target.field=="generator.center_y")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.rectangle")||
+             ((target.field=="generator.radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.polygon")||
+             ((target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points")&&found->second.kind==Kind::path&&!found->second.text&&found->second.source&&found->second.source->type=="nect.shape.star")||
+             ((target.field=="text.font_size"||target.field=="text.frame_width"||target.field=="text.frame_height"||target.field=="text.tracking"||target.field=="text.line_spacing"||target.field=="text.origin_x"||target.field=="text.origin_y")&&found->second.kind==Kind::text&&found->second.text&&!found->second.source));
+    });
+    const bool batch_paint_scalar_fx=batch_path_scalar_fx&&ref.field.starts_with("op.");
+    const bool source_scalar_fx=circle_scalar_fx||rectangle_scalar_fx||polygon_scalar_fx||star_scalar_fx;
+    const std::string scalar_source_type=source_scalar_fx?d.objects.at(ref.object).source->type:std::string{};
+    auto* prepared_fx=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx||batch_path_scalar_fx)?new PreparedTextActionButton("fx"):nullptr;
+    QPushButton* fx=prepared_fx?static_cast<QPushButton*>(prepared_fx):new QPushButton("fx");fx->setFixedWidth(26);fx->setAccessibleName(label+" expression editor");
     fx->setObjectName("property-expression");
     fx->setToolTip("Edit "+label+" expression · =prefix · multiline draft");box->addWidget(fx);
     if(formula)fx->setStyleSheet("color: #84d5eb;");
-    auto* pick=new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
+    auto* prepared_pick=(text_scalar_fx||source_scalar_fx||group_scalar_fx||path_scalar_fx||image_scalar_fx||instance_scalar_fx||point_scalar_fx||paint_scalar_fx||batch_path_scalar_fx)?new PreparedTextActionButton("↗"):nullptr;
+    QPushButton* pick=prepared_pick?static_cast<QPushButton*>(prepared_pick):new QPushButton("↗");pick->setFixedWidth(28);pick->setObjectName("property-source-pick");
     pick->setAccessibleName("Pick source for "+label);box->addWidget(pick);
     pick->setProperty("nect-pick-whip",true);pick->setProperty("nect-reference",reference);
     pick->setProperty("nect-targets",target_data);
     pick->setToolTip("Pick source for "+label+". Drag to a source field; hover Objects to inspect another source. Click to search.");
     layout->addRow(label,row);
-    connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     const auto field_session=host.session_id;
     const auto field_revision=host.session.revision();
-    auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source) {
+    const auto scalar_source=point_scalar_fx?ref.point:source_scalar_fx?d.objects.at(ref.object).source->id:text_scalar_fx?d.objects.at(ref.object).text->id:Id{};
+    const auto group_children=group_scalar_fx?d.objects.at(ref.object).children:std::vector<Id>{};
+    auto verify_group_context=[this,group_children](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Group property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Group property revision changed");
+        const auto found=host.session.document().objects.find(context.object);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::group||found->second.source||found->second.text||found->second.children!=group_children)
+            throw Error("PROPERTY_CONFLICT","The original Group or its children changed");
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Group property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Group property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Group property gesture context changed");
+    };
+    const auto path_contours=path_scalar_fx?d.objects.at(ref.object).contours:std::vector<Contour>{};
+    auto verify_path_context=[this,path_contours](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Path property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Path property revision changed");
+        const auto found=host.session.document().objects.find(context.object);
+        if(found==host.session.document().objects.end()||found->second.kind!=Kind::path||found->second.source||found->second.text||found->second.contours!=path_contours)
+            throw Error("PROPERTY_CONFLICT","The original authored Path or its contours changed");
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Path property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Path property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Path property gesture context changed");
+    };
+    const auto image_source=image_scalar_fx?d.objects.at(ref.object).image:std::optional<ImageSource>{};
+    const auto image_asset=image_scalar_fx?std::optional<RasterAsset>{d.raster_assets.at(image_source->asset)}:std::optional<RasterAsset>{};
+    const auto expected_image_source=std::make_shared<std::optional<ImageSource>>(image_source);
+    auto verify_image_context=[this,image_source,image_asset,expected_image_source](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Image property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Image property revision changed");
+        const auto& document=host.session.document();const auto found=document.objects.find(context.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::image||found->second.source||found->second.text||found->second.image!=*expected_image_source)
+            throw Error("PROPERTY_CONFLICT","The original Image placement or source changed");
+        const auto asset=document.raster_assets.find(image_source->asset);
+        if(asset==document.raster_assets.end()||!(asset->second==*image_asset))
+            throw Error("PROPERTY_CONFLICT","The accepted Image asset changed");
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Image property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Image property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Image property gesture context changed");
+    };
+    const auto instance_source=instance_scalar_fx?d.objects.at(ref.object).instance:std::optional<DefinitionInstance>{};
+    const auto instance_definition=instance_scalar_fx?std::optional<Definition>{d.definitions.at(instance_source->definition)}:std::optional<Definition>{};
+    auto instance_objects=std::make_shared<std::map<Id,Object>>();
+    auto instance_assets=std::make_shared<std::map<Id,RasterAsset>>();
+    auto instance_macros=std::make_shared<std::map<std::pair<Id,std::uint64_t>,MacroDefinitionRevision>>();
+    if(instance_scalar_fx) {
+        std::function<void(const Id&)> capture=[&](const Id& id) {
+            const auto& object=d.objects.at(id);if(!instance_objects->emplace(id,object).second)return;
+            if(object.image)instance_assets->emplace(object.image->asset,d.raster_assets.at(object.image->asset));
+            for(const auto& operation:object.stack)if(operation.macro) {
+                const auto& macro=*operation.macro;
+                instance_macros->emplace(std::make_pair(macro.definition,macro.pinned_revision),d.macro_definitions.at(macro.definition).revisions.at(macro.pinned_revision));
+            }
+            for(const auto& child:object.children)capture(child);
+        };capture(instance_definition->root);
+    }
+    auto verify_instance_context=[this,instance_source,instance_definition,instance_objects,instance_assets,instance_macros](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The Instance property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The Instance property revision changed");
+        const auto& document=host.session.document();const auto found=document.objects.find(context.object);
+        if(found==document.objects.end()||found->second.kind!=Kind::instance||found->second.instance!=instance_source)
+            throw Error("PROPERTY_CONFLICT","The original Instance or its local overrides changed");
+        const auto definition=document.definitions.find(instance_source->definition);
+        if(definition==document.definitions.end()||definition->second!=*instance_definition)
+            throw Error("PROPERTY_CONFLICT","The original shared Definition changed");
+        for(const auto& [id,source]:*instance_objects) {
+            const auto current=document.objects.find(id);
+            if(current==document.objects.end()||current->second!=source)
+                throw Error("PROPERTY_CONFLICT","The original Definition source subtree changed");
+        }
+        for(const auto& [id,asset]:*instance_assets) {
+            const auto current=document.raster_assets.find(id);
+            if(current==document.raster_assets.end()||!(current->second==asset))
+                throw Error("PROPERTY_CONFLICT","The accepted Definition image asset changed");
+        }
+        for(const auto& [key,revision]:*instance_macros) {
+            const auto current=document.macro_definitions.find(key.first);
+            if(current==document.macro_definitions.end()||!current->second.revisions.contains(key.second)||current->second.revisions.at(key.second)!=revision)
+                throw Error("PROPERTY_CONFLICT","The pinned Definition Macro revision changed");
+        }
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}})))
+            throw Error("SELECTION_CONFLICT","The Instance property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the Instance property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The Instance property gesture context changed");
+    };
+    const auto expected_point_object=std::make_shared<std::optional<Object>>((point_scalar_fx||paint_scalar_fx)?std::optional<Object>{d.objects.at(ref.object)}:std::optional<Object>{});
+    auto verify_point_context=[this,expected_point_object](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The point property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The point property revision changed");
+        const auto found=host.session.document().objects.find(context.object);
+        if(found==host.session.document().objects.end()||found->second!=**expected_point_object)
+            throw Error("PROPERTY_CONFLICT","The original authored point or Path source changed");
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=std::vector<Canvas::Selection>{{context.object,context.source}})))
+            throw Error("SELECTION_CONFLICT","The stable point selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the point property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The point property gesture context changed");
+    };
+    const auto batch_selection=canvas->selections();
+    const auto expected_batch_objects=batch_group_common_scalar_fx?batch_group_objects:std::make_shared<std::map<Id,Object>>();
+    if(batch_path_scalar_fx)for(const auto& target:targets)expected_batch_objects->emplace(target.object,d.objects.at(target.object));
+    auto verify_batch_context=[this,batch_selection,expected_batch_objects,batch_group_assets,batch_group_definitions,batch_group_macros](const PropertyActionContext& context,bool browsing=false) {
+        if(host.session_id!=context.session||host.session.document().id!=context.document)
+            throw Error("SESSION_CONFLICT","The batch property belongs to another document");
+        if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The batch property revision changed");
+        for(const auto& [id,expected]:*expected_batch_objects) {
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||found->second!=expected)
+                throw Error("PROPERTY_CONFLICT","An original batch target or authored source changed");
+        }
+        for(const auto& [id,expected]:*batch_group_assets) {
+            const auto found=host.session.document().raster_assets.find(id);
+            if(found==host.session.document().raster_assets.end()||!(found->second==expected))
+                throw Error("PROPERTY_CONFLICT","An accepted batch Image asset changed");
+        }
+        for(const auto& [id,expected]:*batch_group_definitions) {
+            const auto found=host.session.document().definitions.find(id);
+            if(found==host.session.document().definitions.end()||found->second!=expected)
+                throw Error("PROPERTY_CONFLICT","An original batch Definition changed");
+        }
+        for(const auto& [key,expected]:*batch_group_macros) {
+            const auto found=host.session.document().macro_definitions.find(key.first);
+            if(found==host.session.document().macro_definitions.end()||!found->second.revisions.contains(key.second)||found->second.revisions.at(key.second)!=expected)
+                throw Error("PROPERTY_CONFLICT","A pinned batch Macro revision changed");
+        }
+        if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
+           (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=batch_selection)))
+            throw Error("SELECTION_CONFLICT","The batch property selection or scope changed");
+        if(context.preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before applying the batch property");
+        if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The batch property gesture context changed");
+    };
+
+    auto verify_scalar_context=[this,batch_path_scalar_fx,verify_batch_context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context](const PropertyActionContext& context) {
+        if(batch_path_scalar_fx){verify_batch_context(context);return;}
+        if(point_scalar_fx||paint_scalar_fx)verify_point_context(context);else if(instance_scalar_fx)verify_instance_context(context);else if(image_scalar_fx)verify_image_context(context);else if(path_scalar_fx)verify_path_context(context);else if(group_scalar_fx)verify_group_context(context);else if(source_scalar_fx)verify_primitive_scalar_context(context,scalar_source_type);else verify_text_typography_context(context);
+    };
+    // Only a successful canonical edit may advance the frozen target scalar.
+    // Keep the full snapshot afterwards so same-revision replacement is refused.
+    auto advance_scalar_context=[this,batch_path_scalar_fx,expected_batch_objects,targets,ref,image_scalar_fx,expected_image_source,verify_scalar_context,point_scalar_fx,paint_scalar_fx,paint_scalar_operation,paint_scalar_gradient,paint_scalar_stop,paint_scalar_parameter,expected_point_object](const PropertyActionContext& context) {
+        if(batch_path_scalar_fx) {
+            const auto previous=*expected_batch_objects;
+            try {
+                for(const auto& target:targets) {
+                    auto& object=expected_batch_objects->at(target.object);const auto scalar=nect::property(host.session.document(),target);
+                    if(!target.point.empty()) {
+                        if(object.source) {
+                            if(!object.point_edit)object.point_edit=PointEdit{object.source->id+"-point-edit",1,true,{}};
+                            object.point_edit->enabled=true;object.point_edit->overrides[target.point][target.field]=scalar;
+                        }else for(auto& contour:object.contours)for(auto& point:contour.points)if(point.id==target.point) {
+                            if(target.field=="x")point.x=scalar;else if(target.field=="y")point.y=scalar;
+                            else if(target.field=="in.angle")point.in_angle=scalar;else if(target.field=="in.length")point.in_length=scalar;
+                            else if(target.field=="out.angle")point.out_angle=scalar;else if(target.field=="out.length")point.out_length=scalar;
+                        }
+                    }else if(target.field.starts_with("op.")) {
+                        const auto batch_paint=std::find_if(object.stack.begin(),object.stack.end(),[&](const ProcessingEntry& operation) {
+                            return !operation.macro&&
+                                ((object.kind==Kind::group&&operation.type=="nect.group.posterize"&&operation.version==1&&
+                                  operation.parameters.contains("levels")&&target==operation_ref(target.object,operation.id,"levels"))||
+                                 (operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
+                                  ((operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width"))||
+                                   (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))||
+                                    (!operation.gradient&&std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                        const auto& key=parameter.first;
+                                        return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                                    }))))||
+                                 (operation.type=="nect.paint.fill"&&operation.version==1&&!operation.gradient&&
+                                  std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                      const auto& key=parameter.first;
+                                      return (key=="r"||key=="g"||key=="b"||key=="a")&&target==operation_ref(target.object,operation.id,key);
+                                  }))||
+                                 (operation.type=="nect.shape.offset"&&operation.version==1&&
+                                  std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                      const auto& key=parameter.first;
+                                      return (key=="amount"||key=="miter_limit")&&target==operation_ref(target.object,operation.id,key);
+                                  }))||
+                                 (operation.type=="nect.shape.repeater"&&operation.version==1&&
+                                  std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
+                                      const auto& key=parameter.first;
+                                      return (key=="copies"||key=="rotation"||key=="position_x"||key=="position_y"||key=="anchor_x"||key=="anchor_y"||
+                                              key=="scale_x"||key=="scale_y"||key=="offset"||key=="start_opacity"||key=="end_opacity")&&
+                                          target==operation_ref(target.object,operation.id,key);
+                                  })));
+                        });
+                        if(batch_paint==object.stack.end())throw Error("PROPERTY_CONFLICT","The batch paint scalar changed");
+                        const auto batch_paint_key=target.field.substr(3+batch_paint->id.size()+1);
+                        batch_paint->parameters.at(batch_paint_key)=scalar;
+                    }else if(target.field=="text.font_size"||target.field=="text.frame_width"||target.field=="text.frame_height"||target.field=="text.tracking"||target.field=="text.line_spacing"||target.field=="text.origin_x"||target.field=="text.origin_y") {
+                        if(object.kind!=Kind::text||!object.text||object.source)throw Error("PROPERTY_CONFLICT","The batch Text source changed");
+                        object.text->parameters.at(target.field.substr(5))=scalar;
+                    }else if(target.field=="generator.radius"||target.field=="generator.width"||target.field=="generator.height"||target.field=="generator.outer_radius"||target.field=="generator.inner_radius"||target.field=="generator.center_x"||target.field=="generator.center_y"||target.field=="generator.rotation"||target.field=="generator.points") {
+                        if(!object.source||(object.source->type!="nect.shape.circle"&&object.source->type!="nect.shape.rectangle"&&object.source->type!="nect.shape.polygon"&&object.source->type!="nect.shape.star"))throw Error("PROPERTY_CONFLICT","The batch primitive source changed");
+                        object.source->parameters.at(target.field.substr(10))=scalar;
+                    }else if(target.field=="composite.opacity")object.compositing.opacity=scalar;
+                    else if(target.field=="transform.anchor_x"||target.field=="transform.anchor_y")object.anchor.at(target.field=="transform.anchor_y"?1:0)=scalar;
+                    else {
+                        std::size_t slot=0;for(const auto* field:{"transform.a","transform.b","transform.c","transform.d","transform.tx","transform.ty"}){if(target.field==field)break;++slot;}
+                        if(slot==6)throw Error("PROPERTY_CONFLICT","The batch affine property is not supported");
+                        object.transform.at(slot)=scalar;
+                    }
+                }
+                verify_scalar_context(context);
+            }catch(...){*expected_batch_objects=previous;throw;}
+            return;
+        }
+        if(paint_scalar_fx) {
+            const auto previous=*expected_point_object;
+            for(auto& operation:expected_point_object->value().stack)if(operation.id==paint_scalar_operation) {
+                const auto scalar=nect::property(host.session.document(),ref);
+                if(paint_scalar_gradient.empty())operation.parameters.at(paint_scalar_parameter)=scalar;
+                else {
+                    auto& gradient=*operation.gradient;
+                    if(!paint_scalar_stop.empty()) {
+                        for(auto& stop:gradient.stops)if(stop.id==paint_scalar_stop) {
+                            if(paint_scalar_parameter=="offset")stop.offset=scalar;
+                            else if(paint_scalar_parameter=="r")stop.rgba[0]=scalar;
+                            else if(paint_scalar_parameter=="g")stop.rgba[1]=scalar;
+                            else if(paint_scalar_parameter=="b")stop.rgba[2]=scalar;
+                            else if(paint_scalar_parameter=="a")stop.rgba[3]=scalar;
+                        }
+                    }else if(paint_scalar_parameter=="start_x")gradient.start_x=scalar;
+                    else if(paint_scalar_parameter=="start_y")gradient.start_y=scalar;
+                    else if(paint_scalar_parameter=="end_x")gradient.end_x=scalar;
+                    else if(paint_scalar_parameter=="end_y")gradient.end_y=scalar;
+                }
+            }
+            try{verify_scalar_context(context);}catch(...){*expected_point_object=previous;throw;}
+            return;
+        }
+        if(point_scalar_fx) {
+            const auto previous=*expected_point_object;const auto scalar=nect::property(host.session.document(),ref);
+            if(expected_point_object->value().source) {
+                // Mirror only the canonical Point Edit delta for this exact scalar.
+                // The complete Object comparison still protects Source and other overrides.
+                auto& object=expected_point_object->value();
+                if(!object.point_edit)object.point_edit=PointEdit{object.source->id+"-point-edit",1,true,{}};
+                object.point_edit->enabled=true;object.point_edit->overrides[ref.point][ref.field]=scalar;
+            }else for(auto& contour:expected_point_object->value().contours)for(auto& point:contour.points)if(point.id==ref.point) {
+                if(ref.field=="x")point.x=scalar;else if(ref.field=="y")point.y=scalar;
+                else if(ref.field=="in.angle")point.in_angle=scalar;else if(ref.field=="in.length")point.in_length=scalar;
+                else if(ref.field=="out.angle")point.out_angle=scalar;else if(ref.field=="out.length")point.out_length=scalar;
+            }
+            try{verify_scalar_context(context);}catch(...){*expected_point_object=previous;throw;}
+            return;
+        }
+        if(!image_scalar_fx||(ref.field!="image.width"&&ref.field!="image.height")){verify_scalar_context(context);return;}
+        const auto previous=*expected_image_source;
+        const auto found=host.session.document().objects.find(ref.object);
+        if(found!=host.session.document().objects.end()&&found->second.image) {
+            if(ref.field=="image.width")expected_image_source->value().width=found->second.image->width;
+            else expected_image_source->value().height=found->second.image->height;
+        }
+        try{verify_scalar_context(context);}catch(...){*expected_image_source=previous;throw;}
+    };
+    if(prepared_pick) {
+        prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setProperty("nect-text-scalar-pick-action-point",qs(ref.point));prepared_pick->setProperty("nect-text-scalar-pick-action-field",qs(ref.field));prepared_pick->setFocusPolicy(Qt::StrongFocus);
+        auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
+            canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
+        prepared_pick->prepare=[this,input,context,verify_scalar_context,advance_scalar_context] {
+            bool ready=false;perform([&]{
+                verify_scalar_context(*context);
+                if(input->isModified()) {
+                    input->setProperty("nect-finishing-text-scalar-pick",true);input->setProperty("nect-text-scalar-pick-committed-revision",QVariant{});
+                    input->editingFinished();const auto committed=input->property("nect-text-scalar-pick-committed-revision");
+                    input->setProperty("nect-finishing-text-scalar-pick",false);if(!committed.isValid())return;
+                    auto advanced=*context;advanced.revision=committed.toULongLong();advance_scalar_context(advanced);*context=std::move(advanced);
+                    const auto session=context->session,document=qs(context->document);
+                    QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&qs(host.session.document().id)==document)rebuild_inspector();});
+                }ready=true;
+            });return ready;
+        };
+        // Browsing a source intentionally changes selection. Keep the target
+        // identity, scope and edit generation frozen while allowing that view.
+        prepared_pick->verify_context=[this,batch_path_scalar_fx,verify_batch_context,context,source_scalar_fx,scalar_source_type,group_scalar_fx,verify_group_context,path_scalar_fx,verify_path_context,image_scalar_fx,verify_image_context,instance_scalar_fx,verify_instance_context,point_scalar_fx,paint_scalar_fx,verify_point_context] {
+            if(batch_path_scalar_fx){verify_batch_context(*context,true);return;}
+            if(point_scalar_fx||paint_scalar_fx){verify_point_context(*context,true);return;}
+            if(instance_scalar_fx){verify_instance_context(*context,true);return;}
+            if(image_scalar_fx){verify_image_context(*context,true);return;}
+            if(path_scalar_fx){verify_path_context(*context,true);return;}
+            if(group_scalar_fx){verify_group_context(*context,true);return;}
+            if(source_scalar_fx){verify_primitive_scalar_context(*context,scalar_source_type,true);return;}
+            if(host.session_id!=context->session||host.session.document().id!=context->document)throw Error("SESSION_CONFLICT","The source picker belongs to another document");
+            if(host.session.revision()!=context->revision)throw Error("REVISION_CONFLICT","The source picker revision changed");
+            if(context->preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the active edit before choosing a source");
+            if(host.session.gesture_generation()!=context->gesture_generation)throw Error("REVISION_CONFLICT","The source picker gesture context changed");
+            const auto found=host.session.document().objects.find(context->object);
+            if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context->source)throw Error("TEXT_EDIT_CONFLICT","The original Text source changed");
+            if(artboard_editing_||canvas->active_composition()!=context->composition||canvas->active_artboard()!=context->artboard)throw Error("SELECTION_CONFLICT","The source picker scope changed");
+        };
+        connect(pick,&QPushButton::clicked,this,[this,targets,context,verify_scalar_context,verify=prepared_pick->verify_context]{perform([&]{verify_scalar_context(*context);pick_source(targets,false,verify);});});
+    } else connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
+    auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source,std::optional<std::uint64_t> prepared_revision={},std::function<void()> verify_context={}) {
         if(host.session_id!=field_session)return;
         if(source.startsWith('='))source.remove(0,1);
         input->setModified(false);
-        if(!expression_drafts_.contains(target_data))expression_drafts_.emplace(target_data,ExpressionDraft{field_session,source,field_revision,false});
+        if(!expression_drafts_.contains(target_data))expression_drafts_.emplace(target_data,ExpressionDraft{field_session,source,prepared_revision.value_or(field_revision),false,std::move(verify_context)});
         if(!row->findChild<QWidget*>("nect-expression-panel"))add_expression_editor(column,target_data,targets,label);
     };
     const auto initial_expression=formula?qs(formula->source):(mixed?QString{}:QString::number(evaluated,'g',17));
-    connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
+    if(prepared_fx) {
+        prepared_fx->setProperty("nect-text-scalar-fx-action-object",qs(ref.object));prepared_fx->setProperty("nect-text-scalar-fx-action-point",qs(ref.point));prepared_fx->setProperty("nect-text-scalar-fx-action-field",qs(ref.field));prepared_fx->setFocusPolicy(Qt::StrongFocus);
+        auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
+            canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
+        auto scalar_prepared=std::make_shared<bool>(false);
+        prepared_fx->prepare=[this,input,context,scalar_prepared,verify_scalar_context,advance_scalar_context] {
+            bool ready=false;perform([&]{
+                verify_scalar_context(*context);
+                if(input->isModified()) {
+                    input->setProperty("nect-finishing-text-scalar-fx",true);input->setProperty("nect-text-scalar-fx-committed-revision",QVariant{});
+                    input->editingFinished();const auto committed=input->property("nect-text-scalar-fx-committed-revision");
+                    input->setProperty("nect-finishing-text-scalar-fx",false);if(!committed.isValid())return;
+                    auto advanced=*context;advanced.revision=committed.toULongLong();advance_scalar_context(advanced);
+                    *context=std::move(advanced);*scalar_prepared=true;
+                }ready=true;
+            });return ready;
+        };
+        prepared_fx->completed=[this,context,scalar_prepared] {
+            if(!*scalar_prepared)return;const auto session=context->session;const auto document=context->document;
+            QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();});
+        };
+        connect(fx,&QPushButton::clicked,this,[this,batch_path_scalar_fx,targets,ref,context,expand,verify_scalar_context]{perform([&]{
+            verify_scalar_context(*context);const auto frozen=*context;
+            const auto formula=nect::property(host.session.document(),ref).expression;
+            const auto values=evaluate(host.session.document());
+            const bool batch_mixed=batch_path_scalar_fx&&std::any_of(targets.begin(),targets.end(),[&](const Ref& target){return values.at(target)!=values.at(ref);});
+            const auto source=batch_mixed?QString{}:formula?qs(formula->source):QString::number(values.at(ref),'g',17);
+            expand(source,frozen.revision,[frozen,verify_scalar_context]{verify_scalar_context(frozen);});
+        });});
+    } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
-    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand] {
+    connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
+        input_session,input_document,input_revision,input_gesture,input_preview,paint_scalar_fx,batch_paint_scalar_fx] {
         if(!input->isModified()) return;
+        // Image actions finish their own pointer gesture before handling the
+        // dimension draft; blur must not rebuild away the pressed button.
+        const auto* focus=QApplication::focusWidget();
+        if(ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-content-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-writing").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-writing-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-family").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-family-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-weight").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-weight-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-italic").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-italic-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-layout").toBool()&&
+           ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height")&&focus&&
+           focus->property("nect-text-layout-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-alignment").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-alignment-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-locale").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-locale-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if((paint_scalar_fx||batch_paint_scalar_fx)&&!input->property("nect-finishing-text-scalar-fx").toBool()&&focus&&
+           focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
+           focus->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
+           focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-scalar-fx").toBool()&&
+           ((ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y"||ref.field=="image.width"||ref.field=="image.height") )||(!ref.point.empty()&&(ref.field=="x"||ref.field=="y"||ref.field=="in.angle"||ref.field=="in.length"||ref.field=="out.angle"||ref.field=="out.length")&&focus&&
+            focus->property("nect-text-scalar-fx-action-point").toString()==qs(ref.point)&&focus->property("nect-text-scalar-fx-action-field").toString()==qs(ref.field)))&&focus&&
+           focus->property("nect-text-scalar-fx-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if((paint_scalar_fx||batch_paint_scalar_fx)&&!input->property("nect-finishing-text-scalar-pick").toBool()&&focus&&
+           focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
+           focus->property("nect-text-scalar-pick-action-point").toString().isEmpty()&&
+           focus->property("nect-text-scalar-pick-action-field").toString()==qs(ref.field)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-scalar-pick").toBool()&&
+           ((ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="generator.points"||ref.field=="generator.inner_radius"||ref.field=="generator.outer_radius"||ref.field=="generator.rotation"||ref.field=="generator.height"||ref.field=="generator.width"||ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y"||ref.field=="image.width"||ref.field=="image.height") )||(!ref.point.empty()&&(ref.field=="x"||ref.field=="y"||ref.field=="in.angle"||ref.field=="in.length"||ref.field=="out.angle"||ref.field=="out.length")&&focus&&
+            focus->property("nect-text-scalar-pick-action-point").toString()==qs(ref.point)&&focus->property("nect-text-scalar-pick-action-field").toString()==qs(ref.field)))&&focus&&
+           focus->property("nect-text-scalar-pick-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-path").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-path-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(!input->property("nect-finishing-text-typography").toBool()&&
+           ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+           focus->property("nect-text-typography-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(focus&&focus->property("nect-circle-source-action-object").toString()==qs(ref.object)&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
+        if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height")&&focus&&
+           (focus->property("nect-image-fit-object").toString()==qs(ref.object)||
+            focus->property("nect-image-source-action-object").toString()==qs(ref.object))&&
+           (QApplication::mouseButtons()&Qt::LeftButton))return;
         input->setModified(false);
-        const bool keep_focus=input->hasFocus();const auto scroll=inspector_scroll_->verticalScrollBar()->value();
+        // A family control deliberately takes focus after finishing Font size.
+        // Returning focus to the scalar would dismiss its just-opened menu.
+        const bool keep_focus=input->hasFocus()&&!input->property("nect-finishing-text-family").toBool();
+        const auto scroll=inspector_scroll_->verticalScrollBar()->value();
         const auto frozen_session=host.session_id;
+        const auto record_scalar_commit=[&] {
+            if(ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))
+                input->setProperty("nect-image-draft-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-circle-source").toBool())
+                input->setProperty("nect-circle-source-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-writing").toBool())
+                input->setProperty("nect-text-writing-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-content").toBool())
+                input->setProperty("nect-text-content-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-family").toBool())
+                input->setProperty("nect-text-family-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-weight").toBool())
+                input->setProperty("nect-text-weight-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-italic").toBool())
+                input->setProperty("nect-text-italic-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-layout").toBool())
+                input->setProperty("nect-text-layout-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-alignment").toBool())
+                input->setProperty("nect-text-alignment-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-locale").toBool())
+                input->setProperty("nect-text-locale-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-scalar-fx").toBool())
+                input->setProperty("nect-text-scalar-fx-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-scalar-pick").toBool())
+                input->setProperty("nect-text-scalar-pick-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-path").toBool())
+                input->setProperty("nect-text-path-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+            if(input->property("nect-finishing-text-typography").toBool())
+                input->setProperty("nect-text-typography-committed-revision",QVariant::fromValue<qulonglong>(host.session.revision()));
+        };
         perform([&]{
+            if(host.session_id!=input_session||host.session.document().id!=input_document)
+                throw Error("SESSION_CONFLICT","This property draft belongs to another document");
+            if(host.session.revision()!=input_revision||host.session.gesture_generation()!=input_gesture)
+                throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
+            // Preview-born fields stay ineligible after cancellation, even when
+            // the canonical revision and gesture generation remain unchanged.
+            if(input_preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
             if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
-                try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);host.edited();}
+                try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);
+                    record_scalar_commit();host.edited();}
                 catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             if(input->property("nect-semantic-key").isValid()&&!relative&&
-               std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;}))return;
-            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);host.edited();
+               std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
+                record_scalar_commit();return;
+            }
+            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);
+            record_scalar_commit();host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
                 for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
@@ -9513,7 +11833,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     });
 }
 
-void Window::pick_source(std::vector<Ref> targets,bool relative) {
+void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
@@ -9548,16 +11868,18 @@ void Window::pick_source(std::vector<Ref> targets,bool relative) {
     });
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     const auto frozen_session=host.session_id;
-    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*){
-        if(!item||host.session_id!=frozen_session)return;
+    const auto frozen_document=host.session.document().id;
+    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session,frozen_document,guarded=bool(verify_context)](QListWidgetItem* item,QListWidgetItem*){
+        if(!item||host.session_id!=frozen_session||(guarded&&host.session.document().id!=frozen_document))return;
         const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
         if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
     });
-    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,composition,artboard]{
-        if(host.session_id==frozen_session){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context)]{
+        if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
-    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard] {
+    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context] {
         perform([&]{
+            if(verify_context)verify_context();
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Source picker belongs to a different document");
             if(!list->currentItem()||list->currentItem()->isHidden()||!(list->currentItem()->flags()&Qt::ItemIsEnabled))
                 throw Error("NO_SOURCE","Choose a visible compatible source property");
@@ -9764,7 +12086,9 @@ void Window::convert_to_path() {
     const auto& object=found->second;
     const auto blockers=conversion_blockers(document,object.id);
     const auto frozen_session=host.session_id;
+    const auto frozen_document=document.id;
     const auto revision=host.session.revision();
+    const auto generation=host.session.gesture_generation();
     auto* dialog=new QDialog(this);
     dialog->setObjectName("convert-to-path-dialog");
     dialog->setAttribute(Qt::WA_DeleteOnClose);
@@ -9808,10 +12132,12 @@ void Window::convert_to_path() {
     buttons->button(QDialogButtonBox::Cancel)->setDefault(true);
     layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,dialog,[this,dialog,error,id=object.id,frozen_session,revision] {
+    connect(buttons,&QDialogButtonBox::accepted,dialog,[this,dialog,error,id=object.id,frozen_session,frozen_document,revision,generation] {
         try {
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The conversion plan belongs to another document");
-            if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed. Reopen Convert to Path to review the current shape and links.");
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","The conversion plan belongs to another document");
+            if(host.session.revision()!=revision||host.session.gesture_generation()!=generation||host.session.gesture_active())
+                throw Error("REVISION_CONFLICT","The document changed. Reopen Convert to Path to review the current shape and links.");
             host.session.apply({ConvertToPath{id}},revision);
             host.edited();dialog->accept();
         } catch(const Error& exception) {

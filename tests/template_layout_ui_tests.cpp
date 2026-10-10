@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QProcess>
+#include <QPointer>
+#include <QScrollArea>
 #include <QTest>
 #include <iostream>
 #include <stdexcept>
@@ -31,8 +33,137 @@ void value(Window&w,const char*name,const QString&v){control<QLineEdit>(w,name)-
 void history(Window&w,const QString&name){for(auto*a:w.findChildren<QAction*>())if(a->text()==name){a->trigger();events();return;}throw std::runtime_error("missing History action");}
 void load(Window&w,Document d=fixture()){w.canvas->cancel_interaction();w.host.session=Session(std::move(d));w.refresh();events();edit(w);}
 void reset(Window&w,const std::string&field){w.host.session.apply({ArtboardTemplateCommand{ResetArtboardTemplateOverride{"comp","A",field}}},w.host.session.revision());w.host.edited();events();edit(w);}
+struct FrameSnapshot {
+ Document document,preview;std::string native;std::uint64_t revision,generation;HistoryInfo history;bool gesture;
+ explicit FrameSnapshot(const Session&s):document(s.document()),preview(s.preview_document()),native(encode(document)),
+  revision(s.revision()),generation(s.gesture_generation()),history(s.history()),gesture(s.gesture_active()){}
+ void unchanged(const Session&s)const{
+  check(s.document()==document&&s.preview_document()==preview&&encode(s.document())==native,
+   "Frame input preserves complete authored Document/native/preview");
+  check(s.revision()==revision&&s.history()==history&&s.gesture_generation()==generation&&s.gesture_active()==gesture,
+   "Frame input preserves revision/history/gesture ownership");
+ }
+};
+void frame_numeric_context(bool name_context=false){
+ QTemporaryDir scratch;check(scratch.isValid(),"Frame regression owns settings/recovery/native files");
+ QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);settings.setValue("unrelated","preserved");
+ Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
+ w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1100,750);w.show();
+ const auto drain=[] {QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QTest::qWait(20);QApplication::processEvents();};
+ auto d=fixture();Session seed(d);seed.apply({CreatePrimitive{"comp",{},"retained","Retained Rectangle",
+  default_primitive("retained-source","nect.shape.rectangle")}},seed.revision());
+ auto&s=w.host.session;s=Session(seed.document());w.host.edited();drain();QApplication::setActiveWindow(&w);drain();
+ const auto select_frame=[&]{
+ auto*list=w.findChild<QListWidget*>("artboards");check(list&&list->isVisible(),"Actual Artboards list reachable");
+ QListWidgetItem* target=nullptr;for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole+1).toString()=="A")target=list->item(i);
+ check(target,"Exact Artboard row exists");list->scrollToItem(target);drain();
+ QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(target).center());drain();
+ check(w.canvas->active_composition()=="comp"&&w.canvas->active_artboard()=="A","Actual list click binds exact Composition/Artboard");
+ auto*button=control<QPushButton>(w,"artboard-edit");check(button->isEnabled(),"Edit frame is enabled");
+ QTest::mouseClick(button,Qt::LeftButton);drain();
+ };select_frame();
+ const auto draft=[&](const char* name,const char*text){
+  auto*input=control<QLineEdit>(w,name);auto*parent=input->parentWidget();
+  while(parent&&!qobject_cast<QScrollArea*>(parent))parent=parent->parentWidget();
+  auto*scroll=qobject_cast<QScrollArea*>(parent);check(scroll&&input->isEnabled()&&!input->isReadOnly(),"Actual frame editor is enabled in Inspector");
+  scroll->ensureWidgetVisible(input);drain();QTest::mouseClick(input,Qt::LeftButton);
+  QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);drain();
+  check(input->hasFocus()&&input->isModified()&&input->text()==text,"Keyboard leaves exact unfinished frame draft focused");
+  return QPointer<QLineEdit>(input);
+ };
+ const FrameSnapshot original(s);auto external=board(s.document());external.x=1100;
+ s.begin_gesture(s.revision());s.update_gesture({UpdateArtboard{"comp",external}});const FrameSnapshot preview(s);
+ check(preview.preview!=preview.document&&s.gesture_active(),"External canonical crop preview is active");w.host.edited();drain();preview.unchanged(s);
+ auto old=draft(name_context?"artboard-name":"artboard-x",name_context?"Preview draft":"1250");preview.unchanged(s);s.cancel_gesture();const FrameSnapshot cancelled(s);
+ check(old&&old->hasFocus()&&old->isModified()&&s.revision()==preview.revision&&s.gesture_generation()==preview.generation,
+  "Canonical cancel retains revision/generation while preview-born draft stays focused");
+ check(s.document()==original.document&&s.preview_document()==original.document,"Cancel restores complete authored source before refresh");
+ w.host.edited();drain();std::cout<<"Frame cancel refresh name="<<board(s.document()).name<<" x="<<board(s.document()).x<<" revision="<<s.revision()
+  <<" expected_x="<<board(cancelled.document).x<<" expected_revision="<<cancelled.revision<<std::endl;cancelled.unchanged(s);
+ check(control<QLineEdit>(w,"artboard-x")->text().toDouble()==1000,"Replacement field shows canonical crop after cancel");
+ const auto undo_redo=[&](const FrameSnapshot&before,const FrameSnapshot&after){
+  history(w,"Undo");drain();check(s.document()==before.document&&s.preview_document()==before.document&&encode(s.document())==before.native,
+   "Frame Undo restores complete prior authored source/native");
+  history(w,"Redo");drain();check(s.document()==after.document&&s.preview_document()==after.document&&encode(s.document())==after.native,
+   "Frame Redo restores complete edited source/native");
+ };
+ if(name_context){
+  const auto rename=[&](const char*text){
+   const FrameSnapshot before(s);auto input=draft("artboard-name",text);before.unchanged(s);
+   auto named=board(before.document);named.name=text;Session oracle(before.document);oracle.apply({UpdateArtboard{"comp",named}},oracle.revision());
+   QTest::keyClick(input,Qt::Key_Return);drain();check(s.document()==oracle.document()&&s.preview_document()==oracle.document()&&
+    encode(s.document())==encode(oracle.document())&&s.revision()==before.revision+1&&s.history().states.size()==before.history.states.size()+1&&!s.gesture_active(),
+    "Name Return is one canonical transaction preserving complete crop/size/geometry/Anchor/Template/layout/other boards");
+   const FrameSnapshot after(s);undo_redo(before,after);
+  };
+  rename("Named frame");const FrameSnapshot before_external(s);auto stale=draft("artboard-name","Old draft");before_external.unchanged(s);
+  auto newer=board(s.document());newer.name="External name";s.apply({UpdateArtboard{"comp",newer}},s.revision());const FrameSnapshot incoming(s);
+  check(stale&&stale->hasFocus()&&stale->isModified(),"External rename arrives while old Name draft stays focused");
+  w.host.edited();drain();incoming.unchanged(s);check(control<QLineEdit>(w,"artboard-name")->text()=="External name","Replacement Name shows external source");undo_redo(before_external,incoming);
+  const FrameSnapshot before_preview(s);auto prior=draft("artboard-name","Prior draft");before_preview.unchanged(s);
+  auto proposed=board(s.document());proposed.name="External preview";s.begin_gesture(s.revision());s.update_gesture({UpdateArtboard{"comp",proposed}});
+  const FrameSnapshot active(s);check(prior&&prior->hasFocus(),"External Name preview starts with old draft focused");w.host.edited();drain();active.unchanged(s);
+  auto during=draft("artboard-name","During preview");active.unchanged(s);QTest::keyClick(during,Qt::Key_Return);drain();active.unchanged(s);
+  auto cancel=draft("artboard-name","Cancelled draft");active.unchanged(s);s.cancel_gesture();const FrameSnapshot after_cancel(s);
+  check(cancel&&cancel->hasFocus()&&s.revision()==active.revision&&s.gesture_generation()==active.generation,"Cancel keeps focused preview-born Name and same revision/generation");
+  w.host.edited();drain();after_cancel.unchanged(s);rename("Fresh frame");
+  const auto native=scratch.filePath("frame-name.nect");const FrameSnapshot saved(s);w.host.save(native);drain();saved.unchanged(s);
+  {QFile file(native);check(file.open(QIODevice::ReadOnly)&&file.readAll().toStdString()==saved.native,"Name Host Save writes complete native source");}
+  w.host.open(native);drain();check(s.document()==saved.document&&s.preview_document()==saved.document&&encode(s.document())==saved.native&&
+   s.revision()==0&&s.history().states.size()==1&&!s.gesture_active(),"Name same Window native reopen preserves complete authored source");
+  select_frame();const FrameSnapshot before_reload(s);auto outgoing=draft("artboard-name","Outgoing reload draft");before_reload.unchanged(s);
+  const auto old_session=w.host.session_id;check(outgoing&&outgoing->hasFocus()&&outgoing->isModified(),"Same-ID reopen starts with unfinished focused Name");
+  w.host.open(native);drain();check(w.host.session_id!=old_session&&s.document()==before_reload.document&&s.preview_document()==before_reload.document&&
+   encode(s.document())==before_reload.native&&s.revision()==0&&s.history().states.size()==1&&!s.gesture_active(),"Name old Session draft cannot overwrite complete canonical source flushed by Host open");
+  check(settings.value("unrelated")=="preserved","Name editing preserves unrelated settings");return;
+ }
+ const auto commit=[&](const char*name,const char*text,double Artboard::*member,const char*axis){
+  const FrameSnapshot before(s);auto input=draft(name,text);before.unchanged(s);Session oracle(before.document);
+  if(axis&&board(before.document).template_assignment)oracle.apply({ArtboardTemplateCommand{SetArtboardTemplateOverride{
+   "comp","A",std::string("frame.")+axis,std::stod(text)}}},oracle.revision());
+  else{auto next=board(before.document);next.*member=std::stod(text);oracle.apply({UpdateArtboard{"comp",next}},oracle.revision());}
+  QTest::keyClick(input,Qt::Key_Return);drain();
+  check(s.document()==oracle.document()&&s.preview_document()==oracle.document()&&encode(s.document())==encode(oracle.document())&&
+   s.revision()==before.revision+1&&s.history().states.size()==before.history.states.size()+1&&!s.gesture_active(),
+   "Normal frame Return is one complete canonical transaction retaining all unrelated source/IDs/Anchor/Template/layout");
+  const FrameSnapshot after(s);undo_redo(before,after);
+ };
+ commit("artboard-x","1300",&Artboard::x,nullptr);commit("artboard-y","250",&Artboard::y,nullptr);
+ commit("artboard-width","450",&Artboard::width,"width");commit("artboard-height","350",&Artboard::height,"height");
+ const auto native=scratch.filePath("frame-context.nect");const FrameSnapshot saved(s);w.host.save(native);drain();saved.unchanged(s);
+ {QFile file(native);check(file.open(QIODevice::ReadOnly)&&file.readAll().toStdString()==saved.native,"Host Save writes complete native source");}
+ w.host.open(native);drain();check(s.document()==saved.document&&s.preview_document()==saved.document&&encode(s.document())==saved.native&&
+  s.revision()==0&&s.history().states.size()==1&&!s.gesture_active(),"Same Window native reopen retains complete frame/source/geometry/Anchor/Template/other Artboards");
+ select_frame();const FrameSnapshot before_external(s);auto stale=draft("artboard-x","1700");before_external.unchanged(s);
+ auto newer=board(s.document());newer.x=1500;s.apply({UpdateArtboard{"comp",newer}},s.revision());const FrameSnapshot incoming(s);
+ check(stale&&stale->hasFocus()&&stale->isModified(),"External canonical crop arrives while unfinished draft stays focused");
+ w.host.edited();drain();incoming.unchanged(s);check(control<QLineEdit>(w,"artboard-x")->text().toDouble()==1500,"Refresh shows newer canonical crop");
+ undo_redo(before_external,incoming);
+ const FrameSnapshot before_preview(s);auto old_before_preview=draft("artboard-y","900");before_preview.unchanged(s);
+ auto preview_board=board(s.document());preview_board.y=300;s.begin_gesture(s.revision());s.update_gesture({UpdateArtboard{"comp",preview_board}});
+ const FrameSnapshot active_preview(s);check(old_before_preview&&old_before_preview->hasFocus(),"External preview starts with old numeric draft focused");
+ w.host.edited();drain();active_preview.unchanged(s);
+ auto preview_return=draft("artboard-y","950");active_preview.unchanged(s);QTest::keyClick(preview_return,Qt::Key_Return);drain();active_preview.unchanged(s);
+ auto preview_cancel=draft("artboard-y","975");active_preview.unchanged(s);s.cancel_gesture();const FrameSnapshot after_cancel(s);
+ check(preview_cancel&&preview_cancel->hasFocus()&&s.gesture_generation()==active_preview.generation&&s.revision()==active_preview.revision,
+  "Preview-born Y draft remains focused through canonical cancel with same generation/revision");
+ w.host.edited();drain();after_cancel.unchanged(s);commit("artboard-y","325",&Artboard::y,nullptr);
+ const FrameSnapshot before_reload(s);auto reload_old=draft("artboard-x","1900");before_reload.unchanged(s);const auto old_session=w.host.session_id;
+ check(reload_old&&reload_old->hasFocus()&&reload_old->isModified(),"Same-ID native reload starts with unfinished frame draft focused");
+ w.host.open(native);drain();check(w.host.session_id!=old_session&&s.document()==before_reload.document&&s.preview_document()==before_reload.document&&
+  encode(s.document())==before_reload.native&&s.revision()==0&&s.history().states.size()==1&&!s.gesture_active(),
+  "New Session rejects old numeric draft and keeps complete canonical source flushed by same-file Host open");
+ select_frame();auto plain=seed.document();plain.compositions.front().artboards[1].template_assignment.reset();
+ s=Session(plain);w.host.edited();drain();select_frame();commit("artboard-width","475",&Artboard::width,"width");
+ const FrameSnapshot valid(s);auto invalid=draft("artboard-x","nan");valid.unchanged(s);QTest::keyClick(invalid,Qt::Key_Return);drain();valid.unchanged(s);
+ check(w.statusBar()->currentMessage().contains("INVALID_VALUE"),"Nonfinite frame coordinate refuses atomically");
+ check(settings.value("unrelated")=="preserved","Frame editing preserves unrelated workspace settings");
+}
 }
 int main(int argc,char**argv){qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);try{
+ if(app.arguments().contains("--frame-context-only")){frame_numeric_context();std::cout<<"PASS "<<checks<<" Frame numeric context checks; physical OS input NOT_RUN\n";return 0;}
+ if(app.arguments().contains("--frame-name-context-only")){frame_numeric_context(true);std::cout<<"PASS "<<checks<<" Frame Name context checks; physical OS input NOT_RUN\n";return 0;}
  check(argc==2,"core CLI path required");QTemporaryDir dir;check(dir.isValid(),"owned scratch available");QSettings settings(dir.filePath("library.ini"),QSettings::IniFormat);Window w(dir.path(),std::make_unique<FolderLibrary>(settings));w.show();events();load(w);
  check(control<QLineEdit>(w,"margin-left")->text().toDouble()==10&&control<QLineEdit>(w,"margin-bottom")->text().toDouble()==40,"inherited Margin shown as evaluated insets");
  check(control<QLineEdit>(w,"grid-x")->text().toDouble()==40&&control<QLineEdit>(w,"grid-width")->text().toDouble()==100,"inherited Grid shown as evaluated bounds");

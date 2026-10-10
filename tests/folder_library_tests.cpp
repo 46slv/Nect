@@ -13,6 +13,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLabel>
 #include <QListWidget>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -747,6 +748,171 @@ void portable_preset_assets(const QString& scratch) {
         "Delete removes only the selected AssetID, retains a separate good asset and leaves its Favorite as an explicit broken reference");
 }
 
+void portable_preset_closure_assets(const QString& scratch) {
+    QDir().mkpath(scratch);
+    const auto root=scratch+"/closure-assets";
+    const auto settings_path=scratch+"/closure-library.ini";
+    QSettings settings(settings_path,QSettings::IniFormat);
+    settings.setFallbacksEnabled(false);
+    FolderLibrary library(settings,{}, {},root);
+
+    auto macro=portable_macro_with_revisions("closure-macro","Closure Macro");
+    for(auto& [pin,graph]:macro.revisions)graph.graph_version=2;
+    auto& latest=macro.revisions.at(2);latest.interface_version=3;
+    latest.public_parameters.push_back({"macro.offset.enabled","Use Offset","portable-macro-offset","enabled",
+        "boolean","boolean","local_paths_and_paint"});
+    latest.nodes.front().operation.enabled=false;
+    std::reverse(latest.nodes.begin(),latest.nodes.end());
+    std::reverse(latest.edges.begin(),latest.edges.end());
+    auto preset=portable_preset("closure-preset","Mixed closure");
+    PresetEntry pinned;pinned.kind="macro";pinned.type=macro_entry_type;
+    pinned.macro_definition=macro.id;pinned.pinned_revision=1;
+    pinned.overrides={{"macro.offset.amount",14}};
+    preset.entries.push_back(pinned);
+    pinned.pinned_revision=2;pinned.enabled=false;
+    pinned.overrides.at("macro.offset.amount")=27;
+    pinned.boolean_overrides={{"macro.offset.enabled",true}};
+    preset.entries.push_back(pinned);
+    const PortablePresetClosure closure{preset,{{macro.id,macro}}};
+    const auto canonical=canonical_preset_closure_payload(closure);
+    const auto published=library.publish_preset(closure);
+    const auto path=QDir(root).filePath(published.ref.asset_id+".preset.json");
+    const auto favorite=library.add_favorite(published.ref,3);
+    check(published.payload_schema==3&&published.accepted_revision==1&&
+        library.favorite_status(favorite)=="Available"&&library.preset_assets().front().available&&
+        library.preset_assets().front().payload_schema==3&&library.macro_assets().isEmpty(),
+        "A mixed closure publishes as one available schema-3 Preset asset and creates no dependency assets");
+    LibraryPresetAssetV1 refused_metadata;refused_metadata.label="unchanged sentinel";
+    rejects("PRESET_DEPENDENCY_CLOSURE_REQUIRED",[&]{(void)library.read_preset_asset(published.ref,&refused_metadata);});
+    check(refused_metadata.label=="unchanged sentinel","A dependency-dropping read refusal leaves its output metadata unchanged");
+
+    QSettings fresh_settings(settings_path,QSettings::IniFormat);fresh_settings.setFallbacksEnabled(false);
+    FolderLibrary fresh(fresh_settings,{}, {},root);
+    LibraryPresetAssetV1 read_metadata;
+    const auto snapshot=fresh.read_preset_closure_asset(published.ref,&read_metadata);
+    check(snapshot==closure&&canonical_preset_closure_payload(snapshot)==canonical&&
+        snapshot.macro_definitions.size()==1&&snapshot.macro_definitions.at(macro.id).revisions.size()==2&&
+        snapshot.definition.entries.at(1).pinned_revision==1&&snapshot.definition.entries.at(2).pinned_revision==2&&
+        snapshot.definition.entries.at(2).boolean_overrides.at("macro.offset.enabled")&&
+        read_metadata.sha256==published.sha256&&fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id,
+        "A separate Library reload preserves one repeated dependency, all revisions, exact pins and typed overrides");
+
+    auto next=closure;next.definition.label="Updated mixed closure";
+    next.macro_definitions.at(macro.id).revisions.at(1).nodes.front().operation.parameters.at("amount").literal=22;
+    const auto updated=library.update_preset_asset(published.ref,next,published.accepted_revision,published.sha256);
+    check(updated.ref==published.ref&&updated.accepted_revision==2&&updated.sha256!=published.sha256&&
+        fresh.read_preset_closure_asset(published.ref)==next&&snapshot==closure&&
+        canonical_preset_closure_payload(snapshot)==canonical&&
+        fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id&&fresh.favorite_status(favorite)=="Available",
+        "Closure Update keeps AssetID, FavoriteID and slot while a previously read snapshot stays unchanged");
+    const auto bytes=read_bytes(path);
+    const QByteArray accepted(reinterpret_cast<const char*>(bytes.data()),static_cast<qsizetype>(bytes.size()));
+    fresh_settings.sync();const auto preferences=fresh_settings.value("library/v1/state").toByteArray();
+    const auto unchanged=[&] {
+        fresh_settings.sync();
+        check(read_bytes(path)==bytes&&fresh_settings.value("library/v1/state").toByteArray()==preferences&&
+            fresh.favorite_for_slot(3)->favorite_id==favorite.favorite_id,
+            "A refused closure update preserves accepted bytes and shared Favorite preferences");
+    };
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        library.update_preset_asset(published.ref,closure,published.accepted_revision,published.sha256);
+    });unchanged();
+    rejects("PRESET_ASSET_REVISION_CONFLICT",[&]{
+        library.update_preset_asset(published.ref,closure,updated.accepted_revision,published.sha256);
+    });unchanged();
+
+    auto rejects_candidate=[&](const PortablePresetClosure& candidate) {
+        bool refused=false;
+        try {library.update_preset_asset(published.ref,candidate,updated.accepted_revision,updated.sha256);}
+        catch(const Error&) {refused=true;}
+        check(refused,"Invalid or oversized dependency closure is refused before storage mutation");unchanged();
+    };
+    auto missing=next;missing.macro_definitions.clear();rejects_candidate(missing);
+    auto colliding=next;auto collision_definition=colliding.macro_definitions.at(macro.id);
+    collision_definition.id=published.ref.asset_id.toStdString();colliding.macro_definitions.clear();
+    colliding.macro_definitions.emplace(collision_definition.id,collision_definition);
+    for(auto& entry:colliding.definition.entries)if(entry.kind=="macro")entry.macro_definition=collision_definition.id;
+    rejects("PRESET_ASSET_ID_MISMATCH",[&]{library.update_preset_asset(published.ref,colliding,
+        updated.accepted_revision,updated.sha256);});unchanged();
+    auto invalid=next;invalid.macro_definitions.at(macro.id).revisions.at(1).output_mapping.port="absent-output";
+    rejects_candidate(invalid);
+    auto oversized=next;
+    auto& many_revisions=oversized.macro_definitions.at(macro.id);
+    for(std::uint64_t pin=3;pin<=128;++pin) {
+        auto retained=many_revisions.revisions.at(2);retained.revision=pin;
+        many_revisions.revisions.emplace(pin,std::move(retained));
+    }
+    many_revisions.latest_revision=128;
+    auto second_dependency=many_revisions;second_dependency.id="closure-second-macro";
+    oversized.macro_definitions.emplace(second_dependency.id,second_dependency);
+    auto second_reference=oversized.definition.entries.at(2);second_reference.macro_definition=second_dependency.id;
+    oversized.definition.entries.push_back(std::move(second_reference));
+    rejects("PRESET_PAYLOAD_LIMIT",[&]{library.update_preset_asset(published.ref,oversized,
+        updated.accepted_revision,updated.sha256);});unchanged();
+
+    const auto envelope=QJsonDocument::fromJson(accepted).object();
+    const auto rejects_stored=[&](QJsonObject bad,const char* code) {
+        const auto bad_bytes=QJsonDocument(bad).toJson(QJsonDocument::Compact);write_qbytes(path,bad_bytes);
+        rejects(code,[&]{(void)fresh.read_preset_closure_asset(published.ref);});
+        const auto listed=fresh.preset_assets();
+        check(listed.size()==1&&!listed.front().available&&fresh.favorite_status(favorite)!="Available",
+            "Malformed closure stays visible as unavailable under the original AssetID and Favorite");
+        rejects(code,[&]{library.update_preset_asset(published.ref,closure,updated.accepted_revision,updated.sha256);});
+        const auto observed=read_bytes(path);
+        check(QByteArray(reinterpret_cast<const char*>(observed.data()),static_cast<qsizetype>(observed.size()))==bad_bytes,
+            "Refused read/update never rewrites observed malformed asset bytes");
+        fresh_settings.sync();check(fresh_settings.value("library/v1/state").toByteArray()==preferences,
+            "Malformed closure refusal leaves persisted shared preferences unchanged");
+        write_qbytes(path,accepted);
+    };
+    auto bad=envelope;bad.insert("sha256",QString(64,'0'));rejects_stored(bad,"PRESET_ASSET_HASH_MISMATCH");
+    bad=envelope;bad.insert("payload_schema",99);rejects_stored(bad,"UNSUPPORTED_PRESET_SCHEMA");
+    bad=envelope;bad.insert("kind","macro_definition");rejects_stored(bad,"UNSUPPORTED_PRESET_ASSET_VERSION");
+    const auto with_payload=[&](const QByteArray& payload) {
+        auto changed=envelope;changed.insert("payload",QString::fromUtf8(payload));
+        changed.insert("sha256",QString::fromLatin1(QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex()));
+        return changed;
+    };
+    const auto next_payload=QByteArray::fromStdString(canonical_preset_closure_payload(next));
+    rejects_stored(with_payload(QByteArray::fromStdString(canonical_preset_closure_payload(colliding))),"PRESET_ASSET_ID_MISMATCH");
+    rejects_stored(with_payload(" "+next_payload),"UNAVAILABLE_PRESET_ASSET");
+    auto missing_payload=QJsonDocument::fromJson(next_payload).object();missing_payload.insert("macro_definitions",QJsonArray{});
+    rejects_stored(with_payload(QJsonDocument(missing_payload).toJson(QJsonDocument::Compact)),"UNAVAILABLE_PRESET_ASSET");
+    auto invalid_payload=QJsonDocument::fromJson(next_payload).object();auto dependencies=invalid_payload.value("macro_definitions").toArray();
+    auto dependency=dependencies.first().toObject();dependency.insert("latest_revision",999);dependencies[0]=dependency;
+    invalid_payload.insert("macro_definitions",dependencies);
+    rejects_stored(with_payload(QJsonDocument(invalid_payload).toJson(QJsonDocument::Compact)),"UNAVAILABLE_PRESET_ASSET");
+    rejects_stored(with_payload(QByteArray(static_cast<qsizetype>(portable_preset_payload_limit+1),'x')),"PRESET_PAYLOAD_LIMIT");
+    unchanged();
+
+    for(unsigned schema:{1u,2u}) {
+        auto literal=portable_preset("legacy-closure-"+std::to_string(schema),"Legacy closure");literal.schema_version=schema;
+        if(schema==1) {
+            const auto operation=default_operation("legacy-repeater","nect.shape.repeater");
+            PresetEntry entry;entry.type=operation.type;entry.version=operation.version;entry.enabled=operation.enabled;
+            for(const auto& [name,value]:operation.parameters)entry.parameters.emplace(name,value.literal);
+            entry.composite=operation.composite;entry.fill_rule=operation.fill_rule;
+            entry.line_join=operation.line_join;entry.line_cap=operation.line_cap;
+            literal.entries.push_back(std::move(entry));
+        }
+        const auto old_payload=canonical_preset_payload(literal);
+        check(canonical_preset_closure_payload(PortablePresetClosure{literal,{}})==old_payload,
+            "Empty closure preserves legacy schema-1/2 canonical payload bytes");
+        const auto legacy=library.publish_preset(literal);
+        const auto reloaded=fresh.read_preset_closure_asset(legacy.ref);
+        check(legacy.payload_schema==schema&&reloaded.macro_definitions.empty()&&reloaded.definition==literal&&
+            canonical_preset_payload(fresh.read_preset_asset(legacy.ref))==old_payload,
+            "Legacy schema-1/2 publication remains readable through both Library APIs");
+        const auto legacy_path=QDir(root).filePath(legacy.ref.asset_id+".preset.json");
+        const auto legacy_raw=read_bytes(legacy_path);
+        const QByteArray legacy_bytes(reinterpret_cast<const char*>(legacy_raw.data()),static_cast<qsizetype>(legacy_raw.size()));
+        auto mismatched=QJsonDocument::fromJson(legacy_bytes).object();mismatched.insert("payload_schema",static_cast<int>(3-schema));
+        write_qbytes(legacy_path,QJsonDocument(mismatched).toJson(QJsonDocument::Compact));
+        rejects("PRESET_ASSET_ENVELOPE_MISMATCH",[&]{(void)fresh.read_preset_closure_asset(legacy.ref);});
+        write_qbytes(legacy_path,legacy_bytes);
+    }
+}
+
 void portable_macro_assets(const QString& scratch) {
     const auto root=scratch+"/payloads";const auto settings_path=scratch+"/macro-library.ini";
     QSettings settings(settings_path,QSettings::IniFormat);
@@ -1062,6 +1228,152 @@ void host_and_ui_placement(const QString& scratch) {
     auto* open_library=window.findChild<QAction*>("folder-library");check(open_library,"Library menu action exists");open_library->trigger();
     check(window.host.session.document().objects.size()==1,"Folder Library dialog completes the UI placement interaction");
     window.close();window.host.flush();
+}
+
+void folder_favorite_navigation(const QString& scratch) {
+    const auto root_path=scratch+"/registered",moved_root=scratch+"/moved";
+    check(QDir().mkpath(root_path+"/brand")&&QDir().mkpath(scratch+"/other"),"Create owned navigation folders");
+    QSettings settings(scratch+"/navigation.ini",QSettings::IniFormat);
+    FolderLibrary seed(settings);
+    const auto root=seed.register_root(root_path,"Navigation source");
+    const auto other=seed.register_root(scratch+"/other","Other source");
+    const LibraryItemRefV1 root_ref{root.root_id,{},"folder"},child_ref{root.root_id,"brand","folder"},
+        other_ref{other.root_id,{},"folder"};
+    QString root_favorite,child_favorite;
+    const auto native_path=scratch+"/artwork.nect";
+    Window window(scratch+"/recovery",std::make_unique<FolderLibrary>(settings,
+        FolderLibrary::PersistOverride{},FolderLibrary::ReadbackOverride{},scratch+"/payloads"));
+    const auto composition=window.host.session.document().compositions.front().id;
+    window.host.session.apply({Command{CreatePrimitive{composition,"","navigation-artwork","Preserved artwork",
+        default_primitive("navigation-primitive","nect.shape.rectangle")}}},window.host.session.revision());
+    window.host.save(native_path);window.show();QApplication::processEvents();
+    const auto document=window.host.session.document();const auto native=encode(document);
+    const auto revision=window.host.session.revision();const auto history=window.host.session.history();
+    const auto session_id=window.host.session_id;const auto generation=window.host.session.gesture_generation();
+    auto unchanged=[&](const Window& current) {
+        check(current.host.session.document()==document&&encode(current.host.session.document())==native&&
+            current.host.session.preview_document()==document&&!current.host.session.gesture_active()&&!current.host.dirty(),
+            "Folder navigation/refusal preserves complete authored and preview source and clean native save state");
+    };
+    auto open_dialog=[&](Window& current,const std::function<void(QDialog*)>& interaction) {
+        std::exception_ptr failure;
+        QTimer::singleShot(0,&current,[&] {
+            auto* dialog=current.findChild<QDialog*>("folder-library-dialog");
+            try {check(dialog,"Actual Library action opens the Folder dialog");interaction(dialog);}
+            catch(...) {failure=std::current_exception();}
+            if(dialog)dialog->accept();
+        });
+        auto* action=current.findChild<QAction*>("folder-library");check(action,"Window has its real Library action");
+        action->trigger();if(failure)std::rethrow_exception(failure);
+    };
+    auto exercise=[&](Window& current,QDialog* dialog,bool restarting) {
+        auto* tree=dialog->findChild<QTreeWidget*>("folder-library-tree");
+        auto* favorites=dialog->findChild<QListWidget*>("folder-library-favorites");
+        auto* slot=dialog->findChild<QComboBox*>("folder-library-slot");
+        auto* search=dialog->findChild<QLineEdit*>("folder-library-search");
+        auto* status=dialog->findChild<QLabel*>("folder-library-status");
+        check(tree&&favorites&&slot&&search&&status,"Navigation uses the real tree, Favorites, search, slot and visible status");
+        auto click=[&](const char* name) {
+            auto* button=dialog->findChild<QPushButton*>(name);check(button&&button->isEnabled(),std::string("Callable control: ")+name);
+            QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+        };
+        auto select_favorite=[&](const QString& id) {
+            for(int index=0;index<favorites->count();++index)if(favorites->item(index)->data(Qt::UserRole).toString()==id) {
+                favorites->setCurrentRow(index);return;
+            }
+            check(false,"Exact persistent Favorite exists");
+        };
+        auto invoke=[&](bool quick,const LibraryItemRefV1& ref,const QString& id,int number,const QString& error) {
+            auto* sentinel=find_library_item(tree,other_ref);check(sentinel,"Separate valid root is a navigation sentinel");
+            tree->setCurrentItem(sentinel);select_favorite(id);slot->setCurrentIndex(slot->findData(number));
+            const auto query=search->text();
+            current.statusBar()->clearMessage();click(quick?"folder-library-use-slot":"folder-library-use-favorite");
+            std::cout<<"Folder "<<(quick?"slot":"Favorite")<<" path="<<ref.normalized_relative_path.toStdString()
+                <<" restart="<<restarting<<" status="<<status->text().toStdString()
+                <<" error="<<current.statusBar()->currentMessage().toStdString()<<'\n';
+            if(error.isEmpty()) {
+                check(tree->currentItem()==find_library_item(tree,ref)&&status->text().startsWith("Favorite opened "),
+                    "Existing exact Folder Favorite/slot navigates successfully");
+            }else {
+                check(tree->currentItem()==sentinel&&status->text().contains(error)&&
+                    !status->text().startsWith("Favorite opened ")&&current.statusBar()->currentMessage().contains(error),
+                    "Unavailable folder refuses before navigation and reports its exact resolver error, without false success");
+                check(search->text()==query,"Unavailable Folder invocation preserves the current browse search");
+            }
+            unchanged(current);
+            if(!restarting)check(current.host.session_id==session_id&&current.host.session.revision()==revision&&
+                current.host.session.history()==history&&current.host.session.gesture_generation()==generation,
+                "Folder actions retain original Session identity, revision, complete history and gesture generation");
+        };
+        if(!restarting) {
+            click("folder-library-refresh");
+            auto add=[&](const LibraryItemRefV1& ref,int number) {
+                auto* item=find_library_item(tree,ref);check(item,"Refreshed exact folder exists");tree->setCurrentItem(item);
+                click("folder-library-favorite-add");
+                FolderLibrary reader(settings);const auto found=std::find_if(reader.favorites().begin(),reader.favorites().end(),
+                    [&](const auto& favorite){return reader.same_identity(favorite.target,LibraryFavoriteTargetV1{ref});});
+                check(found!=reader.favorites().end(),"GUI Add Favorite persists the exact folder identity");
+                const auto id=found->favorite_id;select_favorite(id);slot->setCurrentIndex(slot->findData(number));
+                click("folder-library-slot-set");unchanged(current);return id;
+            };
+            root_favorite=add(root_ref,1);child_favorite=add(child_ref,2);
+        }
+        settings.sync();const auto preferences=read_bytes(settings.fileName());
+        if(restarting) {
+            check(favorites->count()==2,"Fresh Window retains both Folder Favorites while their registered root is missing");
+            FolderLibrary reader(settings);
+            check(reader.favorite_for_slot(1)->favorite_id==root_favorite&&reader.favorite_for_slot(2)->favorite_id==child_favorite,
+                "Fresh workspace reader retains both exact Folder Favorite IDs and slots");
+            invoke(false,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        }else {
+            invoke(false,root_ref,root_favorite,1,{});invoke(true,child_ref,child_favorite,2,{});
+            for(bool quick:{false,true}) {
+                search->setFocus();search->selectAll();QTest::keyClicks(search,"Other source");QApplication::processEvents();
+                check(find_library_item(tree,root_ref)->isHidden()&&find_library_item(tree,child_ref)->isHidden(),
+                    "Actual search hides the Favorite destination and its ancestor");
+                invoke(quick,child_ref,child_favorite,2,{});
+                const auto* destination=find_library_item(tree,child_ref);
+                std::cout<<"Filtered Folder navigation query="<<search->text().toStdString()
+                    <<" hidden="<<destination->isHidden()<<" parent_hidden="<<destination->parent()->isHidden()<<'\n';
+                check(search->text().isEmpty()&&!destination->isHidden()&&!destination->parent()->isHidden(),
+                    "Folder Favorite/Quick Access clears an unrelated filter and visibly reaches its exact hierarchy");
+            }
+            search->setFocus();QTest::keyClicks(search,"Other source");QApplication::processEvents();
+            check(QDir().rename(root_path,moved_root),"Move only owned registered root after caching its tree");
+            invoke(false,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        }
+        click("folder-library-refresh");
+        invoke(true,root_ref,root_favorite,1,"LIBRARY_ITEM_MISSING");
+        invoke(false,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+        if(restarting) {
+            check(QDir().rename(moved_root,root_path),"Restore only the owned registered root");click("folder-library-refresh");
+            invoke(false,root_ref,root_favorite,1,{});invoke(true,child_ref,child_favorite,2,{});
+            const auto child_path=root_path+"/brand",moved_child=root_path+"/brand-moved";
+            check(QDir().rename(child_path,moved_child),"Move only owned child folder after indexing");
+            invoke(false,child_ref,child_favorite,2,"LIBRARY_ITEM_MISSING");
+            write_bytes(child_path,{'x'});
+            invoke(true,child_ref,child_favorite,2,"LIBRARY_ITEM_KIND_CHANGED");
+            check(QFile::remove(child_path)&&QDir().rename(moved_child,child_path),"Restore owned child folder after kind-change refusal");
+            invoke(false,child_ref,child_favorite,2,{});
+        }
+        settings.sync();check(read_bytes(settings.fileName())==preferences,"Invocation and Refresh preserve complete workspace preference bytes");
+    };
+    open_dialog(window,[&](QDialog* dialog){exercise(window,dialog,false);});
+    unchanged(window);window.close();window.host.flush();
+    Window restarted(scratch+"/restart-recovery",std::make_unique<FolderLibrary>(settings,
+        FolderLibrary::PersistOverride{},FolderLibrary::ReadbackOverride{},scratch+"/payloads"));
+    restarted.host.open(native_path);restarted.refresh();restarted.show();QApplication::processEvents();
+    const auto cold_history=restarted.host.session.history();const auto cold_session=restarted.host.session_id;
+    open_dialog(restarted,[&](QDialog* dialog){exercise(restarted,dialog,true);});
+    unchanged(restarted);
+    check(restarted.host.session_id==cold_session&&restarted.host.session.revision()==0&&restarted.host.session.history()==cold_history,
+        "Fresh native Window navigation/refusal preserves its new Session and untouched revision/history");
+    const auto saved_bytes=read_bytes(native_path);
+    check(encode(decode(std::string_view(reinterpret_cast<const char*>(saved_bytes.data()),saved_bytes.size())))==native,
+        "All navigation and source moves preserve the complete saved native artwork");
+    restarted.close();restarted.host.flush();
 }
 
 void portable_preset_library_ui(const QString& scratch) {
@@ -1560,6 +1872,11 @@ int main(int argc,char** argv) {
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc,argv);
     try {
+        if(argc==2&&QString::fromUtf8(argv[1])=="--folder-navigation") {
+            QTemporaryDir scratch;check(scratch.isValid(),"Owned navigation scratch is available");
+            folder_favorite_navigation(scratch.path());
+            std::cout<<"PASS "<<checks<<" Folder Favorite/navigation assertions\n";return 0;
+        }
         if (argc == 5 && QString::fromUtf8(argv[1]) == "--verify-settings") {
             QSettings persisted(QString::fromUtf8(argv[2]), QSettings::IniFormat);
             FolderLibrary reloaded(persisted);
@@ -1672,8 +1989,10 @@ int main(int argc,char** argv) {
         grouped_settings_identity(scratch.path()+"/grouped");
         unified_effect_favorites(scratch.path()+"/unified");
         portable_preset_assets(scratch.path()+"/portable-presets");
+        portable_preset_closure_assets(scratch.path()+"/portable-preset-closures");
         portable_macro_assets(scratch.path()+"/portable-macros");
         host_and_ui_placement(scratch.path()+"/placement");
+        folder_favorite_navigation(scratch.path()+"/navigation");
         portable_preset_library_ui(scratch.path()+"/portable-preset-ui");
         portable_macro_library_ui(scratch.path()+"/portable-macro-ui");
         unsafe_preset_root_keeps_legacy_library_usable(scratch.path()+"/unsafe-preset-root-ui");

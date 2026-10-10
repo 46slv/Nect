@@ -216,6 +216,29 @@ only. Import and apply allocates a fresh document DefinitionID and appends fresh
 operation IDs in one Session commit, so one Undo removes both the definition and
 application. No source document or payload code is needed when applying an asset.
 
+Portable Preset payload schema 3 additionally stores one self-contained asset-only
+closure: `definition` retains the native Preset schema 2 shape, and
+`macro_definitions` copies each referenced Macro once in source DefinitionID order.
+All retained Macro revisions, graph-local IDs, authored node/edge storage order,
+latest revision, exact application pins, enabled literals and typed PublicParamID
+overrides remain unchanged. Existing portable Macro schemas 1 through 3 define
+the allowed dependencies. Missing pins/dependencies, unused or duplicate
+dependencies and incompatible controls refuse; no neighboring asset, source path
+or external lookup participates. The complete canonical closure has one 256 KiB
+budget. Literal-only assets retain exactly the original schema 1/2 canonical bytes
+and strict literal codec behavior. The envelope remains version 1 and
+`portablePreset`; native 0.87 and document Preset schemas are unchanged.
+
+`ImportAndApplyPresetClosure` requires an exact complete source-to-fresh Macro
+DefinitionID mapping and a fresh Preset DefinitionID. Only these outer identities
+and Preset Macro references change. The dedicated Preset command imports all
+dependencies and appends all processing entries in one validated candidate and
+one Undo. `apply_serializable_preset` preflights the canonical closure budget and
+native serialization on a full Session copy before installing that candidate;
+Desktop and JSON-lines imports use this IO boundary. JSON-lines
+`import_apply_preset_closure` reports installed dependency IDs and actual pins,
+separately from the caller-supplied accepted asset revision.
+
 ## Workspace Macro Library v1
 
 The workspace Macro Library stores the canonical typed `MacroDefinition` JSON
@@ -1200,6 +1223,16 @@ and must equal every original bound translated by its requested displacement;
 geometry/reference side effects reject as ALIGNMENT_PRESERVATION. Session applies
 the command atomically with ordinary history. No persistent layout constraint or
 new saved format is introduced.
+
+`alignment: "baseline"` accepts axis-aligned Text with `selection` or
+`key_object:ID`: y uses the measured first horizontal line, x the measured first
+vertical column. Evaluated direction links participate in the shared Text
+projection. Selection fixes the minimum Composition baseline (stable ID breaks
+exact ties); the key reference fixes that exact selected Text. Only transforms
+move; source text/style and the fixed object remain authored unchanged. Mixed or
+incompatible directions, rotated/skewed Text, missing metrics and Artboard/Grid/
+Guide baseline references reject atomically. No glyph-box edge substitutes for
+a metric, no baseline distribution or persistent constraint is introduced.
 
 `DistributeObjects` / `distribute_objects` shares the alignment bounds and
 simultaneous translation solver. It requires3–1000 unique objects in one

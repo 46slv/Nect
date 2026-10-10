@@ -2,6 +2,7 @@
 #include "nect/blend.hpp"
 
 #include <QApplication>
+#include <QCursor>
 #include <QFocusEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -177,6 +178,12 @@ void Canvas::refresh() {
     }
     if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
     const auto& document = session_.preview_document();
+    if(!drawing_object_.empty()&&(drawing_document_!=document.id||
+        (session_identity_provider_&&drawing_session_!=session_identity_provider_()))) {
+        drawing_object_.clear();drawing_contour_.clear();drawing_document_.clear();drawing_session_.clear();
+    }
+    if(gradient_edit_mode_&&(gradient_document_!=document.id||
+        (session_identity_provider_&&gradient_session_!=session_identity_provider_())))clear_gradient_edit();
     const auto previous_composition = active_composition_, previous_artboard = active_artboard_;
     try {
         auto composition = std::find_if(document.compositions.begin(), document.compositions.end(),
@@ -386,9 +393,20 @@ void Canvas::refresh() {
         std::erase_if(retained,[&](const auto& s){const auto* g=geometry(s.object);
             return !world_.contains(s.object)||(!s.point.empty()&&(!g||!point(*g,s.point)));});
         if(retained!=selections_)select_many(std::move(retained));
-        if (!drawing_object_.empty() && !world_.contains(drawing_object_)) {
-            drawing_object_.clear();
-            drawing_contour_.clear();
+        if (!drawing_object_.empty()) {
+            const auto source=document.objects.find(drawing_object_);
+            bool pending=world_.contains(drawing_object_)&&source!=document.objects.end();
+            if(pending) {
+                const auto contour=std::find_if(source->second.contours.begin(),source->second.contours.end(),
+                    [&](const auto& item){return item.id==drawing_contour_;});
+                pending=contour!=source->second.contours.end()&&!contour->closed;
+            }
+            // A menu/API close finishes the same authored contour as a Pen
+            // first-anchor click. Keep the tool, but never append to that target.
+            if(!pending) {
+                drawing_object_.clear();drawing_contour_.clear();
+                drawing_document_.clear();drawing_session_.clear();
+            }
         }
         gradient_control_.reset();
         if (!gradient_operation_.empty()) {
@@ -403,7 +421,7 @@ void Canvas::refresh() {
                         {get("end_x"), get("end_y")}, world_.at(gradient_object_), gradient.type == "radial"};
                 }
             }
-            if (!gradient_control_) clear_gradient_edit();
+            if (!gradient_control_) clear_gradient_edit(true);
         }
         if(circle_source_edit_) {
             const auto source=document.objects.find(circle_source_object_);
@@ -426,7 +444,7 @@ void Canvas::refresh() {
 void Canvas::select_all_in_context() {
     if(drag_!=Drag::none||gesture_owned_||draw_mode_)return;
     std::vector<Selection> selected;
-    if(!selected_point.empty()) {
+    if(direct_selection_mode_||!selected_point.empty()) {
         for(const auto& id:selected_objects())if(const auto* item=geometry(id))
             for(const auto& point:item->points)selected.push_back({id,point.id});
     } else {
@@ -440,12 +458,14 @@ void Canvas::select_all_in_context() {
 }
 
 void Canvas::nudge_selection(double dx,double dy) {
-    if(drag_!=Drag::none||gesture_owned_||draw_mode_||anchor_edit_||gradient_control_||selections_.empty())return;
+    if(drag_!=Drag::none||gesture_owned_||draw_mode_||text_mode_||anchor_edit_||gradient_edit_mode_||guide_edit_mode_||hand_mode_||zoom_mode_||selections_.empty())return;
     try {
         std::vector<Command> commands;
         if(selected_point.empty())commands.push_back(TranslateObjects{selected_objects(),dx,dy});
         else {
             for(const auto& selection:selections_) {
+                if(scene_.deformation_owners.contains(selection.object))
+                    throw Error("DEFORM_SOURCE_EDIT_REQUIRED","Edit the retained source in Inspector/API; derived Path Deform anchors cannot be nudged directly");
                 const auto* g=geometry(selection.object);const auto* p=g?point(*g,selection.point):nullptr;
                 if(!p)throw Error("MISSING_POINT","Selected point is no longer available");
                 bool invertible=false;const auto inverse=g->world.inverted(&invertible);
@@ -518,13 +538,16 @@ void Canvas::fit_bounds(QRectF bounds) {
 }
 
 void Canvas::set_zoom(double zoom) {
+    zoom_at(zoom,QPointF(width()/2.0,height()/2.0));
+}
+
+void Canvas::zoom_at(double zoom,QPointF anchor,bool new_sequence) {
     if(!std::isfinite(zoom)||gesture_owned_||drag_==Drag::marquee)return;
-    const auto center=QPointF(width()/2.0,height()/2.0);
-    const auto world_center=view().inverted().map(center);
+    const auto under_anchor=view().inverted().map(anchor);
     zoom_=std::clamp(zoom,0.02,64.0);
-    pan_=center-world_center*zoom_;
+    pan_=anchor-under_anchor*zoom_;
     initial_fit_=false;
-    request_frame(QStringLiteral("zoom"),true);
+    request_frame(QStringLiteral("zoom"),new_sequence);
     if(zoom_changed)zoom_changed(zoom_);
 }
 
@@ -537,7 +560,7 @@ void Canvas::set_active_artboard(Id composition, Id artboard, bool fit) {
         throw Error("MISSING_ARTBOARD", "Choose an artboard in its owning composition");
     const bool changed = composition != active_composition_ || artboard != active_artboard_;
     cancel_interaction();
-    if (changed) set_draw_mode(false);
+    if (changed) finish_draw_path();
     if (composition != active_composition_) { select({}); set_scope({}); }
     active_composition_ = std::move(composition); active_artboard_ = std::move(artboard);
     refresh();
@@ -595,12 +618,17 @@ void Canvas::select_many(std::vector<Selection> items,bool enter_parent) {
     if(enter_parent)set_scope(valid.empty()?Id{}:unprojected_text_parents.contains(valid.back().object)?
         unprojected_text_parents.at(valid.back().object):parents_.at(valid.back().object));
     if(valid==selections_)return;
-    if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit();
+    if(valid.size()!=1||valid.back().object!=gradient_object_||!valid.back().point.empty())clear_gradient_edit(gradient_edit_mode_);
     if(circle_source_edit_&&(valid.size()!=1||valid.back()!=Selection{circle_source_object_,{}}))
         clear_circle_source_edit(false);
     selections_=std::move(valid);
     selected_object=selections_.empty()?Id{}:selections_.back().object;
     selected_point=selections_.empty()?Id{}:selections_.back().point;
+    if(gradient_edit_mode_) {
+        const auto available=gradient_edit_availability();
+        if(available.operations.size()==1&&(gradient_object_!=selected_object||gradient_operation_!=available.operations.front()))
+            set_gradient_edit(selected_object,available.operations.front());
+    }
     if (selection_changed) selection_changed();
     update();
 }
@@ -666,9 +694,10 @@ void Canvas::leave_group() {
 
 void Canvas::set_draw_mode(bool enabled) {
     cancel_interaction();
-    if (enabled) {clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);}
+    if (enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();clear_gradient_edit();set_anchor_edit(false);set_guide_edit_mode(false);}
     drawing_object_.clear();
     drawing_contour_.clear();
+    drawing_document_.clear();drawing_session_.clear();
     if (draw_mode_ == enabled) return;
     draw_mode_ = enabled;
     update_cursor();
@@ -676,18 +705,65 @@ void Canvas::set_draw_mode(bool enabled) {
     if (draw_mode_changed) draw_mode_changed(enabled);
 }
 
+void Canvas::set_text_mode(bool enabled, bool vertical) {
+    if(!enabled&&!text_mode_)return;
+    cancel_interaction();
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_circle_source_edit();clear_gradient_edit();set_guide_edit_mode(false);}
+    text_mode_=enabled;
+    if(enabled)vertical_text_creation_=vertical;
+    update_cursor();update();
+    if(text_mode_changed)text_mode_changed();
+}
+
+void Canvas::set_hand_mode(bool enabled) {
+    if(hand_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_direct_selection_mode(false);set_zoom_mode(false);
+        set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
+        set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    hand_mode_=enabled;
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
+void Canvas::set_zoom_mode(bool enabled) {
+    if(zoom_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_direct_selection_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);
+        set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    zoom_mode_=enabled;
+    zoom_out_cursor_=enabled&&QApplication::keyboardModifiers().testFlag(Qt::AltModifier);
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
+void Canvas::set_direct_selection_mode(bool enabled) {
+    if(direct_selection_mode_==enabled)return;
+    cancel_interaction();
+    if(enabled) {
+        set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);
+        set_anchor_edit(false);set_guide_edit_mode(false);clear_gradient_edit();clear_circle_source_edit();
+    }
+    direct_selection_mode_=enabled;
+    update_cursor();update();if(view_state_changed)view_state_changed();
+}
+
 void Canvas::set_anchor_edit(bool enabled) {
     cancel_interaction();
-    if(enabled) {clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();select(selected_object,{});}
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);clear_circle_source_edit();set_draw_mode(false);clear_gradient_edit();set_guide_edit_mode(false);select(selected_object,{});}
     if(anchor_edit_==enabled)return;
     anchor_edit_=enabled;update_cursor();update();
     if(anchor_edit_changed)anchor_edit_changed(enabled);
 }
 
-void Canvas::clear_gradient_edit() {
-    const bool active = !gradient_operation_.empty();
+void Canvas::clear_gradient_edit(bool retain_tool) {
+    const bool active = gradient_edit_mode_ || !gradient_operation_.empty();
     gradient_object_.clear(); gradient_operation_.clear(); gradient_control_.reset();
+    if(!retain_tool) {gradient_edit_mode_=false;gradient_document_.clear();gradient_session_.clear();}
     if (active && gradient_edit_changed) gradient_edit_changed();
+    update_cursor();
     update();
 }
 
@@ -713,7 +789,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
             throw Error("INVALID_SELECTION","Circle source handles require a selected retained Circle");
         if(circle_source_edit_&&circle_source_object_==object.id&&circle_source_id_==object.source->id)return;
         clear_circle_source_edit();
-        set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
+        set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();
         circle_source_object_=object.id;circle_source_id_=object.source->id;circle_source_edit_=true;
         refresh();update_cursor();update();
         if(circle_source_edit_changed)circle_source_edit_changed(true);
@@ -721,6 +797,7 @@ void Canvas::set_circle_source_edit(bool enabled) {
 }
 
 void Canvas::set_gradient_edit(Id object, Id operation) {
+    if(!operation.empty()){set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_guide_edit_mode(false);}
     cancel_interaction();
     clear_circle_source_edit();
     set_anchor_edit(false);
@@ -730,9 +807,33 @@ void Canvas::set_gradient_edit(Id object, Id operation) {
     set_draw_mode(false);
     select(object, {}, true);
     gradient_object_ = std::move(object); gradient_operation_ = std::move(operation);
+    gradient_edit_mode_=true;
+    gradient_document_=session_.document().id;
+    gradient_session_=session_identity_provider_?session_identity_provider_():QString{};
     refresh();
     if (gradient_edit_changed) gradient_edit_changed();
+    update_cursor();
     setFocus();
+}
+
+Canvas::GradientEditAvailability Canvas::gradient_edit_availability() const {
+    if(selections_.size()!=1||!selected_point.empty())
+        return {{},"Select one whole Object with an enabled Gradient."};
+    if(projection_error_||!world_.contains(selected_object))
+        return {{},"Gradient handles are unavailable for this Object."};
+    const auto& document=session_.preview_document();
+    const auto object=document.objects.find(selected_object);
+    if(object==document.objects.end())return {{},"Select one Object with an enabled Gradient."};
+    GradientEditAvailability result;
+    try {
+        const auto enabled=evaluate_gradient_enableds(document);
+        for(const auto& operation:object->second.stack)
+            if(operation.gradient&&enabled.at(gradient_ref(object->first,operation.id,operation.gradient->id,"enabled")))
+                result.operations.push_back(operation.id);
+    }catch(const std::exception& e){return {{},QString("Gradient handles unavailable: ")+QString::fromUtf8(e.what())};}
+    if(result.operations.empty())result.reason="This Object has no enabled Gradient. Set its Paint in Inspector.";
+    else if(result.operations.size()>1)result.reason="Choose the Gradient to edit.";
+    return result;
 }
 
 Id Canvas::selection_target(const Geometry& item) const {
@@ -783,6 +884,7 @@ const Canvas::Geometry* Canvas::hit_path(QPointF screen) const {
 }
 
 Canvas::Hit Canvas::hit_control(QPointF screen) const {
+    if(guide_edit_mode_)return {};
     if(circle_source_edit_) {
         const auto control=circle_source_control();
         if(!control)return {};
@@ -802,7 +904,8 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
         if(distance((world_.at(selected_object)*view()).map(anchor),screen)<=hit_radius+2)return {Drag::pivot,selected_object,{}};
         return {};
     }
-    if (gradient_control_) {
+    if (gradient_edit_mode_) {
+        if (!gradient_control_) return {};
         const auto transform = gradient_control_->world * view();
         if (distance(transform.map(gradient_control_->start), screen) <= hit_radius)
             return {Drag::gradient_start, gradient_object_, {}};
@@ -813,6 +916,7 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     for(const auto& object:selected_objects()) {
     const auto* item = geometry(object);
     if (!item) continue;
+    if(direct_selection_mode_&&(selection_target(*item)!=item->id||!visible_hit(*item,screen)))continue;
     const auto transform = item->world * view();
     if (const auto* selected = point(*item, object==selected_object?selected_point:Id{})) {
         if (distance(transform.map(selected->anchor), screen) <= 5)
@@ -829,6 +933,15 @@ Canvas::Hit Canvas::hit_control(QPointF screen) const {
     for (const auto& p : item->points)
         if (distance(transform.map(p.anchor), screen) <= hit_radius)
             return {Drag::anchor, item->id, p.id};
+    }
+    // Direct Selection discovers canonical points in the current Group scope.
+    // Instance projections remain owned by their instance, and derived Deform
+    // points still pass through begin_drag's explicit retained-source refusal.
+    if(direct_selection_mode_)for(auto item=geometry_.rbegin();item!=geometry_.rend();++item) {
+        if(selection_target(*item)!=item->id||!visible_hit(*item,screen))continue;
+        const auto transform=item->world*view();
+        for(const auto& p:item->points)if(distance(transform.map(p.anchor),screen)<=hit_radius)
+            return {Drag::anchor,item->id,p.id};
     }
     return {};
 }
@@ -1178,6 +1291,17 @@ void Canvas::paintEvent(QPaintEvent*) {
                 painter.drawRect(QRectF(screen.x() - size / 2, screen.y() - size / 2, size, size));
             }
         }
+        if(direct_selection_mode_)for(const auto& item:geometry_) {
+            if(!item.normal_visible||selection_target(item)!=item.id||
+                std::any_of(selections_.begin(),selections_.end(),[&](const auto& s){return s.object==item.id;}))continue;
+            const auto transform=item.world*view();
+            painter.setBrush(QColor(250,250,250));
+            for(const auto& p:item.points) {
+                const auto screen=transform.map(p.anchor);if(!visible_hit(item,screen))continue;
+                painter.setPen(QPen(p.driven?linked:accent,1.3));
+                painter.drawRect(QRectF(screen.x()-3,screen.y()-3,6,6));
+            }
+        }
         if(anchor_edit_&&world_.contains(selected_object)) {
             const QPointF anchor(values_.at({selected_object,"","transform.anchor_x"}),values_.at({selected_object,"","transform.anchor_y"}));
             const auto screen=(world_.at(selected_object)*view()).map(anchor);
@@ -1240,11 +1364,18 @@ void Canvas::paintEvent(QPaintEvent*) {
         painter.drawText(breadcrumb_rect_.adjusted(10, 0, -10, 0), Qt::AlignVCenter,
                          painter.fontMetrics().elidedText(label, Qt::ElideRight,
                              static_cast<int>(breadcrumb_rect_.width() - 20)));
-        const auto hint = draw_mode_
-            ? tr("Add Path · Click for points · Click first point to close · Enter / Esc to finish")
+        const auto hint = direct_selection_mode_ ? tr("Direct Selection · Drag points / handles · Shift: extend · Esc exits")
+            : zoom_mode_ ? tr("Zoom · Click in · Alt-click out · Space-drag pan · Esc exits")
+            : hand_mode_ ? tr("Hand · Drag to pan the view · Esc exits · F: fit") : draw_mode_
+            ? tr("Pen · Click points · First point: close · Enter: next Path · Esc: exit")
             : circle_source_edit_ ? tr("Circle source · Drag Center or Radius · Radius follows local +X · Esc exits")
             : anchor_edit_ ? tr("Anchor · Drag the crosshair to change the pivot; artwork stays in place · Esc exits")
-            : gradient_control_ ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
+            : gradient_edit_mode_ ? (gradient_control_
+                ? tr("Gradient · Drag its handles · Esc cancels a drag / exits handles · Space-drag to pan")
+                : tr("Gradient Edit · Select one Object / choose its Gradient · Esc exits"))
+            : guide_edit_mode_ ? (show_guides_
+                ? tr("Guide Edit · Drag a Guide · Esc cancels a drag / exits · Space-drag to pan")
+                : tr("Guide overlays are hidden · Show Guides to edit · Esc exits"))
             : tr("Empty-drag: select contained · Shift: extend · Arrows: move · Space: pan · F: fit / Shift+F: selection");
         painter.setPen(QColor(166, 174, 186));
         painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
@@ -1319,7 +1450,7 @@ void Canvas::set_show_margin(bool enabled) {
 void Canvas::set_guide_edit_mode(bool enabled) {
     if(guide_edit_mode_==enabled)return;
     if(!enabled&&(drag_==Drag::guide||armed_guide_))cancel_interaction();
-    if(enabled) {set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();}
+    if(enabled) {set_direct_selection_mode(false);set_zoom_mode(false);set_hand_mode(false);set_text_mode(false);set_draw_mode(false);set_anchor_edit(false);clear_gradient_edit();clear_circle_source_edit();}
     guide_edit_mode_=enabled;
     update_cursor();update();if(view_state_changed)view_state_changed();
 }
@@ -2150,7 +2281,13 @@ void Canvas::finish_marquee() {
     auto selected=marquee_extend_?marquee_start_:std::vector<Selection>{};
     auto include=[&](Selection item){if(std::find(selected.begin(),selected.end(),item)==selected.end())selected.push_back(std::move(item));};
     if(drag_moved_) {
-        if(!marquee_start_.empty()&&!marquee_start_.back().point.empty()) {
+        if(direct_selection_mode_) {
+            for(const auto& g:geometry_)if(g.normal_visible&&selection_target(g)==g.id)
+                for(const auto& p:g.points) {
+                    const auto screen=(g.world*view()).map(p.anchor);
+                    if(rectangle.contains(screen)&&visible_hit(g,screen))include({g.id,p.id});
+                }
+        } else if(!marquee_start_.empty()&&!marquee_start_.back().point.empty()) {
             std::set<Id> objects;for(const auto& item:marquee_start_)objects.insert(item.object);
             for(const auto& id:objects)if(const auto* g=geometry(id))
                 for(const auto& p:g->points)if(rectangle.contains((g->world*view()).map(p.anchor)))include({id,p.id});
@@ -2207,10 +2344,16 @@ void Canvas::finish_drag() {
             // second full projection here only adds latency to pointer release.
             if(document_changed)document_changed();
             update();
-        } else refresh(); // A cancellation/failure may have restored the start state.
+        } else {
+            refresh(); // A cancellation/failure may have restored the start state.
+            // Selection built the fields before begin_gesture changed its generation.
+            // Refresh only derived UI; an empty click must not dirty/save the document.
+            if(empty_gesture_finished)empty_gesture_finished();
+        }
     }
     drag_ = Drag::none;
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
+    pan_button_ = Qt::NoButton;
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
     snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
     circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
@@ -2230,12 +2373,21 @@ void Canvas::cancel_interaction() {
     gesture_owned_ = false;
     drag_ = Drag::none;
     drag_moved_ = false;
+    pan_button_ = Qt::NoButton;
     guide_drag_invalid_=false;guide_drag_document_.clear();guide_drag_composition_.clear();guide_drag_session_.clear();
     circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
     circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
     update_cursor();
     if (had_preview) refresh();
     else if(had_marquee)update();
+}
+
+void Canvas::finish_draw_path() {
+    cancel_interaction();
+    drawing_object_.clear();
+    drawing_contour_.clear();
+    drawing_document_.clear();drawing_session_.clear();
+    update();
 }
 
 void Canvas::append_draw_point(QPointF screen) {
@@ -2252,7 +2404,7 @@ void Canvas::append_draw_point(QPointF screen) {
                 distance((item->world * view()).map(item->points.front().anchor), screen) <= hit_radius) {
                 session_.apply({CloseContour{drawing_object_, drawing_contour_, true}}, session_.revision());
                 refresh();
-                set_draw_mode(false);
+                finish_draw_path();
                 if (document_changed) document_changed();
                 return;
             }
@@ -2273,6 +2425,8 @@ void Canvas::append_draw_point(QPointF screen) {
         }
         drawing_object_ = object_id;
         drawing_contour_ = contour_id;
+        drawing_document_=session_.document().id;
+        drawing_session_=session_identity_provider_?session_identity_provider_():QString{};
         refresh();
         select(object_id, p.id);
         if (document_changed) document_changed();
@@ -2283,14 +2437,21 @@ void Canvas::append_draw_point(QPointF screen) {
 
 void Canvas::mousePressEvent(QMouseEvent* event) {
     setFocus(Qt::MouseFocusReason);
+    if(drag_==Drag::pan) {event->accept();return;}
     if (event->button() == Qt::MiddleButton ||
-        (event->button() == Qt::LeftButton && space_down_)) {
+        (event->button() == Qt::LeftButton && (space_down_ || hand_mode_))) {
         if(armed_guide_||scoped_guide_drag_)cancel_interaction();
+        pan_button_=event->button();
         begin_drag(Drag::pan, event->position());
         event->accept();
         return;
     }
     if (event->button() != Qt::LeftButton) return;
+    if (zoom_mode_) {
+        zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);
+        zoom_at(zoom_*(zoom_out_cursor_?1.0/1.25:1.25),event->position());
+        update_cursor();event->accept();return;
+    }
     if (!scope_.empty() && breadcrumb_rect_.contains(event->position())) {
         leave_group();
         return;
@@ -2298,6 +2459,23 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
     if (draw_mode_) {
         append_draw_point(event->position());
         return;
+    }
+    if(text_mode_) {
+        try {
+            if(active_composition_.empty())throw Error("MISSING_COMPOSITION","Choose a composition before placing Text");
+            const auto parent_world=scope_.empty()?QTransform{}:world_.at(scope_);
+            bool invertible=false;const auto inverse=parent_world.inverted(&invertible);
+            if(!invertible)throw Error("SINGULAR_TRANSFORM","Cannot place Text through a singular group transform");
+            const auto local=inverse.map(view().inverted().map(event->position()));
+            auto source=default_text(unique_id("text-source-"));
+            source.direction=vertical_text_creation_?"vertical":"horizontal";
+            source.parameters.at("origin_x").literal=local.x();source.parameters.at("origin_y").literal=local.y();
+            const auto id=unique_id("text-");
+            session_.apply({CreateText{active_composition_,scope_,id,"Text",std::move(source)}},session_.revision());
+            refresh();select(id);
+            if(document_changed)document_changed();
+        } catch(const std::exception& exception){report_error(exception);}
+        event->accept();return;
     }
     if(circle_source_edit_) {
         const auto source_hit=hit_control(event->position());
@@ -2334,9 +2512,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         }
         if(extend){toggle_selection({target,{}});event->accept();return;}
         if(std::find(selections_.begin(),selections_.end(),Selection{target,{}})==selections_.end())select(target);
-        if(!anchor_edit_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
+        if(!direct_selection_mode_&&!anchor_edit_&&!gradient_edit_mode_&&!guide_edit_mode_&&!circle_mode_at_press&&!circle_source_edit_)begin_drag(Drag::object, event->position());
     } else {
-        if(anchor_edit_||gradient_control_||circle_source_edit_) {if(!extend)select({});}
+        if(anchor_edit_||gradient_edit_mode_||guide_edit_mode_||circle_source_edit_) {if(!extend)select({});}
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;
@@ -2349,6 +2527,9 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
 
 void Canvas::mouseMoveEvent(QMouseEvent* event) {
     if (drag_ != Drag::none) update_drag(event->position());
+    else if (hand_mode_||zoom_mode_||direct_selection_mode_||text_mode_) {
+        zoom_out_cursor_=event->modifiers().testFlag(Qt::AltModifier);update_cursor();
+    }
     else if (!space_down_ && !draw_mode_) {
         const auto hit = hit_control(event->position());
         setCursor((guide_edit_mode_&&(hit_armed_guide(event->position()).has_value()||hit_guide(event->position())))||hit.kind != Drag::none ? Qt::CrossCursor : Qt::ArrowCursor);
@@ -2357,6 +2538,7 @@ void Canvas::mouseMoveEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseReleaseEvent(QMouseEvent* event) {
+    if(drag_==Drag::pan&&event->button()!=pan_button_) {event->accept();return;}
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
         if(drag_==Drag::marquee||scoped_guide_drag_)update_drag(event->position());
         finish_drag();
@@ -2365,7 +2547,12 @@ void Canvas::mouseReleaseEvent(QMouseEvent* event) {
 }
 
 void Canvas::mouseDoubleClickEvent(QMouseEvent* event) {
-    if (draw_mode_ || event->button() != Qt::LeftButton) return;
+    if(drag_==Drag::pan||text_mode_) {event->accept();return;}
+    if(zoom_mode_&&!space_down_&&event->button()==Qt::LeftButton) {
+        zoom_at(zoom_*(event->modifiers().testFlag(Qt::AltModifier)?1.0/1.25:1.25),event->position());
+        event->accept();return;
+    }
+    if (hand_mode_ || space_down_ || draw_mode_ || event->button() != Qt::LeftButton) return;
     cancel_interaction();
     if (const auto* item = hit_path(event->position())) {
         auto target = selection_target(*item);
@@ -2382,27 +2569,30 @@ void Canvas::wheelEvent(QWheelEvent* event) {
     // Changing the view mid-edit would change the drag's inverse mapping.
     if (gesture_owned_||drag_==Drag::marquee) { event->accept(); return; }
     const auto now = clock_.nsecsElapsed();
-    request_frame(QStringLiteral("zoom"), last_wheel_ns_ < 0 || now - last_wheel_ns_ > 250000000);
+    const bool new_sequence=last_wheel_ns_ < 0 || now - last_wheel_ns_ > 250000000;
     last_wheel_ns_ = now;
     const auto cursor = event->position();
-    const auto under_cursor = view().inverted().map(cursor);
     const auto delta = event->angleDelta().y() != 0 ? event->angleDelta().y() : event->pixelDelta().y();
-    zoom_ = std::clamp(zoom_ * std::pow(1.0015, delta), 0.02, 64.0);
-    pan_ = cursor - under_cursor * zoom_;
-    update();
-    if(zoom_changed)zoom_changed(zoom_);
+    zoom_at(zoom_ * std::pow(1.0015, delta),cursor,new_sequence);
     event->accept();
 }
 
 void Canvas::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape) {
         if (drag_ != Drag::none||armed_guide_) cancel_interaction();
+        else if (direct_selection_mode_) set_direct_selection_mode(false);
+        else if (zoom_mode_) set_zoom_mode(false);
+        else if (hand_mode_) set_hand_mode(false);
         else if (draw_mode_) set_draw_mode(false);
+        else if (text_mode_) set_text_mode(false);
         else if(anchor_edit_)set_anchor_edit(false);
         else if(circle_source_edit_)set_circle_source_edit(false);
-        else if (gradient_control_) clear_gradient_edit();
+        else if (gradient_edit_mode_) clear_gradient_edit();
+        else if (guide_edit_mode_) set_guide_edit_mode(false);
         else if (!scope_.empty()) leave_group();
         else select({});
+    } else if (event->key()==Qt::Key_Alt&&zoom_mode_) {
+        zoom_out_cursor_=true;update_cursor();
     } else if ((event->key()==Qt::Key_Left||event->key()==Qt::Key_Right||event->key()==Qt::Key_Up||event->key()==Qt::Key_Down)&&
         (event->modifiers()==Qt::NoModifier||event->modifiers()==Qt::ShiftModifier)) {
         const double step=event->modifiers()==Qt::ShiftModifier?10.0:1.0;
@@ -2416,7 +2606,7 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
         space_down_ = true;
         update_cursor();
     } else if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter) && draw_mode_) {
-        set_draw_mode(false);
+        finish_draw_path();
     } else if (event->key() == Qt::Key_F && event->modifiers() == Qt::NoModifier && drag_ == Drag::none) {
         fit_artboard();
     } else {
@@ -2427,7 +2617,9 @@ void Canvas::keyPressEvent(QKeyEvent* event) {
 }
 
 void Canvas::keyReleaseEvent(QKeyEvent* event) {
-    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
+    if(event->key()==Qt::Key_Alt&&zoom_mode_) {
+        zoom_out_cursor_=false;update_cursor();event->accept();
+    } else if (event->key() == Qt::Key_Space && !event->isAutoRepeat()) {
         space_down_ = false;
         update_cursor();
         event->accept();
@@ -2436,6 +2628,7 @@ void Canvas::keyReleaseEvent(QKeyEvent* event) {
 
 void Canvas::focusOutEvent(QFocusEvent* event) {
     space_down_ = false;
+    zoom_out_cursor_=false;
     cancel_interaction();
     QWidget::focusOutEvent(event);
 }
@@ -2486,8 +2679,25 @@ void Canvas::reset_timing() {
 
 void Canvas::update_cursor() {
     if (drag_ == Drag::pan) setCursor(Qt::ClosedHandCursor);
-    else if (space_down_) setCursor(Qt::OpenHandCursor);
-    else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
+    else if (space_down_ || hand_mode_) setCursor(Qt::OpenHandCursor);
+    else if (zoom_mode_) {
+        const auto magnifier=[](bool out) {
+            QPixmap pixels(32,32);pixels.fill(Qt::transparent);QPainter p(&pixels);
+            p.setRenderHint(QPainter::Antialiasing);
+            QPainterPath shape;shape.addEllipse(QRectF(3,3,16,16));
+            shape.moveTo(17,17);shape.lineTo(26,26);
+            shape.moveTo(7,11);shape.lineTo(15,11);
+            if(!out){shape.moveTo(11,7);shape.lineTo(11,15);}
+            p.setPen(QPen(Qt::black,4,Qt::SolidLine,Qt::RoundCap));p.drawPath(shape);
+            p.setPen(QPen(Qt::white,1.5,Qt::SolidLine,Qt::RoundCap));p.drawPath(shape);
+            p.end();return QCursor(pixels,11,11);
+        };
+        static const auto in=magnifier(false),out=magnifier(true);
+        setCursor(zoom_out_cursor_?out:in);
+    }
+    else if(direct_selection_mode_)setCursor(Qt::CrossCursor);
+    else if(text_mode_)setCursor(Qt::IBeamCursor);
+    else if (draw_mode_ || anchor_edit_ || circle_source_edit_ || guide_edit_mode_ || gradient_edit_mode_ || drag_ == Drag::marquee || drag_ == Drag::anchor || drag_ == Drag::incoming ||
              drag_ == Drag::outgoing || drag_ == Drag::symmetric || drag_ == Drag::gradient_start ||
              drag_ == Drag::gradient_end || drag_==Drag::circle_center || drag_==Drag::circle_radius) setCursor(Qt::CrossCursor);
     else if (drag_ == Drag::object) setCursor(Qt::SizeAllCursor);

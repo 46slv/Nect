@@ -7,6 +7,7 @@
 #include <iostream>
 #include <numbers>
 #include <stdexcept>
+#include <tuple>
 
 using namespace nect;
 using nect::desktop::Canvas;
@@ -1601,8 +1602,16 @@ void snap_text_baseline_and_unsupported_axis_omission() {
     }
     {
         auto document=text_baseline_snap_document(true,false);
+        // Keep the canonical same-font H oracle, and isolate its baseline pair
+        // from the font-line box center. The common central column baseline is
+        // not that center; at 48 du their gap is only ~1.86 du, so the legitimate
+        // distance-first Snap instead chooses baseline-to-center at raw +15.
+        document.objects.at("moving-text").text->content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
         auto& target=*document.objects.at("target-text").text;
         target.direction="vertical";
+        target.content="H";
+        target.parameters.at("font_size").literal=96;
         target.parameters.at("origin_x").literal=40;
         target.parameters.at("origin_y").literal=320;
         document.objects.at("target-text").transform[4].literal=16;
@@ -1613,12 +1622,17 @@ void snap_text_baseline_and_unsupported_axis_omission() {
             "Vertical source and target each expose one measured column baseline");
         near(target_layout.column_baselines_x[0]-source_layout.column_baselines_x[0],0,
             "Matching vertical Text metrics isolate the target's authored 16-du translation");
+        check(std::abs(source_layout.column_baselines_x[0]-(source_layout.x+source_layout.width/2))>2,
+            "Measured column baseline is clear of the competing text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const auto start=f.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
         const auto end=start+QPoint(15,0);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),16,
-            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du");
+            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du; feedback "+
+                f.canvas.last_snap_feedback().toStdString()+", source baseline "+
+                std::to_string(source_layout.column_baselines_x[0])+", source glyph bounds "+
+                std::to_string(source_layout.x)+".."+std::to_string(source_layout.x+source_layout.width));
         check(f.canvas.last_snap_feedback().contains("X: column 1 baseline Text baseline → target-text column 1 baseline"),
             "Vertical Text feedback names both measured columns: "+f.canvas.last_snap_feedback().toStdString());
         f.release(end);near(f.value("moving-text",{},"transform.tx"),16,
@@ -1681,8 +1695,15 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         target.parameters.at("origin_y").literal=320;
         document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
         document.objects.at("target-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{16,{}}}};
+        document.objects.at("moving-text").text->content="H";
+        target.content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
+        target.parameters.at("font_size").literal=96;
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));
+        check(layout.column_baselines_x.size()==1&&
+              std::abs(layout.column_baselines_x.front()-(layout.x+layout.width/2))>2,
+            "Quarter-turn measured column baseline is clear of the text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const QTransform quarter_turn(0,1,-1,0,220,0);
         const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
@@ -2016,7 +2037,7 @@ void guide_drag_uses_stable_identity_and_one_session_undo() {
         "Canvas hit testing follows Guide expressions and refuses to drag their authored target literal");
 }
 
-void layout_overlays_are_view_only_and_not_exported() {
+void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool probe_margin_top=false,bool probe_grid_top=false) {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,130,110},2,2,10,10}};
@@ -2043,19 +2064,30 @@ void layout_overlays_are_view_only_and_not_exported() {
     const double image_scale=linked_image.width()>canvas.width()?static_cast<double>(linked_image.width())/canvas.width():1.0;
     const auto count_guide_pixels=[&](const QImage& source,double position) {
         const int guide_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int y=qRound(55*image_scale);y<qRound(215*image_scale);++y)
+        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*image_scale);
+        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*image_scale);
+        const int horizontal_guide=qRound((canvas.height()/2.0+(40-80)*canvas.zoom())*image_scale);
+        // A horizontal Guide / Artboard border must not count as a missing
+        // vertical Guide, especially when its physical pixel count grows.
+        for(int y=top;y<bottom;++y) {
+          if(std::abs(y-horizontal_guide)<=qMax(2,qRound(2*image_scale)))continue;
           for(int x=guide_x-qMax(2,qRound(2*image_scale));x<=guide_x+qMax(2,qRound(2*image_scale));++x) {
             const auto pixel=source.pixelColor(x,y);if(pixel.blue()>pixel.red()+25&&pixel.blue()>pixel.green()+15)++pixels;
           }
+        }
         return pixels;
     };
     const auto count_margin_pixels=[&](const QImage& source,double position) {
-        const int margin_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        // Pixel indices describe cells [n,n+1), not points centered at n.
+        // Rounding a fractional-scale line to n+1 can miss its covered cell.
+        const int margin_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(15-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top;y<=bottom;++y)for(int x=margin_x-qMax(2,qRound(2*image_scale));
-            x<=margin_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
+        // The right evaluated/literal positions are only 2 DIP apart. A +/-2
+        // pixel search includes the evaluated line in the literal sample at
+        // 100% scale. Sample the actual column and omit horizontal corner ink.
+        for(int y=top+qRound(3*image_scale);y<bottom-qRound(3*image_scale);++y) {
+            const auto pixel=source.pixelColor(margin_x,y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
@@ -2066,7 +2098,10 @@ void layout_overlays_are_view_only_and_not_exported() {
         for(int x=margin_x-24;x<=margin_x+24;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
             y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
             const auto pixel=source.pixelColor(x,y);
-            if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
+            // At 150%, the preview top coincides with the y=40 Guide. Its
+            // composited Margin coverage is RGB183/172/219, not pure purple.
+            // Pure blue Guide ink has red below green and still cannot qualify.
+            if(pixel.red()>pixel.green()+5&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
     };
@@ -2074,46 +2109,269 @@ void layout_overlays_are_view_only_and_not_exported() {
         const int margin_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);
         const int margin_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(130-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int x=margin_x;x<=right;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
-            y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
+        // Preview moves the bottom from 135 to 134 DIP: neighboring sample
+        // bands overlap here too. Keep the two coordinates distinguishable.
+        for(int x=margin_x;x<=right;++x) {
+            const auto pixel=source.pixelColor(x,margin_y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
     };
     const auto count_grid_pixels=[&](const QImage& source,double position) {
-        const int grid_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-qMax(2,qRound(2*image_scale));
-            x<=grid_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-        }
-        return pixels;
-    };
-    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
-        const int row_boundary= qRound((canvas.height()/2.0+(position+(grid_height-10)/2.0-80)*canvas.zoom())*image_scale);int pixels=0;
-        const int left=qRound((canvas.width()/2.0+(55-100)*canvas.zoom())*image_scale);
-        const int right=qRound((canvas.width()/2.0+(185-100)*canvas.zoom())*image_scale);
-        for(int x=left+3;x<right-3;++x)for(int y=row_boundary-qMax(2,qRound(2*image_scale));
-            y<=row_boundary+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        const auto is_grid=[](const QColor& pixel){
+            // Clipping at fractional physical pixels can leave only faint
+            // coverage (observed RGB233/240/235 at150%). Neutral paper, purple
+            // Margin and blue Guide ink fail these two color differences.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        // The exact fixture has two rows. Omit its known horizontal boundary
+        // cells even where an overlapping source Artboard masks one side of
+        // the color-based crossing check (observed two false pixels at y173).
+        const auto middle=grid.bounds.y+(grid.bounds.height-grid.row_gutter)/2.0;
+        const std::array crossing_rows{grid.bounds.y,middle,middle+grid.row_gutter,grid.bounds.y+grid.bounds.height};
+        // Include either side of a clipped Grid boundary, without the old
+        // broad band; reject horizontal crossings as evidence of a column.
+        // At125% a clipped x65 boundary falls in the right adjacent cell144,
+        // while cells142/143 are paper. Keep a narrow three-cell footprint.
+        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-1;x<=grid_x+1;++x) {
+            if(std::any_of(crossing_rows.begin(),crossing_rows.end(),[&](double row){
+                const auto physical=(canvas.height()/2.0+(row-80)*canvas.zoom())*image_scale;
+                return std::abs((y+.5)-physical)<=2;
+            }))continue;
+            if(is_grid(source.pixelColor(x-crossing_offset,y))&&
+                is_grid(source.pixelColor(x+crossing_offset,y)))continue;
+            if(is_grid(source.pixelColor(x,y)))++pixels;
         }
         return pixels;
     };
     const auto count_grid_horizontal_pixels=[&](const QImage& source,double position) {
-        const int grid_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_y=static_cast<int>(std::floor((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
-        for(int x=left;x<=right;++x)for(int y=grid_y-qMax(2,qRound(2*image_scale));
-            y<=grid_y+qMax(2,qRound(2*image_scale));++y) {
+        // A 1px translucent cosmetic stroke splits its coverage across rows at
+        // integer coordinates (observed RGB 202/223/209 on a 250 background).
+        // Exclude vertical crossings so they cannot satisfy a missing row.
+        const auto is_grid=[](const QColor& pixel){
+            // The exact 150% clipped top row covers cell173 with RGB233/240/235.
+            // Keep faint green coverage; neutral paper, blue Guides and purple
+            // Margins still fail. Crossing rejection below remains required.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        const auto middle=grid.bounds.x+(grid.bounds.width-grid.column_gutter)/2.0;
+        const std::array crossing_columns{grid.bounds.x,middle,middle+grid.column_gutter,grid.bounds.x+grid.bounds.width};
+        for(int x=left;x<=right;++x) {
+          // At150%, x173 is a vertical boundary with RGB233/240/235 below,
+          // but the overlapping source Artboard masks the upper sample with
+          // RGB28/37/35. Exclude exact fixture columns even in that asymmetry.
+          if(std::any_of(crossing_columns.begin(),crossing_columns.end(),[&](double column){
+              const auto physical=(canvas.width()/2.0+(column-100)*canvas.zoom())*image_scale;
+              return std::abs((x+.5)-physical)<=2;
+          }))continue;
+          if(is_grid(source.pixelColor(x,grid_y-crossing_offset))&&
+              is_grid(source.pixelColor(x,grid_y+crossing_offset)))continue;
+          // A scaled broad band also picked up the distinct committed y107.5
+          // row while testing cancelled preview y105 (49px at100%,77 at150%).
+          // Use the observed three-cell footprint, including either clip side.
+          for(int y=grid_y-1;y<=grid_y+1;++y) {
             const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+            if(is_grid(pixel))++pixels;
+          }
         }
         return pixels;
     };
+    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
+        return count_grid_horizontal_pixels(source,position+(grid_height-10)/2.0);
+    };
+    if(probe_grid_top) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical=(canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical));
+                std::cout<<" Grid row="<<position<<" physical="<<physical<<" legacy="<<count_grid_horizontal_pixels(image,position)<<'\n';
+                const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
+                const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
+                for(int y=cell-1;y<=cell+1;++y) {
+                    std::map<std::tuple<int,int,int>,int> colors;
+                    for(int x=left;x<=right;++x){const auto c=image.pixelColor(x,y);++colors[{c.red(),c.green(),c.blue()}];}
+                    std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                    for(const auto& [rgb,count]:colors)ranked.emplace_back(count,rgb);
+                    std::sort(ranked.rbegin(),ranked.rend());std::cout<<"  cell="<<y;
+                    for(std::size_t i=0;i<std::min<std::size_t>(6,ranked.size());++i){const auto [r,g,b]=ranked[i].second;
+                        std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;}std::cout<<'\n';
+                }
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_TOP_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,25,97.5});
+        check(count_grid_horizontal_pixels(linked_image,55)>20&&count_grid_horizontal_pixels(linked_image,25)==0,
+            "Evaluated initial Grid top rejects the authored literal row");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        canvas.refresh();QApplication::processEvents();
+        const auto committed=session.document();const auto native=encode(committed);const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();const auto preview=canvas.grab().toImage();
+        observe("preview",preview,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(preview,65)>20&&count_grid_horizontal_pixels(preview,25)==0&&
+            count_grid_horizontal_pixels(preview,55)==0&&count_grid_horizontal_pixels(preview,105)>20&&
+            count_grid_horizontal_pixels(preview,97.5)==0,
+            "Preview Grid top and interior row qualify without old or literal coordinates");
+        const auto y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
+        check(std::get<double>(y.literal)==25&&std::get<double>(y.evaluated)==65&&y.driver==grid_source,
+            "Grid top probe retains the literal and stable source while evaluating preview y65");
+        canvas.set_show_guides(false);canvas.set_show_margin(false);QApplication::processEvents();
+        const auto grid_only=canvas.grab().toImage();observe("grid-only",grid_only,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(grid_only,65)>20&&count_grid_horizontal_pixels(grid_only,105)>20&&
+            count_grid_horizontal_pixels(grid_only,25)==0&&count_grid_horizontal_pixels(grid_only,97.5)==0,
+            "Grid top and row remain visible without Guide and Margin overlays");
+        canvas.set_show_grid(false);canvas.set_show_guides(true);canvas.set_show_margin(true);QApplication::processEvents();
+        const auto no_grid=canvas.grab().toImage();observe("no-grid",no_grid,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(no_grid,65)==0&&count_grid_horizontal_pixels(no_grid,105)==0,
+            "Hidden Grid does not let Guide or Margin qualify top and row coordinates");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top probe and visibility controls preserve complete authored/native/revision/history");
+        session.cancel_gesture();canvas.set_show_grid(true);canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage();observe("cancelled",cancelled,{55,65,97.5,105});
+        check(count_grid_horizontal_pixels(cancelled,55)>20&&count_grid_horizontal_pixels(cancelled,65)==0&&
+            count_grid_horizontal_pixels(cancelled,97.5)>20&&count_grid_horizontal_pixels(cancelled,105)==0,
+            "Cancelled Grid preview restores committed top and row without future-row false positives");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top preview cancellation preserves complete authored state");
+        return;
+    }
+    if(probe_margin_top) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            const int center_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
+            for(const auto position:positions) {
+                const auto physical=(canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale;
+                const int cell=static_cast<int>(std::floor(physical));
+                std::map<std::tuple<int,int,int>,int> colors;
+                for(int x=center_x-24;x<=center_x+24;++x)for(int y=cell-3;y<=cell+3;++y) {
+                    const auto c=image.pixelColor(x,y);if(c!=QColor(250,250,250))++colors[{c.red(),c.green(),c.blue()}];
+                }
+                std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                for(const auto& [rgb,count]:colors)ranked.push_back({count,rgb});std::sort(ranked.rbegin(),ranked.rend());
+                std::cout<<" top="<<position<<" physical="<<physical<<" cell="<<cell<<" sampled="<<count_margin_top_pixels(image,position);
+                for(std::size_t i=0;i<std::min<std::size_t>(10,ranked.size());++i){const auto [r,g,b]=ranked[i].second;
+                    std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;}std::cout<<'\n';
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_MARGIN_TOP_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{15,20,40});
+        check(count_margin_top_pixels(linked_image,15)>20&&count_margin_top_pixels(linked_image,20)==0&&count_margin_top_pixels(linked_image,40)==0,
+            "Margin top positive row rejects old coordinates and the standalone horizontal Guide");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        canvas.refresh();QApplication::processEvents();
+        const auto committed=session.document();const auto native=encode(committed);const auto revision=session.revision();const auto history=session.history();
+        const auto expression=canvas.grab().toImage();observe("expression",expression,{20,15,40});
+        check(count_margin_top_pixels(expression,20)>20&&count_margin_top_pixels(expression,15)==0&&count_margin_top_pixels(expression,40)==0,
+            "Expression Margin top moves to its evaluated row without literal or Guide false positives");
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();const auto preview=canvas.grab().toImage();
+        observe("preview",preview,{40,20,15});
+        const auto top=artboard_layout_property(session.preview_document(),{"overlay-artboard","","margin.top"});
+        check(std::get<double>(top.literal)==15&&std::get<double>(top.evaluated)==40&&top.expression.has_value(),
+            "Preview retains literal and exact expression while evaluating Margin top40");
+        check(count_margin_top_pixels(preview,40)>20&&count_margin_top_pixels(preview,20)==0&&count_margin_top_pixels(preview,15)==0,
+            "Preview composited Margin top qualifies only the evaluated row");
+        canvas.set_show_guides(false);QApplication::processEvents();const auto no_guides=canvas.grab().toImage();observe("no-guides",no_guides,{40,20});
+        check(count_margin_top_pixels(no_guides,40)>20&&count_margin_top_pixels(no_guides,20)==0,
+            "Same evaluated Margin top remains visible without overlapping Guide ink");
+        canvas.set_show_margin(false);canvas.set_show_guides(true);QApplication::processEvents();
+        const auto guide_only=canvas.grab().toImage();observe("guide-only",guide_only,{40,20});
+        check(count_margin_top_pixels(guide_only,40)==0&&count_margin_top_pixels(guide_only,20)==0,
+            "Hidden Margin negative control rejects the exact overlapping horizontal Guide");
+        canvas.set_show_guides(false);QApplication::processEvents();observe("no-margin",canvas.grab().toImage(),{40,20});
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Margin top probe preserves authored/native/revision/history during preview and visibility controls");
+        session.cancel_gesture();canvas.set_show_guides(true);canvas.set_show_margin(true);canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage();observe("cancelled",cancelled,{20,40});
+        check(count_margin_top_pixels(cancelled,20)>20&&count_margin_top_pixels(cancelled,40)==0,
+            "Cancelled preview restores committed expression row and rejects the remaining Guide");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Margin top probe cancellation preserves complete authored state");
+        return;
+    }
+    if(probe_grid_x) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions){
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical_x=(canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical_x));
+                const auto top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
+                const auto bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
+                std::map<std::tuple<int,int,int>,int> colors;
+                for(int y=top+3;y<bottom-3;++y)for(int x=cell-1;x<=cell+1;++x) {
+                    const auto pixel=image.pixelColor(x,y);
+                    if(pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3)
+                        ++colors[{pixel.red(),pixel.green(),pixel.blue()}];
+                }
+                std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                for(const auto& [rgb,count]:colors)ranked.push_back({count,rgb});
+                std::sort(ranked.rbegin(),ranked.rend());
+                std::cout<<"  x="<<position<<" physical="<<physical_x<<" cell="<<cell<<" count="<<count_grid_pixels(image,position);
+                for(std::size_t i=0;i<std::min<std::size_t>(8,ranked.size());++i) {
+                    const auto [r,g,b]=ranked[i].second;std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;
+                }
+                std::cout<<'\n';
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_X_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,20,73.5,77.5});
+        check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)==0&&
+            count_grid_pixels(linked_image,73.5)>20&&count_grid_pixels(linked_image,77.5)==0,
+            "Exact initial Grid x and gutter edges have coverage; their retained literal positions do not");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        const auto committed=session.document();const auto native=encode(committed);
+        const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();
+        const auto preview=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        observe("preview",preview,{65,55,20,84.5,73.5});
+        check(count_grid_pixels(preview,65)>20&&count_grid_pixels(preview,84.5)>20&&count_grid_pixels(preview,55)==0&&
+            count_grid_pixels(preview,20)==0&&count_grid_pixels(preview,73.5)==0,
+            "Exact preview Grid x and gutter edges move to evaluated coordinates without old/literal column ink");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid probe leaves authored/native/revision/history unchanged during preview");
+        session.cancel_gesture();canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(cancelled,55)>20&&count_grid_pixels(cancelled,73.5)>20&&
+            count_grid_pixels(cancelled,65)==0&&count_grid_pixels(cancelled,84.5)==0,
+            "Cancellation restores the exact committed columns and removes preview columns");
+        canvas.set_show_grid(false);QApplication::processEvents();
+        const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(hidden,55)==0&&count_grid_pixels(hidden,73.5)==0,
+            "Hidden Grid negative control rejects Guide/Margin/Artboard crossings at the positive sample columns");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid cancellation and visibility controls preserve authored/native/revision/history");
+        return;
+    }
     const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
@@ -2123,8 +2381,23 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(linked_margin_left_pixels>20&&literal_margin_left_pixels<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal (evaluated="+
             std::to_string(linked_margin_left_pixels)+", literal="+std::to_string(literal_margin_left_pixels)+")");
-    check(count_margin_pixels(linked_image,182)>20&&count_margin_pixels(linked_image,180)<20,
-        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal");
+    const auto linked_margin_right_pixels=count_margin_pixels(linked_image,182);
+    const auto literal_margin_right_pixels=count_margin_pixels(linked_image,180);
+    check(linked_margin_right_pixels>20&&literal_margin_right_pixels<20,
+        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal (evaluated="+
+            std::to_string(linked_margin_right_pixels)+", literal="+std::to_string(literal_margin_right_pixels)+
+            ", zoom="+std::to_string(canvas.zoom())+", image_scale="+std::to_string(image_scale)+")");
+    auto literal_right_document=session.document();
+    literal_right_document.compositions.front().artboards.front().layout->margin->right_driver.reset();
+    Session literal_right_session(std::move(literal_right_document));
+    Canvas literal_right_canvas(literal_right_session);
+    literal_right_canvas.resize(canvas.size());literal_right_canvas.show();QApplication::processEvents();
+    literal_right_canvas.fit_artboard();QApplication::processEvents();
+    const auto literal_right_image=literal_right_canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_margin_pixels(literal_right_image,180)>20&&count_margin_pixels(literal_right_image,182)<20,
+        "Margin pixel oracle distinguishes a literal-right control from the linked evaluated position (literal="+
+            std::to_string(count_margin_pixels(literal_right_image,180))+", evaluated="+
+            std::to_string(count_margin_pixels(literal_right_image,182))+")");
     check(count_margin_top_pixels(linked_image,15)>20,
         "Canvas paints the literal Margin top inset on the active Artboard");
     check(count_margin_bottom_pixels(linked_image,142)>20&&count_margin_bottom_pixels(linked_image,135)<20,
@@ -2171,6 +2444,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto preview_grid=evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid.value();
     canvas.refresh();QApplication::processEvents();
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    if(const auto path=qEnvironmentVariable("NECT_LAYOUT_CAPTURE");!path.isEmpty())preview_image.save(path);
     const auto preview_grid_width=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.width"});
     const auto preview_grid_y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
     const auto preview_grid_height=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.height"});
@@ -2186,15 +2460,23 @@ void layout_overlays_are_view_only_and_not_exported() {
         std::get<double>(preview_grid_gutter.evaluated)==26,
         "Canvas preview projection follows Grid height expressions while preserving authored literals");
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
-          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
+          count_guide_pixels(preview_image,30)<20,"Preview Guide uses its evaluated position");
+    check(count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
-          count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20&&
+          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20,
+        "Preview Margin uses evaluated left and right positions");
+    check(count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20,
+        "Preview Margin uses its evaluated top position");
+    check(
           count_margin_bottom_pixels(preview_image,134)>20&&count_margin_bottom_pixels(preview_image,142)<20&&
-          count_margin_bottom_pixels(preview_image,135)<20&&
-          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
-          count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
-          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20&&
-          count_grid_y_pixels(preview_image,65,90)>20&&
+          count_margin_bottom_pixels(preview_image,135)<20,
+        "Preview Margin uses its evaluated bottom position");
+    check(count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
+          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20,
+        "Preview Grid uses evaluated x and column gutter positions (gutter="+
+            std::to_string(count_grid_pixels(preview_image,84.5))+", old gutter="+
+            std::to_string(count_grid_pixels(preview_image,73.5))+")");
+    check(count_grid_y_pixels(preview_image,65,90)>20&&
           count_grid_horizontal_pixels(preview_image,65)>20&&count_grid_horizontal_pixels(preview_image,25)<20&&
           count_grid_horizontal_pixels(preview_image,105)>20&&count_grid_horizontal_pixels(preview_image,97.5)<20,
         "Canvas Guide, expression Margin and Grid x/y overlays follow evaluated sources in the Session preview document (Grid x="+
@@ -2272,17 +2554,39 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
     const auto count_horizontal=[&](const QImage& image,double world_y) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);int pixels=0;
+        const auto scale=static_cast<double>(image.width())/canvas.width();
+        const int pixel_y=static_cast<int>(std::floor((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(20-100)*canvas.zoom())*scale);
         const int right=qRound((canvas.width()/2.0+(180-100)*canvas.zoom())*scale);
-        for(int x=left;x<=right;++x)for(int y=pixel_y-qMax(2,qRound(2*scale));y<=pixel_y+qMax(2,qRound(2*scale));++y) {
-            const auto pixel=image.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        // Observed half-covered cosmetic Grid rows are RGB202/223/209 and
+        // 202/222/208 on the250 background. The old predicate rejected both
+        // and counted only vertical crossings. Sample the coordinate's pixel
+        // cell, accepting that coverage and excluding persistent crossings.
+        const auto is_grid=[](const QColor& pixel){return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;};
+        const int crossing_offset=qRound(6*scale);
+        for(int x=left;x<=right;++x) {
+            if(is_grid(image.pixelColor(x,pixel_y-crossing_offset))&&
+                is_grid(image.pixelColor(x,pixel_y+crossing_offset)))continue;
+            if(is_grid(image.pixelColor(x,pixel_y)))++pixels;
         }
         return pixels;
     };
     const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto probe_path=qEnvironmentVariable("NECT_GRID_ROW_PROBE");
+    if(!probe_path.isEmpty()) {
+        linked.save(probe_path);
+        const auto scale=static_cast<double>(linked.width())/canvas.width();
+        std::cout<<"row probe: canvas="<<canvas.width()<<'x'<<canvas.height()<<" image="<<linked.width()<<'x'<<linked.height()
+            <<" zoom="<<canvas.zoom()<<" scale="<<scale<<'\n';
+        for(const double world_y:{60.0,65.0,75.0,80.0}) {
+            const int x=qRound((canvas.width()/2.0+(60-100)*canvas.zoom())*scale);
+            const int y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);
+            std::cout<<"world_y="<<world_y<<" count="<<count_horizontal(linked,world_y)<<" rgb=";
+            for(int offset=-2;offset<=2;++offset){const auto color=linked.pixelColor(x,y+offset);
+                std::cout<<offset<<':'<<color.red()<<','<<color.green()<<','<<color.blue()<<' ';}
+            std::cout<<'\n';
+        }
+    }
     check(count_horizontal(linked,60)>20&&count_horizontal(linked,80)>20&&
         count_horizontal(linked,65)<=20&&count_horizontal(linked,75)<=20&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
@@ -2301,6 +2605,21 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
         ("Canvas row overlay moves both gutter edges when its upstream Artboard height changes: edges="+
             std::to_string(count_horizontal(updated,55))+","+std::to_string(count_horizontal(updated,85))+" old="+
             std::to_string(count_horizontal(updated,60))+","+std::to_string(count_horizontal(updated,80))).c_str());
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->row_gutter_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(literal,65)>20&&count_horizontal(literal,75)>20&&
+        count_horizontal(literal,55)<=20&&count_horizontal(literal,85)<=20&&
+        count_horizontal(literal,60)<=20&&count_horizontal(literal,80)<=20,
+        "Literal-only control draws literal gutter edges and rejects every expression-evaluated position");
+    const auto before_hide=encode(session.document());const auto before_revision=session.revision();const auto before_history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(hidden,65)==0&&count_horizontal(hidden,75)==0,
+        "Hidden Grid control cannot satisfy either positive row assertion");
+    check(encode(session.document())==before_hide&&session.revision()==before_revision&&session.history()==before_history,
+        "Grid rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_column_gutter_overlay_tracks_evaluated_source() {
@@ -2509,6 +2828,33 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--linked-grid-x-probe")) {
+            layout_overlays_are_view_only_and_not_exported(true);
+            std::cout<<"Linked Grid x contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--margin-top-probe")) {
+            layout_overlays_are_view_only_and_not_exported(false,true);
+            std::cout<<"Margin top contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--grid-top-probe")) {
+            layout_overlays_are_view_only_and_not_exported(false,false,true);
+            std::cout<<"Grid top contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--grid-row-gutter-only")) {
+            grid_row_gutter_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid row gutter contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--linked-margin-only")) {
+            layout_overlays_are_view_only_and_not_exported();
+            std::cout << "Canvas linked Margin contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--text-baseline-only")) {
+            snap_text_baseline_and_unsupported_axis_omission();
+            std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
+            return 0;
+        }
         rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();
