@@ -177,6 +177,10 @@ contents, mode and locator; external file changes are handled by explicit Reload
 Instance dependencies also freeze the exact Definition, its supported source subtree,
 accepted Image assets and pinned Macro revisions. Occurrence overrides stay on their
 original Instance; editing a placement scalar does not edit shared source content.
+With multiple Groups, a common Posterize Levels row also finishes its pending
+scalar edit on the first fx/↗ action. Each Group keeps its own operation ID and
+nested artwork; changing Levels and applying an expression/link are separate
+Undo steps. Levels remain integers from 2 through 16.
 
 Select adjacent objects and use the Canvas/Objects context menu → Mask With
 Top / Bottom. Labels identify the source by actual paint order. The operation

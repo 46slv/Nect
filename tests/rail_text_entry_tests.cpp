@@ -5889,20 +5889,21 @@ void batch_point_handle_pointer(const std::string& kind,const std::string& field
 }
 
 void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx",bool image_dependency=false,bool instance_dependency=false){
+    const bool posterize=field=="op.first-posterize.levels";
     const bool image_roots=kind=="images"||kind=="mixed-image",instance_roots=kind=="instances"||kind=="mixed-instance";
     const bool mixed_roots=kind=="mixed"||kind=="mixed-image"||kind=="mixed-instance";
     const Id image_target=image_roots?"first":"first-image",instance_target=instance_roots?"first":"first-instance";
     const bool matrix_field=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
-    const bool scalar_unit=matrix_field||field=="composite.opacity";
+    const bool scalar_unit=posterize||matrix_field||field=="composite.opacity";
     const bool anchor_field=field=="transform.anchor_x"||field=="transform.anchor_y";
     const std::size_t slot=matrix_field?std::size_t(field.back()-'a'):field=="transform.ty"?5:4;
     const std::size_t anchor_slot=field=="transform.anchor_y"?1:0;
-    const QString label=field=="transform.tx"?"Translation X":field=="transform.ty"?"Translation Y":
+    const QString label=posterize?"Levels":field=="transform.tx"?"Translation X":field=="transform.ty"?"Translation Y":
         field=="transform.anchor_x"?"Anchor X":field=="transform.anchor_y"?"Anchor Y":
         field=="composite.opacity"?"Object opacity":QString("Matrix ")+QChar(field.back());
-    const double pending_value=scalar_unit?0.64:64.0,relative_value=scalar_unit?0.05:5.0;
-    const QString pending_text=scalar_unit?"0.64":"64",relative_text=scalar_unit?"+=0.05":"+=5";
-    const QString formula_text=scalar_unit?"0.4 + 0.02":"40 + 2",expression_text=scalar_unit?"0.32 + 0.03":"32 + 3";
+    const double pending_value=posterize?(mode=="lower"?2:mode=="upper"?16:8):scalar_unit?0.64:64.0,relative_value=posterize?(mode=="partial-relative"?-3:2):scalar_unit?0.05:5.0;
+    const QString pending_text=posterize?(mode=="zero"?"0":mode=="negative"?"-1":mode=="fractional"?"2.5":mode=="below"?"1":mode=="above"?"17":QString::number(pending_value)):scalar_unit?"0.64":"64",relative_text=posterize?(mode=="partial-relative"?"-=3":"+=2"):scalar_unit?"+=0.05":"+=5";
+    const QString formula_text=posterize?"2 + 3":scalar_unit?"0.4 + 0.02":"40 + 2",expression_text=posterize?"4 + 2":scalar_unit?"0.32 + 0.03":"32 + 3";
     QTemporaryDir scratch;check(scratch.isValid(),"Batch owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -5918,7 +5919,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     }
     for(const auto* id:{"first","second","source"}){
         Object object;object.id=id;object.name=id;
-        if(std::string(id)=="source"||(mixed_roots&&std::string(id)=="second"))make_scalar_path(object);
+        if((std::string(id)=="source"&&!posterize)||(mixed_roots&&std::string(id)=="second"))make_scalar_path(object);
         else if(image_roots){make_scalar_image(object);object.image->asset="group-image-asset";}
         else if(instance_roots)make_scalar_instance(object);
         else {
@@ -5969,13 +5970,15 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         document=with_macro.document();
     }
     Object guard;guard.id="batch-ref-guard";guard.source=default_primitive("batch-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
-    const std::vector<Ref> refs={{"first","",field},{"second","",field}};
+    const std::vector<Ref> refs={{"first","",field},{"second","",posterize?"op.second-posterize.levels":field}};
     Ref source_ref=scalar_unit?Ref{"source","",field=="composite.opacity"?"composite.opacity":"transform.a"}:operation_ref("source","source-stroke","width");if(mode=="unit")source_ref=scalar_unit?operation_ref("source","source-stroke","width"):Ref{"source","","composite.opacity"};
+    if(posterize)source_ref=mode=="unit"?Ref{"source","","transform.tx"}:operation_ref("source","source-posterize","levels");
     Session seeded(document);for(const auto* id:{"first","second","source"}){
         auto fill=default_operation(std::string(id)+"-fill","nect.paint.fill");fill.parameters.at("r").literal=0.3;
         auto stroke=default_operation(std::string(id)+"-stroke","nect.paint.stroke");stroke.parameters.at("width").literal=std::string(id)=="source"?72:4;
         if(seeded.document().objects.at(id).kind==Kind::group){
-            auto posterize=default_operation(std::string(id)+"-posterize","nect.group.posterize");posterize.parameters.at("levels").literal=9;seeded.apply({AddOperation{id,posterize,0}},seeded.revision());
+            auto operation=default_operation(std::string(id)+"-posterize","nect.group.posterize");operation.parameters.at("levels").literal=posterize?(std::string(id)=="source"?12:std::string(id)=="first"?(mode=="partial-relative"?6:4):(mode=="partial-relative"?4:6)):9;seeded.apply({AddOperation{id,operation,0}},seeded.revision());
+            if(posterize){auto retained=default_operation(std::string(id)+"-retained-posterize","nect.group.posterize");retained.parameters.at("levels").literal=9;seeded.apply({AddOperation{id,retained,1}},seeded.revision());}
             for(const auto* suffix:{"-curve","-text"}){const Id child=std::string(id)+suffix;auto paint=default_operation(child+"-fill","nect.paint.fill");paint.parameters.at("r").literal=0.3;auto outline=default_operation(child+"-stroke","nect.paint.stroke");outline.parameters.at("width").literal=4;seeded.apply({AddOperation{child,paint,0},AddOperation{child,outline,1}},seeded.revision());}
             const Id curve=std::string(id)+"-curve",point=curve+"-source-east";seeded.apply({Set{{curve,point,"x"},87},Set{{curve,point,"out.length"},31}},seeded.revision());
         }else if(seeded.document().objects.at(id).kind!=Kind::image&&seeded.document().objects.at(id).kind!=Kind::instance)
@@ -5984,7 +5987,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     const Ref incoming_first=scalar_unit?Ref{guard.id,"","transform.a"}:Ref{guard.id,"","generator.width"};
     const Ref incoming_second=scalar_unit?Ref{guard.id,"","transform.d"}:Ref{guard.id,"","generator.height"};
     seeded.apply({Link{incoming_first,{refs.at(0),scalar_unit?1.0:0.01,scalar_unit?0.25:20.0,"copy_local_value"}},Link{incoming_second,{refs.at(1),scalar_unit?1.0:0.01,scalar_unit?0.25:20.0,"copy_local_value"}}},seeded.revision());document=seeded.document();
-    if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{source_ref,{refs.front(),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
+    if(mode=="cycle"||(posterize&&mode=="partial-cycle")){seeded=Session(document);seeded.apply({Link{source_ref,{mode=="partial-cycle"?refs.back():refs.front(),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selections({{"first",{}},{"second",{}}});events();
     Session expected=window.host.session;const auto selection=window.canvas->selections();
     if(matrix_field){
@@ -6002,12 +6005,12 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
         if(candidate->isVisible()&&data.value("object").toString()=="first"&&data.value("field").toString()==QString::fromStdString(field))input=candidate;
     }
-    check(scroll&&input,"Exact batch Translation row exists");
+    check(scroll&&input,"Exact existing batch scalar row exists");
     check(input->property("nect-mixed").toBool()&&input->text().isEmpty(),"Unequal authored values remain Mixed, with no fabricated first-target value");
     for(auto* button:input->parentWidget()->findChildren<QPushButton*>(picking?"property-source-pick":"property-expression"))if(button->accessibleName()==(picking?"Pick source for "+label:label+" expression editor"))action=button;
     check(action,"Exact batch row owns its action");scroll->ensureWidgetVisible(input);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
-    const bool relative=mode=="relative",formula=mode=="expression-scalar";
+    const bool relative=mode=="relative"||mode=="partial-relative",formula=mode=="expression-scalar";
     QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):relative?relative_text:formula?"="+formula_text:pending_text);events();
     check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Mixed draft is full-state neutral");
     auto change_context=[&](bool applying){
@@ -6030,11 +6033,18 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             else if(suffix=="second")incoming.objects.at("second").anchor.at(1).literal=24;
             else if(suffix=="selected-field"){
                 auto& second=incoming.objects.at("second");
-                if(anchor_field)second.anchor.at(anchor_slot).literal=21;
+                if(posterize)second.stack.front().parameters.at("levels").literal=5;
+                else if(anchor_field)second.anchor.at(anchor_slot).literal=21;
                 else if(field=="composite.opacity")second.compositing.opacity.literal=0.21;
                 else second.transform.at(slot).literal=scalar_unit?0.21:21.0;
             }
             else if(suffix=="style")incoming.objects.at("first").stack.front().parameters.at("levels").literal=10;
+            else if(posterize&&suffix=="retained")incoming.objects.at("first").stack.at(1).parameters.at("levels").literal=10;
+            else if(posterize&&suffix=="order")std::reverse(incoming.objects.at("first").stack.begin(),incoming.objects.at("first").stack.end());
+            else if(posterize&&suffix=="operation"){
+                incoming.objects.at("first").stack.front().id="replacement-first-posterize";
+                incoming.objects.at(guard.id).transform.at(0).binding->source=operation_ref("first","replacement-first-posterize","levels");
+            }
             else if(image_dependency&&suffix=="image-width")incoming.objects.at(image_target).image->width.literal=121;
             else if(image_dependency&&suffix=="image-height")incoming.objects.at(image_target).image->height.literal=61;
             else if(image_dependency&&suffix=="image-relink")incoming.objects.at(image_target).image->asset="group-image-spare";
@@ -6099,7 +6109,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         undo();check(expected.document()==document,"Whip Undo restores full authored paths/IDs/paint/Refs");return;
     }
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
-    if(mode=="invalid"||mode.rfind("entry-",0)==0){
+    if(mode=="invalid"||mode.rfind("entry-",0)==0||(posterize&&(mode=="zero"||mode=="negative"||mode=="fractional"||mode=="below"||mode=="above"||mode=="partial-relative"))){
         check(!window.findChild<QDialog*>("property-source-picker")&&!window.findChild<QWidget*>("nect-expression-panel")&&snapshot(window.host.session)==snapshot(expected),"Refused batch entry is atomic and opens no editor");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==preview,"Refused entry preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;
     }
     scalar();
@@ -6112,7 +6122,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         if(mode=="cancel"){buttons->button(QDialogButtonBox::Cancel)->click();events();check(snapshot(window.host.session)==snapshot(expected)&&window.canvas->selections()==selection,"Batch picker Cancel restores original full selection");undo();return;}
         if(mode.rfind("apply-",0)==0)change_context(true);
         const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};buttons->button(QDialogButtonBox::Ok)->click();events();
-        if(mode=="cycle"||mode=="unit"||mode.rfind("apply-",0)==0){check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused batch Link preserves all targets and history");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused Link preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();buttons->button(QDialogButtonBox::Cancel)->click();events();return;}
+        if(mode=="cycle"||mode=="partial-cycle"||mode=="unit"||mode.rfind("apply-",0)==0){check(picker&&picker->isVisible()&&snapshot(window.host.session)==snapshot(expected),"Refused batch Link preserves all targets and history");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused Link preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();buttons->button(QDialogButtonBox::Cancel)->click();events();return;}
         expected.apply({LinkProperties{refs,source_ref,false}},expected.revision());
     }else{
         QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
@@ -6121,11 +6131,11 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         const bool draft_matches=editor&&(scalar_unit&&!relative&&!formula?
             literal_ok&&literal_value==pending_value:editor->toPlainText()==(relative?QString{}:formula?formula_text:pending_text));
         check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected)&&draft_matches,"First batch fx commits both scalar targets and retains Mixed/actual expression");
-        editor->setPlainText(mode=="invalid-expression"?QString("broken("):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):posterize&&mode=="negative-expression"?QString("-1"):posterize&&mode=="fractional-expression"?QString("2.5"):posterize&&mode=="below-expression"?QString("1"):posterize&&mode=="above-expression"?QString("17"):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
         if(mode.rfind("apply-",0)==0)change_context(true);
         auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Batch fx panel retained");QPushButton* apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()==(mode=="cancel"?"Cancel":"Apply"))apply=button;
         check(apply,"Batch fx Apply/Cancel exists");scroll->ensureWidgetVisible(apply);events();const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
-        if(mode=="invalid-expression"||mode.rfind("apply-",0)==0){check(snapshot(window.host.session)==snapshot(expected),"Refused batch fx Apply is full-state atomic");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused fx preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;}
+        if(mode=="invalid-expression"||mode.rfind("apply-",0)==0||(posterize&&(mode=="negative-expression"||mode=="fractional-expression"||mode=="below-expression"||mode=="above-expression"))){check(snapshot(window.host.session)==snapshot(expected),"Refused batch fx Apply is full-state atomic");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused fx preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;}
         if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Batch fx Cancel discards only draft");undo();return;}
         expected.apply({SetExpression{refs,{expression_text.toStdString(),1},false}},expected.revision());
     }
@@ -8171,6 +8181,33 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-posterize-entry-pending-pointer")){
+            bool failed=false;for(bool picking:{false,true}){
+                try{batch_group_tx_pointer("groups",picking,"valid","op.first-posterize.levels");}catch(const std::exception& error){failed=true;std::cerr<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"Both existing multiple Group Posterize first actions satisfy the existing contract");
+            std::cout<<"batch_group_posterize_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-posterize-affected-pending-pointer")){
+            for(bool picking:{false,true}){
+                auto run=[&](const std::string& mode,bool image=false,bool instance=false){std::cerr<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_group_tx_pointer("groups",picking,mode,"op.first-posterize.levels",image,instance);};
+                for(const auto* mode:{"lower","upper","relative","cancel","expression-scalar","zero","negative","fractional","below","above","invalid","partial-relative"})run(mode);
+                for(const auto* phase:{"entry-","apply-"}){
+                    for(const auto* suffix:{"session","document","revision","first","second","selected-field","gesture","cancelled-gesture","child-source","child-correction","child-text","children","mask-source","parent","retained","order","operation"})run(std::string(phase)+suffix);
+                    for(const auto* suffix:{"image-width","image-relink","asset-payload"})run(std::string(phase)+suffix,true);
+                    for(const auto* suffix:{"definition-geometry","macro-revision"})run(std::string(phase)+suffix,false,true);
+                }
+                if(picking)for(const auto* mode:{"cycle","partial-cycle","unit"})run(mode);
+                else for(const auto* mode:{"invalid-expression","negative-expression","fractional-expression","below-expression","above-expression"})run(mode);
+                for(const auto* mode:{"embedded","equal-asset","unrelated-asset","external-file"})run(mode,true);
+                for(const auto* mode:{"unrelated-definition","unrelated-revision"})run(mode,false,true);
+            }
+            std::cout<<"batch_group_posterize_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-posterize-whip-pending-pointer")){
+            for(const auto* mode:{"drag","drag-cancel"})batch_group_tx_pointer("groups",true,mode,"op.first-posterize.levels",true,true);
+            std::cout<<"batch_group_posterize_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-asset-root-entry-pending-pointer")){
             bool failed=false;for(const auto* kind:{"images","mixed-image","instances","mixed-instance"})for(bool picking:{false,true}){

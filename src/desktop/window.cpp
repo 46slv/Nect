@@ -10835,13 +10835,21 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             field=="transform.tx"||field=="transform.ty"||field=="transform.anchor_x"||
             field=="transform.anchor_y"||field=="composite.opacity";
     };
+    const auto group_posterize_scalar_field=[&](const Ref& target) {
+        const auto found=d.objects.find(target.object);
+        return found!=d.objects.end()&&found->second.kind==Kind::group&&target.point.empty()&&
+            std::any_of(found->second.stack.begin(),found->second.stack.end(),[&](const ProcessingEntry& operation) {
+                return operation.type=="nect.group.posterize"&&operation.version==1&&!operation.macro&&
+                    operation.parameters.contains("levels")&&target==operation_ref(target.object,operation.id,"levels");
+            });
+    };
     const bool batch_group_common_scalar_fx=targets.size()>1&&
         std::any_of(targets.begin(),targets.end(),[&](const Ref& target) {
             const auto found=d.objects.find(target.object);
             return found!=d.objects.end()&&(found->second.kind==Kind::group||
                 found->second.kind==Kind::image||found->second.kind==Kind::instance);
         })&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-            return target.point.empty()&&group_common_scalar_field(target.field)&&inspector_values_.contains(target);
+            return target.point.empty()&&(group_common_scalar_field(target.field)||group_posterize_scalar_field(target))&&inspector_values_.contains(target);
         })&&[&] {
             std::function<bool(const Id&)> capture=[&](const Id& id) {
                 if(batch_group_objects->contains(id))return true;
@@ -10923,7 +10931,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                       })));
             });
         return target.point.empty()&&found!=d.objects.end()&&
-            ((batch_group_common_scalar_fx&&group_common_scalar_field(target.field))||paint_scalar_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+            ((batch_group_common_scalar_fx&&(group_common_scalar_field(target.field)||group_posterize_scalar_field(target)))||paint_scalar_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
                 found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
                 found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
                 (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
@@ -11117,7 +11125,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     }else if(target.field.starts_with("op.")) {
                         const auto batch_paint=std::find_if(object.stack.begin(),object.stack.end(),[&](const ProcessingEntry& operation) {
                             return !operation.macro&&
-                                ((operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
+                                ((object.kind==Kind::group&&operation.type=="nect.group.posterize"&&operation.version==1&&
+                                  operation.parameters.contains("levels")&&target==operation_ref(target.object,operation.id,"levels"))||
+                                 (operation.type=="nect.paint.stroke"&&(operation.version==1||operation.version==2)&&
                                   ((operation.parameters.contains("width")&&target==operation_ref(target.object,operation.id,"width"))||
                                    (operation.version==2&&operation.parameters.contains("miter_limit")&&target==operation_ref(target.object,operation.id,"miter_limit"))||
                                     (!operation.gradient&&std::any_of(operation.parameters.begin(),operation.parameters.end(),[&](const auto& parameter) {
