@@ -367,6 +367,12 @@ unlinking freezes the evaluated value into the authored literal. The native
 document retains editable text and font references. Text is outlined in SVG
 exports and fonts are not embedded.
 
+Single Text content Edit, Link/Replace and Unlink retain the complete target and
+content driver lineage through Apply. A changed target or explicitly chosen source
+requires reopening or choosing that source again. Cancel keeps external selection
+and scope changes. A pending Font size commits separately from the content edit;
+an untouched multiline draft preserves the exact authored whitespace and breaks.
+
 The left Tool Rail keeps Selection, Pen, Text, Anchor Edit and Guide Edit available.
 Hold Text to choose Horizontal or Vertical creation; an ordinary click reuses the
 last variant, including after restarting the desktop. This workspace preference

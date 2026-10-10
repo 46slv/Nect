@@ -172,6 +172,19 @@ Ref read_ref(const QByteArray& data) {
 QByteArray refs_json(const std::vector<Ref>& refs) {
     QJsonArray array;for(const auto& ref:refs)array.append(ref_json(ref));return QJsonDocument(array).toJson(QJsonDocument::Compact);
 }
+using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
+TextContentLineage text_content_lineage(const Document& document,const Id& root) {
+    TextContentLineage result;Id current=root;
+    while(!current.empty()&&!result.contains(current)) {
+        const auto found=document.objects.find(current);
+        if(found==document.objects.end()||!found->second.text)
+            throw Error("SOURCE_CONFLICT","The retained Text content source no longer exists");
+        const auto& text=*found->second.text;
+        result.emplace(current,std::tuple{text.id,text.content,text.content_driver});
+        current=text.content_driver?text.content_driver->link.object:Id{};
+    }
+    return result;
+}
 struct TextSourcePicker {
     QDialog* dialog=nullptr;
     QLineEdit* search=nullptr;
@@ -397,8 +410,10 @@ protected:
         QPushButton::mousePressEvent(event);
     }
     void mouseReleaseEvent(QMouseEvent* event)override {
+        // A modal action may rebuild and delete its originating Inspector button.
+        const auto after=completed;
         QPushButton::mouseReleaseEvent(event);
-        if(completed)completed();
+        if(after)after();
     }
 };
 class PropertyInput final : public QLineEdit {
@@ -5005,6 +5020,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         if(alignment_driver&&alignment_driver->menu()&&alignment_driver->menu()->isVisible())return;
         const auto* locale_driver=inspector_->findChild<QToolButton*>("text-locale-driver");
         if(locale_driver&&locale_driver->menu()&&locale_driver->menu()->isVisible())return;
+        const auto* content_driver=inspector_->findChild<QToolButton*>("text-content-driver");
+        if(content_driver&&content_driver->menu()&&content_driver->menu()->isVisible())return;
     }
     // Direct Text popups own only their synchronous scalar preparation.
     // Canvas/recovery still refresh; keep this control alive until it can open.
@@ -5028,8 +5045,10 @@ void Window::rebuild_inspector(bool use_canvas_values) {
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
     if(auto* driver=inspector_->findChild<QToolButton*>("text-locale-driver");
        driver&&driver->property("nect-retain-text-inspector").toBool())return;
+    if(auto* driver=inspector_->findChild<QToolButton*>("text-content-driver");
+       driver&&driver->property("nect-retain-text-inspector").toBool())return;
     for(auto* action:inspector_->findChildren<QPushButton*>())
-        if((action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid()||action->property("nect-text-scalar-pick-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
+        if((action->property("nect-text-content-action-object").isValid()||action->property("nect-text-typography-action-object").isValid()||action->property("nect-text-path-action-object").isValid()||action->property("nect-text-scalar-fx-action-object").isValid()||action->property("nect-text-scalar-pick-action-object").isValid())&&action->property("nect-retain-text-inspector").toBool())return;
     QScopedValueRollback guard(rebuilding_inspector_,true);
     cancel_angle_adapters(true);
     std::erase_if(expression_drafts_,[&](const auto& item){return item.second.session!=host.session_id;});
@@ -6766,25 +6785,75 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const Ref content_ref{id,"","text.content"};const auto content_state=text_content_property(host.session.document(),content_ref);
     const auto content_revision=host.session.revision();
     auto* content_row=new QWidget(box);auto* content_layout=new QHBoxLayout(content_row);content_layout->setContentsMargins(0,0,0,0);
-    auto* edit=new QPushButton("Edit text…");edit->setObjectName("edit-text-content");content_layout->addWidget(edit);
-    auto* content_driver_button=new QToolButton(content_row);content_driver_button->setObjectName("text-content-driver");
+    auto* edit=new PreparedTextActionButton("Edit text…");edit->setObjectName("edit-text-content");content_layout->addWidget(edit);
+    auto* content_driver_button=new PreparedTextMenuButton;content_driver_button->setObjectName("text-content-driver");
+    content_driver_button->setProperty("nect-text-content-action-object",qs(id));content_driver_button->setFocusPolicy(Qt::StrongFocus);
     content_driver_button->setText(content_state.driver?"Driver…":"Drive…");content_driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* content_menu=new QMenu(content_driver_button);content_driver_button->setMenu(content_menu);content_layout->addWidget(content_driver_button);
     auto* link_content=content_menu->addAction("Link to Text content…");
     auto* unlink_content=content_menu->addAction("Unlink content");unlink_content->setEnabled(content_state.driver.has_value());
     const auto content_selection=canvas->selections();
     const auto content_composition=canvas->active_composition(),content_artboard=canvas->active_artboard();
+    const auto content_document=host.session.document().id;
+    const auto content_gesture=host.session.gesture_generation();const bool content_preview=host.session.gesture_active();
+    auto content_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,content_composition,content_artboard,content_revision,text_selection_generation_,
+        content_document,content_gesture,content_preview,object});
+    const auto retained_content_lineage=text_content_lineage(host.session.document(),id);
+    const auto verify_content=[this,id,content_context,retained_content_lineage](bool browsing=false) {
+        verify_text_typography_context(*content_context,browsing);
+        if(text_content_lineage(host.session.document(),id)!=retained_content_lineage)
+            throw Error("SOURCE_CONFLICT","The retained Text content driver changed; reopen its content controls");
+    };
+    auto content_scalar_prepared=std::make_shared<bool>(false);
+    const auto prepare_content=[this,id,frozen_session,content_document,content_gesture,content_context,content_scalar_prepared,verify_content] {
+        bool ready=false;
+        perform([&]{
+            verify_content();
+            QPointer<QLineEdit> pending;
+            for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+                const auto data=input->property("nect-reference").toByteArray();
+                if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+                const auto ref=read_ref(data);
+                if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+            }
+            if(pending) {
+                pending->setProperty("nect-finishing-text-content",true);
+                pending->setProperty("nect-text-content-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-content-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-content",false);
+                if(!committed.isValid())return;
+                if(host.session_id!=frozen_session||host.session.document().id!=content_document||
+                   host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=content_gesture||host.session.gesture_active())
+                    throw Error("REVISION_CONFLICT","Text changed while finishing Font size");
+                auto advanced=*content_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*content_context=std::move(advanced);*content_scalar_prepared=true;
+            }
+            verify_content();ready=true;
+        });
+        return ready;
+    };
+    const auto complete_content=[this,frozen_session,content_document,content_scalar_prepared] {
+        if(!*content_scalar_prepared)return;
+        QTimer::singleShot(0,this,[this,frozen_session,content_document]{
+            if(host.session_id==frozen_session&&host.session.document().id==content_document)rebuild_inspector();
+        });
+    };
+    edit->prepare=prepare_content;edit->completed=complete_content;
+    content_driver_button->prepare=prepare_content;content_driver_button->closed=complete_content;
     const bool has_content_source=std::any_of(host.session.document().objects.begin(),host.session.document().objects.end(),
         [&](const auto& entry){return entry.first!=id&&entry.second.kind==Kind::text&&entry.second.text;});
     link_content->setEnabled(has_content_source);
-    connect(link_content,&QAction::triggered,this,[this,content_ref,frozen_session,content_revision,
+    connect(link_content,&QAction::triggered,this,[this,content_ref,frozen_session,content_context,verify_content,
             content_selection,content_composition,content_artboard]{
-        perform([&]{open_text_content_source_picker({content_ref},content_selection,frozen_session,content_revision,
-            content_composition,content_artboard);});
+        perform([&]{verify_content();open_text_content_source_picker({content_ref},content_selection,frozen_session,content_context->revision,
+            content_composition,content_artboard,verify_content);});
     });
-    connect(unlink_content,&QAction::triggered,this,[this,id,frozen_session,content_revision]{
-        perform([&]{if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextContent{{id,"","text.content"}}},content_revision);host.edited();});
+    connect(unlink_content,&QAction::triggered,this,[this,id,content_context,verify_content]{
+        perform([&]{verify_content();host.session.apply({UnlinkTextContent{{id,"","text.content"}}},content_context->revision);host.edited();});
     });
     form->addRow("Content",content_row);
     const auto content_driver_name=[this](const std::optional<TextContentDriver>& driver) {
@@ -6796,34 +6865,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         .arg(qs(content_state.literal).left(80),content_driver_name(content_state.driver),qs(content_state.evaluated).left(80)));
     content_status->setObjectName("text-content-state");content_status->setWordWrap(true);content_status->setTextFormat(Qt::PlainText);form->addRow("",content_status);
     edit->setProperty("nect-text-content-action-object",qs(id));
-    const auto content_document=host.session.document().id;
-    const auto content_gesture=host.session.gesture_generation();const bool content_preview=host.session.gesture_active();
-    connect(edit,&QPushButton::clicked,this,[this,id,frozen_session,content_document,content_revision,content_gesture,content_preview]{perform([&]{
-        if(host.session_id!=frozen_session||host.session.document().id!=content_document)
-            throw Error("SESSION_CONFLICT","Text belongs to another document");
-        if(host.session.revision()!=content_revision||host.session.gesture_generation()!=content_gesture)
-            throw Error("REVISION_CONFLICT","Text changed; reopen its Properties");
-        if(content_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
-        if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its content");
-        QPointer<QLineEdit> pending;
-        for(auto* input:inspector_->findChildren<QLineEdit*>()) {
-            const auto data=input->property("nect-reference").toByteArray();
-            if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
-            const auto ref=read_ref(data);
-            if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
-        }
-        if(pending) {
-            pending->setProperty("nect-finishing-text-content",true);
-            pending->setProperty("nect-text-content-committed-revision",QVariant{});
-            pending->editingFinished();
-            const auto committed=pending?pending->property("nect-text-content-committed-revision"):QVariant{};
-            if(pending)pending->setProperty("nect-finishing-text-content",false);
-            if(!committed.isValid())return;
-            if(host.session_id!=frozen_session||host.session.document().id!=content_document||
-               host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=content_gesture||host.session.gesture_active()||canvas->selected_object!=id)
-                throw Error("REVISION_CONFLICT","Text changed while finishing Font size");
-        }
-        edit_text_content(id);
+    connect(edit,&QPushButton::clicked,this,[this,id,prepare_content,verify_content]{perform([&]{
+        if(!prepare_content())return;edit_text_content(id,[verify_content]{verify_content();});
     });});
     auto update=[this,id,frozen_session](const std::function<void(TextSource&)>& change) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text belongs to another document");
@@ -8953,7 +8996,8 @@ void Window::edit_text_typography(const TextTypographyContext& context,bool axis
     else if(existing_tag){value->setFocus();value->selectAll();}
     else tag->setFocus();
 }
-void Window::edit_text_content(const Id& id) {
+void Window::edit_text_content(const Id& id,const std::function<void()>& verify_context) {
+    if(verify_context)verify_context();
     const auto session=host.session_id;auto source=*host.session.document().objects.at(id).text;
     const auto displayed=evaluate_text_content(host.session.document(),id);
     QDialog dialog(this);dialog.setObjectName("text-editor-dialog");dialog.setWindowTitle("Edit text");dialog.resize(560,340);
@@ -8969,6 +9013,7 @@ void Window::edit_text_content(const Id& id) {
     connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     connect(unlink,&QPushButton::clicked,&dialog,[&,id,session]{
         try {
+            if(verify_context)verify_context();
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft before closing.");
             const auto found=host.session.document().objects.find(id);
             if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","The text was removed. Copy this draft before closing.");
@@ -8983,6 +9028,7 @@ void Window::edit_text_content(const Id& id) {
     });
     connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[&,id,session]{
         try {
+            if(verify_context)verify_context();
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","The document changed. Copy this draft before closing.");
             const auto found=host.session.document().objects.find(id);
             if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","The text was removed. Copy this draft before closing.");
@@ -10972,7 +11018,8 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
 
 void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
         const std::vector<Canvas::Selection>& selected,const QString& frozen_session,std::uint64_t frozen_revision,
-        const Id& composition,const Id& artboard) {
+        const Id& composition,const Id& artboard,const std::function<void(bool)>& verify_context) {
+    if(verify_context)verify_context(false);
     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
     if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed before the source chooser opened");
     if(targets.empty()||targets.size()>1000)throw Error("INVALID_SELECTION","Choose 1 to 1000 Text content targets");
@@ -10992,27 +11039,67 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     auto* replace=new QCheckBox("Replace current sources",dialog);replace->setObjectName("text-content-replace");
     replace->setChecked(false);replace->setVisible(any_driven);
     static_cast<QVBoxLayout*>(dialog->layout())->insertWidget(dialog->layout()->count()-1,replace);
-    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*) {
+    const auto frozen_document=document.id;
+    auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selected);
+    auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+    auto chosen_source=std::make_shared<std::optional<Object>>();
+    auto chosen_lineage=std::make_shared<TextContentLineage>();
+    const auto verify_picker=[this,verify_context,picker_selection,picker_generation] {
+        if(!verify_context)return;
+        verify_context(true);
+        if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+            throw Error("SELECTION_CONFLICT","The content source chooser selection changed outside this chooser");
+    };
+    const auto choose_source=[this,frozen_session,status,verify_context,verify_picker,picker_selection,picker_generation,chosen_source,chosen_lineage](QListWidgetItem* item) {
+        chosen_source->reset();chosen_lineage->clear();
         if(!item||item->isHidden()||host.session_id!=frozen_session)return;
-        const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-        if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
-    });
+        try {
+            verify_picker();const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            if(verify_context) {
+                *chosen_source=host.session.document().objects.at(source.object);
+                *chosen_lineage=text_content_lineage(host.session.document(),source.object);
+            }
+            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+            *picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+        }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+        catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+    };
+    connect(list,&QListWidget::currentItemChanged,dialog,[choose_source](QListWidgetItem* item,QListWidgetItem*){choose_source(item);});
+    if(verify_context)connect(list,&QListWidget::itemClicked,dialog,choose_source);
     // Browsing deliberately changes the live selection. Targets and board remain
     // captured independently of the Inspector widgets rebuilt by that navigation.
-    const auto restore=[this,selected,frozen_session,composition,artboard] {
+    const auto restore=[this,selected,targets,frozen_session,frozen_document,composition,artboard,verify_context,picker_selection,picker_generation] {
         if(host.session_id!=frozen_session)return;
+        if(verify_context) {
+            const auto& current=host.session.document();
+            const auto owner=std::find_if(current.compositions.begin(),current.compositions.end(),[&](const auto& c){return c.id==composition;});
+            std::function<bool(const Id&)> contains=[&](const Id& id){
+                if(id==targets.front().object)return true;const auto found=current.objects.find(id);
+                return found!=current.objects.end()&&std::any_of(found->second.children.begin(),found->second.children.end(),contains);
+            };
+            if(current.id!=frozen_document||owner==current.compositions.end()||!std::any_of(owner->roots.begin(),owner->roots.end(),contains)||
+               canvas->active_composition()!=composition||canvas->active_artboard()!=artboard||
+               canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)return;
+        }
         perform([&]{canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selected);});
     };
     connect(dialog,&QDialog::rejected,dialog,restore);
     connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_revision,restore] {
+        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_revision,restore,verify_context,verify_picker,chosen_source,chosen_lineage] {
             try {
+                verify_picker();
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                 if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
                 auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                 const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                 if(!source.point.empty()||source.field!="text.content"||target_ids.contains(source.object))
                     throw Error("INVALID_REFERENCE","Choose a distinct Text content source for every target");
+                if(verify_context) {
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||text_content_lineage(host.session.document(),source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text content source changed; choose it again before linking");
+                }
                 std::vector<Command> commands;commands.reserve(targets.size());
                 for(const auto& target:targets)commands.push_back(LinkTextContent{target,source,replace->isChecked()});
                 canvas->cancel_interaction();host.session.apply(commands,frozen_revision);
@@ -11862,7 +11949,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
         const auto* focus=QApplication::focusWidget();
-        if(ref.point.empty()&&ref.field=="text.font_size"&&focus&&
+        if(!input->property("nect-finishing-text-content").toBool()&&ref.point.empty()&&ref.field=="text.font_size"&&focus&&
            focus->property("nect-text-content-action-object").toString()==qs(ref.object)&&
            (QApplication::mouseButtons()&Qt::LeftButton))return;
         if(!input->property("nect-finishing-text-writing").toBool()&&
