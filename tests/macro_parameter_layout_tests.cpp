@@ -4,6 +4,7 @@
 #include "macro_boolean_window_smoke.hpp"
 #include "macro_revision_control.hpp"
 #include "macro_public_interface_control.hpp"
+#include "macro_chain_control.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QDockWidget>
@@ -329,11 +330,101 @@ void published_draft_pointer(const std::string& cause){
     std::cout<<"PASS existing published draft / "<<cause<<"; physical input NOT_RUN\n";
 }
 }
+// Discover the existing chain's deferred source boundary using real Window
+// pointers. Expected topology is authored explicitly, independently of the UI.
+namespace {
+void chain_cold_readback(Window& w,const Session& expected){
+    QTemporaryDir files;check(files.isValid(),"Owned chain cold native directory exists");
+    const auto path=files.filePath("chain.nect");w.host.save(path);w.host.flush();
+    check(same(w.host.session,expected),"Chain native save preserves complete Session and history");
+    Window cold(files.filePath("recovery"));cold.setAttribute(Qt::WA_DontShowOnScreen);cold.resize(1400,900);
+    cold.host.open(path);cold.show();events();
+    check(cold.host.session.document()==expected.document()&&encode(cold.host.session.document())==encode(expected.document()),
+        "Cold production Window retains complete interface1/2/3 graph, public mappings, pins and overrides");
+    cold.host.changed={};cold.hide();events();
+}
+void chain_draft_pointer(unsigned version,const std::string& cause){
+    namespace boolean=macro_boolean_window_smoke;
+    QTemporaryDir scratch;check(scratch.isValid(),"Chain draft owns scratch");
+    auto document=boolean::fixture();auto& latest=document.macro_definitions.at("boolean-definition").revisions.at(2);
+    latest.interface_version=version;
+    if(version<3){
+        std::erase_if(latest.public_parameters,[](const auto& p){return p.value_type=="boolean";});
+        for(auto& n:latest.nodes)n.operation.enabled=true;
+    }
+    if(version==1){
+        latest.public_parameters.resize(1);
+        for(auto& [id,object]:document.objects)for(auto& operation:object.stack)if(operation.macro)
+            operation.macro->overrides.erase(boolean::copies_id);
+    }
+    check(decode(encode(document))==document,"Chain interface1/2/3 fixture native-validates before GUI");
+    Window w(scratch.filePath("recovery"));w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1400,900);
+    w.host.session=Session(document);w.host.session_id="chain-draft-session";w.host.edited();w.show();events();
+    w.canvas->set_active_artboard("composition","artboard",false);w.canvas->set_selection("path");events();
+    MacroChainDialog dialog(w.host,"boolean-definition",&w);dialog.setAttribute(Qt::WA_DontShowOnScreen);dialog.show();events();
+    auto* amount=dialog.findChild<QLineEdit*>("macro-chain-default-amount");
+    auto* save=dialog.findChild<QPushButton*>("macro-chain-save");auto* cancel=dialog.findChild<QPushButton*>("macro-chain-cancel");
+    auto* down=dialog.findChild<QPushButton*>("macro-chain-down");auto* list=dialog.findChild<QListWidget*>("macro-chain-nodes");
+    check(amount&&save&&cancel&&down&&list&&save->isEnabled(),"Existing chain draft and actions are available");
+    const Session original=w.host.session;const auto source=latest;
+    amount->setFocus(Qt::OtherFocusReason);QTest::keyClick(amount,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(amount,"21");events();
+    check(amount->text()=="21"&&same(w.host.session,original),"Chain default editing is fully Session-neutral");
+    const auto move=down->mapTo(&dialog,down->rect().center());check(dialog.childAt(move)==down,"Actual dialog pointer hits Move down");
+    QTest::mouseClick(dialog.windowHandle(),Qt::LeftButton,Qt::NoModifier,move);events();
+    check(list->item(0)->data(Qt::UserRole).toString()=="repeater-target"&&list->item(1)->data(Qt::UserRole).toString()=="offset-target"&&same(w.host.session,original),"Chain draft reorder preserves exact stable IDs and complete Session");
+    amount=dialog.findChild<QLineEdit*>("macro-chain-default-amount");check(amount&&amount->text()=="21","Reorder retains exact local default draft");
+    if(cause=="document"||cause=="source"||cause=="public"||cause=="latest"||cause=="equivalent"||cause=="unrelated"||cause=="old-source"){
+        auto incoming=w.host.session.document();auto& definition=incoming.macro_definitions.at("boolean-definition");
+        if(cause=="document")incoming.id="incoming-chain-document";
+        else if(cause=="source"||cause=="old-source"){
+            for(auto& n:definition.revisions.at(cause=="source"?2:1).nodes)if(n.operation.id=="repeater-target")n.operation.parameters.at("copies").literal=7;
+        }else if(cause=="public")definition.revisions.at(2).public_parameters.front().label="Incoming published label";
+        else if(cause=="latest"){auto next=definition.revisions.at(2);next.revision=3;definition.revisions.emplace(3,next);definition.latest_revision=3;}
+        else if(cause=="unrelated")incoming.objects.at("other").name="Other source replacement";
+        check((incoming==w.host.session.document())==(cause=="equivalent"),"Chain discovery changes exactly the incoming context");
+        check(decode(encode(incoming))==incoming,"Incoming chain context native-validates before pointer Save");w.host.session=Session(incoming);
+    }else if(cause=="session")w.host.session_id+="-replacement";
+    else if(cause=="revision")w.host.session.apply({Rename{"other","Other revision"}},w.host.session.revision());
+    else if(cause=="generation"||cause=="preview"){
+        w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Rename{"other","Other preview"}});
+        if(cause=="generation")w.host.session.cancel_gesture();
+    }
+    Session expected=w.host.session;const auto raw=amount->text();auto* action=cause=="cancel"?cancel:save;
+    const auto position=action->mapTo(&dialog,action->rect().center());check(dialog.childAt(position)==action,"Actual dialog Window pointer hits exact Save/Cancel");
+    QTest::mouseClick(dialog.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    const bool refusal=cause=="document"||cause=="source"||cause=="public"||cause=="latest"||cause=="session"||cause=="revision"||cause=="generation"||cause=="preview";
+    if(refusal){
+        std::cout<<"Chain interface"<<version<<" "<<cause<<" actual_revision="<<w.host.session.revision()<<" expected_revision="<<expected.revision()<<std::endl;
+        check(same(w.host.session,expected),"Stale chain draft preserves complete incoming Document/native/History/preview/generation");
+        check(dialog.isVisible()&&amount->text()==raw&&dialog.saved_revision()==0,"Refused chain Save retains original visible defaults and order");
+        if(cause=="source"||cause=="public")check(dialog.findChild<QLabel*>("macro-chain-error")->text().contains("PROPERTY_CONFLICT"),"Changed exact graph/interface reports source conflict");
+    }else if(cause=="cancel")check(same(w.host.session,expected)&&!dialog.isVisible(),"Chain Cancel retains complete Session and adds no Undo");
+    else{
+        auto next=source;next.revision=3;next.graph_version=2;
+        const auto find=[&](const Id& id){return *std::find_if(source.nodes.begin(),source.nodes.end(),[&](const auto& n){return n.operation.id==id;});};
+        auto offset=find("offset-target");offset.operation.parameters.at("amount").literal=21;
+        const auto repeater=find("repeater-target");next.nodes={repeater,offset};
+        next.edges={{{"",source.input.id},{"repeater-target",repeater.input_port}},{{"repeater-target",repeater.output_port},{"offset-target",offset.input_port}},{{"offset-target",offset.output_port},{"",source.output.id}}};
+        next.output_mapping={"offset-target",offset.output_port};
+        expected.apply({MacroCommand{UpdateMacroDefinition{"boolean-definition",next}}},expected.revision());canonical(w,expected);
+        check(dialog.saved_revision()==3&&w.host.session.document().macro_definitions.at("boolean-definition").revisions.at(3)==next,"Chain Save equals independently authored ordered graph2 with every node/port/default/public field");
+        chain_cold_readback(w,expected);
+    }
+    if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};dialog.hide();w.hide();events();
+    std::cout<<"PASS existing chain draft interface"<<version<<" / "<<cause<<"; physical input NOT_RUN\n";
+}
+}
 int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch;
     if(app.arguments().contains("--application-style")){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--chain-draft-context-pointer")){
+            bool failed=false;for(unsigned version:{1u,2u,3u})for(const auto* cause:{"valid","cancel","source","public","latest","document","session","revision","generation","preview","equivalent","unrelated","old-source"}){
+                try{chain_draft_pointer(version,cause);}catch(const std::exception& error){failed=true;std::cerr<<"Chain interface"<<version<<" "<<cause<<": "<<error.what()<<'\n';}
+            }
+            check(!failed,"Existing chain drafts preserve their exact source context");std::cout<<"macro_chain_draft_context: "<<checks<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--published-draft-context-pointer")){
             bool failed=false;for(const auto* cause:{"valid","cancel","source","public","latest","document","session","revision","generation","preview","equivalent","unrelated","old-source"}){
                 try{published_draft_pointer(cause);}catch(const std::exception& error){failed=true;std::cerr<<"Published draft "<<cause<<": "<<error.what()<<'\n';}

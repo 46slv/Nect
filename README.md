@@ -237,7 +237,7 @@ editing context changes, reopen Properties before completing or resetting it.
 Published Boolean Macro checkboxes and their **Reset** use the same context
 protection, including deferred clicks. Reset removes the explicit Boolean override
 and restores the pinned default, even when the override equals that default.
-**Edit new revision** and **Publish Macro controls** retain the source revision
+**Edit new revision**, **Publish Macro controls** and **Edit Macro chain** retain the source revision
 used to create their drafts.
 If that source or the latest revision changes, Save keeps the draft open and asks
 you to reopen it. Older revisions and unrelated artwork remain independent.
