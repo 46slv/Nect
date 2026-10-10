@@ -8242,6 +8242,18 @@ void Window::verify_text_typography_context(const TextTypographyContext& context
     const auto found=host.session.document().objects.find(context.object);
     if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context.source)
         throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists. This draft cannot target a replacement.");
+    if(context.typography_target&&found->second!=*context.typography_target)
+        throw Error("PROPERTY_CONFLICT","The retained Text changed. Copy this draft, cancel, and reopen its typography controls.");
+    if(context.typography_target) {
+        const auto& document=host.session.document();
+        const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==context.composition;});
+        std::function<bool(const Id&)> contains=[&](const Id& id){
+            if(id==context.object)return true;const auto object=document.objects.find(id);
+            return object!=document.objects.end()&&std::any_of(object->second.children.begin(),object->second.children.end(),contains);
+        };
+        if(composition==document.compositions.end()||!std::any_of(composition->roots.begin(),composition->roots.end(),contains))
+            throw Error("SELECTION_CONFLICT","The retained Text belongs to another Composition. Copy this draft, cancel, and reopen the intended Text.");
+    }
     if(artboard_editing_||text_selection_generation_!=context.selection_generation||
        canvas->selections()!=std::vector<Canvas::Selection>{{context.object,{}}}||
        canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard)
@@ -8272,7 +8284,7 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
     label("Authored settings apply to the entire Text, including Text on Path. Exact four-character tags are case-sensitive; spaces inside [brackets] are significant. Unsupported intent is retained.");
     const bool whole=object.kind==Kind::text&&canvas->selections()==std::vector<Canvas::Selection>{{object.id,{}}};
     const TextTypographyContext context{host.session_id,object.id,object.text->id,canvas->active_composition(),canvas->active_artboard(),
-        host.session.revision(),text_selection_generation_,host.session.document().id,host.session.gesture_generation(),host.session.gesture_active()};
+        host.session.revision(),text_selection_generation_,host.session.document().id,host.session.gesture_generation(),host.session.gesture_active(),object};
     const auto action=[&](const QString& title,const QString& name,bool axis,const std::optional<std::string>& tag,bool remove,QHBoxLayout* row=nullptr) {
         auto* button=new PreparedTextActionButton(title,box);button->setObjectName(name);button->setEnabled(whole);
         button->setProperty("nect-text-typography-action-object",qs(object.id));button->setFocusPolicy(Qt::StrongFocus);
@@ -8297,6 +8309,10 @@ QLabel* Window::add_text_typography(QVBoxLayout* layout,const Object& object) {
                     if(pending)pending->setProperty("nect-finishing-text-typography",false);
                     if(!committed.isValid())return;
                     auto advanced=*prepared_context;advanced.revision=committed.toULongLong();
+                    // Rearm only the legitimate ordinary Font size completion;
+                    // never recapture other authored fields from incoming state.
+                    advanced.typography_target->text->parameters.at("font_size")=
+                        host.session.document().objects.at(advanced.object).text->parameters.at("font_size");
                     verify_text_typography_context(advanced);
                     *prepared_context=std::move(advanced);*scalar_prepared=true;
                 }

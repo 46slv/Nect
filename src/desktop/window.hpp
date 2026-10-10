@@ -212,6 +212,9 @@ private:
         Id document;
         std::uint64_t gesture_generation=0;
         bool preview=false;
+        // Only Advanced Typography dialogs retain a complete authored target.
+        // Scalar fx/picker contexts retain their existing independent contracts.
+        std::optional<Object> typography_target;
     };
     using TextTypographyContext=PropertyActionContext;
     void verify_text_typography_context(const TextTypographyContext& context) const;

@@ -124,9 +124,12 @@ void receipt_string_presentation() {
     check(text.contains("Feature [<br>] = 29 · script 2"),"Run feature receipt retains valid markup-like four-byte tags");
 }
 }
+#include "text_typography_window_smoke.hpp"
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    const bool pointer=argc>1&&std::string(argv[1])=="--context-pointer";
+    if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
     try {
+        if(pointer)return text_typography_window_smoke::run();
         receipt_string_presentation();
         QTemporaryDir directory;check(directory.isValid(),"Temporary native fixture directory exists");
         QSettings settings(directory.filePath("settings.ini"),QSettings::IniFormat);

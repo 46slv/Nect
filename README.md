@@ -86,6 +86,14 @@ Not implemented yet:
 
 The PS/AI parity backlog is **not** implementation authorization.
 
+Advanced Typography Add/Edit/Remove dialogs retain the complete authored Text and
+its Composition membership through entry and Apply. A replaced target refuses
+before consuming pending Font size; legitimate size completion and typography
+remain separate Undo steps. Exact four-byte feature/axis tags, significant spaces,
+case, feature order and values remain authored intent. This does not qualify font
+coverage or physical OS input. The focused production Window pointer contract is
+`text_typography_context_pointer_contract`.
+
 ## Build
 
 Requirements:
