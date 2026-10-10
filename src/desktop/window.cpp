@@ -10827,6 +10827,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     // Group scalar actions must freeze their entire supported dependency closure,
     // including nested content and external mask/Transform Parent sources.
     const auto batch_group_objects=std::make_shared<std::map<Id,Object>>();
+    const auto batch_group_assets=std::make_shared<std::map<Id,RasterAsset>>();
     const auto group_common_scalar_field=[](const std::string& field) {
         return field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d"||
             field=="transform.tx"||field=="transform.ty"||field=="transform.anchor_x"||
@@ -10847,9 +10848,15 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     (object.kind==Kind::path&&!object.text&&(!object.source||
                      object.source->type=="nect.shape.circle"||object.source->type=="nect.shape.rectangle"||
                      object.source->type=="nect.shape.polygon"||object.source->type=="nect.shape.star"))||
-                    (object.kind==Kind::text&&object.text&&!object.source);
+                    (object.kind==Kind::text&&object.text&&!object.source)||
+                    (object.kind==Kind::image&&object.image&&!object.source&&!object.text);
                 if(!supported)return false;
                 batch_group_objects->emplace(id,object);
+                if(object.image) {
+                    const auto asset=d.raster_assets.find(object.image->asset);
+                    if(asset==d.raster_assets.end())return false;
+                    batch_group_assets->emplace(asset->first,asset->second);
+                }
                 for(const auto& child:object.children)if(!capture(child))return false;
                 if(object.compositing.mask&&!capture(object.compositing.mask->source))return false;
                 if(object.transform_parent&&!capture(*object.transform_parent))return false;
@@ -11038,7 +11045,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const auto batch_selection=canvas->selections();
     const auto expected_batch_objects=batch_group_common_scalar_fx?batch_group_objects:std::make_shared<std::map<Id,Object>>();
     if(batch_path_scalar_fx)for(const auto& target:targets)expected_batch_objects->emplace(target.object,d.objects.at(target.object));
-    auto verify_batch_context=[this,batch_selection,expected_batch_objects](const PropertyActionContext& context,bool browsing=false) {
+    auto verify_batch_context=[this,batch_selection,expected_batch_objects,batch_group_assets](const PropertyActionContext& context,bool browsing=false) {
         if(host.session_id!=context.session||host.session.document().id!=context.document)
             throw Error("SESSION_CONFLICT","The batch property belongs to another document");
         if(host.session.revision()!=context.revision)throw Error("REVISION_CONFLICT","The batch property revision changed");
@@ -11046,6 +11053,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             const auto found=host.session.document().objects.find(id);
             if(found==host.session.document().objects.end()||found->second!=expected)
                 throw Error("PROPERTY_CONFLICT","An original batch target or authored source changed");
+        }
+        for(const auto& [id,expected]:*batch_group_assets) {
+            const auto found=host.session.document().raster_assets.find(id);
+            if(found==host.session.document().raster_assets.end()||!(found->second==expected))
+                throw Error("PROPERTY_CONFLICT","An accepted batch Image asset changed");
         }
         if(artboard_editing_||canvas->active_composition()!=context.composition||canvas->active_artboard()!=context.artboard||
            (!browsing&&(text_selection_generation_!=context.selection_generation||canvas->selections()!=batch_selection)))

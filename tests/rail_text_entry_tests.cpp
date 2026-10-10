@@ -5888,7 +5888,7 @@ void batch_point_handle_pointer(const std::string& kind,const std::string& field
     undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
 }
 
-void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx"){
+void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx",bool image_dependency=false){
     const bool matrix_field=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
     const bool scalar_unit=matrix_field||field=="composite.opacity";
     const bool anchor_field=field=="transform.anchor_x"||field=="transform.anchor_y";
@@ -5904,6 +5904,15 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     auto document=empty_document("batch-path-tx-document","composition","board");
+    if(image_dependency){
+        const auto bytes=encode_raster_png(RasterPixels{2,1,{240,30,10,255,20,60,220,128}});
+        QFile source(scratch.filePath("owned-source.png"));check(source.open(QIODevice::WriteOnly),"Image dependency owns its linked source");
+        check(source.write(reinterpret_cast<const char*>(bytes.data()),bytes.size())==qint64(bytes.size()),"Owned Image original bytes saved");source.close();
+        document.raster_assets.emplace("group-image-asset",RasterAsset{"group-image-asset","Accepted shared original",mode=="embedded"?"embedded":"linked",mode=="embedded"?"":source.fileName().toStdString(),make_raster(bytes)});
+        document.raster_assets.emplace("group-image-spare",RasterAsset{"group-image-spare","Unrelated embedded original","embedded","",make_raster(bytes)});
+        Object other;other.id="unrelated-image";other.kind=Kind::image;other.image=ImageSource{"group-image-asset",{60},{30}};other.transform.at(4).literal=400;
+        document.objects.emplace(other.id,other);document.compositions.front().roots.push_back(other.id);
+    }
     for(const auto* id:{"first","second","source"}){
         Object object;object.id=id;object.name=id;
         if(std::string(id)=="source"||(kind=="mixed"&&std::string(id)=="second"))make_scalar_path(object);
@@ -5914,6 +5923,13 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             Object nested;nested.id=std::string(id)+"-nested";nested.kind=Kind::group;nested.children={std::string(id)+"-curve",std::string(id)+"-text"};nested.transform.at(4).literal=12;document.objects.emplace(nested.id,nested);
             Object curve;curve.id=std::string(id)+"-curve";curve.source=default_primitive(curve.id+"-source","nect.shape.circle");curve.source->parameters.at("radius").literal=60;document.objects.emplace(curve.id,curve);
             Object text;text.id=std::string(id)+"-text";text.kind=Kind::text;text.text=default_text(text.id+"-source","Retain 日本語 (ABC123)");text.text->parameters.at("font_size").literal=24;text.text->parameters.at("tracking").literal=1.5;text.transform.at(5).literal=20;document.objects.emplace(text.id,text);
+            if(image_dependency){
+                Object image;image.id=std::string(id)+"-image";image.kind=Kind::image;image.image=ImageSource{"group-image-asset",{120},{60}};
+                image.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{25,{}},{35,{}}}};image.anchor={{{7,{}},{11,{}}}};
+                image.transform_parent=std::string(id)+"-parent";image.compositing.opacity.literal=0.7;
+                image.compositing.mask=GeometryMask{image.id+"-mask",std::string(id)+"-mask-source",1,true,"nonzero"};
+                document.objects.at(nested.id).children.push_back(image.id);document.objects.emplace(image.id,image);
+            }
             Object mask;mask.id=std::string(id)+"-mask-source";mask.source=default_primitive(mask.id+"-primitive","nect.shape.circle");mask.source->parameters.at("radius").literal=300;document.objects.emplace(mask.id,mask);document.compositions.front().roots.push_back(mask.id);
             Object parent;parent.id=std::string(id)+"-parent";make_scalar_path(parent);parent.transform.at(4).literal=30;document.objects.emplace(parent.id,parent);document.compositions.front().roots.push_back(parent.id);
         }
@@ -5994,11 +6010,28 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
                 else second.transform.at(slot).literal=scalar_unit?0.21:21.0;
             }
             else if(suffix=="style")incoming.objects.at("first").stack.front().parameters.at("levels").literal=10;
+            else if(image_dependency&&suffix=="image-width")incoming.objects.at("first-image").image->width.literal=121;
+            else if(image_dependency&&suffix=="image-height")incoming.objects.at("first-image").image->height.literal=61;
+            else if(image_dependency&&suffix=="image-relink")incoming.objects.at("first-image").image->asset="group-image-spare";
+            else if(image_dependency&&suffix=="image-transform")incoming.objects.at("first-image").transform.at(4).literal=26;
+            else if(image_dependency&&suffix=="image-mask")incoming.objects.at("first-image").compositing.mask->enabled=false;
+            else if(image_dependency&&suffix=="image-parent")incoming.objects.at("first-image").transform_parent.reset();
+            else if(image_dependency&&suffix=="asset-name")incoming.raster_assets.at("group-image-asset").name+=" changed";
+            else if(image_dependency&&suffix=="asset-mode"){auto& asset=incoming.raster_assets.at("group-image-asset");asset.mode="embedded";asset.locator.clear();}
+            else if(image_dependency&&suffix=="asset-locator")incoming.raster_assets.at("group-image-asset").locator=scratch.filePath("other-source.png").toStdString();
+            else if(image_dependency&&suffix=="asset-payload")incoming.raster_assets.at("group-image-asset").payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,20,30,255,40,50,60,255}}));
             else throw std::runtime_error("Unknown batch context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.ty"},51}},replacement.revision());check(replacement.revision()==window.host.session.revision(),"Batch replacement deliberately collides at captured revision");window.host.session=replacement;
         }
         expected=window.host.session;
     };
+    if(image_dependency&&(mode=="equal-asset"||mode=="unrelated-asset"||mode=="external-file")){
+        auto incoming=window.host.session.document();
+        if(mode=="equal-asset"){auto& asset=incoming.raster_assets.at("group-image-asset");asset.payload=make_raster(asset.payload->bytes());}
+        else if(mode=="unrelated-asset")incoming.raster_assets.at("group-image-spare").name+=" unrelated edit";
+        else {QFile file(scratch.filePath("owned-source.png"));check(file.open(QIODevice::WriteOnly),"Only owned external linked bytes change");file.write("changed external file");file.close();}
+        window.host.session=Session(incoming);expected=window.host.session;document=incoming;
+    }
     if(mode.rfind("entry-",0)==0)change_context(false);
     const auto preview=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
     auto scalar=[&]{if(formula)expected.apply({SetExpression{refs,{formula_text.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{refs,relative?relative_value:pending_value,relative}},expected.revision());};
@@ -6051,6 +6084,14 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     check(snapshot(window.host.session)==snapshot(expected),"Batch matches canonical full Document/encode/revision/history");
     const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());const auto actual_world=evaluate_transforms(window.host.session.document(),actual_values),expected_world=evaluate_transforms(expected.document(),expected_values);
     for(const auto* id:{"first","second"}){check(actual_world.at(id).world==expected_world.at(id).world,"Both world matrices match canonical batch edit");const auto actual=object_bounds(window.host.session.document(),id,actual_values,actual_world,true),canonical=object_bounds(expected.document(),id,expected_values,expected_world,true);check(actual&&canonical&&std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom},"Both curved bounds match canonical batch edit");}
+    if(image_dependency){
+        check(actual_values==expected_values,"Image dependency evaluation matches the independent canonical Session");
+        for(const auto& [id,object]:document.objects)if(object.image){
+            check(actual_world.at(id).world==expected_world.at(id).world,"Every Image placement world matrix matches the canonical result");
+            const auto actual=object_bounds(window.host.session.document(),id,actual_values,actual_world,true),canonical=object_bounds(expected.document(),id,expected_values,expected_world,true);
+            check(actual&&canonical&&std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom},"Every Image placement bounds match the canonical result");
+        }
+    }
     undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
 }
 
@@ -8072,6 +8113,30 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-image-entry-pending-pointer")){
+            bool failed=false;for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
+                try{batch_group_tx_pointer(kind,picking,"valid","transform.tx",true);}catch(const std::exception& error){failed=true;std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"All four Group/Image dependency first actions satisfy the existing contract");
+            std::cout<<"batch_group_image_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-image-affected-pending-pointer")){
+            for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
+                for(const auto* mode:{"embedded","relative","cancel","expression-scalar","invalid","equal-asset","unrelated-asset","external-file"}){
+                    std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_group_tx_pointer(kind,picking,mode,"transform.tx",true);
+                }
+                for(const auto* phase:{"entry-","apply-"})for(const auto* suffix:{"image-width","image-height","image-relink","image-transform","image-mask","image-parent","asset-name","asset-mode","asset-locator","asset-payload","child-source","child-correction","child-text","children","mask-source","parent","selected-field"}){
+                    const auto mode=std::string(phase)+suffix;std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_group_tx_pointer(kind,picking,mode,"transform.tx",true);
+                }
+                if(picking)for(const auto* mode:{"cycle","unit"})batch_group_tx_pointer(kind,true,mode,"transform.tx",true);
+                else batch_group_tx_pointer(kind,false,"invalid-expression","transform.tx",true);
+            }
+            std::cout<<"batch_group_image_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-image-whip-pending-pointer")){
+            for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"drag","drag-cancel"})batch_group_tx_pointer(kind,true,mode,"transform.tx",true);
+            std::cout<<"batch_group_image_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-group-tx-entry-pending-pointer")||app.arguments().contains("--batch-group-ty-entry-pending-pointer")||app.arguments().contains("--batch-group-common-entry-pending-pointer")){
             const std::vector<std::string> group_fields=app.arguments().contains("--batch-group-common-entry-pending-pointer")?std::vector<std::string>{"transform.anchor_x","transform.anchor_y","transform.a","transform.b","transform.c","transform.d","composite.opacity"}:std::vector<std::string>{app.arguments().contains("--batch-group-ty-entry-pending-pointer")?"transform.ty":"transform.tx"};
