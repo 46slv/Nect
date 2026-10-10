@@ -299,7 +299,8 @@ void family_pending_pointer(const std::string& mode){
     }
     if(mode!="plain")expected.apply({EditProperties{{{"text","","text.font_size"}},64,false}},expected.revision());
     check(snapshot(window.host.session)==snapshot(expected),"First family arrow commits only the independent scalar transaction");
-    check(original_family&&original_family->view()->isVisible(),"First family arrow opens the existing catalogue without losing the pointer gesture");
+    check(QTest::qWaitFor([&]{return original_family&&original_family->view()->isVisible();},2000),
+        "First family arrow opens the existing catalogue without losing the pointer gesture");
     QTest::keyClick(original_family->view(),Qt::Key_Escape);events();
     check(snapshot(window.host.session)==snapshot(expected),"Family popup Escape does not choose a font or author any extra state");
     if(mode=="plain") {

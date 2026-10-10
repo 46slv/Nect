@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "visual_style.hpp"
 #include "nect/io.hpp"
 #include <QAccessible>
 #include <QApplication>
@@ -125,10 +126,14 @@ void receipt_string_presentation() {
 }
 }
 #include "text_typography_window_smoke.hpp"
+#include "text_family_window_smoke.hpp"
 int main(int argc,char** argv) {
-    const bool pointer=argc>1&&std::string(argv[1])=="--context-pointer";
+    const bool family=argc>1&&(std::string(argv[1])=="--family-context-pointer"||std::string(argv[1])=="--family-discovery-pointer"||std::string(argv[1])=="--family-pending-debug"||std::string(argv[1])=="--family-popup-debug");
+    const bool pointer=family||(argc>1&&std::string(argv[1])=="--context-pointer");
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    if(family){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     try {
+        if(family)return text_family_window_smoke::run(std::string(argv[1])=="--family-discovery-pointer",std::string(argv[1])=="--family-pending-debug",std::string(argv[1])=="--family-popup-debug");
         if(pointer)return text_typography_window_smoke::run();
         receipt_string_presentation();
         QTemporaryDir directory;check(directory.isValid(),"Temporary native fixture directory exists");
