@@ -169,11 +169,13 @@ target's differences. Source picking freezes all targets and returns to them.
 For multiple Group Translation X/Y, Anchor X/Y, Matrix and Object opacity targets,
 the first fx/↗ action finishes the
 pending scalar edit before opening its draft. The frozen targets include supported
-Group/Path/Text/Image descendants, mask sources and Transform Parents; changed dependency
+Group/Path/Text/Image/Instance descendants, mask sources and Transform Parents; changed dependency
 state rejects the stale action. Scalar completion and a subsequent expression/link
 remain separate Undo steps. Image placements also freeze their accepted raster asset
 contents, mode and locator; external file changes are handled by explicit Reload/Relink.
-Instance dependency closures remain unsupported by this prepared Group action.
+Instance dependencies also freeze the exact Definition, its supported source subtree,
+accepted Image assets and pinned Macro revisions. Occurrence overrides stay on their
+original Instance; editing a Group scalar does not edit shared source content.
 
 Select adjacent objects and use the Canvas/Objects context menu → Mask With
 Top / Bottom. Labels identify the source by actual paint order. The operation

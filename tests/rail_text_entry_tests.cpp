@@ -5888,7 +5888,7 @@ void batch_point_handle_pointer(const std::string& kind,const std::string& field
     undo();undo();check(expected.document()==document,"Two Undo restore both complete original paths and incoming Refs");
 }
 
-void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx",bool image_dependency=false){
+void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx",bool image_dependency=false,bool instance_dependency=false){
     const bool matrix_field=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
     const bool scalar_unit=matrix_field||field=="composite.opacity";
     const bool anchor_field=field=="transform.anchor_x"||field=="transform.anchor_y";
@@ -5930,6 +5930,10 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
                 image.compositing.mask=GeometryMask{image.id+"-mask",std::string(id)+"-mask-source",1,true,"nonzero"};
                 document.objects.at(nested.id).children.push_back(image.id);document.objects.emplace(image.id,image);
             }
+            if(instance_dependency){
+                Object instance;instance.id=std::string(id)+"-instance";make_scalar_instance(instance);instance.transform.at(4).literal=75;
+                document.objects.at(nested.id).children.push_back(instance.id);document.objects.emplace(instance.id,instance);
+            }
             Object mask;mask.id=std::string(id)+"-mask-source";mask.source=default_primitive(mask.id+"-primitive","nect.shape.circle");mask.source->parameters.at("radius").literal=300;document.objects.emplace(mask.id,mask);document.compositions.front().roots.push_back(mask.id);
             Object parent;parent.id=std::string(id)+"-parent";make_scalar_path(parent);parent.transform.at(4).literal=30;document.objects.emplace(parent.id,parent);document.compositions.front().roots.push_back(parent.id);
         }
@@ -5943,6 +5947,21 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             else object.transform.at(0).literal=0.72;
         }
         document.objects.emplace(object.id,object);document.compositions.front().roots.push_back(object.id);
+    }
+    if(instance_dependency){
+        Object shared;shared.id="text";shared.name="Unselected shared Instance";make_scalar_instance(shared);shared.transform.at(4).literal=400;
+        document.objects.emplace(shared.id,shared);document.compositions.front().roots.push_back(shared.id);seed_scalar_instance(document);
+        for(auto& [id,object]:document.objects)if(object.kind==Kind::instance&&id!="text")object.instance=document.objects.at("text").instance;
+        auto offset=default_operation("group-definition-offset","nect.shape.offset");offset.parameters.at("amount").literal=2;
+        auto repeater=default_operation("group-definition-repeater","nect.shape.repeater");repeater.parameters.at("copies").literal=2;
+        MacroDefinitionRevision graph;graph.input={"input","local_paths_and_paint"};graph.output={"output","local_paths_and_paint"};
+        graph.nodes={{offset,"offset-in","offset-out"},{repeater,"repeater-in","repeater-out"}};
+        graph.edges={{{"","input"},{offset.id,"offset-in"}},{{offset.id,"offset-out"},{repeater.id,"repeater-in"}},{{repeater.id,"repeater-out"},{"","output"}}};
+        graph.output_mapping={repeater.id,"repeater-out"};
+        graph.public_parameters.push_back({"macro.offset.amount","Amount",offset.id,"amount","number","du","local_paths_and_paint"});
+        MacroDefinition macro;macro.id="group-definition-macro";macro.label="Pinned source Macro";macro.revisions.emplace(1,graph);
+        Session with_macro(document);with_macro.apply({MacroCommand{CreateMacroDefinition{macro}},MacroCommand{InstantiateMacro{"instance-curve",macro.id,"group-definition-macro-instance",1,1}}},with_macro.revision());
+        document=with_macro.document();
     }
     Object guard;guard.id="batch-ref-guard";guard.source=default_primitive("batch-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
     const std::vector<Ref> refs={{"first","",field},{"second","",field}};
@@ -6020,6 +6039,23 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             else if(image_dependency&&suffix=="asset-mode"){auto& asset=incoming.raster_assets.at("group-image-asset");asset.mode="embedded";asset.locator.clear();}
             else if(image_dependency&&suffix=="asset-locator")incoming.raster_assets.at("group-image-asset").locator=scratch.filePath("other-source.png").toStdString();
             else if(image_dependency&&suffix=="asset-payload")incoming.raster_assets.at("group-image-asset").payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,20,30,255,40,50,60,255}}));
+            else if(instance_dependency&&suffix=="instance-source")incoming.objects.at("first-instance").instance->definition="instance-alternate";
+            else if(instance_dependency&&suffix=="instance-override")incoming.objects.at("first-instance").instance->overrides.at({"instance-text","","text.font_size"})=32;
+            else if(instance_dependency&&suffix=="instance-visibility")incoming.objects.at("first-instance").instance->visibility_overrides.at("instance-image")=true;
+            else if(instance_dependency&&suffix=="instance-color")incoming.objects.at("first-instance").instance->color_overrides.begin()->second.rgba[0]=0.7;
+            else if(instance_dependency&&suffix=="instance-content")incoming.objects.at("first-instance").instance->text_content_overrides.at("instance-text")="Changed local 日本語";
+            else if(instance_dependency&&suffix=="definition-name")incoming.definitions.at("instance-definition").name+=" changed";
+            else if(instance_dependency&&suffix=="definition-root"){
+                auto root=incoming.objects.at("instance-root");root.id="replacement-instance-root";incoming.objects.at("instance-root").children.clear();
+                incoming.objects.emplace(root.id,root);incoming.compositions.front().roots.push_back(root.id);
+                incoming.definitions.at("instance-definition").root=root.id;incoming.definitions.at("instance-alternate").root=root.id;
+            }
+            else if(instance_dependency&&suffix=="definition-geometry")incoming.objects.at("instance-curve").contours.front().points.at(1).x.literal=91;
+            else if(instance_dependency&&suffix=="definition-text")incoming.objects.at("instance-text").text->content+=" changed source";
+            else if(instance_dependency&&suffix=="definition-image")incoming.objects.at("instance-image").image->width.literal=121;
+            else if(instance_dependency&&suffix=="definition-asset")incoming.raster_assets.at("image-shared-asset").payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,240,30,255,220,20,60,128}}));
+            else if(instance_dependency&&suffix=="macro-instance")incoming.objects.at("instance-curve").stack.at(1).enabled=false;
+            else if(instance_dependency&&suffix=="macro-revision")incoming.macro_definitions.at("group-definition-macro").revisions.at(1).nodes.front().operation.parameters.at("amount").literal=3;
             else throw std::runtime_error("Unknown batch context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.ty"},51}},replacement.revision());check(replacement.revision()==window.host.session.revision(),"Batch replacement deliberately collides at captured revision");window.host.session=replacement;
         }
@@ -6030,6 +6066,12 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
         if(mode=="equal-asset"){auto& asset=incoming.raster_assets.at("group-image-asset");asset.payload=make_raster(asset.payload->bytes());}
         else if(mode=="unrelated-asset")incoming.raster_assets.at("group-image-spare").name+=" unrelated edit";
         else {QFile file(scratch.filePath("owned-source.png"));check(file.open(QIODevice::WriteOnly),"Only owned external linked bytes change");file.write("changed external file");file.close();}
+        window.host.session=Session(incoming);expected=window.host.session;document=incoming;
+    }
+    if(instance_dependency&&(mode=="unrelated-definition"||mode=="unrelated-revision")){
+        auto incoming=window.host.session.document();
+        if(mode=="unrelated-definition")incoming.definitions.at("instance-alternate").name+=" unrelated edit";
+        else {auto& macro=incoming.macro_definitions.at("group-definition-macro");auto revision=macro.revisions.at(1);revision.revision=2;revision.nodes.front().operation.parameters.at("amount").literal=4;macro.revisions.emplace(2,revision);macro.latest_revision=2;}
         window.host.session=Session(incoming);expected=window.host.session;document=incoming;
     }
     if(mode.rfind("entry-",0)==0)change_context(false);
@@ -6083,8 +6125,18 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     }
     check(snapshot(window.host.session)==snapshot(expected),"Batch matches canonical full Document/encode/revision/history");
     const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());const auto actual_world=evaluate_transforms(window.host.session.document(),actual_values),expected_world=evaluate_transforms(expected.document(),expected_values);
-    for(const auto* id:{"first","second"}){check(actual_world.at(id).world==expected_world.at(id).world,"Both world matrices match canonical batch edit");const auto actual=object_bounds(window.host.session.document(),id,actual_values,actual_world,true),canonical=object_bounds(expected.document(),id,expected_values,expected_world,true);check(actual&&canonical&&std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom},"Both curved bounds match canonical batch edit");}
-    if(image_dependency){
+    auto bounds=[&](const Document& document,const Id& id,const auto& values,const auto& transforms){
+        if(!instance_dependency)return object_bounds(document,id,values,transforms,true);
+        const auto projected=project_definition_instances(document,document.compositions.front().id,values,transforms);
+        return object_bounds(*projected.document,id,*projected.values,*projected.transforms,true);
+    };
+    for(const auto* id:{"first","second"}){check(actual_world.at(id).world==expected_world.at(id).world,"Both world matrices match canonical batch edit");const auto actual=bounds(window.host.session.document(),id,actual_values,actual_world),canonical=bounds(expected.document(),id,expected_values,expected_world);check(actual&&canonical&&std::tuple{actual->left,actual->top,actual->right,actual->bottom}==std::tuple{canonical->left,canonical->top,canonical->right,canonical->bottom},"Both curved bounds match canonical batch edit");}
+    if(instance_dependency){
+        const auto actual=project_definition_instances(window.host.session.document(),"composition",actual_values,actual_world),canonical=project_definition_instances(expected.document(),"composition",expected_values,expected_world);
+        check(*actual.document==*canonical.document&&*actual.values==*canonical.values,"Full Instance projection and evaluated source match canonical Session");
+        for(const auto& [id,transform]:*actual.transforms)check(transform.world==canonical.transforms->at(id).world,"Every projected occurrence world matrix matches the canonical result");
+    }
+    if(image_dependency||instance_dependency){
         check(actual_values==expected_values,"Image dependency evaluation matches the independent canonical Session");
         for(const auto& [id,object]:document.objects)if(object.image){
             check(actual_world.at(id).world==expected_world.at(id).world,"Every Image placement world matrix matches the canonical result");
@@ -8113,6 +8165,28 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-instance-entry-pending-pointer")){
+            bool failed=false;for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
+                try{batch_group_tx_pointer(kind,picking,"valid","transform.tx",false,true);}catch(const std::exception& error){failed=true;std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"All four existing Group/Instance dependency first actions satisfy the existing contract");
+            std::cout<<"batch_group_instance_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-instance-affected-pending-pointer")){
+            for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
+                for(const auto* mode:{"relative","cancel","expression-scalar","invalid","unrelated-definition","unrelated-revision"})batch_group_tx_pointer(kind,picking,mode,"transform.tx",false,true);
+                for(const auto* phase:{"entry-","apply-"})for(const auto* suffix:{"instance-source","instance-override","instance-visibility","instance-color","instance-content","definition-name","definition-root","definition-geometry","definition-text","definition-image","definition-asset","macro-instance","macro-revision","mask-source","parent","selected-field"}){
+                    const auto mode=std::string(phase)+suffix;std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_group_tx_pointer(kind,picking,mode,"transform.tx",false,true);
+                }
+                if(picking)for(const auto* mode:{"cycle","unit"})batch_group_tx_pointer(kind,true,mode,"transform.tx",false,true);
+                else batch_group_tx_pointer(kind,false,"invalid-expression","transform.tx",false,true);
+            }
+            std::cout<<"batch_group_instance_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-group-instance-whip-pending-pointer")){
+            for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"drag","drag-cancel"})batch_group_tx_pointer(kind,true,mode,"transform.tx",false,true);
+            std::cout<<"batch_group_instance_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-group-image-entry-pending-pointer")){
             bool failed=false;for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
