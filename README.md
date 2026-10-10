@@ -101,6 +101,14 @@ and weight keep separate Undo steps, including Text-on-Path Inspector mirrors.
 The focused production Window pointer contract is `text_weight_context_pointer_contract`;
 physical OS input and installed-font coverage remain separate qualifications.
 
+Single Text sizing uses the existing Auto size/Fixed frame display and explicit
+Driver Edit sizing, Link/Replace and Unlink actions. The controls retain the complete
+authored target, Composition and chosen source. Changed targets or sources refuse
+atomically; a source can be explicitly chosen again. Pending Font size, frame width
+and frame height complete separately from sizing, preserving independent Undo.
+The focused production Window pointer contract is `text_sizing_context_pointer_contract`;
+physical OS input remains a separate qualification.
+
 ## Build
 
 Requirements:
