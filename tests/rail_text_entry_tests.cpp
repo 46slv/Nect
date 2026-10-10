@@ -1005,15 +1005,15 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false,bool 
     });
     QTimer::singleShot(QApplication::doubleClickInterval()+1000,&window,[&]{
         if((weight||italic)&&!expression)return;
-        QDialog* dialog=italic?qobject_cast<QInputDialog*>(QApplication::activeModalWidget()):window.findChild<QDialog*>(expression?"text-weight-expression-dialog":"text-family-dialog");dialog_open=dialog&&dialog->isVisible();
+        QDialog* dialog=window.findChild<QDialog*>(italic?"text-italic-expression-dialog":expression?"text-weight-expression-dialog":"text-family-dialog");dialog_open=dialog&&dialog->isVisible();
         if(!dialog_open){if(menu)menu->close();return;}
         auto* buttons=dialog->findChild<QDialogButtonBox*>();
         if(!buttons){dialog->reject();return;}
         if(italic) {
-            auto* editor=dialog->findChild<QLineEdit*>();
+            auto* editor=dialog->findChild<QPlainTextEdit*>("text-italic-expression-draft");
             if(!editor){dialog->reject();return;}
             editor->setFocus();QTest::keyClick(editor,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(editor,"true");
-            unlink_clicked=editor->text()=="true";
+            unlink_clicked=editor->toPlainText()=="true";
         } else if(expression) {
             auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");
             if(!editor){dialog->reject();return;}
@@ -1025,7 +1025,7 @@ void family_unlink_pending_pointer(bool weight=false,bool expression=false,bool 
             QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,unlink->mapTo(dialog,unlink->rect().center()));
             unlink_clicked=unlink->isChecked();
         }
-        auto* apply=buttons->button(italic?QDialogButtonBox::Ok:QDialogButtonBox::Apply);
+        auto* apply=buttons->button(QDialogButtonBox::Apply);
         QTest::mouseClick(dialog->windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(dialog,apply->rect().center()));
         if(dialog->isVisible())dialog->reject();
     });
