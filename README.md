@@ -94,6 +94,13 @@ case, feature order and values remain authored intent. This does not qualify fon
 coverage or physical OS input. The focused production Window pointer contract is
 `text_typography_context_pointer_contract`.
 
+Single Text weight spin/literal and Driver Link/Replace, expression and Unlink
+retain the complete authored Text, Composition and exact source context. Stale
+target/source or external selection changes refuse atomically. Pending Font size
+and weight keep separate Undo steps, including Text-on-Path Inspector mirrors.
+The focused production Window pointer contract is `text_weight_context_pointer_contract`;
+physical OS input and installed-font coverage remain separate qualifications.
+
 ## Build
 
 Requirements:

@@ -324,6 +324,7 @@ void family_pending_pointer(const std::string& mode){
     std::cout<<"text_family_pending_pointer cancel: "<<checks<<" checks passed; Qt Window pointer route\n";
 }
 void weight_pending_pointer(const std::string& mode){
+    std::cout<<"WeightPendingTrace start "<<mode<<std::endl;
     QTemporaryDir scratch;check(scratch.isValid(),"Weight step owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -348,6 +349,8 @@ void weight_pending_pointer(const std::string& mode){
     if(mode!="plain") {QTest::keyClick(size,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(size,mode=="invalid"?"not-a-number":"64");events();}
     check(size->hasFocus()&&size->isModified()==(mode!="plain")&&snapshot(window.host.session)==snapshot(expected),"Font size draft state remains neutral before weight step");
     scroll->ensureWidgetVisible(weight);events();
+    std::cout<<"WeightPendingTrace before entry "<<mode<<" original="<<bool(original_weight)<<std::endl;
+    check(original_weight,"Original weight step exists before pointer admission");
     if(mode=="revision") {
         window.host.session.apply({EditProperties{{{"text","","text.tracking"}},2,false}},window.host.session.revision());
         expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
@@ -361,6 +364,7 @@ void weight_pending_pointer(const std::string& mode){
     const auto position=weight->mapTo(&window,up.center());
     check(!up.isEmpty()&&window.childAt(position)==weight,"Actual Window pointer resolves to the existing weight up step");
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    std::cout<<"WeightPendingTrace after entry "<<mode<<" original="<<bool(original_weight)<<" revision="<<window.host.session.revision()<<std::endl;
     if(mode=="invalid"||mode=="revision"||mode=="document") {
         check(snapshot(window.host.session)==snapshot(expected),"Rejected weight entry preserves complete incoming source/history");
         check(original_weight&&original_weight->value()==stepped-original_weight->singleStep(),"Rejected draft/context does not step the weight draft");
@@ -376,6 +380,7 @@ void weight_pending_pointer(const std::string& mode){
         expected.apply({EditProperties{{{"text","","text.tracking"}},2,false}},expected.revision());
     }
     QTest::keyClick(original_weight,Qt::Key_Return);events();
+    std::cout<<"WeightPendingTrace after finish "<<mode<<" original="<<bool(original_weight)<<" revision="<<window.host.session.revision()<<std::endl;
     if(mode=="late-revision") {
         check(snapshot(window.host.session)==snapshot(expected),"Prepared weight draft refuses an incoming revision without partial authoring");
         check(window.statusBar()->currentMessage().contains("REVISION_CONFLICT"),"Prepared weight finish reports its changed context");
@@ -385,6 +390,7 @@ void weight_pending_pointer(const std::string& mode){
     expected.apply({UpdateText{"text",changed}},expected.revision());
     check(snapshot(window.host.session)==snapshot(expected),"Finishing the weight step uses the existing separate canonical command");
     window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();
+    std::cout<<"WeightPendingTrace after weight Undo "<<mode<<" original="<<bool(original_weight)<<" displayed="<<(original_weight?original_weight->value():-1)<<std::endl;
     check(snapshot(window.host.session)==snapshot(expected),"One weight Undo preserves the independently committed size");
     if(mode=="plain") {
         check(expected.document()==document,"No-draft weight step remains one independent Undo");

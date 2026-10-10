@@ -340,7 +340,16 @@ private:
 class PreparedTextSpin final : public QSpinBox {
 public:
     std::function<bool()> prepare;
+    PreparedTextSpin(){lineEdit()->installEventFilter(this);}
 protected:
+    bool eventFilter(QObject* watched,QEvent* event)override {
+        if(watched==lineEdit()&&event->type()==QEvent::MouseButtonPress&&prepare&&
+           static_cast<QMouseEvent*>(event)->button()==Qt::LeftButton) {
+            setProperty("nect-retain-text-inspector",true);const bool ready=prepare();
+            setProperty("nect-retain-text-inspector",false);if(!ready)return true;
+        }
+        return QSpinBox::eventFilter(watched,event);
+    }
     void mousePressEvent(QMouseEvent* event)override {
         if(event->button()==Qt::LeftButton&&prepare) {
             setProperty("nect-retain-text-inspector",true);
@@ -4977,7 +4986,7 @@ void Window::detach_artboard_template(const ArtboardTemplateContext& context) {
 void Window::rebuild_inspector(bool use_canvas_values) {
     if(rebuilding_inspector_)return;
     // Text-on-Path queues a Canvas-value mirror after an ordinary scalar edit.
-    // It must not destroy the family control that just received that edit.
+    // It must not destroy the family/weight control that just received that edit.
     // Explicit refresh/selection changes still use the normal context path.
     if(use_canvas_values) {
         const auto* family=inspector_->findChild<QComboBox*>("text-family");
@@ -4985,6 +4994,11 @@ void Window::rebuild_inspector(bool use_canvas_values) {
            (family->lineEdit()&&family->lineEdit()->hasFocus())||family->view()->isVisible()))return;
         const auto* driver=inspector_->findChild<QToolButton*>("text-family-driver");
         if(driver&&driver->menu()&&driver->menu()->isVisible())return;
+        const auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
+        if(weight&&weight->property("nect-text-weight-draft-open").toBool()&&
+           (weight->hasFocus()||(weight->findChild<QLineEdit*>()&&weight->findChild<QLineEdit*>()->hasFocus())))return;
+        const auto* weight_driver=inspector_->findChild<QToolButton*>("text-weight-driver");
+        if(weight_driver&&weight_driver->menu()&&weight_driver->menu()->isVisible())return;
     }
     // Direct Text popups own only their synchronous scalar preparation.
     // Canvas/recovery still refresh; keep this control alive until it can open.
@@ -7203,6 +7217,30 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     const auto weight_revision=host.session.revision();
     const auto weight_document=host.session.document().id;
     const auto weight_gesture=host.session.gesture_generation();
+    auto weight_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        weight_revision,text_selection_generation_,weight_document,weight_gesture,host.session.gesture_active(),object});
+    using WeightLineage=std::map<Id,std::tuple<Id,unsigned,std::optional<TextWeightDriver>,std::optional<Expression>>>;
+    const auto weight_lineage=[this](const Id& root) {
+        WeightLineage result;
+        std::function<void(const Id&)> visit=[&](const Id& current) {
+            if(result.contains(current))return;
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained weight source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.weight,text.weight_driver,text.weight_expression});
+            if(text.weight_driver)visit(text.weight_driver->link.object);
+            if(text.weight_expression)for(const auto& ref:expression_dependencies(*text.weight_expression))visit(ref.object);
+        };
+        visit(root);return result;
+    };
+    const auto retained_weight_lineage=weight_lineage(id);
+    const auto verify_weight=[this,id,weight_context,weight_lineage,retained_weight_lineage](bool browsing=false) {
+        verify_text_typography_context(*weight_context,browsing);
+        if(weight_lineage(id)!=retained_weight_lineage)
+            throw Error("SOURCE_CONFLICT","The retained weight driver changed; reopen this Text's weight controls");
+    };
     auto* weight_row=new QWidget(box);auto* weight_layout=new QHBoxLayout(weight_row);weight_layout->setContentsMargins(0,0,0,0);
     auto* weight=new PreparedTextSpin;weight->setObjectName("text-weight");weight->setRange(1,999);weight->setSingleStep(100);
     weight->setProperty("nect-text-weight-action-object",qs(id));
@@ -7215,7 +7253,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto prepared_weight_revision=std::make_shared<std::uint64_t>(weight_revision);
     auto weight_scalar_prepared=std::make_shared<bool>(false);
     const bool weight_preview=host.session.gesture_active();
-    weight->prepare=[this,id,frozen_session,weight_document,weight_gesture,weight_preview,prepared_weight_revision,weight_scalar_prepared] {
+    weight->prepare=[this,id,weight,frozen_session,weight_document,weight_gesture,weight_preview,prepared_weight_revision,weight_scalar_prepared,weight_context,verify_weight] {
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
@@ -7224,6 +7262,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight");
             if(weight_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its weight");
+            verify_weight();
             QPointer<QLineEdit> pending;
             for(auto* input:inspector_->findChildren<QLineEdit*>()) {
                 const auto data=input->property("nect-reference").toByteArray();
@@ -7241,10 +7280,15 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 if(host.session_id!=frozen_session||host.session.document().id!=weight_document||
                    host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=weight_gesture||host.session.gesture_active())
                     throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*weight_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*weight_context=std::move(advanced);
                 *prepared_weight_revision=host.session.revision();*weight_scalar_prepared=true;
             }
             ready=true;
         });
+        if(ready)weight->setProperty("nect-text-weight-draft-open",true);
         return ready;
     };
     auto* weight_driver_button=new PreparedTextMenuButton;weight_driver_button->setObjectName("text-weight-driver");
@@ -7268,7 +7312,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     }
     link_weight->setEnabled(!weight_source_ids.empty());
     const bool replace_weight_driver=weight_is_driven;
-    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_gesture,replace_weight_driver,weight_source_ids]{
+    connect(link_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_gesture,replace_weight_driver,weight_source_ids,verify_weight,weight_lineage]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
@@ -7276,6 +7320,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
                 throw Error("STALE_CONTEXT","Text changed; refresh before linking its weight");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_weight();
             ready=true;
         });
         if(!ready)return;
@@ -7284,16 +7329,31 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,weight_source_ids,"Link Text weight");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,weight_document](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=weight_document)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+        auto chosen_source=std::make_shared<std::optional<Object>>();auto chosen_lineage=std::make_shared<WeightLineage>();
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker=[this,verify_weight,picker_selection,picker_generation] {
+            verify_weight(true);
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The source chooser selection changed outside this chooser");
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[this,status,verify_picker,weight_lineage,chosen_source,chosen_lineage,picker_selection,picker_generation](QListWidgetItem* item,QListWidgetItem*){
+            chosen_source->reset();chosen_lineage->clear();if(!item||item->isHidden())return;
+            try {
+                verify_picker();const auto ref=read_ref(item->data(Qt::UserRole).toByteArray());
+                *chosen_source=host.session.document().objects.at(ref.object);*chosen_lineage=weight_lineage(ref.object);
+                canvas->set_selection(ref.object,{});*picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+            }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
         });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,weight_document,composition,artboard]{
-            if(host.session_id==frozen_session&&host.session.document().id==weight_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,weight_document,composition,artboard,picker_selection,picker_generation]{
+            if(host.session_id==frozen_session&&host.session.document().id==weight_document&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation){
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,weight_document,weight_revision,weight_gesture,replace_weight_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,weight_document,weight_revision,weight_gesture,replace_weight_driver,selection,composition,artboard,verify_picker,weight_lineage,chosen_source,chosen_lineage]{
                 try {
                     if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
                         throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
@@ -7305,6 +7365,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                     if(host.session.revision()!=weight_revision||host.session.gesture_generation()!=weight_gesture)
                         throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_picker();
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||weight_lineage(source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text source changed; choose it again before linking");
                     host.session.apply({LinkTextWeight{target,source,replace_weight_driver}},weight_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -7312,13 +7377,14 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_state,weight_is_driven]{
+    connect(expression_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,weight_state,weight_is_driven,verify_weight]{
         if(host.session_id!=frozen_session||host.session.document().id!=weight_document) {
             perform([&]{throw Error("SESSION_CONFLICT","Text weight belongs to another document");});return;
         }
         if(host.session.revision()!=*prepared_weight_revision) {
             perform([&]{throw Error("STALE_CONTEXT","Text changed; refresh before editing its weight source");});return;
         }
+        bool ready=false;perform([&]{verify_weight();ready=true;});if(!ready)return;
         const auto weight_revision=*prepared_weight_revision;
         QDialog dialog(this);dialog.setObjectName("text-weight-expression-dialog");dialog.setWindowTitle("Text weight expression");
         auto* layout=new QVBoxLayout(&dialog);
@@ -7336,10 +7402,11 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
         connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-            [this,&dialog,id,frozen_session,weight_document,weight_revision,editor,replace,status]{
+            [this,&dialog,id,frozen_session,weight_document,weight_revision,editor,replace,status,verify_weight]{
                 try {
                     if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
                         throw Error("SESSION_CONFLICT","Text belongs to another document");
+                    verify_weight();
                     host.session.apply({SetTextWeightExpression{{id,"","text.weight"},
                         Expression{editor->toPlainText().toStdString(),1},replace->isChecked()}},weight_revision);
                     host.edited();dialog.accept();
@@ -7348,10 +7415,10 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog.exec();
     });
-    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision]{
+    connect(unlink_weight,&QAction::triggered,this,[this,id,frozen_session,weight_document,prepared_weight_revision,verify_weight]{
         perform([&]{if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
                 throw Error("SESSION_CONFLICT","Text belongs to another document");
-            host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},*prepared_weight_revision);host.edited();});
+            verify_weight();host.session.apply({UnlinkTextWeight{{id,"","text.weight"}}},*prepared_weight_revision);host.edited();});
     });
     form->addRow("Weight",weight_row);
     auto* weight_status=new QLabel(weight_row);weight_status->setObjectName("text-weight-state");
@@ -7367,14 +7434,20 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     weight_status->setText(QString("Literal: %1 · Driver: %2 · Evaluated: %3")
         .arg(weight_state.literal).arg(weight_driver_description).arg(weight_state.evaluated));
     weight_status->setWordWrap(true);form->addRow("",weight_status);
-    connect(weight,&QSpinBox::editingFinished,this,[this,weight,update,weight_state,frozen_session,weight_document,prepared_weight_revision,weight_gesture]{
+    connect(weight,&QSpinBox::editingFinished,this,[this,id,weight,update,weight_state,frozen_session,weight_document,prepared_weight_revision,weight_gesture,verify_weight]{
+        weight->setProperty("nect-text-weight-draft-open",false);
         if(weight_state.driver||weight_state.expression)return;
         if(static_cast<unsigned>(weight->value())!=weight_state.literal)perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=weight_document)
                 throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
+            const auto found=host.session.document().objects.find(id);
+            if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
+            // Return may deliver both signals after the first rebuilt the Inspector.
+            if(found->second.text->weight==static_cast<unsigned>(weight->value()))return;
             if(host.session.revision()!=*prepared_weight_revision||host.session.gesture_generation()!=weight_gesture)
                 throw Error("REVISION_CONFLICT","Text changed; edit its weight again");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_weight();
             update([&](auto& s){s.weight=static_cast<unsigned>(weight->value());});
         });});
     connect(weight,&QSpinBox::editingFinished,this,[this,frozen_session,weight_document,weight_scalar_prepared]{

@@ -127,12 +127,15 @@ void receipt_string_presentation() {
 }
 #include "text_typography_window_smoke.hpp"
 #include "text_family_window_smoke.hpp"
+#include "text_weight_window_smoke.hpp"
 int main(int argc,char** argv) {
+    const bool weight=argc>1&&(std::string(argv[1])=="--weight-context-pointer"||std::string(argv[1])=="--weight-discovery-pointer"||std::string(argv[1])=="--weight-pending-debug");
     const bool family=argc>1&&(std::string(argv[1])=="--family-context-pointer"||std::string(argv[1])=="--family-discovery-pointer"||std::string(argv[1])=="--family-pending-debug"||std::string(argv[1])=="--family-popup-debug");
-    const bool pointer=family||(argc>1&&std::string(argv[1])=="--context-pointer");
+    const bool pointer=weight||family||(argc>1&&std::string(argv[1])=="--context-pointer");
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
-    if(family){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
+    if(family||weight){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     try {
+        if(weight)return text_weight_window_smoke::run(std::string(argv[1])=="--weight-discovery-pointer",std::string(argv[1])=="--weight-pending-debug");
         if(family)return text_family_window_smoke::run(std::string(argv[1])=="--family-discovery-pointer",std::string(argv[1])=="--family-pending-debug",std::string(argv[1])=="--family-popup-debug");
         if(pointer)return text_typography_window_smoke::run();
         receipt_string_presentation();
