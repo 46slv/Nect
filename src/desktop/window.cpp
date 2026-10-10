@@ -10824,6 +10824,34 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 }
         }
     const bool paint_scalar_fx=!paint_scalar_operation.empty();
+    // Group Translation X must freeze its entire supported dependency closure,
+    // including nested content and external mask/Transform Parent sources.
+    const auto batch_group_objects=std::make_shared<std::map<Id,Object>>();
+    const bool batch_group_tx_fx=targets.size()>1&&
+        std::any_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            const auto found=d.objects.find(target.object);
+            return found!=d.objects.end()&&found->second.kind==Kind::group;
+        })&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            return target.point.empty()&&target.field=="transform.tx"&&inspector_values_.contains(target);
+        })&&[&] {
+            std::function<bool(const Id&)> capture=[&](const Id& id) {
+                if(batch_group_objects->contains(id))return true;
+                const auto found=d.objects.find(id);if(found==d.objects.end())return false;
+                const auto& object=found->second;
+                const bool supported=(object.kind==Kind::group&&!object.source&&!object.text)||
+                    (object.kind==Kind::path&&!object.text&&(!object.source||
+                     object.source->type=="nect.shape.circle"||object.source->type=="nect.shape.rectangle"||
+                     object.source->type=="nect.shape.polygon"||object.source->type=="nect.shape.star"))||
+                    (object.kind==Kind::text&&object.text&&!object.source);
+                if(!supported)return false;
+                batch_group_objects->emplace(id,object);
+                for(const auto& child:object.children)if(!capture(child))return false;
+                if(object.compositing.mask&&!capture(object.compositing.mask->source))return false;
+                if(object.transform_parent&&!capture(*object.transform_parent))return false;
+                return true;
+            };
+            return std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return capture(target.object);});
+        }();
     const bool batch_path_scalar_fx=targets.size()>1&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         const auto found=d.objects.find(target.object);
         if(!target.point.empty())return (target.field=="x"||target.field=="y"||target.field=="in.angle"||target.field=="in.length"||target.field=="out.angle"||target.field=="out.length")&&found!=d.objects.end()&&
@@ -10866,7 +10894,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                       })));
             });
         return target.point.empty()&&found!=d.objects.end()&&
-            (paint_scalar_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
+            ((batch_group_tx_fx&&target.field=="transform.tx")||paint_scalar_field||(common_field&&((found->second.kind==Kind::path&&!found->second.text&&(!found->second.source||
                 found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.rectangle"||
                 found->second.source->type=="nect.shape.polygon"||found->second.source->type=="nect.shape.star"))||
                 (found->second.kind==Kind::text&&found->second.text&&!found->second.source)))||
@@ -11003,7 +11031,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(host.session.gesture_generation()!=context.gesture_generation)throw Error("REVISION_CONFLICT","The point property gesture context changed");
     };
     const auto batch_selection=canvas->selections();
-    const auto expected_batch_objects=std::make_shared<std::map<Id,Object>>();
+    const auto expected_batch_objects=batch_group_tx_fx?batch_group_objects:std::make_shared<std::map<Id,Object>>();
     if(batch_path_scalar_fx)for(const auto& target:targets)expected_batch_objects->emplace(target.object,d.objects.at(target.object));
     auto verify_batch_context=[this,batch_selection,expected_batch_objects](const PropertyActionContext& context,bool browsing=false) {
         if(host.session_id!=context.session||host.session.document().id!=context.document)
