@@ -5,6 +5,7 @@
 #include "macro_revision_control.hpp"
 #include "macro_public_interface_control.hpp"
 #include "macro_chain_control.hpp"
+#include "preset_batch_window_smoke.hpp"
 #include <QComboBox>
 #include <QApplication>
 #include <QAction>
@@ -478,6 +479,10 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--preset-batch-context-pointer")){
+            const auto count=preset_batch_window_smoke::run();
+            std::cout<<"preset_batch_context: "<<count<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--macro-batch-context-pointer")){
             bool failed=false;for(std::uint64_t pin:{1u,2u})for(const auto* cause:{"valid","cancel","source","public","target","target-override","target-pinned","document","session","revision","generation","preview","equivalent","unrelated","later","old-source"}){
                 if((pin==1&&std::string(cause)=="old-source")||(pin==2&&std::string(cause)=="target-pinned"))continue;
