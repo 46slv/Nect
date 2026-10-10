@@ -5889,7 +5889,17 @@ void batch_point_handle_pointer(const std::string& kind,const std::string& field
 }
 
 void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx"){
-    const bool y_axis=field=="transform.ty";const QString label=y_axis?"Translation Y":"Translation X";
+    const bool matrix_field=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
+    const bool scalar_unit=matrix_field||field=="composite.opacity";
+    const bool anchor_field=field=="transform.anchor_x"||field=="transform.anchor_y";
+    const std::size_t slot=matrix_field?std::size_t(field.back()-'a'):field=="transform.ty"?5:4;
+    const std::size_t anchor_slot=field=="transform.anchor_y"?1:0;
+    const QString label=field=="transform.tx"?"Translation X":field=="transform.ty"?"Translation Y":
+        field=="transform.anchor_x"?"Anchor X":field=="transform.anchor_y"?"Anchor Y":
+        field=="composite.opacity"?"Object opacity":QString("Matrix ")+QChar(field.back());
+    const double pending_value=scalar_unit?0.64:64.0,relative_value=scalar_unit?0.05:5.0;
+    const QString pending_text=scalar_unit?"0.64":"64",relative_text=scalar_unit?"+=0.05":"+=5";
+    const QString formula_text=scalar_unit?"0.4 + 0.02":"40 + 2",expression_text=scalar_unit?"0.32 + 0.03":"32 + 3";
     QTemporaryDir scratch;check(scratch.isValid(),"Batch owns temporary state");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -5908,12 +5918,19 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             Object parent;parent.id=std::string(id)+"-parent";make_scalar_path(parent);parent.transform.at(4).literal=30;document.objects.emplace(parent.id,parent);document.compositions.front().roots.push_back(parent.id);
         }
         object.transform={{{0.8,{}},{0.2,{}},{-0.3,{}},{1.1,{}},{std::string(id)=="first"?10.0:20.0,{}},{50,{}}}};object.anchor={{{17,{}},{23,{}}}};
-        if(y_axis)object.transform.at(5).literal=std::string(id)=="first"?10.0:20.0;
+        const double initial_value=scalar_unit?(std::string(id)=="first"?0.1:0.2):(std::string(id)=="first"?10.0:20.0);
+        if(anchor_field)object.anchor.at(anchor_slot).literal=initial_value;
+        else if(field=="composite.opacity")object.compositing.opacity.literal=initial_value;
+        else object.transform.at(slot).literal=initial_value;
+        if(std::string(id)=="source"&&scalar_unit){
+            if(field=="composite.opacity")object.compositing.opacity.literal=0.72;
+            else object.transform.at(0).literal=0.72;
+        }
         document.objects.emplace(object.id,object);document.compositions.front().roots.push_back(object.id);
     }
     Object guard;guard.id="batch-ref-guard";guard.source=default_primitive("batch-guard-source","nect.shape.rectangle");document.objects.emplace(guard.id,guard);document.compositions.front().roots.push_back(guard.id);
     const std::vector<Ref> refs={{"first","",field},{"second","",field}};
-    Ref source_ref=operation_ref("source","source-stroke","width");if(mode=="unit")source_ref={"source","","composite.opacity"};
+    Ref source_ref=scalar_unit?Ref{"source","",field=="composite.opacity"?"composite.opacity":"transform.a"}:operation_ref("source","source-stroke","width");if(mode=="unit")source_ref=scalar_unit?operation_ref("source","source-stroke","width"):Ref{"source","","composite.opacity"};
     Session seeded(document);for(const auto* id:{"first","second","source"}){
         auto fill=default_operation(std::string(id)+"-fill","nect.paint.fill");fill.parameters.at("r").literal=0.3;
         auto stroke=default_operation(std::string(id)+"-stroke","nect.paint.stroke");stroke.parameters.at("width").literal=std::string(id)=="source"?72:4;
@@ -5923,10 +5940,22 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             const Id curve=std::string(id)+"-curve",point=curve+"-source-east";seeded.apply({Set{{curve,point,"x"},87},Set{{curve,point,"out.length"},31}},seeded.revision());
         }else seeded.apply({AddOperation{id,fill,0},AddOperation{id,stroke,1}},seeded.revision());
     }
-    seeded.apply({Link{{guard.id,"","generator.width"},{refs.at(0),0.01,20,"copy_local_value"}},Link{{guard.id,"","generator.height"},{refs.at(1),0.01,20,"copy_local_value"}}},seeded.revision());document=seeded.document();
+    const Ref incoming_first=scalar_unit?Ref{guard.id,"","transform.a"}:Ref{guard.id,"","generator.width"};
+    const Ref incoming_second=scalar_unit?Ref{guard.id,"","transform.d"}:Ref{guard.id,"","generator.height"};
+    seeded.apply({Link{incoming_first,{refs.at(0),scalar_unit?1.0:0.01,scalar_unit?0.25:20.0,"copy_local_value"}},Link{incoming_second,{refs.at(1),scalar_unit?1.0:0.01,scalar_unit?0.25:20.0,"copy_local_value"}}},seeded.revision());document=seeded.document();
     if(mode=="cycle"){seeded=Session(document);seeded.apply({Link{source_ref,{refs.front(),1,0,"copy_local_value"}}},seeded.revision());document=seeded.document();}
     window.host.session=Session(document);window.host.edited();window.resize(1100,750);window.show();window.activateWindow();events();window.canvas->set_selections({{"first",{}},{"second",{}}});events();
     Session expected=window.host.session;const auto selection=window.canvas->selections();
+    if(matrix_field){
+        auto* matrix_toggle=window.findChild<QPushButton*>("batch-matrix-toggle");
+        auto* matrix_scroll=window.findChild<QScrollArea*>("inspector-scroll");
+        check(matrix_toggle&&matrix_scroll,"Matrix row owns its explicit expander");
+        matrix_scroll->ensureWidgetVisible(matrix_toggle);events();
+        const auto matrix_position=matrix_toggle->mapTo(&window,matrix_toggle->rect().center());
+        check(window.childAt(matrix_position)==matrix_toggle,"Actual pointer hits Matrix expander");
+        QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,matrix_position);events();
+        check(matrix_toggle->isChecked()&&snapshot(window.host.session)==snapshot(expected),"Opening Matrix rows preserves complete authored state and history");
+    }
     auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");QLineEdit* input=nullptr;QPointer<QPushButton> action;
     for(auto* candidate:window.findChildren<QLineEdit*>()){
         const auto data=QJsonDocument::fromJson(candidate->property("nect-reference").toByteArray()).object();
@@ -5938,7 +5967,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     check(action,"Exact batch row owns its action");scroll->ensureWidgetVisible(input);events();
     QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&window,input->rect().center()));
     const bool relative=mode=="relative",formula=mode=="expression-scalar";
-    QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):relative?QString("+=5"):formula?QString("=40 + 2"):QString("64"));events();
+    QTest::keyClicks(input,mode=="invalid"?QString("not-a-number"):relative?relative_text:formula?"="+formula_text:pending_text);events();
     check(input->hasFocus()&&input->isModified()&&snapshot(window.host.session)==snapshot(expected),"Mixed draft is full-state neutral");
     auto change_context=[&](bool applying){
         const auto suffix=mode.substr(mode.find('-')+1);
@@ -5958,7 +5987,12 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             else if(suffix=="mask-source")incoming.objects.at("first-mask-source").source->parameters.at("radius").literal=301;
             else if(suffix=="parent")incoming.objects.at("first-parent").transform.at(4).literal=31;
             else if(suffix=="second")incoming.objects.at("second").anchor.at(1).literal=24;
-            else if(suffix=="selected-field")incoming.objects.at("second").transform.at(y_axis?5:4).literal=21;
+            else if(suffix=="selected-field"){
+                auto& second=incoming.objects.at("second");
+                if(anchor_field)second.anchor.at(anchor_slot).literal=21;
+                else if(field=="composite.opacity")second.compositing.opacity.literal=0.21;
+                else second.transform.at(slot).literal=scalar_unit?0.21:21.0;
+            }
             else if(suffix=="style")incoming.objects.at("first").stack.front().parameters.at("levels").literal=10;
             else throw std::runtime_error("Unknown batch context fixture");
             Session replacement(incoming);if(applying)replacement.apply({Set{{"source","","transform.ty"},51}},replacement.revision());check(replacement.revision()==window.host.session.revision(),"Batch replacement deliberately collides at captured revision");window.host.session=replacement;
@@ -5967,7 +6001,7 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     };
     if(mode.rfind("entry-",0)==0)change_context(false);
     const auto preview=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};
-    auto scalar=[&]{if(formula)expected.apply({SetExpression{refs,{"40 + 2",1},false}},expected.revision());else expected.apply({EditProperties{refs,relative?5.0:64.0,relative}},expected.revision());};
+    auto scalar=[&]{if(formula)expected.apply({SetExpression{refs,{formula_text.toStdString(),1},false}},expected.revision());else expected.apply({EditProperties{refs,relative?relative_value:pending_value,relative}},expected.revision());};
     auto undo=[&]{window.host.session.undo(window.host.session.revision());expected.undo(expected.revision());window.host.edited();events();check(snapshot(window.host.session)==snapshot(expected),"Batch command Undo restores all targets together");};
     const auto position=action->mapTo(&window,action->rect().center());check(window.childAt(position)==action,"Actual Window pointer hits batch action");
     if(mode=="drag"||mode=="drag-cancel"){
@@ -6002,14 +6036,17 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     }else{
         QPlainTextEdit* editor=nullptr;for(auto* candidate:window.findChildren<QPlainTextEdit*>())if(candidate->accessibleName()==label+" expression")editor=candidate;
         std::cerr<<"batch group "<<field<<" "<<kind<<" fx="<<bool(editor)<<" actual="<<window.host.session.revision()<<" expected="<<expected.revision()<<"\n";
-        check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected)&&editor->toPlainText()==(relative?QString{}:formula?QString("40 + 2"):QString("64")),"First batch fx commits both scalar targets and retains Mixed/actual expression");
-        editor->setPlainText(mode=="invalid-expression"?QString("broken("):QString("32 + 3"));events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
+        bool literal_ok=false;const double literal_value=editor?editor->toPlainText().toDouble(&literal_ok):0;
+        const bool draft_matches=editor&&(scalar_unit&&!relative&&!formula?
+            literal_ok&&literal_value==pending_value:editor->toPlainText()==(relative?QString{}:formula?formula_text:pending_text));
+        check(editor&&editor->isVisible()&&snapshot(window.host.session)==snapshot(expected)&&draft_matches,"First batch fx commits both scalar targets and retains Mixed/actual expression");
+        editor->setPlainText(mode=="invalid-expression"?QString("broken("):expression_text);events();check(snapshot(window.host.session)==snapshot(expected),"Batch fx draft is neutral");
         if(mode.rfind("apply-",0)==0)change_context(true);
         auto* panel=window.findChild<QWidget*>("nect-expression-panel");check(panel,"Batch fx panel retained");QPushButton* apply=nullptr;for(auto* button:panel->findChildren<QPushButton*>())if(button->text()==(mode=="cancel"?"Cancel":"Apply"))apply=button;
         check(apply,"Batch fx Apply/Cancel exists");scroll->ensureWidgetVisible(apply);events();const auto before=std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()};QTest::mouseClick(window.windowHandle(),Qt::LeftButton,Qt::NoModifier,apply->mapTo(&window,apply->rect().center()));events();
         if(mode=="invalid-expression"||mode.rfind("apply-",0)==0){check(snapshot(window.host.session)==snapshot(expected),"Refused batch fx Apply is full-state atomic");check(std::tuple{window.host.session.preview_document(),window.host.session.gesture_generation(),window.host.session.gesture_active()}==before,"Refused fx preserves preview/generation");if(window.host.session.gesture_active())window.host.session.cancel_gesture();return;}
         if(mode=="cancel"){check(snapshot(window.host.session)==snapshot(expected)&&!window.findChild<QWidget*>("nect-expression-panel"),"Batch fx Cancel discards only draft");undo();return;}
-        expected.apply({SetExpression{refs,{"32 + 3",1},false}},expected.revision());
+        expected.apply({SetExpression{refs,{expression_text.toStdString(),1},false}},expected.revision());
     }
     check(snapshot(window.host.session)==snapshot(expected),"Batch matches canonical full Document/encode/revision/history");
     const auto actual_values=evaluate(window.host.session.document()),expected_values=evaluate(expected.document());const auto actual_world=evaluate_transforms(window.host.session.document(),actual_values),expected_world=evaluate_transforms(expected.document(),expected_values);
@@ -8036,22 +8073,22 @@ int main(int argc,char** argv){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
-        if(app.arguments().contains("--batch-group-tx-entry-pending-pointer")||app.arguments().contains("--batch-group-ty-entry-pending-pointer")){
-            const std::string group_field=app.arguments().contains("--batch-group-ty-entry-pending-pointer")?"transform.ty":"transform.tx";
-            bool failed=false;for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){try{batch_group_tx_pointer(kind,picking,"valid",group_field);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
-            check(!failed,"All4 multiple Group tx first actions satisfy canonical contract");
-            std::cout<<group_field<<" batch_group_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        if(app.arguments().contains("--batch-group-tx-entry-pending-pointer")||app.arguments().contains("--batch-group-ty-entry-pending-pointer")||app.arguments().contains("--batch-group-common-entry-pending-pointer")){
+            const std::vector<std::string> group_fields=app.arguments().contains("--batch-group-common-entry-pending-pointer")?std::vector<std::string>{"transform.anchor_x","transform.anchor_y","transform.a","transform.b","transform.c","transform.d","composite.opacity"}:std::vector<std::string>{app.arguments().contains("--batch-group-ty-entry-pending-pointer")?"transform.ty":"transform.tx"};
+            bool failed=false;for(const auto& group_field:group_fields)for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){try{batch_group_tx_pointer(kind,picking,"valid",group_field);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
+            check(!failed,"Every multiple Group first action satisfies the canonical contract");
+            std::cout<<"batch_group_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
-        if(app.arguments().contains("--batch-group-tx-affected-pending-pointer")||app.arguments().contains("--batch-group-ty-affected-pending-pointer")){
-            const std::string group_field=app.arguments().contains("--batch-group-ty-affected-pending-pointer")?"transform.ty":"transform.tx";
-            for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","entry-first","entry-second","entry-selected-field","entry-style","entry-child-source","entry-child-correction","entry-child-text","entry-children","entry-mask-source","entry-parent","apply-first","apply-second","apply-selected-field","apply-style","apply-child-source","apply-child-correction","apply-child-text","apply-children","apply-mask-source","apply-parent","invalid-expression"}){std::cerr<<kind<<" / "<<group_field<<" / fx / "<<mode<<"\n";batch_group_tx_pointer(kind,false,mode,group_field);}
-            for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","entry-first","entry-second","entry-selected-field","entry-style","entry-child-source","entry-child-correction","entry-child-text","entry-children","entry-mask-source","entry-parent","apply-first","apply-second","apply-selected-field","apply-style","apply-child-source","apply-child-correction","apply-child-text","apply-children","apply-mask-source","apply-parent","cycle","unit"}){std::cerr<<kind<<" / "<<group_field<<" / pick / "<<mode<<"\n";batch_group_tx_pointer(kind,true,mode,group_field);}
-            std::cout<<group_field<<" batch_group_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        if(app.arguments().contains("--batch-group-tx-affected-pending-pointer")||app.arguments().contains("--batch-group-ty-affected-pending-pointer")||app.arguments().contains("--batch-group-common-affected-pending-pointer")){
+            const std::vector<std::string> group_fields=app.arguments().contains("--batch-group-common-affected-pending-pointer")?std::vector<std::string>{"transform.anchor_x","transform.anchor_y","transform.a","transform.b","transform.c","transform.d","composite.opacity"}:std::vector<std::string>{app.arguments().contains("--batch-group-ty-affected-pending-pointer")?"transform.ty":"transform.tx"};
+            for(const auto& group_field:group_fields)for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","entry-first","entry-second","entry-selected-field","entry-style","entry-child-source","entry-child-correction","entry-child-text","entry-children","entry-mask-source","entry-parent","apply-first","apply-second","apply-selected-field","apply-style","apply-child-source","apply-child-correction","apply-child-text","apply-children","apply-mask-source","apply-parent","invalid-expression"}){std::cerr<<kind<<" / "<<group_field<<" / fx / "<<mode<<"\n";batch_group_tx_pointer(kind,false,mode,group_field);}
+            for(const auto& group_field:group_fields)for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"valid","relative","cancel","expression-scalar","invalid","entry-first","entry-second","entry-selected-field","entry-style","entry-child-source","entry-child-correction","entry-child-text","entry-children","entry-mask-source","entry-parent","apply-first","apply-second","apply-selected-field","apply-style","apply-child-source","apply-child-correction","apply-child-text","apply-children","apply-mask-source","apply-parent","cycle","unit"}){std::cerr<<kind<<" / "<<group_field<<" / pick / "<<mode<<"\n";batch_group_tx_pointer(kind,true,mode,group_field);}
+            std::cout<<"batch_group_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
-        if(app.arguments().contains("--batch-group-tx-whip-pending-pointer")||app.arguments().contains("--batch-group-ty-whip-pending-pointer")){
-            const std::string group_field=app.arguments().contains("--batch-group-ty-whip-pending-pointer")?"transform.ty":"transform.tx";
-            for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"drag","drag-cancel"})batch_group_tx_pointer(kind,true,mode,group_field);
-            std::cout<<group_field<<" batch_group_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        if(app.arguments().contains("--batch-group-tx-whip-pending-pointer")||app.arguments().contains("--batch-group-ty-whip-pending-pointer")||app.arguments().contains("--batch-group-common-whip-pending-pointer")){
+            const std::vector<std::string> group_fields=app.arguments().contains("--batch-group-common-whip-pending-pointer")?std::vector<std::string>{"transform.anchor_x","transform.anchor_y","transform.a","transform.b","transform.c","transform.d","composite.opacity"}:std::vector<std::string>{app.arguments().contains("--batch-group-ty-whip-pending-pointer")?"transform.ty":"transform.tx"};
+            for(const auto& group_field:group_fields)for(const auto* kind:{"groups","mixed"})for(const auto* mode:{"drag","drag-cancel"})batch_group_tx_pointer(kind,true,mode,group_field);
+            std::cout<<"batch_group_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-point-handles-entry-pending-pointer")){
             bool failed=false;for(const auto* kind:{"authored","nect.shape.circle","nect.shape.rectangle","nect.shape.polygon","nect.shape.star","mixed","same-authored","same-nect.shape.circle","same-nect.shape.rectangle","same-nect.shape.polygon","same-nect.shape.star"})for(const auto* field:{"in.angle","in.length","out.angle","out.length"})for(bool picking:{false,true}){try{batch_point_handle_pointer(kind,field,picking);}catch(const std::exception& error){failed=true;std::cerr<<error.what()<<"\n";}}
