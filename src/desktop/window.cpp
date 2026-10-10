@@ -5003,6 +5003,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         if(italic_driver&&italic_driver->menu()&&italic_driver->menu()->isVisible())return;
         const auto* alignment_driver=inspector_->findChild<QToolButton*>("text-alignment-driver");
         if(alignment_driver&&alignment_driver->menu()&&alignment_driver->menu()->isVisible())return;
+        const auto* locale_driver=inspector_->findChild<QToolButton*>("text-locale-driver");
+        if(locale_driver&&locale_driver->menu()&&locale_driver->menu()->isVisible())return;
     }
     // Direct Text popups own only their synchronous scalar preparation.
     // Canvas/recovery still refresh; keep this control alive until it can open.
@@ -8441,7 +8443,29 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     locale_driver_button->setFocusPolicy(Qt::StrongFocus);
     auto prepared_locale_revision=std::make_shared<std::uint64_t>(locale_revision);
     auto locale_scalar_prepared=std::make_shared<bool>(false);
-    locale_driver_button->prepare=[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_preview,locale_scalar_prepared]{
+    auto locale_context=std::make_shared<TextTypographyContext>(TextTypographyContext{
+        frozen_session,id,source.id,canvas->active_composition(),canvas->active_artboard(),
+        locale_revision,text_selection_generation_,locale_document,locale_gesture,locale_preview,object});
+    using LocaleLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextLocaleDriver>>>;
+    const auto locale_lineage=[this](const Id& root) {
+        LocaleLineage result;Id current=root;
+        while(!current.empty()&&!result.contains(current)) {
+            const auto found=host.session.document().objects.find(current);
+            if(found==host.session.document().objects.end()||!found->second.text)
+                throw Error("SOURCE_CONFLICT","The retained locale source no longer exists");
+            const auto& text=*found->second.text;
+            result.emplace(current,std::tuple{text.id,text.locale,text.locale_driver});
+            current=text.locale_driver?text.locale_driver->link.object:Id{};
+        }
+        return result;
+    };
+    const auto retained_locale_lineage=locale_lineage(id);
+    const auto verify_locale=[this,id,locale_context,locale_lineage,retained_locale_lineage](bool browsing=false) {
+        verify_text_typography_context(*locale_context,browsing);
+        if(locale_lineage(id)!=retained_locale_lineage)
+            throw Error("SOURCE_CONFLICT","The retained locale driver changed; reopen this Text's locale controls");
+    };
+    locale_driver_button->prepare=[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_preview,locale_scalar_prepared,locale_context,verify_locale]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
@@ -8450,6 +8474,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
             if(locale_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(canvas->selected_object!=id||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select this Text object before editing its locale source");
+            verify_locale();
             QPointer<QLineEdit> pending;
             for(auto* input:inspector_->findChildren<QLineEdit*>()) {
                 const auto data=input->property("nect-reference").toByteArray();
@@ -8467,8 +8492,13 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 if(host.session_id!=frozen_session||host.session.document().id!=locale_document||
                    host.session.revision()!=committed.toULongLong()||host.session.gesture_generation()!=locale_gesture||host.session.gesture_active())
                     throw Error("STALE_CONTEXT","Text changed while finishing Font size");
+                auto advanced=*locale_context;advanced.revision=committed.toULongLong();
+                advanced.typography_target->text->parameters.at("font_size")=
+                    host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_text_typography_context(advanced);*locale_context=std::move(advanced);
                 *prepared_locale_revision=host.session.revision();*locale_scalar_prepared=true;
             }
+            verify_locale();
             ready=true;
         });
         return ready;
@@ -8484,7 +8514,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     auto* edit_locale=locale_menu->addAction("Edit locale…");
     auto* link_locale=locale_menu->addAction("Link to Text locale…");
     auto* unlink_locale=locale_menu->addAction("Unlink locale");unlink_locale->setEnabled(locale_state.driver.has_value());
-    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_state,locale_ref]{
+    connect(edit_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_ref,locale_state,verify_locale]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
@@ -8492,6 +8522,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
                 throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_locale();
             ready=true;
         });
         if(!ready)return;
@@ -8507,12 +8538,13 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         connect(unlink,&QCheckBox::toggled,editor,&QWidget::setEnabled);
         auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);box_layout->addWidget(buttons);
         connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_document,locale_revision,locale_gesture,locale_state,locale_ref,editor,unlink,status]{
+        connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,id,frozen_session,locale_document,locale_revision,locale_gesture,locale_ref,locale_state,editor,unlink,status,verify_locale]{
             try {
                 if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
                 if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed while the locale editor was open; reopen it");
                 if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
-                if(locale_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying a locale edit");
+                verify_locale();
+                if(locale_state.driver&&!unlink->isChecked())throw Error("DRIVEN_PROPERTY","Select the unlink option before applying an locale edit");
                 const auto found=host.session.document().objects.find(id);
                 if(found==host.session.document().objects.end()||!found->second.text)throw Error("NOT_TEXT","Text no longer exists");
                 const auto value=editor->text().toStdString();
@@ -8533,14 +8565,15 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         locale_source_ids.push_back(source_id);
     }
     link_locale->setEnabled(!locale_source_ids.empty());const bool replace_locale_driver=locale_state.driver.has_value();
-    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,replace_locale_driver,locale_source_ids]{
+    connect(link_locale,&QAction::triggered,this,[this,id,frozen_session,locale_document,prepared_locale_revision,locale_gesture,replace_locale_driver,locale_source_ids,verify_locale,locale_lineage]{
         bool ready=false;
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
-                throw Error("SESSION_CONFLICT","Text locale source belongs to another document");
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
             if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)
-                throw Error("STALE_CONTEXT","Text changed; refresh before editing its locale source");
+                throw Error("STALE_CONTEXT","Text changed; refresh before linking its locale");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_locale();
             ready=true;
         });
         if(!ready)return;
@@ -8549,25 +8582,63 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
         auto picker=make_text_source_picker(this,host.session.document(),id,target.field,locale_source_ids,"Link Text locale");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,locale_document](QListWidgetItem* item,QListWidgetItem*){
-            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=locale_document)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
-        });
-        connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,locale_document,composition,artboard]{
-            if(host.session_id==frozen_session&&host.session.document().id==locale_document){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+        auto chosen_source=std::make_shared<std::optional<Object>>();
+        auto chosen_lineage=std::make_shared<LocaleLineage>();
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker=[this,verify_locale,picker_selection,picker_generation] {
+            verify_locale(true);
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The source chooser selection changed outside this chooser");
+        };
+        const auto choose_locale_source=[this,status,verify_picker,locale_lineage,chosen_source,chosen_lineage,picker_selection,picker_generation](QListWidgetItem* item){
+            chosen_source->reset();chosen_lineage->clear();
+            if(!item||item->isHidden())return;
+            try {
+                verify_picker();
+                const auto ref=read_ref(item->data(Qt::UserRole).toByteArray());
+                *chosen_source=host.session.document().objects.at(ref.object);
+                *chosen_lineage=locale_lineage(ref.object);
+                canvas->set_selection(ref.object,{});
+                *picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+            }catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+            catch(const std::exception& error){status->setText(QString::fromUtf8(error.what()));}
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[choose_locale_source](QListWidgetItem* item,QListWidgetItem*){choose_locale_source(item);});
+        connect(list,&QListWidget::itemClicked,dialog,choose_locale_source);
+        connect(dialog,&QDialog::rejected,this,[this,id,selection,frozen_session,locale_document,composition,artboard,picker_selection,picker_generation]{
+            const auto& document=host.session.document();
+            const auto owner=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==composition;});
+            std::function<bool(const Id&)> contains=[&](const Id& current){
+                if(current==id)return true;const auto found=document.objects.find(current);
+                return found!=document.objects.end()&&std::any_of(found->second.children.begin(),found->second.children.end(),contains);
+            };
+            const bool target_here=owner!=document.compositions.end()&&std::any_of(owner->roots.begin(),owner->roots.end(),contains);
+            if(host.session_id==frozen_session&&host.session.document().id==locale_document&&
+               target_here&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation) {
+                perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);
+            }
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,status,target,frozen_session,locale_document,locale_revision,locale_gesture,replace_locale_driver,selection,composition,artboard]{
+            [this,dialog,list,status,target,frozen_session,locale_document,locale_revision,locale_gesture,replace_locale_driver,selection,composition,artboard,verify_picker,locale_lineage,chosen_source,chosen_lineage]{
                 try {
-                    if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                    if(host.session_id!=frozen_session||host.session.document().id!=locale_document)
+                        throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                     auto* item=list->currentItem();
                     if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.field!=target.field||!source.point.empty()||source.object==target.object)
                         throw Error("INVALID_REFERENCE","Choose a different Text with the same property");
-                    if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                    if(host.session.revision()!=locale_revision||host.session.gesture_generation()!=locale_gesture)
+                        throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                    verify_picker();
+                    const auto found=host.session.document().objects.find(source.object);
+                    if(!*chosen_source||(*chosen_source)->id!=source.object||found==host.session.document().objects.end()||
+                       found->second!=**chosen_source||locale_lineage(source.object)!=*chosen_lineage)
+                        throw Error("SOURCE_CONFLICT","The explicitly chosen Text source changed; choose it again before linking");
                     host.session.apply({LinkTextLocale{target,source,replace_locale_driver}},locale_revision);
                     canvas->set_active_artboard(composition,artboard,false);canvas->set_selections(selection);host.edited();dialog->accept();
                 } catch(const Error& error){status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
@@ -8575,11 +8646,12 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             });
         dialog->show();picker.search->setFocus();
     });
-    connect(unlink_locale,&QAction::triggered,this,[this,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_ref]{
+    connect(unlink_locale,&QAction::triggered,this,[this,frozen_session,locale_document,prepared_locale_revision,locale_gesture,locale_ref,verify_locale]{
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=locale_document)throw Error("SESSION_CONFLICT","Text belongs to another document");
             if(host.session.revision()!=*prepared_locale_revision||host.session.gesture_generation()!=locale_gesture)throw Error("STALE_CONTEXT","Text changed; refresh before unlinking its locale source");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            verify_locale();
             host.session.apply({UnlinkTextLocale{locale_ref}},*prepared_locale_revision);host.edited();});
     });
     form->addRow("Language tag",locale_row);

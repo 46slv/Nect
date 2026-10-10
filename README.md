@@ -117,6 +117,16 @@ Font size completes independently, preserving separate Undo. The focused Window
 contract is `text_direction_context_pointer_contract`; physical OS input and
 installed-font coverage remain separate qualifications.
 
+Single Text locale keeps the Language tag display read-only and edits through the
+existing staged dialog. Driver Edit, Link/Replace and Unlink retain the complete
+authored Text, Composition and locale driver lineage; Link also retains the
+explicitly chosen source. Changed targets or sources refuse atomically until an
+explicit rechoose. Pending Font size has its own Undo step. Text-on-Path retains
+the open locale menu during its deferred Canvas-value mirror; normal refresh
+expires old controls. Cancel preserves external selection/document/scope changes.
+The focused Window contract is `text_locale_context_pointer_contract`; physical
+OS input and font coverage remain separate qualifications.
+
 Single Text alignment retains its complete authored target, Composition, driver
 lineage and explicitly chosen source through Driver Edit, Link/Replace and Unlink.
 The Start/Center/End display remains disabled; edits use the existing staged dialog.
