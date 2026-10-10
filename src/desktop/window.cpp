@@ -10838,7 +10838,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool batch_group_common_scalar_fx=targets.size()>1&&
         std::any_of(targets.begin(),targets.end(),[&](const Ref& target) {
             const auto found=d.objects.find(target.object);
-            return found!=d.objects.end()&&found->second.kind==Kind::group;
+            return found!=d.objects.end()&&(found->second.kind==Kind::group||
+                found->second.kind==Kind::image||found->second.kind==Kind::instance);
         })&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             return target.point.empty()&&group_common_scalar_field(target.field)&&inspector_values_.contains(target);
         })&&[&] {

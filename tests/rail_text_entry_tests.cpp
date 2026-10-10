@@ -5889,6 +5889,9 @@ void batch_point_handle_pointer(const std::string& kind,const std::string& field
 }
 
 void batch_group_tx_pointer(const std::string& kind,bool picking,const std::string& mode="valid",const std::string& field="transform.tx",bool image_dependency=false,bool instance_dependency=false){
+    const bool image_roots=kind=="images"||kind=="mixed-image",instance_roots=kind=="instances"||kind=="mixed-instance";
+    const bool mixed_roots=kind=="mixed"||kind=="mixed-image"||kind=="mixed-instance";
+    const Id image_target=image_roots?"first":"first-image",instance_target=instance_roots?"first":"first-instance";
     const bool matrix_field=field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
     const bool scalar_unit=matrix_field||field=="composite.opacity";
     const bool anchor_field=field=="transform.anchor_x"||field=="transform.anchor_y";
@@ -5915,7 +5918,9 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
     }
     for(const auto* id:{"first","second","source"}){
         Object object;object.id=id;object.name=id;
-        if(std::string(id)=="source"||(kind=="mixed"&&std::string(id)=="second"))make_scalar_path(object);
+        if(std::string(id)=="source"||(mixed_roots&&std::string(id)=="second"))make_scalar_path(object);
+        else if(image_roots){make_scalar_image(object);object.image->asset="group-image-asset";}
+        else if(instance_roots)make_scalar_instance(object);
         else {
             object.kind=Kind::group;object.children={std::string(id)+"-nested"};object.compositing.opacity.literal=0.9;object.compositing.blend="multiply";
             object.compositing.mask=GeometryMask{std::string(id)+"-mask",std::string(id)+"-mask-source",1,true,"nonzero"};
@@ -5973,7 +5978,8 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
             auto posterize=default_operation(std::string(id)+"-posterize","nect.group.posterize");posterize.parameters.at("levels").literal=9;seeded.apply({AddOperation{id,posterize,0}},seeded.revision());
             for(const auto* suffix:{"-curve","-text"}){const Id child=std::string(id)+suffix;auto paint=default_operation(child+"-fill","nect.paint.fill");paint.parameters.at("r").literal=0.3;auto outline=default_operation(child+"-stroke","nect.paint.stroke");outline.parameters.at("width").literal=4;seeded.apply({AddOperation{child,paint,0},AddOperation{child,outline,1}},seeded.revision());}
             const Id curve=std::string(id)+"-curve",point=curve+"-source-east";seeded.apply({Set{{curve,point,"x"},87},Set{{curve,point,"out.length"},31}},seeded.revision());
-        }else seeded.apply({AddOperation{id,fill,0},AddOperation{id,stroke,1}},seeded.revision());
+        }else if(seeded.document().objects.at(id).kind!=Kind::image&&seeded.document().objects.at(id).kind!=Kind::instance)
+            seeded.apply({AddOperation{id,fill,0},AddOperation{id,stroke,1}},seeded.revision());
     }
     const Ref incoming_first=scalar_unit?Ref{guard.id,"","transform.a"}:Ref{guard.id,"","generator.width"};
     const Ref incoming_second=scalar_unit?Ref{guard.id,"","transform.d"}:Ref{guard.id,"","generator.height"};
@@ -6029,21 +6035,21 @@ void batch_group_tx_pointer(const std::string& kind,bool picking,const std::stri
                 else second.transform.at(slot).literal=scalar_unit?0.21:21.0;
             }
             else if(suffix=="style")incoming.objects.at("first").stack.front().parameters.at("levels").literal=10;
-            else if(image_dependency&&suffix=="image-width")incoming.objects.at("first-image").image->width.literal=121;
-            else if(image_dependency&&suffix=="image-height")incoming.objects.at("first-image").image->height.literal=61;
-            else if(image_dependency&&suffix=="image-relink")incoming.objects.at("first-image").image->asset="group-image-spare";
-            else if(image_dependency&&suffix=="image-transform")incoming.objects.at("first-image").transform.at(4).literal=26;
-            else if(image_dependency&&suffix=="image-mask")incoming.objects.at("first-image").compositing.mask->enabled=false;
-            else if(image_dependency&&suffix=="image-parent")incoming.objects.at("first-image").transform_parent.reset();
+            else if(image_dependency&&suffix=="image-width")incoming.objects.at(image_target).image->width.literal=121;
+            else if(image_dependency&&suffix=="image-height")incoming.objects.at(image_target).image->height.literal=61;
+            else if(image_dependency&&suffix=="image-relink")incoming.objects.at(image_target).image->asset="group-image-spare";
+            else if(image_dependency&&suffix=="image-transform")incoming.objects.at(image_target).transform.at(4).literal=26;
+            else if(image_dependency&&suffix=="image-mask")incoming.objects.at(image_target).compositing.mask->enabled=false;
+            else if(image_dependency&&suffix=="image-parent")incoming.objects.at(image_target).transform_parent.reset();
             else if(image_dependency&&suffix=="asset-name")incoming.raster_assets.at("group-image-asset").name+=" changed";
             else if(image_dependency&&suffix=="asset-mode"){auto& asset=incoming.raster_assets.at("group-image-asset");asset.mode="embedded";asset.locator.clear();}
             else if(image_dependency&&suffix=="asset-locator")incoming.raster_assets.at("group-image-asset").locator=scratch.filePath("other-source.png").toStdString();
             else if(image_dependency&&suffix=="asset-payload")incoming.raster_assets.at("group-image-asset").payload=make_raster(encode_raster_png(RasterPixels{2,1,{10,20,30,255,40,50,60,255}}));
-            else if(instance_dependency&&suffix=="instance-source")incoming.objects.at("first-instance").instance->definition="instance-alternate";
-            else if(instance_dependency&&suffix=="instance-override")incoming.objects.at("first-instance").instance->overrides.at({"instance-text","","text.font_size"})=32;
-            else if(instance_dependency&&suffix=="instance-visibility")incoming.objects.at("first-instance").instance->visibility_overrides.at("instance-image")=true;
-            else if(instance_dependency&&suffix=="instance-color")incoming.objects.at("first-instance").instance->color_overrides.begin()->second.rgba[0]=0.7;
-            else if(instance_dependency&&suffix=="instance-content")incoming.objects.at("first-instance").instance->text_content_overrides.at("instance-text")="Changed local 日本語";
+            else if(instance_dependency&&suffix=="instance-source")incoming.objects.at(instance_target).instance->definition="instance-alternate";
+            else if(instance_dependency&&suffix=="instance-override")incoming.objects.at(instance_target).instance->overrides.at({"instance-text","","text.font_size"})=32;
+            else if(instance_dependency&&suffix=="instance-visibility")incoming.objects.at(instance_target).instance->visibility_overrides.at("instance-image")=true;
+            else if(instance_dependency&&suffix=="instance-color")incoming.objects.at(instance_target).instance->color_overrides.begin()->second.rgba[0]=0.7;
+            else if(instance_dependency&&suffix=="instance-content")incoming.objects.at(instance_target).instance->text_content_overrides.at("instance-text")="Changed local 日本語";
             else if(instance_dependency&&suffix=="definition-name")incoming.definitions.at("instance-definition").name+=" changed";
             else if(instance_dependency&&suffix=="definition-root"){
                 auto root=incoming.objects.at("instance-root");root.id="replacement-instance-root";incoming.objects.at("instance-root").children.clear();
@@ -8165,6 +8171,37 @@ int main(int argc,char** argv){
         if(app.arguments().contains("--path-paint-scalars-whip-pending-pointer")){
             for(const auto* paint:{"fill","stroke"})for(const auto* parameter:{"r","g","b","a"})for(const auto* mode:{"drag","drag-cancel"})authored_paint_scalar_pointer(paint,parameter,true,mode);
             std::cout<<"path_paint_scalars_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-asset-root-entry-pending-pointer")){
+            bool failed=false;for(const auto* kind:{"images","mixed-image","instances","mixed-instance"})for(bool picking:{false,true}){
+                const bool image=std::string(kind).find("image")!=std::string::npos;
+                try{batch_group_tx_pointer(kind,picking,"valid","transform.tx",image,!image);}catch(const std::exception& error){failed=true;std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"All eight existing asset-root first actions satisfy the existing contract");
+            std::cout<<"batch_asset_root_entry_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-asset-root-affected-pending-pointer")){
+            for(const auto* kind:{"images","mixed-image","instances","mixed-instance"})for(bool picking:{false,true}){
+                const bool image=std::string(kind).find("image")!=std::string::npos;
+                auto run=[&](const std::string& mode){std::cerr<<kind<<" / "<<(picking?"pick":"fx")<<" / "<<mode<<"\n";batch_group_tx_pointer(kind,picking,mode,"transform.tx",image,!image);};
+                for(const auto* mode:{"relative","cancel","expression-scalar","invalid"})run(mode);
+                if(image)for(const auto* mode:{"embedded","equal-asset","unrelated-asset","external-file"})run(mode);
+                else for(const auto* mode:{"unrelated-definition","unrelated-revision"})run(mode);
+                for(const auto* phase:{"entry-","apply-"}){
+                    for(const auto* suffix:{"session","document","revision","first","second","selected-field","gesture","cancelled-gesture"})run(std::string(phase)+suffix);
+                    if(image)for(const auto* suffix:{"image-width","image-height","image-relink","image-transform","asset-name","asset-mode","asset-locator","asset-payload"})run(std::string(phase)+suffix);
+                    else for(const auto* suffix:{"instance-source","instance-override","instance-visibility","instance-color","instance-content","definition-name","definition-root","definition-geometry","definition-text","definition-image","definition-asset","macro-instance","macro-revision"})run(std::string(phase)+suffix);
+                }
+                if(picking)for(const auto* mode:{"cycle","unit"})run(mode);
+                else run("invalid-expression");
+            }
+            std::cout<<"batch_asset_root_affected_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
+        }
+        if(app.arguments().contains("--batch-asset-root-whip-pending-pointer")){
+            for(const auto* kind:{"images","mixed-image","instances","mixed-instance"})for(const auto* mode:{"drag","drag-cancel"}){
+                const bool image=std::string(kind).find("image")!=std::string::npos;batch_group_tx_pointer(kind,true,mode,"transform.tx",image,!image);
+            }
+            std::cout<<"batch_asset_root_whip_pending_pointer: "<<checks<<" checks passed; Qt Window pointer route\n";return 0;
         }
         if(app.arguments().contains("--batch-group-instance-entry-pending-pointer")){
             bool failed=false;for(const auto* kind:{"groups","mixed"})for(bool picking:{false,true}){
