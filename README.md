@@ -285,6 +285,9 @@ again before Apply. Detach ignores the Path draft; unrelated artwork remains ind
 Single Text Attach / Detach also retains the whole Text and its Composition.
 Attach retains the chosen Path contour. Refresh changed Text controls or choose
 the changed Path contour again; Detach remains independent of the Path draft.
+Choosing the same currently selected contour explicitly accepts the current
+whole Path without an edit. The original Text, selection and scope must still
+match; a later Path change requires another explicit choice.
 A pending Font size completes before the attachment, with separate Undo steps.
 Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
 geometry. Invalid authored outlines still reject the entire edit atomically.

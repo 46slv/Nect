@@ -6954,9 +6954,13 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         if(found!=host.session.document().objects.end())*path_choice=found->second;
     };
     retain_path_choice();
-    connect(path_contour,qOverload<int>(&QComboBox::currentIndexChanged),path_group,[this,verify_path,path_revision,retain_path_choice](int){
+    const auto choose_path=[this,verify_path,path_revision,retain_path_choice](int){
         perform([&]{verify_path(path_revision);retain_path_choice();});
-    });
+    };
+    connect(path_contour,qOverload<int>(&QComboBox::currentIndexChanged),path_group,choose_path);
+    // Explicitly choosing the current item does not change its index. Rebind
+    // its complete current Path only after the original target guards pass.
+    connect(path_contour,qOverload<int>(&QComboBox::activated),path_group,choose_path);
     const auto verify_path_choice=[this,path_choice,path_contains]{
         if(!*path_choice)return; // Existing missing-choice validation runs after scalar completion.
         const auto found=host.session.document().objects.find((**path_choice).id);
