@@ -8748,6 +8748,24 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
                 const auto frozen_macro_session=host.session_id;
                 const auto frozen_macro_revision=host.session.revision();
+                const auto verify_macro_amount_context=[this,session=frozen_macro_session,revision=frozen_macro_revision,
+                    document_id=host.session.document().id,generation=host.session.gesture_generation(),preview=host.session.gesture_active(),
+                    owner=object,definition_id=operation.macro->definition,pinned_revision=operation.macro->pinned_revision,graph=macro_revision] {
+                    const auto& document=host.session.document();
+                    if(host.session_id!=session||document.id!=document_id)
+                        throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
+                    if(host.session.revision()!=revision||host.session.gesture_generation()!=generation)
+                        throw Error("REVISION_CONFLICT","Macro Amount context changed; reopen the Inspector");
+                    if(preview||host.session.gesture_active())
+                        throw Error("GESTURE_ACTIVE","Finish the active edit before changing Macro Amount");
+                    const auto found=document.objects.find(owner.id);
+                    if(found==document.objects.end()||found->second!=owner)
+                        throw Error("PROPERTY_CONFLICT","The original Macro target or override changed");
+                    const auto definition=document.macro_definitions.find(definition_id);
+                    if(definition==document.macro_definitions.end()||!definition->second.revisions.contains(pinned_revision)||
+                       definition->second.revisions.at(pinned_revision)!=graph)
+                        throw Error("PROPERTY_CONFLICT","The pinned Macro graph or published interface changed");
+                };
                 // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
                 auto* editor=semantic_number_input(metadata,QString::number(initial,'g',17),group);
                 editor->setObjectName("macro-amount-"+qs(operation.id));
@@ -8762,16 +8780,15 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     editor->setText(QString::number(initial,'g',17));editor->setModified(false);
                 });
                 auto finish_amount=[this,editor,reset,initial,id=object.id,
-                    instance=operation.id,parameter_id,frozen_macro_session,frozen_macro_revision]{
+                    instance=operation.id,parameter_id,verify_macro_amount_context,frozen_macro_revision]{
                     if(!editor->isModified())return;
                     // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
                     if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
-                    editor->setModified(false);
                     perform([&]{
-                        if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                        if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                        verify_macro_amount_context();
                         bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        editor->setModified(false);
                         if(value==initial)return;
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         host.edited();
@@ -8796,11 +8813,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);
                     reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);reset_row->addStretch();amount_column->addLayout(reset_row);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
-                        frozen_macro_session,frozen_macro_revision]{
-                        editor->setModified(false);
+                        verify_macro_amount_context,frozen_macro_revision]{
                         perform([&]{
-                            if(host.session_id!=frozen_macro_session)throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                            if(host.session.revision()!=frozen_macro_revision)throw Error("REVISION_CONFLICT","Macro Amount changed; reopen the Inspector");
+                            verify_macro_amount_context();
+                            editor->setModified(false);
                             host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
                             host.edited();
                         });

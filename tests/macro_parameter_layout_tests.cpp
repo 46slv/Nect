@@ -9,18 +9,21 @@
 #include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
+#include <QPointer>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTreeWidget>
+#include <QWindow>
 #include <iostream>
 #include <stdexcept>
 using namespace nect;
 using namespace nect::desktop;
 namespace {
-void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
+int checks=0;
+void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
 void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QTest::qWait(20);}
 Document fixture(bool descriptive){
     Session s(empty_document("macro-layout","composition","board"));
@@ -63,12 +66,102 @@ void select(Window& w){
     QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(item).center());events();
     dock=w.findChild<QDockWidget*>("properties");dock->show();dock->raise();events();
 }
+void reset_pending_pointer(const std::string& mode){
+    const bool ordinary=mode.starts_with("amount-");const auto cause=ordinary?mode.substr(7):mode;
+    QTemporaryDir scratch;check(scratch.isValid(),"Macro Reset owns its scratch");
+    auto original=fixture(true);const std::string parameter_id=cause=="public"?"macro.published.distance":"macro.offset.amount";const std::uint64_t pin=cause=="public"?2:1;
+    if(cause=="public"){
+        auto bad=original;auto& mapping=bad.macro_definitions.at("definition").revisions.at(1).public_parameters.front();mapping.node="node-repeater";mapping.parameter="position_x";
+        bool rejected=false;try{decode(encode(bad));}catch(const Error& error){rejected=error.code=="INVALID_MACRO_MAPPING";std::cout<<"Reserved fixture diagnostic: "<<error.code<<std::endl;}
+        check(rejected,"Former reserved-ID remap is invalid fixture data before GUI delivery");
+        auto& definition=original.macro_definitions.at("definition");auto graph=definition.revisions.at(1);graph.revision=pin;graph.interface_version=2;graph.public_parameters.front().id=parameter_id;
+        definition.revisions.emplace(pin,graph);definition.latest_revision=pin;
+        for(auto& operation:original.objects.at("target").stack)if(operation.id=="instance")operation.macro->pinned_revision=pin;
+    }
+    check(decode(encode(original))==original,"Owned Macro fixture round-trips through native validation");Session seed(original);
+    seed.apply({MacroCommand{SetMacroOverride{"target","instance",parameter_id,22.1234567890123}},
+        MacroCommand{InstantiateMacro{"other","definition","other-instance",pin,1}},
+        MacroCommand{SetMacroOverride{"other","other-instance",parameter_id,11}}},seed.revision());
+    Window w(scratch.filePath("recovery"));w.host.session=Session(seed.document());w.host.session_id="macro-reset-pointer-session";
+    w.host.edited();w.resize(1100,750);w.show();w.activateWindow();events();select(w);
+    auto* area=w.findChild<QScrollArea*>("inspector-scroll");
+    auto* input=w.findChild<QLineEdit*>("macro-amount-instance");QPointer<QPushButton> reset=w.findChild<QPushButton*>("macro-reset-amount-instance");
+    if(cause=="preview-born"){
+        w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Set{{"other","","transform.tx"},31}});w.host.edited();events();
+        area=w.findChild<QScrollArea*>("inspector-scroll");input=w.findChild<QLineEdit*>("macro-amount-instance");reset=w.findChild<QPushButton*>("macro-reset-amount-instance");
+        check(w.host.session.gesture_active(),"Preview-born Macro controls have an actual active gesture");w.host.session.cancel_gesture();
+    }
+    check(area&&input&&reset,"Exact existing Macro Amount and Reset controls exist");reveal(area,input);
+    QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&w,input->rect().center()));
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,cause=="invalid"?"broken":"30");events();
+    Session expected=w.host.session;check(input->hasFocus()&&input->isModified()&&same(w.host.session,expected),"Pending Macro amount preserves full source/native/history/preview");
+    if(cause=="document"||cause=="source"||cause=="owner"||cause=="override"||cause=="instance"||cause=="pinned"||cause=="public"||cause=="later"||cause=="unrelated"||cause=="equivalent"){
+        auto incoming=w.host.session.document();
+        if(cause=="document")incoming.id="replacement-macro-reset-document";
+        else if(cause=="source")incoming.macro_definitions.at("definition").revisions.at(1).nodes.front().operation.parameters.at("amount").literal=9;
+        else if(cause=="owner")incoming.objects.at("target").anchor.at(0).literal=13;
+        else if(cause=="override"||cause=="instance"){
+            for(auto& operation:incoming.objects.at("target").stack)if(operation.id=="instance"){
+                if(cause=="override")operation.macro->overrides.at(parameter_id)=23;else operation.id="replacement-instance";
+            }
+        }
+        else if(cause=="pinned"||cause=="later"){
+            auto& definition=incoming.macro_definitions.at("definition");auto next=definition.revisions.at(1);next.revision=2;next.nodes.front().operation.parameters.at("amount").literal=9;definition.revisions.emplace(2,next);definition.latest_revision=2;
+            if(cause=="pinned")for(auto& operation:incoming.objects.at("target").stack)if(operation.id=="instance")operation.macro->pinned_revision=2;
+        }else if(cause=="public"){
+            auto& parameter=incoming.macro_definitions.at("definition").revisions.at(pin).public_parameters.front();parameter.node="node-repeater";parameter.parameter="rotation";parameter.unit="degree";
+        }else if(cause=="unrelated")incoming.objects.at("other").transform.at(4).literal=31;
+        check(decode(encode(incoming))==incoming,"Changed Macro context is valid complete native data before GUI delivery");w.host.session=Session(incoming);expected=w.host.session;
+    }else if(cause=="generation"||cause=="preview"){
+        w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Set{{"other","","transform.tx"},31}});
+        if(cause=="generation")w.host.session.cancel_gesture();expected=w.host.session;
+    }else if(cause=="session")w.host.session_id="replacement-macro-session";
+    else if(cause=="revision"){
+        w.host.session.apply({Set{{"other","","transform.tx"},31}},w.host.session.revision());expected=w.host.session;
+    }
+    const auto protected_graphs=expected.document().macro_definitions;
+    const bool refusal=cause=="document"||cause=="source"||cause=="generation"||cause=="preview"||cause=="preview-born"||cause=="owner"||cause=="override"||cause=="instance"||cause=="pinned"||cause=="public"||cause=="session"||cause=="revision";
+    if(ordinary){
+        QTest::keyClick(input,Qt::Key_Return);events();
+        if(refusal)check(same(w.host.session,expected)&&input->isModified()&&input->text()=="30","Stale ordinary Macro amount retains full incoming Session and pending draft");
+        else{expected.apply({MacroCommand{SetMacroOverride{"target","instance",parameter_id,30}}},expected.revision());canonical(w,expected);}
+        if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};w.hide();events();std::cout<<"PASS original Macro amount completion / "<<cause<<"; physical input NOT_RUN\n";return;
+    }
+    reveal(area,reset);const auto position=reset->mapTo(&w,reset->rect().center());
+    check(w.childAt(position)==reset,"Actual Window pointer hits exact Macro Reset");
+    if(mode=="cancel"){
+        QTest::mousePress(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+        check(same(w.host.session,expected)&&input->isModified(),"Cancelled Reset press retains full Session and pending ordinary draft");
+        QTest::mouseRelease(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position+QPoint(reset->width()+20,0));events();
+        check(same(w.host.session,expected)&&input->isModified(),"Released-away Reset remains neutral");
+        QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,input->mapTo(&w,input->rect().center()));QTest::keyClick(input,Qt::Key_Return);events();
+        expected.apply({MacroCommand{SetMacroOverride{"target","instance",parameter_id,30}}},expected.revision());canonical(w,expected);
+    }else{
+        QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+        if(refusal){
+            std::cout<<"Macro Reset "<<mode<<" actual_revision="<<w.host.session.revision()<<" expected_revision="<<expected.revision()<<std::endl;
+            check(same(w.host.session,expected),"Stale Macro Reset preserves incoming full source/Document/history/preview/generation");
+            check(input->isModified()&&input->text()=="30","Refused Macro Reset preserves the pending ordinary draft");
+            if(w.host.session.gesture_active())w.host.session.cancel_gesture();
+        }else{
+            expected.apply({MacroCommand{ResetMacroOverride{"target","instance",parameter_id}}},expected.revision());canonical(w,expected);
+            check(w.host.session.document().macro_definitions==protected_graphs,"Reset retains exact pinned source graph/public interface and unrelated revisions");
+        }
+    }
+    w.host.changed={};w.hide();events();std::cout<<"PASS Macro Reset original Window pointer / "<<mode<<"; physical input NOT_RUN\n";
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch;
     if(app.arguments().contains("--application-style")){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--reset-pending-pointer")){
+            bool failed=false;for(const auto* mode:{"valid","invalid","cancel","document","source","generation","preview","preview-born","owner","override","instance","pinned","public","session","revision","equivalent","later","unrelated","amount-valid","amount-document","amount-source","amount-generation","amount-preview","amount-preview-born","amount-owner","amount-override","amount-instance","amount-pinned","amount-public","amount-session","amount-revision","amount-later","amount-unrelated"}){
+                try{reset_pending_pointer(mode);}catch(const std::exception& error){failed=true;std::cerr<<"Macro Reset "<<mode<<": "<<error.what()<<"\n";}
+            }
+            check(!failed,"All existing Macro Reset pointer/context cases satisfy the accepted contract");std::cout<<"macro_reset_pending_pointer: "<<checks<<" checks passed; Qt Window/ordinary completion route\n";return 0;
+        }
         Window w(scratch.filePath("recovery"));w.host.session=Session(fixture(app.arguments().contains("--descriptive-labels")));w.host.session_id="macro-layout-session";w.host.edited();w.show();events();
         const Session initial=w.host.session;select(w);check(same(w.host.session,initial),"Structure selection preserves full canonical Session");
         if(app.arguments().contains("--effects-apply")){

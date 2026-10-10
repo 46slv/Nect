@@ -230,6 +230,10 @@ selection. Blank mixed fields keep each target's value. Existing single-line
 horizontal Text-on-Path limits still apply.
 Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
 geometry. Invalid authored outlines still reject the entire edit atomically.
+For a published numeric Macro control, **Reset** discards an unfinished number
+and restores the value from the pinned revision. Releasing the Reset press away
+from the button keeps the draft. If the document, target, pinned definition or
+editing context changes, reopen Properties before completing or resetting it.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
