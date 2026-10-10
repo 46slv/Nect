@@ -231,6 +231,10 @@ horizontal Text-on-Path limits still apply.
 The controls retain complete Text objects and their Composition while drafting.
 If either changes, refresh the controls. If the chosen Path changes, choose it
 again before Apply. Detach ignores the Path draft; unrelated artwork remains independent.
+Single Text Attach / Detach also retains the whole Text and its Composition.
+Attach retains the chosen Path contour. Refresh changed Text controls or choose
+the changed Path contour again; Detach remains independent of the Path draft.
+A pending Font size completes before the attachment, with separate Undo steps.
 Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
 geometry. Invalid authored outlines still reject the entire edit atomically.
 For a published numeric Macro control, **Reset** discards an unfinished number

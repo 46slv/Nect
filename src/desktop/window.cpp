@@ -6830,28 +6830,58 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         if(host.session_id==frozen_session&&canvas->selected_object==id)rebuild_inspector(true);
     });};
     const auto path_document=host.session.document().id,path_source=source.id;
+    const auto path_target=std::make_shared<Object>(host.session.document().objects.at(id));
     const auto path_revision=host.session.revision(),path_generation=text_selection_generation_,path_gesture=host.session.gesture_generation();
     const auto path_composition_id=canvas->active_composition(),path_artboard=canvas->active_artboard();
     const bool path_preview=host.session.gesture_active();
-    const auto verify_path=[this,id,frozen_session,path_document,path_source,path_generation,path_gesture,path_composition_id,path_artboard,path_preview](std::uint64_t revision) {
+    const auto path_contains=[this,path_composition_id](const Id& target){
+        const auto& document=host.session.document();const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const auto& c){return c.id==path_composition_id;});
+        if(composition==document.compositions.end())return false;
+        std::function<bool(const Id&)> contains=[&](const Id& object_id){
+            if(object_id==target)return true;const auto found=document.objects.find(object_id);
+            return found!=document.objects.end()&&std::any_of(found->second.children.begin(),found->second.children.end(),contains);
+        };
+        return std::any_of(composition->roots.begin(),composition->roots.end(),contains);
+    };
+    const auto verify_path=[this,id,frozen_session,path_document,path_source,path_target,path_contains,path_generation,path_gesture,path_composition_id,path_artboard,path_preview](std::uint64_t revision) {
         if(host.session_id!=frozen_session||host.session.document().id!=path_document)throw Error("SESSION_CONFLICT","This Path edit belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Text changed; reopen its Path controls");
         const auto found=host.session.document().objects.find(id);
         if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=path_source)
             throw Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists");
+        if(found->second!=*path_target)throw Error("PROPERTY_CONFLICT","The retained Text changed; reopen its Path controls");
         if(artboard_editing_||text_selection_generation_!=path_generation||canvas->selections()!=std::vector<Canvas::Selection>{{id,{}}}||
-           canvas->active_composition()!=path_composition_id||canvas->active_artboard()!=path_artboard)
+           canvas->active_composition()!=path_composition_id||canvas->active_artboard()!=path_artboard||!path_contains(id))
             throw Error("SELECTION_CONFLICT","Select the original whole Text before editing its Path attachment");
         if(path_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the active edit first");
         if(host.session.gesture_generation()!=path_gesture)throw Error("REVISION_CONFLICT","The gesture context changed; reopen Path controls");
     };
+    const auto path_choice=std::make_shared<std::optional<Object>>();
+    const auto retain_path_choice=[this,path_contour,path_choice]{
+        path_choice->reset();const auto parts=path_contour->currentData().toString().split('\n');
+        if(parts.size()!=2||parts[0].isEmpty()||parts[1].isEmpty())return;
+        const auto found=host.session.document().objects.find(parts[0].toStdString());
+        if(found!=host.session.document().objects.end())*path_choice=found->second;
+    };
+    retain_path_choice();
+    connect(path_contour,qOverload<int>(&QComboBox::currentIndexChanged),path_group,[this,verify_path,path_revision,retain_path_choice](int){
+        perform([&]{verify_path(path_revision);retain_path_choice();});
+    });
+    const auto verify_path_choice=[this,path_choice,path_contains]{
+        if(!*path_choice)return; // Existing missing-choice validation runs after scalar completion.
+        const auto found=host.session.document().objects.find((**path_choice).id);
+        if(found==host.session.document().objects.end()||found->second!=**path_choice)
+            throw Error("PROPERTY_CONFLICT","The chosen Path changed; choose its contour again");
+        if(!path_contains(found->first))throw Error("SELECTION_CONFLICT","The chosen Path Composition changed; choose its contour again");
+    };
     for(auto* button:{path_apply,path_detach}) {
+        const bool detach=button==path_detach;
         button->setProperty("nect-text-path-action-object",qs(id));button->setFocusPolicy(Qt::StrongFocus);
         auto revision=std::make_shared<std::uint64_t>(path_revision);auto refresh_needed=std::make_shared<bool>(false);
-        button->prepare=[this,id,verify_path,revision,refresh_needed] {
+        button->prepare=[this,id,detach,verify_path,verify_path_choice,path_target,revision,refresh_needed] {
             bool ready=false;
             perform([&]{
-                verify_path(*revision);QPointer<QLineEdit> pending;
+                verify_path(*revision);if(!detach)verify_path_choice();QPointer<QLineEdit> pending;
                 for(auto* input:inspector_->findChildren<QLineEdit*>()) {
                     const auto data=input->property("nect-reference").toByteArray();
                     if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
@@ -6862,19 +6892,21 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                     pending->editingFinished();const auto committed=pending?pending->property("nect-text-path-committed-revision"):QVariant{};
                     if(pending)pending->setProperty("nect-finishing-text-path",false);
                     if(!committed.isValid())return;
+                    // Only the completed ordinary Font size Scalar may advance
+                    // the retained target; every other authored field stays frozen.
+                    path_target->text->parameters.at("font_size")=host.session.document().objects.at(id).text->parameters.at("font_size");
                     verify_path(committed.toULongLong());*revision=committed.toULongLong();*refresh_needed=true;
                 }
                 ready=true;
             });return ready;
         };
         button->completed=[refresh_needed,refresh_path_inspector]{if(*refresh_needed)refresh_path_inspector();};
-        const bool detach=button==path_detach;
-        connect(button,&QPushButton::clicked,this,[this,id,button,detach,verify_path,revision,refresh_needed,path_contour,path_start_mode,path_start,path_spacing,path_reversed]{
+        connect(button,&QPushButton::clicked,this,[this,id,button,detach,verify_path,verify_path_choice,revision,refresh_needed,path_contour,path_start_mode,path_start,path_spacing,path_reversed]{
             // A changed Path attachment synchronously emits host.edited too.
             // Retain this pressed control until release; refresh is queued.
             button->setProperty("nect-retain-text-inspector",true);
             perform([&]{
-                verify_path(*revision);auto next=*host.session.document().objects.at(id).text;
+                verify_path(*revision);if(!detach)verify_path_choice();auto next=*host.session.document().objects.at(id).text;
                 if(detach)next.path_attachment.reset();
                 else {
                     const auto parts=path_contour->currentData().toString().split('\n');

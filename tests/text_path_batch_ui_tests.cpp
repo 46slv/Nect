@@ -225,11 +225,17 @@ void stale_and_lifetime(){
 }
 }
 #include "text_path_batch_window_smoke.hpp"
+#include "text_path_single_window_smoke.hpp"
 int main(int argc,char** argv){
-    bool pointer=false;for(int i=1;i<argc;++i)if(std::string(argv[i])=="--context-pointer")pointer=true;
+    bool pointer=false,single=false,pending_only=false;for(int i=1;i<argc;++i){
+        if(std::string(argv[i])=="--context-pointer")pointer=true;
+        if(std::string(argv[i])=="--single-context-pointer"){pointer=true;single=true;}
+        if(std::string(argv[i])=="--single-pending-context-pointer"){pointer=true;single=true;pending_only=true;}
+    }
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
     if(pointer){application.setStyle("Fusion");application.setStyleSheet(application_style_sheet());}
-    try{if(pointer){text_path_batch_window_smoke::run();return 0;}
+    try{if(single){text_path_single_window_smoke::run(pending_only);return 0;}
+        if(pointer){text_path_batch_window_smoke::run();return 0;}
         lifecycle();mixed_and_partial();atomic_refusals();stale_and_lifetime();
         std::cout<<"PASS "<<checks<<" Text on Path batch Qt checks (physical OS input NOT_RUN)\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL "<<checks<<": "<<error.what()<<'\n';return 1;}
