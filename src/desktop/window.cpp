@@ -8703,27 +8703,47 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             form->addRow(make_macro_revision_controls(host,object.id,operation.id,group));
             const auto& definition=host.session.document().macro_definitions.at(operation.macro->definition);
             const auto& macro_revision=definition.revisions.at(operation.macro->pinned_revision);
+            const auto frozen_macro_session=host.session_id;
+            const auto frozen_macro_revision=host.session.revision();
+            const auto verify_macro_control_context=[this,session=frozen_macro_session,revision=frozen_macro_revision,
+                document_id=host.session.document().id,generation=host.session.gesture_generation(),preview=host.session.gesture_active(),
+                owner=object,definition_id=operation.macro->definition,pinned_revision=operation.macro->pinned_revision,graph=macro_revision] {
+                const auto& document=host.session.document();
+                if(host.session_id!=session||document.id!=document_id)
+                    throw Error("SESSION_CONFLICT","Macro control belongs to another document");
+                if(host.session.revision()!=revision)
+                    throw Error("REVISION_CONFLICT","Macro control context changed; reopen the Inspector");
+                if(preview||host.session.gesture_active())
+                    throw Error("GESTURE_ACTIVE","Finish the active edit before changing Macro controls");
+                if(host.session.gesture_generation()!=generation)
+                    throw Error("REVISION_CONFLICT","Macro control context changed; reopen the Inspector");
+                const auto found=document.objects.find(owner.id);
+                if(found==document.objects.end()||found->second!=owner)
+                    throw Error("PROPERTY_CONFLICT","The original Macro target or override changed");
+                const auto definition=document.macro_definitions.find(definition_id);
+                if(definition==document.macro_definitions.end()||!definition->second.revisions.contains(pinned_revision)||
+                   definition->second.revisions.at(pinned_revision)!=graph)
+                    throw Error("PROPERTY_CONFLICT","The pinned Macro graph or published interface changed");
+            };
             for(auto parameter=macro_revision.public_parameters.begin();parameter!=macro_revision.public_parameters.end();++parameter) {
                 const auto parameter_id=parameter->id;
                 const auto amount_ref=macro_parameter_ref(object.id,operation.id,parameter_id);
                 const auto metadata=macro_semantic_descriptor(host.session.document(),amount_ref);
                 if(parameter->value_type=="boolean") {
                     const auto initial=macro_parameter_boolean_value(host.session.document(),object.id,operation.id,parameter_id);
-                    const auto session=host.session_id;const auto revision=host.session.revision();
+                    const auto revision=frozen_macro_revision;
                     auto* row=new QWidget(group);auto* buttons=new QHBoxLayout(row);buttons->setContentsMargins(0,0,0,0);
                     auto* toggle=semantic_toggle_input(metadata,initial,row);
                     toggle->setObjectName("macro-boolean-"+qs(operation.id)+"-"+qs(parameter_id));
                     toggle->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
                     toggle->setAccessibleName(name+" / "+qs(parameter->label));buttons->addWidget(toggle);
                     const QPointer<QCheckBox> safe_toggle(toggle);
-                    connect(toggle,&QCheckBox::clicked,this,[this,safe_toggle,initial,session,revision,id=object.id,instance=operation.id,parameter_id](bool checked) {
+                    connect(toggle,&QCheckBox::clicked,this,[this,safe_toggle,initial,revision,verify_macro_control_context,id=object.id,instance=operation.id,parameter_id](bool checked) {
                         if(checked==initial)return;
-                        QTimer::singleShot(0,this,[this,safe_toggle,initial,session,revision,id,instance,parameter_id,checked] {
+                        QTimer::singleShot(0,this,[this,safe_toggle,initial,revision,verify_macro_control_context,id,instance,parameter_id,checked] {
                             if(!safe_toggle)return;bool applied=false;
                             perform([&]{
-                                if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
-                                if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
-                                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before editing Macro controls");
+                                verify_macro_control_context();
                                 host.session.apply({MacroCommand{SetMacroBooleanOverride{id,instance,parameter_id,checked}}},revision);host.edited();applied=true;
                             });
                             if(!applied&&safe_toggle){const QSignalBlocker blocker(safe_toggle);safe_toggle->setChecked(initial);}
@@ -8731,13 +8751,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     });
                     if(operation.macro->boolean_overrides.contains(parameter_id)) {
                         auto* reset=new QPushButton("Reset",row);reset->setObjectName("macro-reset-boolean-"+qs(operation.id)+"-"+qs(parameter_id));buttons->addWidget(reset);
-                        connect(reset,&QPushButton::clicked,this,[this,safe_toggle,session,revision,id=object.id,instance=operation.id,parameter_id] {
-                            QTimer::singleShot(0,this,[this,safe_toggle,session,revision,id,instance,parameter_id] {
+                        connect(reset,&QPushButton::clicked,this,[this,safe_toggle,revision,verify_macro_control_context,id=object.id,instance=operation.id,parameter_id] {
+                            QTimer::singleShot(0,this,[this,safe_toggle,revision,verify_macro_control_context,id,instance,parameter_id] {
                                 if(!safe_toggle)return;
                                 perform([&]{
-                                    if(host.session_id!=session)throw Error("SESSION_CONFLICT","Macro control belongs to another document");
-                                    if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Macro changed; reopen the Inspector");
-                                    if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish the current gesture before resetting Macro controls");
+                                    verify_macro_control_context();
                                     host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},revision);host.edited();
                                 });
                             });
@@ -8746,26 +8764,6 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     buttons->addStretch();form->addRow(row);continue;
                 }
                 const auto initial=macro_parameter_value(host.session.document(),object.id,operation.id,parameter_id);
-                const auto frozen_macro_session=host.session_id;
-                const auto frozen_macro_revision=host.session.revision();
-                const auto verify_macro_amount_context=[this,session=frozen_macro_session,revision=frozen_macro_revision,
-                    document_id=host.session.document().id,generation=host.session.gesture_generation(),preview=host.session.gesture_active(),
-                    owner=object,definition_id=operation.macro->definition,pinned_revision=operation.macro->pinned_revision,graph=macro_revision] {
-                    const auto& document=host.session.document();
-                    if(host.session_id!=session||document.id!=document_id)
-                        throw Error("SESSION_CONFLICT","Macro Amount belongs to another document");
-                    if(host.session.revision()!=revision||host.session.gesture_generation()!=generation)
-                        throw Error("REVISION_CONFLICT","Macro Amount context changed; reopen the Inspector");
-                    if(preview||host.session.gesture_active())
-                        throw Error("GESTURE_ACTIVE","Finish the active edit before changing Macro Amount");
-                    const auto found=document.objects.find(owner.id);
-                    if(found==document.objects.end()||found->second!=owner)
-                        throw Error("PROPERTY_CONFLICT","The original Macro target or override changed");
-                    const auto definition=document.macro_definitions.find(definition_id);
-                    if(definition==document.macro_definitions.end()||!definition->second.revisions.contains(pinned_revision)||
-                       definition->second.revisions.at(pinned_revision)!=graph)
-                        throw Error("PROPERTY_CONFLICT","The pinned Macro graph or published interface changed");
-                };
                 // Macro amounts retain full double precision; fixed decimals can author a rounded no-op.
                 auto* editor=semantic_number_input(metadata,QString::number(initial,'g',17),group);
                 editor->setObjectName("macro-amount-"+qs(operation.id));
@@ -8780,12 +8778,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     editor->setText(QString::number(initial,'g',17));editor->setModified(false);
                 });
                 auto finish_amount=[this,editor,reset,initial,id=object.id,
-                    instance=operation.id,parameter_id,verify_macro_amount_context,frozen_macro_revision]{
+                    instance=operation.id,parameter_id,verify_macro_control_context,frozen_macro_revision]{
                     if(!editor->isModified())return;
                     // Reset owns this mouse gesture; a normal keyboard/focus exit still commits the edit.
                     if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
                     perform([&]{
-                        verify_macro_amount_context();
+                        verify_macro_control_context();
                         bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
                         editor->setModified(false);
@@ -8813,9 +8811,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     auto* reset_row=new QHBoxLayout;reset_row->setContentsMargins(0,0,0,0);
                     reset->setToolTip("Restore the value published by the pinned Macro revision.");reset_row->addWidget(reset);reset_row->addStretch();amount_column->addLayout(reset_row);
                     connect(reset,&QPushButton::clicked,this,[this,editor,id=object.id,instance=operation.id,parameter_id,
-                        verify_macro_amount_context,frozen_macro_revision]{
+                        verify_macro_control_context,frozen_macro_revision]{
                         perform([&]{
-                            verify_macro_amount_context();
+                            verify_macro_control_context();
                             editor->setModified(false);
                             host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
                             host.edited();

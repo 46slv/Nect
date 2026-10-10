@@ -234,6 +234,9 @@ For a published numeric Macro control, **Reset** discards an unfinished number
 and restores the value from the pinned revision. Releasing the Reset press away
 from the button keeps the draft. If the document, target, pinned definition or
 editing context changes, reopen Properties before completing or resetting it.
+Published Boolean Macro checkboxes and their **Reset** use the same context
+protection, including deferred clicks. Reset removes the explicit Boolean override
+and restores the pinned default, even when the override equals that default.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,

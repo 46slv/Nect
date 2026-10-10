@@ -1,6 +1,7 @@
 #include "window.hpp"
 #include "nect/io.hpp"
 #include "visual_style.hpp"
+#include "macro_boolean_window_smoke.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QDockWidget>
@@ -12,6 +13,7 @@
 #include <QPointer>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -150,12 +152,110 @@ void reset_pending_pointer(const std::string& mode){
     }
     w.host.changed={};w.hide();events();std::cout<<"PASS Macro Reset original Window pointer / "<<mode<<"; physical input NOT_RUN\n";
 }
+void boolean_context_pointer(const char* parameter,bool resetting,const std::string& cause){
+    namespace boolean=macro_boolean_window_smoke;
+    QTemporaryDir scratch;check(scratch.isValid(),"Boolean discovery owns scratch");
+    auto document=boolean::fixture();
+    const bool initial_default=std::string(parameter)==boolean::offset_enabled_id;
+    if(resetting){Session seed(document);seed.apply({MacroCommand{SetMacroBooleanOverride{"path","instance",parameter,cause=="same-default"?initial_default:!initial_default}}},0);document=seed.document();}
+    check(decode(encode(document))==document,"Complete Boolean fixture native-validates before Window installation");
+    Window w(scratch.filePath("recovery"));w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1400,900);
+    w.host.session=Session(document);w.host.session_id="boolean-context-session";w.host.edited();w.show();events();
+    w.canvas->set_active_artboard("composition","artboard",false);w.canvas->set_selection("path");events();
+    if(cause=="preview-born"){
+        w.host.session.begin_gesture(0);w.host.session.update_gesture({Rename{"other","Preview other"}});w.host.edited();events();
+        w.host.session.cancel_gesture();
+    }
+    const QPointer<QCheckBox> toggle=boolean::toggle(w,parameter);
+    QAbstractButton* button=resetting?static_cast<QAbstractButton*>(boolean::reset(w,parameter)):toggle.data();
+    check(button!=nullptr,"Existing Boolean toggle/Reset exists");boolean::reveal(w,button);
+    const auto position=button->mapTo(&w,QPoint(8,button->height()/2));
+    check(w.childAt(position)==button,"Actual Window pointer hits the exact published Boolean control");
+    const bool checked=toggle->isChecked();
+    auto incoming=[&]{
+        if(cause=="session")w.host.session_id+="-replacement";
+        else if(cause=="revision")w.host.session.apply({Rename{"other","New other"}},w.host.session.revision());
+        else if(cause=="generation"||cause=="preview"){
+            w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Rename{"other","Preview other"}});
+            if(cause=="generation")w.host.session.cancel_gesture();
+        }else if(cause=="document"||cause=="queued-document"||cause=="owner"||cause=="source"||cause=="override"||cause=="pinned"||cause=="public"||cause=="equivalent"||cause=="later"||cause=="unrelated"){
+            auto replacement=w.host.session.document();auto& definition=replacement.macro_definitions.at("boolean-definition");
+            if(cause=="document"||cause=="queued-document")replacement.id="incoming-boolean-document";
+            else if(cause=="owner")replacement.objects.at("path").name="Incoming owner";
+            else if(cause=="source"){
+                for(auto& node:definition.revisions.at(2).nodes)if(node.operation.id=="offset-target")node.operation.parameters.at("amount").literal=7;
+            }else if(cause=="override"){
+                for(auto& op:replacement.objects.at("path").stack)if(op.macro)op.macro->overrides.at(boolean::amount_id)=19;
+            }
+            else if(cause=="pinned"||cause=="later"){
+                auto next=definition.revisions.at(2);next.revision=3;definition.revisions.emplace(3,next);definition.latest_revision=3;
+                if(cause=="pinned")for(auto& op:replacement.objects.at("path").stack)if(op.macro)op.macro->pinned_revision=3;
+            }else if(cause=="public"){
+                for(auto& publication:definition.revisions.at(2).public_parameters)if(publication.value_type=="boolean")
+                    publication.node=publication.node=="offset-target"?"repeater-target":"offset-target";
+            }else if(cause=="unrelated")replacement.objects.at("other").name="Unrelated source";
+            check((replacement==w.host.session.document())==(cause=="equivalent"),"Fixture actually changes the selected incoming context except the explicit equivalent case");
+            check(decode(encode(replacement))==replacement,"Complete incoming Boolean context native-validates before GUI delivery");
+            w.host.session=Session(replacement);
+        }
+    };
+    const bool refusal=cause=="document"||cause=="queued-document"||cause=="owner"||cause=="source"||cause=="override"||cause=="pinned"||cause=="public"||cause=="session"||cause=="revision"||cause=="generation"||cause=="preview"||cause=="preview-born";
+    if(cause!="queued-document")incoming();
+    Session expected=w.host.session;
+    if(cause=="cancel"){
+        QTest::mousePress(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+        check(same(w.host.session,expected),"Press alone preserves complete Boolean Session");
+        QTest::mouseRelease(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position+QPoint(button->width()+20,0));events();
+        check(same(w.host.session,expected),"Released-away Boolean activation preserves complete Session");
+    }else{
+        if(cause=="keyboard"){button->setFocus(Qt::OtherFocusReason);QTest::keyClick(button,Qt::Key_Space);}
+        else QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);
+        if(cause=="queued-document"){incoming();expected=w.host.session;}
+        events();
+        if(refusal){
+            std::cout<<"Boolean "<<parameter<<" "<<(resetting?"reset":"toggle")<<" / "<<cause<<" actual_revision="<<w.host.session.revision()<<" expected_revision="<<expected.revision()<<std::endl;
+            check(same(w.host.session,expected),"Stale Boolean callback preserves full incoming Document/native/History/preview/generation");
+            if(toggle)check(toggle->isChecked()==checked,"Rejected Boolean activation restores its captured presentation");
+        }else{
+            if(resetting)expected.apply({MacroCommand{ResetMacroOverride{"path","instance",parameter}}},expected.revision());
+            else expected.apply({MacroCommand{SetMacroBooleanOverride{"path","instance",parameter,!checked}}},expected.revision());
+            canonical(w,expected);
+            if(cause=="valid")boolean::cold_readback(w.host.session.document());
+        }
+    }
+    if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};w.hide();events();
+    std::cout<<"PASS Boolean "<<parameter<<" "<<(resetting?"reset":"toggle")<<" / "<<cause<<"; physical input NOT_RUN\n";
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch;
     if(app.arguments().contains("--application-style")){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--runtime-metrics")){
+            std::cout<<"Qt platform="<<app.platformName().toStdString()<<" font="<<app.font().toString().toStdString()
+                <<" dpi="<<app.primaryScreen()->logicalDotsPerInch()<<" dpr="<<app.primaryScreen()->devicePixelRatio()<<'\n';return 0;
+        }
+        if(app.arguments().contains("--boolean-context-pointer")){
+            bool failed=false;
+            for(const auto* parameter:{macro_boolean_window_smoke::offset_enabled_id,macro_boolean_window_smoke::repeater_enabled_id})
+                for(const bool resetting:{false,true})
+                    for(const auto* cause:{"valid","keyboard","cancel","document","queued-document","owner","source","override","pinned","public","session","revision","generation","preview","preview-born","equivalent","later","unrelated","same-default"}){
+                        if(!resetting&&std::string(cause)=="same-default")continue;
+                        try{boolean_context_pointer(parameter,resetting,cause);}catch(const std::exception& error){failed=true;std::cerr<<"Boolean "<<parameter<<" "<<(resetting?"reset":"toggle")<<" / "<<cause<<": "<<error.what()<<'\n';}
+                    }
+            check(!failed,"Existing Boolean Window-pointer/deferred callbacks satisfy complete context protection");
+            std::cout<<"macro_boolean_context_pointer: "<<checks<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
+        if(app.arguments().contains("--boolean-existing-contract")){
+            std::cout<<"macro_boolean_existing: "<<macro_boolean_window_smoke::run()<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
+        if(app.arguments().contains("--boolean-existing-gesture")){
+            Window w(scratch.filePath("gesture"));w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1400,900);w.show();events();
+            try{macro_boolean_window_smoke::refusal(w,"GESTURE_ACTIVE",false);}
+            catch(...){std::cerr<<"Existing Boolean gesture status: "<<w.statusBar()->currentMessage().toStdString()<<'\n';w.host.changed={};throw;}
+            w.host.changed={};return 0;
+        }
         if(app.arguments().contains("--reset-pending-pointer")){
             bool failed=false;for(const auto* mode:{"valid","invalid","cancel","document","source","generation","preview","preview-born","owner","override","instance","pinned","public","session","revision","equivalent","later","unrelated","amount-valid","amount-document","amount-source","amount-generation","amount-preview","amount-preview-born","amount-owner","amount-override","amount-instance","amount-pinned","amount-public","amount-session","amount-revision","amount-later","amount-unrelated"}){
                 try{reset_pending_pointer(mode);}catch(const std::exception& error){failed=true;std::cerr<<"Macro Reset "<<mode<<": "<<error.what()<<"\n";}
