@@ -117,6 +117,16 @@ Font size completes independently, preserving separate Undo. The focused Window
 contract is `text_direction_context_pointer_contract`; physical OS input and
 installed-font coverage remain separate qualifications.
 
+Single Text alignment retains its complete authored target, Composition, driver
+lineage and explicitly chosen source through Driver Edit, Link/Replace and Unlink.
+The Start/Center/End display remains disabled; edits use the existing staged dialog.
+Pending Font size keeps a separate Undo step. Text-on-Path's deferred Canvas-value
+mirror retains the open alignment menu; normal refresh still expires old controls.
+Source rechoose captures current authored state, and Cancel preserves external
+selection, document and Composition changes. The focused Window contract is
+`text_alignment_context_pointer_contract`; physical OS input and font coverage
+remain separate qualifications.
+
 ## Build
 
 Requirements:

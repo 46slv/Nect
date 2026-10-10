@@ -131,16 +131,19 @@ void receipt_string_presentation() {
 #include "text_italic_window_smoke.hpp"
 #include "text_layout_window_smoke.hpp"
 #include "text_direction_window_smoke.hpp"
+#include "text_alignment_window_smoke.hpp"
 int main(int argc,char** argv) {
+    const bool alignment=argc>1&&(std::string(argv[1])=="--alignment-context-pointer"||std::string(argv[1])=="--alignment-discovery-pointer"||std::string(argv[1])=="--alignment-rechoose-pointer"||std::string(argv[1])=="--alignment-pending-debug");
     const bool direction=argc>1&&(std::string(argv[1])=="--direction-context-pointer"||std::string(argv[1])=="--direction-discovery-pointer"||std::string(argv[1])=="--direction-rechoose-pointer");
     const bool sizing=argc>1&&(std::string(argv[1])=="--sizing-context-pointer"||std::string(argv[1])=="--sizing-discovery-pointer"||std::string(argv[1])=="--sizing-rechoose-pointer");
     const bool italic=argc>1&&(std::string(argv[1])=="--italic-context-pointer"||std::string(argv[1])=="--italic-discovery-pointer"||std::string(argv[1])=="--italic-expression-discovery"||std::string(argv[1])=="--italic-expired-context");
     const bool weight=argc>1&&(std::string(argv[1])=="--weight-context-pointer"||std::string(argv[1])=="--weight-discovery-pointer"||std::string(argv[1])=="--weight-pending-debug");
     const bool family=argc>1&&(std::string(argv[1])=="--family-context-pointer"||std::string(argv[1])=="--family-discovery-pointer"||std::string(argv[1])=="--family-pending-debug"||std::string(argv[1])=="--family-popup-debug");
-    const bool pointer=direction||sizing||italic||weight||family||(argc>1&&std::string(argv[1])=="--context-pointer");
+    const bool pointer=alignment||direction||sizing||italic||weight||family||(argc>1&&std::string(argv[1])=="--context-pointer");
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
-    if(direction||sizing||italic||family||weight){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
+    if(alignment||direction||sizing||italic||family||weight){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     try {
+        if(alignment)return text_alignment_window_smoke::run(std::string(argv[1])=="--alignment-discovery-pointer",std::string(argv[1])=="--alignment-rechoose-pointer",std::string(argv[1])=="--alignment-pending-debug");
         if(direction)return text_direction_window_smoke::run(std::string(argv[1])=="--direction-discovery-pointer",std::string(argv[1])=="--direction-rechoose-pointer");
         if(sizing)return text_layout_window_smoke::run(std::string(argv[1])=="--sizing-discovery-pointer",std::string(argv[1])=="--sizing-rechoose-pointer");
         if(italic)return text_italic_window_smoke::run(std::string(argv[1])=="--italic-discovery-pointer",std::string(argv[1])=="--italic-expression-discovery",std::string(argv[1])=="--italic-expired-context");
