@@ -166,7 +166,7 @@ field (hover Objects to inspect another source); click ↗ to search.
 Expressions use the same row (see below). With multiple targets, common
 properties show Mixed; a number sets every target and `+=`/`-=` preserves each
 target's differences. Source picking freezes all targets and returns to them.
-For multiple Group Translation X targets, the first fx/↗ action finishes the
+For multiple Group Translation X/Y targets, the first fx/↗ action finishes the
 pending scalar edit before opening its draft. The frozen targets include supported
 Group/Path/Text descendants, mask sources and Transform Parents; changed dependency
 state rejects the stale action. Scalar completion and a subsequent expression/link
