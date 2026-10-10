@@ -5,6 +5,7 @@
 #include "macro_revision_control.hpp"
 #include "macro_public_interface_control.hpp"
 #include "macro_chain_control.hpp"
+#include <QComboBox>
 #include <QApplication>
 #include <QAction>
 #include <QDockWidget>
@@ -343,6 +344,64 @@ void chain_cold_readback(Window& w,const Session& expected){
         "Cold production Window retains complete interface1/2/3 graph, public mappings, pins and overrides");
     cold.host.changed={};cold.hide();events();
 }
+void macro_batch_context_pointer(std::uint64_t pin,const std::string& cause){
+    namespace boolean=macro_boolean_window_smoke;
+    QTemporaryDir scratch;check(scratch.isValid(),"Macro batch context owns scratch");auto document=boolean::fixture();
+    check(decode(encode(document))==document,"Macro batch source/target fixture native-validates before GUI");
+    Window w(scratch.filePath("recovery"));w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1400,900);
+    w.host.session=Session(document);w.host.session_id="batch-macro-context";w.host.edited();w.show();events();
+    w.canvas->set_active_artboard("composition","artboard",false);w.canvas->set_selections({{"path",{}},{"other",{}}});events();
+    auto* properties=w.findChild<QDockWidget*>("properties");properties->show();properties->raise();events();
+    auto* area=w.findChild<QScrollArea*>("inspector-scroll");auto* catalog=w.findChild<QComboBox*>("macro-batch-catalog");
+    auto* pins=w.findChild<QComboBox*>("macro-batch-revision");auto* apply=w.findChild<QPushButton*>("macro-batch-apply");
+    auto* cancel=w.findChild<QPushButton*>("macro-batch-cancel");
+    check(area&&catalog&&pins&&apply&&cancel,"Actual production multi-selection Macro panel is available");
+    const Session original=w.host.session;catalog->setCurrentIndex(catalog->findData("boolean-definition"));
+    const auto index=pins->findData(QVariant::fromValue(static_cast<qulonglong>(pin)));check(index>=0,"Retained revision is chosen by exact pin");pins->setCurrentIndex(index);events();
+    check(apply->isEnabled()&&same(w.host.session,original),"Macro Definition/revision browsing is completely Session-neutral");
+    auto* action=cause=="cancel"?cancel:apply;reveal(area,action);const auto position=action->mapTo(&w,action->rect().center());
+    check(w.childAt(position)==action,"Actual Window pointer hits exact batch Apply/Cancel");
+    if(cause=="source"||cause=="public"||cause=="target"||cause=="target-override"||cause=="target-pinned"||cause=="document"||cause=="equivalent"||cause=="unrelated"||cause=="later"||cause=="old-source"){
+        auto incoming=w.host.session.document();auto& definition=incoming.macro_definitions.at("boolean-definition");
+        if(cause=="source"||cause=="old-source"){
+            for(auto& node:definition.revisions.at(cause=="source"?pin:1).nodes)if(node.operation.id=="offset-target")node.operation.parameters.at("amount").literal=17;
+        }else if(cause=="target-pinned"){
+            for(auto& node:definition.revisions.at(2).nodes)if(node.operation.id=="repeater-target")node.operation.parameters.at("copies").literal=7;
+        }else if(cause=="public")definition.revisions.at(pin).public_parameters.front().label="Incoming pinned label";
+        else if(cause=="target")incoming.objects.at("other").contours.front().points.front().x.literal=9;
+        else if(cause=="target-override"){
+            for(auto& operation:incoming.objects.at("other").stack)if(operation.macro)operation.macro->overrides[boolean::amount_id]=17;
+        }
+        else if(cause=="document")incoming.id="incoming-batch-document";
+        else if(cause=="unrelated")incoming.objects.at("legacy").name="Unrelated retained source";
+        else if(cause=="later"){auto next=definition.revisions.at(2);next.revision=3;definition.revisions.emplace(3,next);definition.latest_revision=3;}
+        check((incoming==w.host.session.document())==(cause=="equivalent"),"Macro batch discovery changes the exact incoming context");
+        check(decode(encode(incoming))==incoming,"Incoming Macro batch replacement is native-valid");w.host.session=Session(incoming);
+    }else if(cause=="session")w.host.session_id+="-replacement";
+    else if(cause=="revision")w.host.session.apply({Rename{"legacy","Unrelated revision"}},w.host.session.revision());
+    else if(cause=="generation"||cause=="preview"){
+        w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Rename{"legacy","Unrelated preview"}});
+        if(cause=="generation")w.host.session.cancel_gesture();
+    }
+    Session expected=w.host.session;QTest::mouseClick(w.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    const bool refusal=cause=="source"||cause=="public"||cause=="target"||cause=="target-override"||cause=="target-pinned"||cause=="document"||cause=="session"||cause=="revision"||cause=="generation"||cause=="preview";
+    if(refusal){
+        std::cout<<"Macro batch pin"<<pin<<" "<<cause<<" actual_revision="<<w.host.session.revision()<<" expected_revision="<<expected.revision()<<std::endl;
+        check(same(w.host.session,expected),"Stale Macro batch preserves complete incoming Document/native/History/preview/generation atomically");
+        check(catalog->currentData().toString()=="boolean-definition"&&pins->currentData().toULongLong()==pin,"Refused Macro batch retains exact Definition/revision draft");
+    }else if(cause=="cancel")check(same(w.host.session,expected)&&catalog->currentIndex()==0&&!apply->isEnabled(),"Macro batch Cancel clears only draft and adds no Undo");
+    else{
+        std::vector<Command> commands;
+        for(const auto* id:{"path","other"}){
+            const auto& before=expected.document().objects.at(id).stack;const auto& after=w.host.session.document().objects.at(id).stack;
+            check(after.size()==before.size()+1&&after.back().macro&&after.back().macro->definition=="boolean-definition"&&after.back().macro->pinned_revision==pin,"Actual batch appends exactly one fresh instance at the selected pin per frozen target");
+            commands.push_back(MacroCommand{InstantiateMacro{id,"boolean-definition",after.back().id,pin,before.size()}});
+        }
+        expected.apply(commands,expected.revision());canonical(w,expected);chain_cold_readback(w,expected);
+    }
+    if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};w.hide();events();
+    std::cout<<"PASS existing Macro batch pin"<<pin<<" / "<<cause<<"; physical input NOT_RUN\n";
+}
 void chain_draft_pointer(unsigned version,const std::string& cause){
     namespace boolean=macro_boolean_window_smoke;
     QTemporaryDir scratch;check(scratch.isValid(),"Chain draft owns scratch");
@@ -419,6 +478,13 @@ int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--macro-batch-context-pointer")){
+            bool failed=false;for(std::uint64_t pin:{1u,2u})for(const auto* cause:{"valid","cancel","source","public","target","target-override","target-pinned","document","session","revision","generation","preview","equivalent","unrelated","later","old-source"}){
+                if((pin==1&&std::string(cause)=="old-source")||(pin==2&&std::string(cause)=="target-pinned"))continue;
+                try{macro_batch_context_pointer(pin,cause);}catch(const std::exception& error){failed=true;std::cerr<<"Macro batch pin"<<pin<<" "<<cause<<": "<<error.what()<<'\n';}
+            }
+            check(!failed,"Existing Macro selection drafts preserve exact targets and selected source");std::cout<<"macro_batch_context: "<<checks<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--chain-draft-context-pointer")){
             bool failed=false;for(unsigned version:{1u,2u,3u})for(const auto* cause:{"valid","cancel","source","public","latest","document","session","revision","generation","preview","equivalent","unrelated","old-source"}){
                 try{chain_draft_pointer(version,cause);}catch(const std::exception& error){failed=true;std::cerr<<"Chain interface"<<version<<" "<<cause<<": "<<error.what()<<'\n';}

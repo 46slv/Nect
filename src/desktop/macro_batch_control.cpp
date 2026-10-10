@@ -10,6 +10,7 @@
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <set>
+#include <memory>
 
 namespace nect::desktop {
 namespace {
@@ -47,6 +48,22 @@ std::uint64_t require_pin(const MacroDefinition& definition,const QComboBox& pin
 QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent) {
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    const auto frozen_targets=std::make_shared<std::map<Id,Object>>();
+    const auto frozen_macro_sources=std::make_shared<std::map<std::pair<Id,std::uint64_t>,MacroDefinitionRevision>>();
+    for(const auto& id:targets) {
+        const auto found=host.session.document().objects.find(id);
+        if(found==host.session.document().objects.end())continue; // Existing refusal owns missing targets.
+        frozen_targets->emplace(id,found->second);
+        for(const auto& operation:found->second.stack)if(operation.macro) {
+            const auto definition=host.session.document().macro_definitions.find(operation.macro->definition);
+            if(definition==host.session.document().macro_definitions.end())continue;
+            const auto graph=definition->second.revisions.find(operation.macro->pinned_revision);
+            if(graph!=definition->second.revisions.end())
+                frozen_macro_sources->emplace(std::pair{definition->first,graph->first},graph->second);
+        }
+    }
+    struct SourceDraft {Id definition;std::uint64_t pin=0;MacroDefinitionRevision graph;bool loaded=false;};
+    const auto source_draft=std::make_shared<SourceDraft>();
     auto* box=new QGroupBox("Apply Macro to Selection",parent);box->setObjectName("macro-batch-panel");
     auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(QString("%1 retained objects").arg(targets.size()),box);
@@ -79,7 +96,7 @@ QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWi
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_catalog(catalog),safe_pins(pins);
     const QPointer<QPushButton> safe_apply(apply);const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document& {
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,frozen_targets,frozen_macro_sources]()->const Document& {
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Macro selection belongs to another document");
         if(safe_host->session.revision()!=revision)
@@ -87,7 +104,16 @@ QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWi
         if(safe_host->session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying a Macro");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();require_targets(document,targets);
+        for(const auto& [id,object]:*frozen_targets)if(document.objects.at(id)!=object)
+            throw Error("PROPERTY_CONFLICT","The retained Macro target changed; refresh before applying");
+        for(const auto& [key,graph]:*frozen_macro_sources) {
+            const auto definition=document.macro_definitions.find(key.first);
+            if(definition==document.macro_definitions.end()||!definition->second.revisions.contains(key.second)||
+               definition->second.revisions.at(key.second)!=graph)
+                throw Error("PROPERTY_CONFLICT","The retained target Macro source changed; refresh before applying");
+        }
+        return document;
     };
     const auto update_draft=[=] {
         if(!safe_box||!safe_catalog||!safe_pins||!safe_apply||!safe_status)return;
@@ -96,7 +122,12 @@ QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWi
             const auto& document=current_document();
             const auto id=safe_catalog->currentData().toString().toStdString();
             safe_pins->setEnabled(!id.empty());
-            if(!id.empty())require_pin(require_definition(document,id),*safe_pins);
+            source_draft->loaded=false;
+            if(!id.empty()) {
+                const auto& definition=require_definition(document,id);
+                const auto pin=require_pin(definition,*safe_pins);
+                *source_draft={id,pin,definition.revisions.at(pin),true};
+            }
             safe_status->setText(document.macro_definitions.empty()?"No document Macros. Create a Macro Definition first.":
                 "Apply appends this pinned Macro to all retained objects.");
             safe_apply->setEnabled(!id.empty());
@@ -105,6 +136,7 @@ QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWi
     const auto load_pins=[=] {
         if(!safe_catalog||!safe_pins||!safe_apply)return;
         safe_apply->setEnabled(false);const QSignalBlocker blocker(safe_pins.data());safe_pins->clear();
+        source_draft->loaded=false;
         try {
             const auto& document=current_document();
             const auto id=safe_catalog->currentData().toString().toStdString();
@@ -133,6 +165,9 @@ QWidget* make_macro_batch_controls(Host& host,const std::vector<Id>& targets,QWi
             const auto id=safe_catalog->currentData().toString().toStdString();
             if(id.empty())throw Error("NO_SELECTION","Choose a document Macro before applying");
             const auto pin=require_pin(require_definition(document,id),*safe_pins);
+            if(!source_draft->loaded||source_draft->definition!=id||source_draft->pin!=pin||
+               source_draft->graph!=document.macro_definitions.at(id).revisions.at(pin))
+                throw Error("PROPERTY_CONFLICT","The selected Macro revision changed; choose it again before applying");
             std::vector<Command> commands;commands.reserve(targets.size());
             for(const auto& target:targets)
                 commands.push_back(MacroCommand{InstantiateMacro{target,id,new_id(),pin,document.objects.at(target).stack.size()}});

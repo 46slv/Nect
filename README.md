@@ -241,6 +241,10 @@ and restores the pinned default, even when the override equals that default.
 used to create their drafts.
 If that source or the latest revision changes, Save keeps the draft open and asks
 you to reopen it. Older revisions and unrelated artwork remain independent.
+**Apply Macro to Selection** retains the complete authored targets, their existing
+Macro pins and the selected source revision while you browse. If a target or its
+pinned source changes, refresh the controls; if the selected source changes, choose
+it again before Apply. Unrelated artwork and later unselected revisions remain independent.
 
 The same API/MCP Session surface supports `presets`, `preset {id}` and single
 `apply` requests with `create_preset`, `create_preset_from_stack`, `rename_preset`,
