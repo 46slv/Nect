@@ -2,6 +2,7 @@
 #include "nect/io.hpp"
 #include "visual_style.hpp"
 #include "macro_boolean_window_smoke.hpp"
+#include "macro_revision_control.hpp"
 #include <QApplication>
 #include <QAction>
 #include <QDockWidget>
@@ -226,12 +227,68 @@ void boolean_context_pointer(const char* parameter,bool resetting,const std::str
     if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};w.hide();events();
     std::cout<<"PASS Boolean "<<parameter<<" "<<(resetting?"reset":"toggle")<<" / "<<cause<<"; physical input NOT_RUN\n";
 }
+void revision_draft_pointer(const std::string& cause){
+    namespace boolean=macro_boolean_window_smoke;
+    QTemporaryDir scratch;check(scratch.isValid(),"Revision draft owns scratch");
+    auto document=boolean::fixture();check(decode(encode(document))==document,"Revision discovery fixture native-validates before GUI");
+    Window w(scratch.filePath("recovery"));w.setAttribute(Qt::WA_DontShowOnScreen);w.resize(1400,900);
+    w.host.session=Session(document);w.host.session_id="revision-draft-session";w.host.edited();w.show();events();
+    w.canvas->set_active_artboard("composition","artboard",false);w.canvas->set_selection("path");events();
+    MacroRevisionDialog dialog(w.host,"boolean-definition",&w);dialog.setAttribute(Qt::WA_DontShowOnScreen);dialog.show();events();
+    auto* amount=dialog.findChild<QLineEdit*>("macro-revision-offset-amount");
+    auto* save=dialog.findChild<QPushButton*>("macro-revision-save");auto* cancel=dialog.findChild<QPushButton*>("macro-revision-cancel");
+    check(amount&&save&&cancel&&save->isEnabled(),"Existing revision draft and Save/Cancel are available");
+    const Session original=w.host.session;
+    amount->setFocus(Qt::OtherFocusReason);QTest::keyClick(amount,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(amount,"21");events();
+    check(amount->text()=="21"&&same(w.host.session,original),"Revision draft editing is fully Session-neutral");
+    if(cause=="document"||cause=="source"||cause=="public"||cause=="latest"||cause=="equivalent"||cause=="unrelated"||cause=="old-source"){
+        auto incoming=w.host.session.document();auto& definition=incoming.macro_definitions.at("boolean-definition");
+        if(cause=="document")incoming.id="incoming-revision-document";
+        else if(cause=="source"||cause=="old-source"){
+            for(auto& node:definition.revisions.at(cause=="source"?2:1).nodes)
+                if(node.operation.id=="repeater-target")node.operation.parameters.at("copies").literal=7;
+        }else if(cause=="public")definition.revisions.at(2).public_parameters.front().label="Incoming published label";
+        else if(cause=="latest"){auto next=definition.revisions.at(2);next.revision=3;definition.revisions.emplace(3,next);definition.latest_revision=3;}
+        else if(cause=="unrelated")incoming.objects.at("other").name="Other source replacement";
+        check((incoming==w.host.session.document())==(cause=="equivalent"),"Revision discovery actually changes the intended incoming context");
+        check(decode(encode(incoming))==incoming,"Incoming revision context native-validates before GUI");w.host.session=Session(incoming);
+    }else if(cause=="session")w.host.session_id+="-replacement";
+    else if(cause=="revision")w.host.session.apply({Rename{"other","Other revision"}},w.host.session.revision());
+    else if(cause=="generation"||cause=="preview"){
+        w.host.session.begin_gesture(w.host.session.revision());w.host.session.update_gesture({Rename{"other","Other preview"}});
+        if(cause=="generation")w.host.session.cancel_gesture();
+    }
+    Session expected=w.host.session;const auto draft=amount->text();auto* action=cause=="cancel"?cancel:save;
+    const auto position=action->mapTo(&dialog,action->rect().center());
+    check(dialog.childAt(position)==action,"Actual dialog Window pointer hits exact Save/Cancel");
+    QTest::mouseClick(dialog.windowHandle(),Qt::LeftButton,Qt::NoModifier,position);events();
+    const bool refusal=cause=="document"||cause=="source"||cause=="public"||cause=="latest"||cause=="session"||cause=="revision"||cause=="generation"||cause=="preview";
+    if(refusal){
+        std::cout<<"Revision "<<cause<<" actual_revision="<<w.host.session.revision()<<" expected_revision="<<expected.revision()<<std::endl;
+        check(same(w.host.session,expected),"Stale revision draft preserves complete incoming Document/native/History/preview/generation");
+        check(dialog.isVisible()&&amount->text()==draft,"Refused revision Save retains the original visible draft");
+    }else if(cause=="cancel")check(same(w.host.session,expected)&&dialog.result()==QDialog::Rejected,"Revision Cancel preserves complete Session");
+    else{
+        auto next=expected.document().macro_definitions.at("boolean-definition").revisions.at(2);next.revision=3;
+        for(auto& node:next.nodes)if(node.operation.id=="offset-target")node.operation.parameters.at("amount").literal=21;
+        expected.apply({MacroCommand{UpdateMacroDefinition{"boolean-definition",next}}},expected.revision());canonical(w,expected);
+        boolean::cold_readback(w.host.session.document());
+    }
+    if(w.host.session.gesture_active())w.host.session.cancel_gesture();w.host.changed={};dialog.hide();w.hide();events();
+    std::cout<<"PASS existing revision draft / "<<cause<<"; physical input NOT_RUN\n";
+}
 }
 int main(int argc,char** argv){QApplication app(argc,argv);QTemporaryDir scratch;
     if(app.arguments().contains("--application-style")){app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());}
     QSettings::setDefaultFormat(QSettings::IniFormat);QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,scratch.path());
     app.setOrganizationName("NectTest");app.setApplicationName("MacroParameterLayout");
     try{
+        if(app.arguments().contains("--revision-draft-context-pointer")){
+            bool failed=false;for(const auto* cause:{"valid","cancel","source","public","latest","document","session","revision","generation","preview","equivalent","unrelated","old-source"}){
+                try{revision_draft_pointer(cause);}catch(const std::exception& error){failed=true;std::cerr<<"Revision draft "<<cause<<": "<<error.what()<<'\n';}
+            }
+            check(!failed,"Existing revision drafts preserve their source context");std::cout<<"macro_revision_draft_context: "<<checks<<" checks passed; physical input NOT_RUN\n";return 0;
+        }
         if(app.arguments().contains("--runtime-metrics")){
             std::cout<<"Qt platform="<<app.platformName().toStdString()<<" font="<<app.font().toString().toStdString()
                 <<" dpi="<<app.primaryScreen()->logicalDotsPerInch()<<" dpr="<<app.primaryScreen()->devicePixelRatio()<<'\n';return 0;
