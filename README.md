@@ -228,6 +228,9 @@ Selecting editable Text objects also exposes **Text on Path**: choose an authore
 Path and Contour, adjust start/spacing/direction, then Apply or Detach for the
 selection. Blank mixed fields keep each target's value. Existing single-line
 horizontal Text-on-Path limits still apply.
+The controls retain complete Text objects and their Composition while drafting.
+If either changes, refresh the controls. If the chosen Path changes, choose it
+again before Apply. Detach ignores the Path draft; unrelated artwork remains independent.
 Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
 geometry. Invalid authored outlines still reject the entire edit atomically.
 For a published numeric Macro control, **Reset** discards an unfinished number

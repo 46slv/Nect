@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <memory>
 #include <set>
 
 namespace nect::desktop {
@@ -102,6 +103,14 @@ std::vector<Command> attachment_commands(const Document& document,const std::vec
 QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    const auto frozen_targets=std::make_shared<std::map<Id,Object>>();
+    for(const auto& id:targets){
+        const auto found=host.session.document().objects.find(id);
+        if(found!=host.session.document().objects.end())frozen_targets->emplace(id,found->second);
+    }
+    const auto frozen_composition=std::make_shared<std::optional<Id>>();
+    struct PathDraft {std::optional<Object> object;Id composition;};
+    const auto chosen_path=std::make_shared<PathDraft>();
     auto* box=new QGroupBox(QString("Text on Path · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-path-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-path-batch-state");
@@ -131,13 +140,33 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     apply->setToolTip("Attach or update the retained Text objects in one Undo step.");
     detach->setToolTip("Remove the retained Text attachments in one Undo step; ignore the draft.");
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document&{
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,frozen_targets,frozen_composition]()->const Document&{
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Text selection belongs to another document");
         if(safe_host->session.revision()!=revision)throw Error("REVISION_CONFLICT","Text changed; refresh before applying");
         if(safe_host->session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();const auto composition=require_targets(document,targets);
+        if(*frozen_composition&&composition!=**frozen_composition)
+            throw Error("SELECTION_CONFLICT","The retained Text Composition changed; refresh before applying");
+        for(const auto& [id,object]:*frozen_targets)if(document.objects.at(id)!=object)
+            throw Error("PROPERTY_CONFLICT","The retained Text changed; refresh before applying");
+        return document;
+    };
+    const auto retain_path=[=](const Document& document){
+        chosen_path->object.reset();chosen_path->composition.clear();
+        const auto found=document.objects.find(path->currentData().toString().toStdString());
+        if(found!=document.objects.end()&&found->second.kind==Kind::path&&!found->second.source){
+            chosen_path->object=found->second;chosen_path->composition=composition_for(document,found->first);
+        }
+    };
+    const auto verify_path=[=](const Document& document){
+        if(!chosen_path->object)return; // Existing missing/invalid Path refusal remains authoritative.
+        const auto found=document.objects.find(chosen_path->object->id);
+        if(found==document.objects.end()||found->second!=*chosen_path->object)
+            throw Error("PROPERTY_CONFLICT","The chosen Path changed; choose it again before applying");
+        if(composition_for(document,found->first)!=chosen_path->composition)
+            throw Error("SELECTION_CONFLICT","The chosen Path Composition changed; choose it again before applying");
     };
     const auto populate_contours=[=](const Document& document,const QString& selected){
         const QSignalBlocker blocker(contour);contour->clear();contour->addItem("Choose Contour…",QString{});
@@ -148,6 +177,7 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     };
     try{
         const auto& document=current_document();const auto composition=require_targets(document,targets);
+        *frozen_composition=composition;
         for(const auto& [id,object]:document.objects)
             if(object.kind==Kind::path&&!object.source&&!object.contours.empty()&&composition_for(document,id)==composition)
                 path->addItem(qs(object.name)+" ["+qs(id)+"]",qs(id));
@@ -160,6 +190,7 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
         const bool same_path=first&&std::all_of(targets.begin(),targets.end(),[&](const Id& id){const auto& a=document.objects.at(id).text->path_attachment;return a&&a->path==first->path&&a->contour==first->contour;});
         if(same_path)path->setCurrentIndex(path->findData(qs(first->path)));
         populate_contours(document,same_path?qs(first->contour):QString{});
+        retain_path(document);
         const auto initial=first.value_or(TextPathAttachment{});
         if(same([](const TextPathAttachment& a){return a.start_mode;}))mode->setCurrentIndex(mode->findData(qs(initial.start_mode)));
         else{mode->insertItem(0,"Mixed — keep each mode",QString{});mode->setCurrentIndex(0);}
@@ -175,6 +206,7 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     }
     const auto read_draft=[=]{return Draft{path->currentData().toString(),contour->currentData().toString(),mode->currentData().toString(),start->text(),spacing->text(),reversed->checkState()};};
     const auto initial=read_draft();
+    const auto initial_path=*chosen_path;
     const auto update_draft=[=]{
         if(!safe_box)return;
         apply->setEnabled(false);cancel->setEnabled(read_draft()!=initial);
@@ -182,14 +214,14 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
             const auto& document=current_document();const auto draft=read_draft();safe_status->clear();
             detach->setEnabled(!attachment_commands(document,targets,draft,true).empty());
             if(!draft.path.isEmpty()&&!draft.contour.isEmpty()){
-                try{apply->setEnabled(!attachment_commands(document,targets,draft,false).empty());}
+                try{verify_path(document);apply->setEnabled(!attachment_commands(document,targets,draft,false).empty());}
                 catch(const std::exception& error){show_error(safe_status,error);}
             }
         }catch(const std::exception& error){detach->setEnabled(false);show_error(safe_status,error);}
     };
     QObject::connect(path,qOverload<int>(&QComboBox::currentIndexChanged),box,[=](int){
         if(!safe_box)return;
-        try{populate_contours(current_document(),QString{});}catch(const std::exception& error){show_error(safe_status,error);}
+        try{const auto& document=current_document();populate_contours(document,QString{});retain_path(document);}catch(const std::exception& error){show_error(safe_status,error);}
         update_draft();
     });
     for(auto* value:{contour,mode})QObject::connect(value,qOverload<int>(&QComboBox::currentIndexChanged),box,[=](int){update_draft();});
@@ -201,6 +233,7 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
             const auto& document=current_document();
             const QSignalBlocker p(path),c(contour),m(mode),s(start),g(spacing),r(reversed);
             path->setCurrentIndex(path->findData(initial.path));populate_contours(document,initial.contour);
+            *chosen_path=initial_path;
             mode->setCurrentIndex(mode->findData(initial.mode));start->setText(initial.start);spacing->setText(initial.spacing);reversed->setCheckState(initial.reversed);
             update_draft();
         }catch(const std::exception& error){show_error(safe_status,error);}
@@ -208,7 +241,9 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     const auto commit=[=](bool detach_only){
         if(!safe_box)return;
         try{
-            auto commands=attachment_commands(current_document(),targets,read_draft(),detach_only);
+            const auto& document=current_document();
+            if(!detach_only)verify_path(document);
+            auto commands=attachment_commands(document,targets,read_draft(),detach_only);
             if(commands.empty())return;
             safe_host->session.apply(commands,revision);
             apply->setEnabled(false);detach->setEnabled(false);cancel->setEnabled(false);

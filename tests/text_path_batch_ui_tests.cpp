@@ -224,9 +224,13 @@ void stale_and_lifetime(){
     check(status->text().startsWith("SESSION_CONFLICT")&&!apply->isEnabled(),"Host destruction makes retained controls refuse safely");
 }
 }
+#include "text_path_batch_window_smoke.hpp"
 int main(int argc,char** argv){
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
-    try{lifecycle();mixed_and_partial();atomic_refusals();stale_and_lifetime();
+    bool pointer=false;for(int i=1;i<argc;++i)if(std::string(argv[i])=="--context-pointer")pointer=true;
+    if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
+    if(pointer){application.setStyle("Fusion");application.setStyleSheet(application_style_sheet());}
+    try{if(pointer){text_path_batch_window_smoke::run();return 0;}
+        lifecycle();mixed_and_partial();atomic_refusals();stale_and_lifetime();
         std::cout<<"PASS "<<checks<<" Text on Path batch Qt checks (physical OS input NOT_RUN)\n";return 0;
     }catch(const std::exception& error){std::cerr<<"FAIL "<<checks<<": "<<error.what()<<'\n';return 1;}
 }
