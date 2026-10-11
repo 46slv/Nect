@@ -2863,7 +2863,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto size_expression_editors=std::make_shared<std::array<QPointer<ExpressionInput>,2>>();
     auto number=[&](const char* key,const QString& label,double Artboard::* member) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
-        input->setAccessibleName(label);form->addRow(label,input);
+        input->setAccessibleName(label);
+        auto* row=new QWidget;auto* line=new QHBoxLayout(row);
+        line->setContentsMargins(0,0,0,0);line->setSpacing(4);line->addWidget(input,1);
+        auto* scrub=new SemanticScrub(row);line->addWidget(scrub);form->addRow(label,row);
+        scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" scrub · du");
         if(std::string(key)=="width"||std::string(key)=="height") {
             const bool width=std::string(key)=="width";
             const bool typed_driven=width?board.width_driver.has_value():board.height_driver.has_value();
@@ -2928,6 +2932,79 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         input->setToolTip(input->toolTip()+" Enter a finite value or use +=number / -=number to adjust once; a negative value is absolute.");
         if(std::string(key)=="width"||std::string(key)=="height")
             input->setToolTip(input->toolTip()+" Use =expression to edit its source, then Ctrl+Enter to apply.");
+        scrub->setEnabled(!input->isReadOnly());
+        if(input->isReadOnly())scrub->setToolTip("Driven size: explicitly reset or unlink its source before scrubbing.");
+        struct Interaction {bool live=true,owned=false;std::uint64_t generation=0,baseline=0;};
+        auto state=std::make_shared<Interaction>();state->baseline=numeric_gesture;
+        const QPointer<SemanticScrub> safe_scrub=scrub;const QPointer<QLineEdit> safe_input=input;
+        const auto initial=resolved.*member;const auto initial_text=display_value(initial);
+        const auto owns=[this,state,frozen_session,frozen_revision,numeric_document] {
+            return state->owned&&host.session_id==frozen_session&&host.session.document().id==numeric_document&&
+                host.session.revision()==frozen_revision&&host.session.gesture_active()&&
+                host.session.gesture_generation()==state->generation;
+        };
+        const auto validate=[this,state,safe_input,frozen_session,frozen_revision,numeric_document] {
+            if(!state->live||!safe_input||host.session_id!=frozen_session||host.session.document().id!=numeric_document)
+                throw Error("SESSION_CONFLICT","Frame scrub belongs to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Refresh frame controls before scrubbing");
+            if(safe_input->isReadOnly())throw Error("DRIVEN_PROPERTY","Explicitly reset or unlink before scrubbing");
+        };
+        const auto cancel=[this,state,owns,safe_scrub,safe_input,initial_text] {
+            const bool local=state->owned,active=owns();
+            if(active){host.session.cancel_gesture();state->baseline=host.session.gesture_generation();}
+            state->owned=false;if(safe_scrub)safe_scrub->disarm();
+            if(local&&safe_input){safe_input->setText(initial_text);safe_input->setModified(false);}
+            if(active){canvas->refresh();canvas->update();}
+        };
+        const auto report=[this](const std::exception& exception) {
+            const auto* error=dynamic_cast<const Error*>(&exception);
+            statusBar()->showMessage((error?qs(error->code)+": ":QString{})+QString::fromUtf8(exception.what()),12000);
+        };
+        register_angle_adapter(scrub,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+        connect(scrub,&QObject::destroyed,this,[state,cancel]{state->live=false;cancel();});
+        connect(qApp,&QGuiApplication::applicationStateChanged,scrub,[cancel](Qt::ApplicationState value){
+            if(value!=Qt::ApplicationActive)cancel();
+        });
+        scrub->begin=[this,state,validate,report,safe_input,initial_text,numeric_preview] {
+            try {
+                validate();
+                if(numeric_preview)throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                if(host.session.gesture_generation()!=state->baseline)
+                    throw Error("REVISION_CONFLICT","Frame edit context changed; reopen the controls");
+                if(safe_input->isModified()||safe_input->text()!=initial_text||layout_preview_active_||layout_preview_invalid_)
+                    throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
+                host.session.begin_gesture(host.session.revision());state->generation=host.session.gesture_generation();
+                state->owned=true;return true;
+            }catch(const std::exception& error){report(error);return false;}
+        };
+        scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,initial,initial_text,read,
+            composition,member,key=std::string(key)](double delta) {
+            if(!owns()){if(state->owned)cancel();return;}
+            try {
+                validate();const auto value=initial+delta;
+                if(!std::isfinite(value))throw Error("INVALID_VALUE","Frame value must remain finite");
+                std::vector<Command> commands;
+                if(delta!=0) {
+                    auto board=read();
+                    if(board.template_assignment&&(key=="width"||key=="height"))
+                        commands={ArtboardTemplateCommand{SetArtboardTemplateOverride{composition,board.id,"frame."+key,value}}};
+                    else {
+                        board.*member=value;
+                        if(board.parent_size){if(key=="width")board.parent_size->width=false;if(key=="height")board.parent_size->height=false;}
+                        commands={UpdateArtboard{composition,board}};
+                    }
+                }
+                host.session.update_gesture(commands);
+                safe_input->setText(delta==0?initial_text:QString::number(value,'g',17));safe_input->setModified(false);
+                statusBar()->clearMessage();canvas->refresh();canvas->update();
+            }catch(const std::exception& error){cancel();report(error);}
+        };
+        scrub->commit=[this,state,owns,validate,cancel,report] {
+            if(!owns()){if(state->owned)cancel();return;}
+            try{validate();host.session.commit_gesture();state->owned=false;statusBar()->clearMessage();host.edited();}
+            catch(const std::exception& error){cancel();report(error);}
+        };
+        scrub->cancel=cancel;
     };
     number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
     number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
