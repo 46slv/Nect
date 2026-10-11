@@ -10081,9 +10081,27 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         enabled_state_label->setObjectName("operation-enabled-state-"+qs(operation.id));
         enabled_state_label->setWordWrap(true);enabled_state_label->setTextFormat(Qt::PlainText);
         form->addRow("",enabled_state_label);
+        const auto verify_operation_context=[this,id=object.id,op=operation.id,
+            session=frozen_session,document_id=document.id,revision=host.session.revision(),
+            generation=host.session.gesture_generation(),preview=host.session.gesture_active(),original=operation] {
+            if(host.session_id!=session||host.session.document().id!=document_id)
+                throw Error("SESSION_CONFLICT","Operation control belongs to another document");
+            if(host.session.revision()!=revision)
+                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
+            if(preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Refresh the Inspector after finishing the active edit");
+            if(host.session.gesture_generation()!=generation)
+                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
+            const auto& objects=host.session.document().objects;const auto owner=objects.find(id);
+            if(owner==objects.end())throw Error("PROPERTY_CONFLICT","The original operation owner changed");
+            const auto& stack=owner->second.stack;
+            const auto current=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==op;});
+            if(current==stack.end()||*current!=original)
+                throw Error("PROPERTY_CONFLICT","The original operation or its enabled source changed");
+        };
         connect(enabled_driver,&QPushButton::clicked,this,[this,object_id=object.id,operation_id=operation.id,
             macro_entry=operation.macro.has_value(),
-            enabled_ref,enabled_state,frozen_session,enabled_composition,frozen_revision=host.session.revision()] {
+            enabled_ref,enabled_state,frozen_session,enabled_composition,verify_operation_context,frozen_revision=host.session.revision()] {
             QDialog dialog(this);dialog.setObjectName("operation-enabled-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Operation enabled dependency");auto* dialog_layout=new QVBoxLayout(&dialog);
             auto* mode=new QComboBox(&dialog);mode->setObjectName("operation-enabled-mode-"+qs(operation_id));
@@ -10154,10 +10172,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
             connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
             connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-                [this,&dialog,object_id,operation_id,enabled_ref,enabled_state,frozen_session,frozen_revision,mode,source,source_refs,expression,status] {
+                [this,&dialog,object_id,operation_id,enabled_ref,enabled_state,frozen_session,frozen_revision,verify_operation_context,mode,source,source_refs,expression,status] {
                     try {
                         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Operation stack belongs to another document");
                         if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Operation enabled source changed while its editor was open; reopen it");
+                        if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+                        verify_operation_context();
                         const auto selected=mode->currentData().toString();std::vector<Command> commands;
                         if(selected=="link") {
                             if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible operation enabled source");
@@ -10177,24 +10197,6 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 });
             dialog.exec();
         });
-        const auto verify_operation_context=[this,id=object.id,op=operation.id,
-            session=frozen_session,document_id=document.id,revision=host.session.revision(),
-            generation=host.session.gesture_generation(),preview=host.session.gesture_active(),original=operation] {
-            if(host.session_id!=session||host.session.document().id!=document_id)
-                throw Error("SESSION_CONFLICT","Operation control belongs to another document");
-            if(host.session.revision()!=revision)
-                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
-            if(preview||host.session.gesture_active())
-                throw Error("GESTURE_ACTIVE","Refresh the Inspector after finishing the active edit");
-            if(host.session.gesture_generation()!=generation)
-                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
-            const auto& objects=host.session.document().objects;const auto owner=objects.find(id);
-            if(owner==objects.end())throw Error("PROPERTY_CONFLICT","The original operation owner changed");
-            const auto& stack=owner->second.stack;
-            const auto current=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==op;});
-            if(current==stack.end()||*current!=original)
-                throw Error("PROPERTY_CONFLICT","The original operation or its enabled source changed");
-        };
         connect(enabled,&QCheckBox::toggled,this,[this,enabled,apply,verify_operation_context,id=object.id,op=operation.id](bool checked) {
             bool applied=false;
             perform([&]{verify_operation_context();apply({EnableOperation{id,op,checked}});applied=true;});
