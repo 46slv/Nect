@@ -2938,7 +2938,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* source_search=add_artboard_source_search(source_box,source_layout,source,source_refs,source_labels,selected_source);
         source_layout->addWidget(source);
         auto* expression=new ExpressionInput;expression->setObjectName("artboard-"+axis+"-expression");
-        expression->setAccessibleName(axis+" expression");expression->setFixedHeight(58);
+        expression->setAccessibleName(axis+" expression");expression->enable_inline_expansion();
         expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
         if(driver&&std::holds_alternative<Expression>(driver->value))expression->setPlainText(qs(std::get<Expression>(driver->value).source));
         source_layout->addWidget(expression);
