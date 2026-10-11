@@ -10175,27 +10175,27 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 });
             dialog.exec();
         });
-        connect(enabled,&QCheckBox::toggled,this,[this,enabled,apply,id=object.id,op=operation.id,
+        const auto verify_operation_context=[this,id=object.id,op=operation.id,
             session=frozen_session,document_id=document.id,revision=host.session.revision(),
-            generation=host.session.gesture_generation(),preview=host.session.gesture_active(),original=operation](bool checked) {
+            generation=host.session.gesture_generation(),preview=host.session.gesture_active(),original=operation] {
+            if(host.session_id!=session||host.session.document().id!=document_id)
+                throw Error("SESSION_CONFLICT","Operation control belongs to another document");
+            if(host.session.revision()!=revision)
+                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
+            if(preview||host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Refresh the Inspector after finishing the active edit");
+            if(host.session.gesture_generation()!=generation)
+                throw Error("REVISION_CONFLICT","Operation context changed; reopen the Inspector");
+            const auto& objects=host.session.document().objects;const auto owner=objects.find(id);
+            if(owner==objects.end())throw Error("PROPERTY_CONFLICT","The original operation owner changed");
+            const auto& stack=owner->second.stack;
+            const auto current=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==op;});
+            if(current==stack.end()||*current!=original)
+                throw Error("PROPERTY_CONFLICT","The original operation or its enabled source changed");
+        };
+        connect(enabled,&QCheckBox::toggled,this,[this,enabled,apply,verify_operation_context,id=object.id,op=operation.id](bool checked) {
             bool applied=false;
-            perform([&]{
-                if(host.session_id!=session||host.session.document().id!=document_id)
-                    throw Error("SESSION_CONFLICT","Operation Enabled control belongs to another document");
-                if(host.session.revision()!=revision)
-                    throw Error("REVISION_CONFLICT","Operation Enabled context changed; reopen the Inspector");
-                if(preview||host.session.gesture_active())
-                    throw Error("GESTURE_ACTIVE","Refresh the Inspector after finishing the active edit");
-                if(host.session.gesture_generation()!=generation)
-                    throw Error("REVISION_CONFLICT","Operation Enabled context changed; reopen the Inspector");
-                const auto& objects=host.session.document().objects;const auto owner=objects.find(id);
-                if(owner==objects.end())throw Error("PROPERTY_CONFLICT","The original operation owner changed");
-                const auto& stack=owner->second.stack;
-                const auto current=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==op;});
-                if(current==stack.end()||*current!=original)
-                    throw Error("PROPERTY_CONFLICT","The original operation or its enabled source changed");
-                apply({EnableOperation{id,op,checked}});applied=true;
-            });
+            perform([&]{verify_operation_context();apply({EnableOperation{id,op,checked}});applied=true;});
             if(!applied){const QSignalBlocker blocker(enabled);enabled->setChecked(!checked);}
         });
         connect(up,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,frozen_session]{perform([&]{
@@ -10204,7 +10204,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         connect(down,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,frozen_session]{perform([&]{
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
             move_operation(id,op,1);});});
-        connect(remove,&QPushButton::clicked,this,[this,apply,id=object.id,op=operation.id]{perform([&]{apply({RemoveOperation{id,op}});});});
+        connect(remove,&QPushButton::clicked,this,[this,apply,verify_operation_context,id=object.id,op=operation.id]{perform([&]{verify_operation_context();apply({RemoveOperation{id,op}});});});
         if(!operation.macro&&operation.type!="nect.shape.offset") {
         auto* composite=new QComboBox;
         composite->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
