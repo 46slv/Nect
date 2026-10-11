@@ -10247,7 +10247,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             if(!safe_toggle)return;bool applied=false;
                             perform([&]{
                                 verify_macro_control_context();
-                                host.session.apply({MacroCommand{SetMacroBooleanOverride{id,instance,parameter_id,checked}}},revision);host.edited();applied=true;
+                                host.session.apply({MacroCommand{SetMacroBooleanOverride{id,instance,parameter_id,checked}}},revision);statusBar()->clearMessage();host.edited();applied=true;
                             });
                             if(!applied&&safe_toggle){const QSignalBlocker blocker(safe_toggle);safe_toggle->setChecked(initial);}
                         });
@@ -10259,7 +10259,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                                 if(!safe_toggle)return;
                                 perform([&]{
                                     verify_macro_control_context();
-                                    host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},revision);host.edited();
+                                    host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},revision);statusBar()->clearMessage();host.edited();
                                 });
                             });
                         });
