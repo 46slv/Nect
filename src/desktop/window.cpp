@@ -3633,7 +3633,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         const LayoutBuilder build=[build_margin,input]{return build_margin(false,input);};
         input->setToolTip(input->toolTip()+" Enter =expression and press Enter to edit its source draft.");
         connect(input,&QLineEdit::textEdited,this,[this,input,guard_editor,preview_from,margin_box,build] {
-            if(!input->text().trimmed().startsWith('=')){preview_from(margin_box,build);return;}
+            if(!input->text().trimmed().startsWith('=')){
+                preview_from(margin_box,build);
+                if(layout_preview_scope_==margin_box&&layout_draft_current()&&!layout_preview_invalid_)statusBar()->clearMessage();
+                return;
+            }
             if(guard_editor())return;
             cancel_layout_draft();
         });
