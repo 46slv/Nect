@@ -3150,14 +3150,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             *value.margin==initial_margin)return std::vector<Command>{};
         return set_layout_command(value,"layout.margin");
     };
-    const auto margin_row=[this,margin_box,build_margin,frozen_session,frozen_revision,
-        document=host.session.document().id](QLineEdit* input,const QString& label,double initial) {
-        auto* row=new QWidget(margin_box);auto* line=new QHBoxLayout(row);
+    const auto layout_scrub_row=[this,frozen_session,frozen_revision,
+        document=host.session.document().id](QWidget* family_box,QLineEdit* input,const QString& label,
+        double initial,const LayoutBuilder& build) {
+        auto* row=new QWidget(family_box);auto* line=new QHBoxLayout(row);
         line->setContentsMargins(0,0,0,0);line->setSpacing(4);line->addWidget(input,1);
         auto* scrub=new SemanticScrub(row);line->addWidget(scrub);
-        scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" Margin scrub · du");
+        scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" scrub · du");
         scrub->setEnabled(!input->isReadOnly());
-        if(input->isReadOnly())scrub->setToolTip("Driven Margin: explicitly unlink before scrubbing.");
+        if(input->isReadOnly())scrub->setToolTip("Driven "+label+": explicitly unlink before scrubbing.");
         struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
         auto state=std::make_shared<Interaction>();
         const QPointer<SemanticScrub> safe_scrub=scrub;const QPointer<QLineEdit> safe_input=input;
@@ -3169,8 +3170,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         };
         const auto validate=[this,state,frozen_session,frozen_revision,document,safe_input] {
             if(!state->live||!safe_input||host.session_id!=frozen_session||host.session.document().id!=document)
-                throw Error("SESSION_CONFLICT","Margin scrub belongs to another document");
-            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Refresh Margin controls before scrubbing");
+                throw Error("SESSION_CONFLICT","Layout scrub belongs to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Refresh layout controls before scrubbing");
             if(safe_input->isReadOnly())throw Error("DRIVEN_PROPERTY","Explicitly unlink before scrubbing");
         };
         const auto cancel=[this,state,owns,safe_scrub,safe_input,initial_text] {
@@ -3198,15 +3199,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 state->owned=true;return true;
             }catch(const std::exception& error){report(error);return false;}
         };
-        scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,build_margin,initial,initial_text](double delta) {
+        scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,build,initial,initial_text](double delta) {
             if(!owns()){if(state->owned)cancel();return;}
             try {
                 validate();const auto value=initial+delta;
-                if(!std::isfinite(value))throw Error("INVALID_VALUE","Margin must remain finite");
+                if(!std::isfinite(value))throw Error("INVALID_VALUE","Layout value must remain finite");
                 // An empty canonical preview returns to inherited/absent authored state.
                 // It keeps this one gesture armed until release, without creating History.
                 safe_input->setText(delta==0?initial_text:QString::number(value,'g',17));safe_input->setModified(false);
-                host.session.update_gesture(delta==0?std::vector<Command>{}:build_margin(false,safe_input));
+                host.session.update_gesture(delta==0?std::vector<Command>{}:build());
                 statusBar()->clearMessage();
                 canvas->refresh();canvas->update();
             }catch(const std::exception& error){cancel();report(error);}
@@ -3219,10 +3220,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         scrub->cancel=cancel;
         return row;
     };
-    margin_form->addRow("Left · du",margin_row(margin_left,"Left",initial_margin.left));
-    margin_form->addRow("Top · du",margin_row(margin_top,"Top",initial_margin.top));
-    margin_form->addRow("Right · du",margin_row(margin_right,"Right",initial_margin.right));
-    margin_form->addRow("Bottom · du",margin_row(margin_bottom,"Bottom",initial_margin.bottom));
+    margin_form->addRow("Left · du",layout_scrub_row(margin_box,margin_left,"Margin Left",initial_margin.left,
+        [build_margin,margin_left]{return build_margin(false,margin_left);}));
+    margin_form->addRow("Top · du",layout_scrub_row(margin_box,margin_top,"Margin Top",initial_margin.top,
+        [build_margin,margin_top]{return build_margin(false,margin_top);}));
+    margin_form->addRow("Right · du",layout_scrub_row(margin_box,margin_right,"Margin Right",initial_margin.right,
+        [build_margin,margin_right]{return build_margin(false,margin_right);}));
+    margin_form->addRow("Bottom · du",layout_scrub_row(margin_box,margin_bottom,"Margin Bottom",initial_margin.bottom,
+        [build_margin,margin_bottom]{return build_margin(false,margin_bottom);}));
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
     auto* margin_source_state=new QLabel(margin_source_box);margin_source_state->setObjectName("margin-left-source-state");
@@ -3655,7 +3660,6 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_form->addRow("X · du",grid_x);grid_form->addRow("Y · du",grid_y);
     grid_form->addRow("Width · du",grid_width);grid_form->addRow("Height · du",grid_height);
     grid_form->addRow("Columns · integer",grid_columns);grid_form->addRow("Rows · integer",grid_rows);
-    grid_form->addRow("Column gutter · du",grid_column_gutter);grid_form->addRow("Row gutter · du",grid_row_gutter);
     const auto authored_grid_x=initial_grid.bounds.x;
     const auto authored_grid_y=initial_grid.bounds.y;
     const auto authored_grid_width=initial_grid.bounds.width;
@@ -3741,6 +3745,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(grid_exists&&(!grid_is_inherited||!explicit_override)&&grid==initial_grid_values)return std::vector<Command>{};
         value.grid=std::move(grid);return set_layout_command(value,"layout.grid");
     };
+    grid_form->addRow("Column gutter · du",layout_scrub_row(grid_box,grid_column_gutter,"Grid column gutter",
+        initial_grid.column_gutter,[build_grid]{return build_grid(false);}));
+    grid_form->addRow("Row gutter · du",layout_scrub_row(grid_box,grid_row_gutter,"Grid row gutter",
+        initial_grid.row_gutter,[build_grid]{return build_grid(false);}));
     auto* grid_source_box=new QGroupBox("X source",grid_box);grid_source_box->setObjectName("grid-bounds-x-source");
     auto* grid_source_layout=new QVBoxLayout(grid_source_box);
     auto* grid_source_state=new QLabel(grid_source_box);grid_source_state->setObjectName("grid-bounds-x-source-state");
