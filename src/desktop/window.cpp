@@ -4794,7 +4794,39 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             changed.position=(source.position_driver||source.position_expression||untouched)?source.position:parse_number(position_input);
             return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
         };
-        bind_number(name_input,row,builder);bind_number(position_input,row,builder);
+        bind_number(name_input,row,builder);
+        if(!position_input->isReadOnly()) {
+            const auto literal=position_input->text();
+            const auto input_current=[this,row,frozen_session,frozen_revision,guide_source_document] {
+                if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document) {
+                    statusBar()->showMessage("SESSION_CONFLICT: Guide input belongs to another document",12000);return false;
+                }
+                const bool local=layout_preview_scope_==row;
+                const bool owns=local&&layout_draft_current();
+                if(host.session.revision()!=frozen_revision||(local&&layout_preview_active_&&!owns)) {
+                    statusBar()->showMessage("REVISION_CONFLICT: Refresh Guide controls before editing",12000);return false;
+                }
+                if((host.session.gesture_active()&&!owns)||((layout_preview_active_||layout_preview_invalid_)&&!local)) {
+                    statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before editing Guide",12000);return false;
+                }
+                return true;
+            };
+            position_input->setToolTip(position_input->toolTip()+" Enter =expression and press Enter to edit its source draft.");
+            connect(position_input,&QLineEdit::textEdited,this,[this,position_input,row,builder,preview_from,input_current] {
+                if(!input_current())return;
+                if(!position_input->text().trimmed().startsWith('=')){preview_from(row,builder);return;}
+                if(layout_preview_scope_==row)cancel_layout_draft();
+            });
+            connect(position_input,&QLineEdit::returnPressed,this,[this,position_input,expression,literal,row,builder,commit_from,input_current] {
+                if(!input_current())return;
+                const auto text=position_input->text();
+                if(!text.trimmed().startsWith('=')){commit_from(row,builder);return;}
+                if(layout_preview_scope_==row)cancel_layout_draft();
+                expression->setPlainText(text.mid(text.indexOf('=')+1));
+                position_input->setText(literal);position_input->setModified(false);
+                expression->setFocus(Qt::OtherFocusReason);statusBar()->clearMessage();
+            });
+        }
         connect(axis_input,qOverload<int>(&QComboBox::currentIndexChanged),this,[preview_from,row,builder](int){preview_from(row,builder);});
         connect(apply,&QPushButton::clicked,this,[commit_from,row,builder]{commit_from(row,builder);});
         connect(unlink_position,&QPushButton::clicked,this,[commit_explicit,row,position_ref]{
