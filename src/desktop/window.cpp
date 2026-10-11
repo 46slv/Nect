@@ -2949,12 +2949,23 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Refresh frame controls before scrubbing");
             if(safe_input->isReadOnly())throw Error("DRIVEN_PROPERTY","Explicitly reset or unlink before scrubbing");
         };
-        const auto cancel=[this,state,owns,safe_scrub,safe_input,initial_text] {
+        const auto cancel=[this,state,owns,safe_scrub,safe_input,initial_text,
+            frozen_session,frozen_revision,numeric_document,composition,id] {
             const bool local=state->owned,active=owns();
             if(active){host.session.cancel_gesture();state->baseline=host.session.gesture_generation();}
             state->owned=false;if(safe_scrub)safe_scrub->disarm();
             if(local&&safe_input){safe_input->setText(initial_text);safe_input->setModified(false);}
-            if(active){canvas->refresh();canvas->update();}
+            if(active) {
+                canvas->refresh();canvas->update();
+                const auto generation=host.session.gesture_generation();
+                QTimer::singleShot(0,this,[this,state,frozen_session,frozen_revision,numeric_document,composition,id,generation] {
+                    if(!state->live||host.session_id!=frozen_session||host.session.document().id!=numeric_document||
+                       host.session.revision()!=frozen_revision||host.session.gesture_active()||
+                       host.session.gesture_generation()!=generation||!artboard_editing_||
+                       canvas->active_composition()!=composition||canvas->active_artboard()!=id||!canvas->selections().empty())return;
+                    rebuild_inspector();
+                });
+            }
         };
         const auto report=[this](const std::exception& exception) {
             const auto* error=dynamic_cast<const Error*>(&exception);
