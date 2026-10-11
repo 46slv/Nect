@@ -12166,7 +12166,7 @@ void Window::add_expression_editor(QVBoxLayout* layout,const QByteArray& key,con
     column->setContentsMargins(0,3,0,3);column->setSpacing(4);layout->addWidget(panel);
     auto* editor=new ExpressionInput;editor->setPlainText(draft.source);editor->setAccessibleName(label+" expression");
     editor->setProperty("nect-targets",key);editor->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
-    editor->setTabChangesFocus(true);editor->setMinimumHeight(82);editor->setMaximumHeight(180);column->addWidget(editor);
+    editor->setTabChangesFocus(true);editor->enable_inline_expansion();column->addWidget(editor);
     auto* result=new QLabel("Draft · canvas keeps the committed result");result->setWordWrap(true);result->setObjectName("nect-expression-result");column->addWidget(result);
     auto* replace=new QCheckBox("Replace existing link");replace->setChecked(draft.replace_binding);
     replace->setVisible(std::any_of(targets.begin(),targets.end(),[&](const Ref& ref){return property_origin(host.session.document(),ref)!="generated"&&nect::property(host.session.document(),ref).binding.has_value();}));column->addWidget(replace);
