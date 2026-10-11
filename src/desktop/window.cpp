@@ -80,6 +80,9 @@
 #include <QPushButton>
 #include <QPlainTextEdit>
 #include <QTextDocument>
+#include <QAbstractTextDocumentLayout>
+#include <QTextBlock>
+#include <QTextLayout>
 #include <QSpinBox>
 #include <QSaveFile>
 #include <QScrollArea>
@@ -453,16 +456,29 @@ public:
     }
 };
 class ExpressionInput final : public QPlainTextEdit {
+    std::function<void()> inline_resize_;
 public:
     std::function<void()> apply,cancel;
     void enable_inline_expansion() {
         const auto resize_to_lines=[this] {
-            const auto lines=std::clamp(document()->blockCount(),1,8);
+            int rendered_lines=0;
+            for(auto block=document()->begin();block.isValid()&&rendered_lines<8;block=block.next())
+                rendered_lines+=std::max(1,block.layout()->lineCount());
+            const auto lines=std::clamp(rendered_lines,1,8);
             const auto padding=2*frameWidth()+static_cast<int>(std::ceil(2*document()->documentMargin()))+4;
-            setFixedHeight(fontMetrics().lineSpacing()*lines+padding);
+            const auto height=fontMetrics().lineSpacing()*lines+padding;
+            if(minimumHeight()!=height||maximumHeight()!=height)setFixedHeight(height);
         };
+        inline_resize_=resize_to_lines;
         connect(document(),&QTextDocument::blockCountChanged,this,[resize_to_lines](int){resize_to_lines();});
+        connect(this,&QPlainTextEdit::textChanged,this,resize_to_lines);
+        connect(document()->documentLayout(),&QAbstractTextDocumentLayout::documentSizeChanged,
+            this,[resize_to_lines](const QSizeF&){resize_to_lines();});
         resize_to_lines();
+    }
+    void resizeEvent(QResizeEvent* event) override {
+        QPlainTextEdit::resizeEvent(event);
+        if(inline_resize_)QTimer::singleShot(0,this,inline_resize_);
     }
     void keyPressEvent(QKeyEvent* event) override {
         if((event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)&&event->modifiers()==Qt::ControlModifier) {
