@@ -38,6 +38,35 @@ inline void context(bool pending,const std::string& cause="current",bool attache
         "Complete keyboard attachment oracle native-validates BEFORE Window");
     auto incoming=d;if(cause=="target")incoming.objects.at("second").name="Incoming full keyboard target";
     check(decode(encode(incoming))==incoming,"Complete incoming refusal fixture native-validates BEFORE Window");
+    Session popup_incoming=scalar;auto popup_base=d;
+    if(cause=="popup-target") {
+        auto changed=d;changed.objects.at("second").name="Incoming target while keyboard popup open";
+        popup_incoming=Session(changed);
+        popup_incoming.apply({EditProperties{{{"second","","text.font_size"}},64,false}},popup_incoming.revision());
+        changed.objects.at("second").text->parameters.at("font_size").literal=64;
+        check(popup_incoming.document()==changed&&popup_incoming.revision()==scalar.revision()&&decode(encode(changed))==changed,
+            "Independent popup-time full target and equal-revision scalar history native-validate BEFORE Window");
+    }else if(cause=="popup-revision") {
+        auto changed=scalar_document;changed.objects.at("source").name="Incoming revision while keyboard popup open";
+        popup_incoming.apply({Rename{"source",changed.objects.at("source").name}},popup_incoming.revision());
+        check(popup_incoming.document()==changed&&decode(encode(changed))==changed,
+            "Independent popup-time complete revision/history native-validate BEFORE Window");
+    }else if(cause=="popup-path") {
+        popup_base.objects.at("path").name="Incoming full chosen Path while keyboard popup open";
+        popup_base.objects.at("path").contours.back().points.back().y.literal=250;
+        check(decode(encode(popup_base))==popup_base,"Independent popup-time full chosen Path native-validates BEFORE Window");
+        popup_incoming=Session(popup_base);
+        popup_incoming.apply({EditProperties{{{"second","","text.font_size"}},64,false}},popup_incoming.revision());
+        auto changed=popup_base;changed.objects.at("second").text->parameters.at("font_size").literal=64;
+        check(popup_incoming.document()==changed&&popup_incoming.revision()==scalar.revision()&&decode(encode(changed))==changed,
+            "Independent full incoming Path/scalar/equal revision history native-validate BEFORE Window");
+        complete=changed;next=*changed.objects.at("second").text;
+        next.path_attachment=TextPathAttachment{"path","contour","distance",1100,3.5,false};
+        complete.objects.at("second").text=next;expected=popup_incoming;
+        expected.apply({UpdateText{"second",next}},expected.revision());
+        check(expected.document()==complete&&decode(encode(complete))==complete,
+            "Independent attachment to full incoming Path native-validates BEFORE Window");
+    }
     QTemporaryDir scratch;check(scratch.isValid(),"Keyboard Window owns isolated settings/recovery/native files");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -128,6 +157,12 @@ inline void context(bool pending,const std::string& cause="current",bool attache
         "Existing actual F4 opens production popup without authored/source changes");
     std::cout<<"PATH_KEYBOARD_QUALIFIED pending="<<pending<<" tabs="<<tabs<<" popup=1 source_neutral=1"<<std::endl;
     auto* popup=choice->view()->window();
+    const bool popup_refusal=cause=="popup-target"||cause=="popup-revision";
+    const bool popup_path=cause=="popup-path";
+    if(popup_refusal||popup_path) {
+        w.host.session=popup_incoming;
+        std::cout<<"PATH_KEYBOARD_POPUP_INCOMING cause="<<cause<<" revision="<<w.host.session.revision()<<std::endl;
+    }
     if(cause=="cancel") {
         QTest::keyClick(popup->windowHandle(),Qt::Key_Escape);events();
         check(choice&&!choice->view()->isVisible()&&activated==0&&changed==0&&same(w.host.session,scalar),
@@ -143,14 +178,25 @@ inline void context(bool pending,const std::string& cause="current",bool attache
     for(int row=0;row<index;++row){QTest::keyClick(popup->windowHandle(),Qt::Key_Down);events();}
     check(choice->view()->currentIndex().row()==index,"Actual popup keyboard navigation targets exact stable Contour");
     QTest::keyClick(popup->windowHandle(),Qt::Key_Return);events();
-    check(choice&&choice->currentIndex()==index&&!choice->view()->isVisible()&&activated==1&&changed==(previous_index==index?0:1)&&same(w.host.session,scalar),
+    check(choice&&choice->currentIndex()==index&&!choice->view()->isVisible()&&activated==1&&changed==(previous_index==index?0:1)&&same(w.host.session,(popup_refusal||popup_path)?popup_incoming:scalar),
         "Actual keyboard contour activation is source-neutral with exact index/activation semantics");
     auto* button=w.findChild<QPushButton*>("text-path-apply");check(button,"Production attach action remains available");
+    if(popup_refusal) {
+        const auto code=cause=="popup-target"?"PROPERTY_CONFLICT":"REVISION_CONFLICT";
+        check(w.statusBar()->currentMessage().startsWith(code),"Keyboard choice reports exact incoming context refusal");
+        area->ensureWidgetVisible(button);events();text_path_rechoose_window_smoke::point(w,button);
+        check(same(w.host.session,popup_incoming)&&w.statusBar()->currentMessage().startsWith(code),
+            "Attach after refused keyboard choice preserves complete incoming authored/preview/history/context atomically");
+        check(choice&&start&&spacing&&start->text()=="1100"&&spacing->text()=="3.5"&&
+            w.canvas->selections()==selected&&w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
+            "Popup-time refusal retains original controls/raw drafts/target scope");
+        std::cout<<"PATH_KEYBOARD_POPUP_REFUSAL cause="<<cause<<" choice_and_attach_atomic=1 native=PASS"<<std::endl;return;
+    }
     area->ensureWidgetVisible(button);events();text_path_rechoose_window_smoke::point(w,button);
     check(same(w.host.session,expected),"Keyboard choice then production Attach matches complete independent canonical oracle");
     text_path_batch_window_smoke::history(w,"Undo");expected.undo(expected.revision());
-    check(same(w.host.session,expected)&&expected.document()==scalar.document(),"Attachment Undo is separate and restores full scalar-only document");
-    if(pending){text_path_batch_window_smoke::history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected)&&expected.document()==d,"Scalar Undo restores full incoming native Text/styles/Refs/Path");}
+    check(same(w.host.session,expected)&&expected.document()==(popup_path?popup_incoming.document():scalar.document()),"Attachment Undo is separate and restores full scalar-only document");
+    if(pending){text_path_batch_window_smoke::history(w,"Undo");expected.undo(expected.revision());check(same(w.host.session,expected)&&expected.document()==(popup_path?popup_base:d),"Scalar Undo restores full incoming native Text/styles/Refs/Path");}
     if(pending){text_path_batch_window_smoke::history(w,"Redo");expected.redo(expected.revision());check(same(w.host.session,expected),"Separate Scalar Redo matches canonical history");}
     text_path_batch_window_smoke::history(w,"Redo");expected.redo(expected.revision());check(same(w.host.session,expected),"Separate attachment Redo matches full canonical history");
     const auto native=scratch.filePath("keyboard-result.nect");w.host.save(native);w.host.flush();
@@ -178,5 +224,21 @@ inline void run_reverse() {
     context(true,"current",true,true);context(true,"cancel",false,true);
     for(const auto* cause:{"target","revision","invalid"})context(true,cause,false,true);
     std::cout<<"PathReverseKeyboard Windows cases=7 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;
+}
+inline void run_popup_incoming() {
+    const int before=text_path_batch_window_smoke::checks;
+    // Reuse the neutral native route qualified by run_reverse on unchanged
+    // production Window; these cases exercise only the later popup-time edge.
+    reverse_focus={QStringLiteral("property-source-pick"),
+        QStringLiteral("{\"field\":\"text.origin_y\",\"object\":\"second\",\"point\":\"\"}"),{}, {}};
+    for(const auto* cause:{"popup-target","popup-revision"})context(true,cause,false,true);
+    std::cout<<"PathKeyboardPopupIncoming Windows cases=2 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;
+}
+inline void run_popup_source() {
+    const int before=text_path_batch_window_smoke::checks;
+    reverse_focus={QStringLiteral("property-source-pick"),
+        QStringLiteral("{\"field\":\"text.origin_y\",\"object\":\"second\",\"point\":\"\"}"),{}, {}};
+    context(true,"popup-path",true,true);
+    std::cout<<"PathKeyboardPopupSource Windows cases=1 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;
 }
 }
