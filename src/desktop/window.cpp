@@ -10308,7 +10308,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             verify_macro_control_context();
                             editor->setModified(false);
                             host.session.apply({MacroCommand{ResetMacroOverride{id,instance,parameter_id}}},frozen_macro_revision);
-                            host.edited();
+                            statusBar()->clearMessage();host.edited();
                         });
                     });
                 }
