@@ -152,6 +152,7 @@ private:
     bool layout_preview_active_=false;
     bool layout_preview_invalid_=false;
     QString layout_preview_session_;
+    Id layout_preview_document_;
     std::uint64_t layout_preview_revision_=0;
     std::uint64_t layout_preview_generation_=0;
     void cancel_whip();

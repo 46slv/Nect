@@ -2060,13 +2060,13 @@ void Window::perform(const std::function<void()>& action) {
 
 bool Window::layout_draft_current() const {
     return layout_preview_active_&&layout_preview_session_==host.session_id&&
-        layout_preview_revision_==host.session.revision()&&host.session.gesture_active()&&
+        layout_preview_document_==host.session.document().id&&layout_preview_revision_==host.session.revision()&&host.session.gesture_active()&&
         layout_preview_generation_==host.session.gesture_generation();
 }
 
 bool Window::reject_stale_layout_draft() {
     if((!layout_preview_active_&&!layout_preview_invalid_)||
-       (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()&&
+       (layout_preview_session_==host.session_id&&layout_preview_document_==host.session.document().id&&layout_preview_revision_==host.session.revision()&&
         (!layout_preview_active_||layout_draft_current())))return false;
     cancel_layout_draft();
     statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
@@ -2083,7 +2083,7 @@ void Window::cancel_layout_draft(bool refresh_canvas) {
     if(active&&owns&&host.session.gesture_active())host.session.cancel_gesture();
     if(grid_scope&&layout_preview_scope_)layout_preview_scope_->setProperty("nect-grid-draft-generation",QVariant{});
     setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
-    layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+    layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
     layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
     if(refresh_canvas&&active&&owns&&canvas) {canvas->refresh();canvas->update();}
 }
@@ -2095,7 +2095,7 @@ bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* 
     const bool starting=!layout_preview_active_;
     try {
         if(starting) {
-            layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();
+            layout_preview_session_=host.session_id;layout_preview_document_=host.session.document().id;layout_preview_revision_=host.session.revision();
             layout_preview_scope_=scope;host.session.begin_gesture(layout_preview_revision_);layout_preview_active_=true;
             layout_preview_generation_=host.session.gesture_generation();
             const bool grid_scope=scope->property("nect-grid-draft-session").isValid();
@@ -2128,7 +2128,7 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
     try {
         if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
         host.session.commit_gesture();
-        layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+        layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
         layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
         setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
         host.edited();
@@ -3007,13 +3007,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     auto mark_invalid=[this](QWidget* scope,const QString& message) {
         layout_preview_invalid_=true;layout_preview_scope_=scope;
-        if(!layout_preview_active_){layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();}
+        if(!layout_preview_active_){layout_preview_session_=host.session_id;layout_preview_document_=host.session.document().id;layout_preview_revision_=host.session.revision();}
         statusBar()->showMessage(message,12000);
     };
-    auto guard_editor=[this,frozen_session,frozen_revision] {
+    auto guard_editor=[this,frozen_session,frozen_revision,document=host.session.document().id] {
         if(reject_stale_layout_draft())return true;
-        if(host.session_id==frozen_session&&host.session.revision()==frozen_revision)return false;
-        statusBar()->showMessage("REVISION_CONFLICT: Refresh layout controls before editing",12000);
+        if(host.session_id==frozen_session&&host.session.document().id==document&&host.session.revision()==frozen_revision)return false;
+        statusBar()->showMessage(host.session.document().id!=document?
+            "SESSION_CONFLICT: Layout controls belong to another document":
+            "REVISION_CONFLICT: Refresh layout controls before editing",12000);
         QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
         return true;
     };
@@ -4643,7 +4645,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             // Retire only this adapter's view bookkeeping. A replacement Session
             // or gesture remains owned by its current caller and must not cancel.
             if(local_scope) {
-                layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
+                layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
                 layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
                 setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
             }
