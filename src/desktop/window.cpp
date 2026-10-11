@@ -3549,6 +3549,16 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
     });});
     connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    const auto bind_margin_expression_keys=[cancel_layout_editor](ExpressionInput* editor,QPushButton* apply) {
+        const QPointer<QPushButton> safe_apply=apply;
+        editor->apply=[safe_apply]{if(safe_apply)safe_apply->click();};
+        editor->cancel=cancel_layout_editor;
+        editor->setToolTip("Ctrl+Enter applies this expression. Escape cancels the draft.");
+    };
+    bind_margin_expression_keys(margin_expression,margin_expression_apply);
+    bind_margin_expression_keys(margin_top_expression,margin_top_expression_apply);
+    bind_margin_expression_keys(margin_right_expression_input,margin_right_expression_apply);
+    bind_margin_expression_keys(margin_bottom_expression_input,margin_bottom_expression_apply);
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
