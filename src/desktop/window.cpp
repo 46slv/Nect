@@ -10102,6 +10102,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         connect(enabled_driver,&QPushButton::clicked,this,[this,object_id=object.id,operation_id=operation.id,
             macro_entry=operation.macro.has_value(),
             enabled_ref,enabled_state,frozen_session,enabled_composition,verify_operation_context,frozen_revision=host.session.revision()] {
+            try {verify_operation_context();}
+            catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
             QDialog dialog(this);dialog.setObjectName("operation-enabled-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Operation enabled dependency");auto* dialog_layout=new QVBoxLayout(&dialog);
             auto* mode=new QComboBox(&dialog);mode->setObjectName("operation-enabled-mode-"+qs(operation_id));
