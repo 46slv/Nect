@@ -350,6 +350,26 @@ protected:
 private:
     QPointer<QWidget> popup_;
 };
+class TextPathScalarTabGuard final : public QObject {
+public:
+    explicit TextPathScalarTabGuard(QObject* parent):QObject(parent){}
+    std::function<bool()> finish;
+protected:
+    bool eventFilter(QObject* watched,QEvent* event) override {
+        if(event->type()==QEvent::FocusOut&&
+           static_cast<QFocusEvent*>(event)->reason()==Qt::TabFocusReason&&finish) {
+            if(auto* scalar=qobject_cast<QLineEdit*>(watched);scalar&&scalar->isModified()&&!finish()) {
+                // Rejected preparation must not fall through to ordinary blur
+                // and consume an incoming target. Keep its raw draft editable.
+                scalar->setModified(false);
+                QTimer::singleShot(0,scalar,[scalar=QPointer<QLineEdit>(scalar)] {
+                    if(scalar)scalar->setModified(true);
+                });
+            }
+        }
+        return QObject::eventFilter(watched,event);
+    }
+};
 class PreparedTextSpin final : public QSpinBox {
 public:
     std::function<bool()> prepare;
@@ -7002,18 +7022,26 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             ready=true;
         });return ready;
     };
-    path_contour->closed=[this,path_contour,path_start_mode,path_start,path_spacing,path_reversed,verify_path,verify_path_choice,path_revision] {
+    path_contour->closed=[this,id,path_contour,path_start_mode,path_start,path_spacing,path_reversed,verify_path,verify_path_choice,path_revision] {
         if(!isVisible()||!path_contour->property("nect-text-path-scalar-prepared").toBool())return;
         QTimer::singleShot(0,this,[this,original=QPointer<QComboBox>(path_contour),
             start_mode=QPointer<QComboBox>(path_start_mode),start=QPointer<QLineEdit>(path_start),
             spacing=QPointer<QLineEdit>(path_spacing),reversed=QPointer<QCheckBox>(path_reversed),
-            verify_path,verify_path_choice,path_revision] {
+            id,verify_path,verify_path_choice,path_revision] {
             if(!original||!original->isVisible()||original->view()->isVisible()||
                !original->property("nect-text-path-scalar-prepared").toBool()||!start_mode||!start||!spacing||!reversed)return;
             perform([&] {
                 verify_path(*path_revision);verify_path_choice();
                 const auto chosen=original->currentData(),mode=start_mode->currentData();
                 const auto start_draft=start->text(),spacing_draft=spacing->text();const bool reverse_draft=reversed->isChecked();
+                const bool keyboard_rearm=original->property("nect-text-path-keyboard-rearm").toBool();
+                const auto* focused=QApplication::focusWidget();
+                const bool restore_font_action=keyboard_rearm&&focused&&focused->objectName()=="property-expression"&&
+                    focused->property("nect-text-scalar-fx-action-object").toString()==qs(id)&&
+                    focused->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
+                    focused->property("nect-text-scalar-fx-action-field").toString()=="text.font_size";
+                if(keyboard_rearm&&!restore_font_action)
+                    throw Error("TEXT_EDIT_CONFLICT","The keyboard destination changed; reopen this Text's Path controls");
                 // The completed own Scalar advances the ordinary property fields.
                 // Preserve only this verified source/attachment draft across that refresh.
                 original->setProperty("nect-text-path-scalar-prepared",false);rebuild_inspector(true);
@@ -7038,6 +7066,22 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 if(chosen_index<0||mode_index<0)throw Error("TEXT_EDIT_CONFLICT","The original Path draft is no longer available");
                 current->setCurrentIndex(chosen_index);current_mode->setCurrentIndex(mode_index);
                 current_start->setText(start_draft);current_spacing->setText(spacing_draft);current_reversed->setChecked(reverse_draft);
+                if(restore_font_action) {
+                    QPushButton* action=nullptr;
+                    for(int row=0;row<inspector_->layout()->count();++row) {
+                        auto* owner=inspector_->layout()->itemAt(row)->widget();if(!owner)continue;
+                        for(auto* candidate:owner->findChildren<QPushButton*>("property-expression")) {
+                            if(candidate->property("nect-text-scalar-fx-action-object").toString()!=qs(id)||
+                               !candidate->property("nect-text-scalar-fx-action-point").toString().isEmpty()||
+                               candidate->property("nect-text-scalar-fx-action-field").toString()!="text.font_size")continue;
+                            if(action)throw Error("TEXT_EDIT_CONFLICT","Reopen the original Font size action");
+                            action=candidate;
+                        }
+                    }
+                    if(!action)throw Error("TEXT_EDIT_CONFLICT","The original Font size action is no longer available");
+                    action->setFocus(Qt::TabFocusReason);
+                }
+
             });
         });
     };
@@ -8786,6 +8830,25 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     locale_status->setObjectName("text-locale-state");locale_status->setWordWrap(true);locale_status->setTextFormat(Qt::PlainText);form->addRow("",locale_status);
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
+    // Forward Tab finishes this target's own Scalar before ordinary blur can
+    // replace its Path drafts. Rearm the existing focus destination immediately.
+    auto* path_tab_guard=new TextPathScalarTabGuard(path_contour);
+    path_tab_guard->finish=[path_contour] {
+        path_contour->setProperty("nect-retain-text-inspector",true);
+        const bool ready=path_contour->prepare();
+        path_contour->setProperty("nect-retain-text-inspector",false);
+        if(ready&&path_contour->property("nect-text-path-scalar-prepared").toBool()) {
+            path_contour->setProperty("nect-text-path-keyboard-rearm",true);
+            path_contour->closed();
+        }
+        return ready;
+    };
+    for(auto* input:box->findChildren<QLineEdit*>()) {
+        const auto reference_data=input->property("nect-reference").toByteArray();
+        if(reference_data.isEmpty())continue;
+        const auto ref=read_ref(reference_data);
+        if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")input->installEventFilter(path_tab_guard);
+    }
     auto* receipt=add_text_typography(layout,object);
     QStringList lines;
     try {
