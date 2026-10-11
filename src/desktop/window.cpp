@@ -2945,6 +2945,21 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* replace=new QCheckBox("Replace current source",source_box);
         replace->setObjectName("artboard-"+axis+"-replace");replace->setEnabled(parent_driven||driver.has_value());
         source_layout->addWidget(replace);
+        std::erase_if(artboard_expression_drafts_,[this](const auto& item) {
+            return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
+        });
+        auto source_revision=frozen_revision;
+        if(const auto found=artboard_expression_drafts_.find(target);found!=artboard_expression_drafts_.end()) {
+            expression->setPlainText(found->second.source);source_revision=found->second.revision;
+            replace->setChecked(replace->isEnabled()&&found->second.replace_binding);
+        }
+        const auto retain_source=[this,expression,replace,target,frozen_session,frozen_document,source_revision] {
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)return;
+            artboard_expression_drafts_[target]={frozen_session,expression->toPlainText(),frozen_document,source_revision,
+                replace->isEnabled()&&replace->isChecked()};
+        };
+        connect(expression,&QPlainTextEdit::textChanged,this,retain_source);
+        connect(replace,&QCheckBox::toggled,this,[retain_source](bool){retain_source();});
         auto* actions=new FrameActionLayout;source_layout->addLayout(actions);
         auto* link=new QPushButton("Link",source_box);link->setObjectName("artboard-"+axis+"-link");actions->addWidget(link);
         auto* set_expression=new QPushButton("Apply expression",source_box);
@@ -2960,10 +2975,31 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(source_search,&QLineEdit::textChanged,this,[source,link,link_available](const QString&){
             link->setEnabled(link_available&&source->currentIndex()>=0);
         });
-        auto commit=[this,frozen_session,frozen_revision,frozen_document](const std::vector<Command>& commands) {
+        auto commit=[this,target,frozen_session,frozen_revision,frozen_document](const std::vector<Command>& commands) {
             if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Artboard source belongs to another document");
-            canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
+            auto revision=frozen_revision;
+            if(const auto found=artboard_expression_drafts_.find(target);found!=artboard_expression_drafts_.end()) {
+                const auto& draft=found->second;
+                if(draft.session!=host.session_id||draft.document!=host.session.document().id)
+                    throw Error("SESSION_CONFLICT","Artboard source draft belongs to another document");
+                revision=draft.revision;
+            }
+            if(host.session.revision()!=revision)
+                throw Error("REVISION_CONFLICT","Artboard source draft changed elsewhere; cancel and reopen it");
+            if(host.session.gesture_active())
+                throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+            canvas->cancel_interaction();host.session.apply(commands,revision);
+            artboard_expression_drafts_.erase(target);host.edited();
+        };
+        const auto cancel_source=[this,target,frozen_session,frozen_document] {
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document) {
+                statusBar()->showMessage("SESSION_CONFLICT: Artboard source draft belongs to another document",12000);return;
+            }
+            if(host.session.gesture_active()) {
+                statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before cancelling Artboard source",12000);return;
+            }
+            artboard_expression_drafts_.erase(target);rebuild_inspector();
         };
         connect(link,&QPushButton::clicked,this,[this,source,source_refs,target,replace,commit]{perform([&]{
             bool valid=false;const auto candidate=source->currentData(Qt::UserRole).toInt(&valid);
@@ -2974,10 +3010,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto apply_expression=[this,expression,target,replace,commit]{perform([&]{
             commit({SetArtboardSizeExpression{target,{expression->toPlainText().toStdString(),1},replace->isChecked()}});
         });};
-        expression->apply=apply_expression;expression->cancel=[this]{rebuild_inspector();};
+        expression->apply=apply_expression;expression->cancel=cancel_source;
         connect(set_expression,&QPushButton::clicked,this,apply_expression);
         connect(unlink,&QPushButton::clicked,this,[this,target,commit]{perform([&]{commit({UnlinkArtboardSize{target}});});});
-        connect(cancel,&QPushButton::clicked,this,[this]{rebuild_inspector();});
+        connect(cancel,&QPushButton::clicked,this,cancel_source);
         form->addRow(source_box);
     };
     size_source(true);size_source(false);
