@@ -1044,7 +1044,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         const auto* error=dynamic_cast<const Error*>(&exception);
         statusBar()->showMessage((error?qs(error->code)+": ":QString{})+QString::fromUtf8(exception.what()),12000);
     };
-    auto cancel=[this,state,owns,disarm,safe_input,committed_text,targets,read,mixed,identity,document] {
+    auto cancel=[this,state,owns,disarm,safe_input,committed_text,targets,read,mixed,identity,document,revision,
+        selection=canvas->selections(),composition=canvas->active_composition(),artboard=canvas->active_artboard(),frame=artboard_editing_] {
         const bool local=state->owned,active=owns();
         if(active)host.session.cancel_gesture();state->owned=false;
         if(local) {
@@ -1057,7 +1058,17 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
                 safe_input->setText(text);safe_input->setModified(false);
             }
         }
-        if(active){canvas->refresh();canvas->update();}
+        if(active) {
+            canvas->refresh();canvas->update();
+            const auto generation=host.session.gesture_generation();
+            QTimer::singleShot(0,this,[this,state,identity,document,revision,selection,composition,artboard,frame,generation] {
+                if(!state->live||host.session_id!=identity||host.session.document().id!=document||
+                   host.session.revision()!=revision||host.session.gesture_active()||
+                   host.session.gesture_generation()!=generation||canvas->selections()!=selection||
+                   canvas->active_composition()!=composition||canvas->active_artboard()!=artboard||artboard_editing_!=frame)return;
+                rebuild_inspector();
+            });
+        }
     };
     register_angle_adapter(control,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
     auto begin_interaction=[this,state,validate,report,safe_input,committed_text] {
