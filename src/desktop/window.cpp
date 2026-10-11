@@ -10284,10 +10284,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                         verify_macro_control_context();
                         bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
-                        editor->setModified(false);
-                        if(value==initial){statusBar()->clearMessage();return;}
+                        if(value==initial){editor->setModified(false);statusBar()->clearMessage();return;}
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
-                        statusBar()->clearMessage();host.edited();
+                        editor->setModified(false);statusBar()->clearMessage();host.edited();
                     });
                 };
                 connect(editor,&QLineEdit::editingFinished,this,finish_amount);
@@ -12986,7 +12985,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
                 record_scalar_commit();statusBar()->clearMessage();return;
             }
-            canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);
+            canvas->cancel_interaction();
+            try {host.session.apply({EditProperties{targets,value,relative}},field_revision);}
+            catch(...) {if(input->property("nect-semantic-key").isValid())input->setModified(true);throw;}
             record_scalar_commit();statusBar()->clearMessage();host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
