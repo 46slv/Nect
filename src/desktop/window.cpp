@@ -10293,7 +10293,10 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite value or += / -= adjustment");
                         if(relative)value=initial+(text.startsWith("-=")?-value:value);
                         if(!std::isfinite(value))throw Error("INVALID_VALUE","Relative adjustment must produce a finite value");
-                        if(value==initial){editor->setModified(false);statusBar()->clearMessage();return;}
+                        if(value==initial){
+                            if(relative)editor->setText(QString::number(initial,'g',17));
+                            editor->setModified(false);statusBar()->clearMessage();return;
+                        }
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         editor->setModified(false);statusBar()->clearMessage();host.edited();
                     });
