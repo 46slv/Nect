@@ -10279,9 +10279,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                         bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
                         if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
                         editor->setModified(false);
-                        if(value==initial)return;
+                        if(value==initial){statusBar()->clearMessage();return;}
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
-                        host.edited();
+                        statusBar()->clearMessage();host.edited();
                     });
                 };
                 connect(editor,&QLineEdit::editingFinished,this,finish_amount);
