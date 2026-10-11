@@ -3177,10 +3177,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     const auto layout_scrub_row=[this,frozen_session,frozen_revision,
         document=host.session.document().id](QWidget* family_box,QLineEdit* input,const QString& label,
-        double initial,const LayoutBuilder& build) {
+        double initial,const LayoutBuilder& build,SemanticScrub** exposed_scrub=nullptr) {
         auto* row=new QWidget(family_box);auto* line=new QHBoxLayout(row);
         line->setContentsMargins(0,0,0,0);line->setSpacing(4);line->addWidget(input,1);
-        auto* scrub=new SemanticScrub(row);line->addWidget(scrub);
+        auto* scrub=new SemanticScrub(row);if(exposed_scrub)*exposed_scrub=scrub;line->addWidget(scrub);
         scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" scrub · du");
         scrub->setEnabled(!input->isReadOnly());
         if(input->isReadOnly())scrub->setToolTip("Driven "+label+": explicitly unlink before scrubbing.");
@@ -4746,6 +4746,41 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* position_input=make_number(row,("guide-position-"+source.id).c_str(),"Guide position",QString::number(guide_positions.at(source.id),'g',15));
         const bool position_driven=source.position_driver.has_value()||source.position_expression.has_value();
         position_input->setReadOnly(position_driven);
+        if(!position_input->isReadOnly())position_input->setToolTip(position_input->toolTip()+" Use +=number or -=number for a one-shot adjustment from the initial position.");
+        const auto position_value=[position_input,parse_number,initial=source.position] {
+            const auto text=position_input->text().trimmed();
+            const bool subtract=text.startsWith("-=");
+            if(!subtract&&!text.startsWith("+="))return parse_number(position_input);
+            bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+            const auto value=initial+(subtract?-amount:amount);
+            if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+                throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+            return value;
+        };
+        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,position_display=position_input->text(),position_value] {
+            auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
+            const bool untouched=position_input->text()==position_display&&!position_input->isModified();
+            changed.position=(source.position_driver||source.position_expression||untouched)?source.position:position_value();
+            return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
+        };
+        const auto guide_current=[this,row,frozen_session,frozen_revision,guide_source_document] {
+            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document) {
+                statusBar()->showMessage("SESSION_CONFLICT: Guide input belongs to another document",12000);return false;
+            }
+            const bool local=layout_preview_scope_==row;
+            const bool owns=local&&layout_draft_current();
+            if(host.session.revision()!=frozen_revision||(local&&layout_preview_active_&&!owns)) {
+                statusBar()->showMessage("REVISION_CONFLICT: Refresh Guide controls before editing",12000);return false;
+            }
+            if((host.session.gesture_active()&&!owns)||((layout_preview_active_||layout_preview_invalid_)&&!local)) {
+                statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before editing Guide",12000);return false;
+            }
+            return true;
+        };
+        SemanticScrub* position_scrub=nullptr;
+        auto* position_row=layout_scrub_row(row,position_input,"Guide position",source.position,builder,&position_scrub);
+        const auto scrub_begin=position_scrub->begin;
+        position_scrub->begin=[guide_current,scrub_begin]{return guide_current()&&scrub_begin();};
         auto* position_status=new QLabel(row);position_status->setObjectName("guide-position-status-"+qs(source.id));
         auto* unlink_position=new QPushButton("Unlink position",row);unlink_position->setObjectName("guide-unlink-position-"+qs(source.id));
         auto* expression=new ExpressionInput;expression->setObjectName("guide-position-expression-"+qs(source.id));
@@ -4782,43 +4817,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 QString::number(guide_positions.at(source.id),'g',15)+" du");
             position_status->setVisible(true);unlink_position->setVisible(true);
         } else {position_status->setVisible(false);unlink_position->setVisible(false);}
-        form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_input);
+        form->addRow("Name",name_input);form->addRow("Axis",axis_input);form->addRow("Position · du",position_row);
         form->addRow("Position source",position_status);form->addRow("Position expression · du",expression);
         form->addRow("",replace_source);form->addRow("",apply_expression);form->addRow(unlink_position);
         auto* actions=new QWidget(row);auto* buttons=new FrameActionLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
-        if(!position_input->isReadOnly())position_input->setToolTip(position_input->toolTip()+" Use +=number or -=number for a one-shot adjustment from the initial position.");
-        const auto position_value=[position_input,parse_number,initial=source.position] {
-            const auto text=position_input->text().trimmed();
-            const bool subtract=text.startsWith("-=");
-            if(!subtract&&!text.startsWith("+="))return parse_number(position_input);
-            bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
-            const auto value=initial+(subtract?-amount:amount);
-            if(!valid||!std::isfinite(amount)||!std::isfinite(value))
-                throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
-            return value;
-        };
-        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,position_display=position_input->text(),position_value] {
-            auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
-            const bool untouched=position_input->text()==position_display&&!position_input->isModified();
-            changed.position=(source.position_driver||source.position_expression||untouched)?source.position:position_value();
-            return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
-        };
-        const auto guide_current=[this,row,frozen_session,frozen_revision,guide_source_document] {
-            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document) {
-                statusBar()->showMessage("SESSION_CONFLICT: Guide input belongs to another document",12000);return false;
-            }
-            const bool local=layout_preview_scope_==row;
-            const bool owns=local&&layout_draft_current();
-            if(host.session.revision()!=frozen_revision||(local&&layout_preview_active_&&!owns)) {
-                statusBar()->showMessage("REVISION_CONFLICT: Refresh Guide controls before editing",12000);return false;
-            }
-            if((host.session.gesture_active()&&!owns)||((layout_preview_active_||layout_preview_invalid_)&&!local)) {
-                statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before editing Guide",12000);return false;
-            }
-            return true;
-        };
         connect(name_input,&QLineEdit::textEdited,this,[preview_from,row,builder,guide_current]{if(guide_current())preview_from(row,builder);});
         connect(name_input,&QLineEdit::returnPressed,this,[commit_from,row,builder,guide_current]{if(guide_current())commit_from(row,builder);});
         if(!position_input->isReadOnly()) {
