@@ -3625,16 +3625,16 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const bool grid_row_gutter_is_driven=grid_row_gutter_driver.has_value()||grid_row_gutter_expression.has_value();
     auto* grid_x=make_number(grid_box,"grid-x","Grid X",QString::number(initial_grid.bounds.x,'g',15));
     grid_x->setReadOnly(grid_bounds_x_is_driven);
-    grid_x->setToolTip(grid_bounds_x_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid x offset in du.");
+    grid_x->setToolTip(grid_bounds_x_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid x offset in du. Enter a number, +=number or -=number to adjust it.");
     auto* grid_y=make_number(grid_box,"grid-y","Grid Y",QString::number(initial_grid.bounds.y,'g',15));
     grid_y->setReadOnly(grid_bounds_y_is_driven);
-    grid_y->setToolTip(grid_bounds_y_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid y offset in du.");
+    grid_y->setToolTip(grid_bounds_y_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid y offset in du. Enter a number, +=number or -=number to adjust it.");
     auto* grid_width=make_number(grid_box,"grid-width","Grid width",QString::number(initial_grid.bounds.width,'g',15));
     grid_width->setReadOnly(grid_bounds_width_is_driven);
-    grid_width->setToolTip(grid_bounds_width_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid width in du.");
+    grid_width->setToolTip(grid_bounds_width_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid width in du. Enter a number, +=number or -=number to adjust it.");
     auto* grid_height=make_number(grid_box,"grid-height","Grid height",QString::number(initial_grid.bounds.height,'g',15));
     grid_height->setReadOnly(grid_bounds_height_is_driven);
-    grid_height->setToolTip(grid_bounds_height_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid height in du.");
+    grid_height->setToolTip(grid_bounds_height_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Grid height in du. Enter a number, +=number or -=number to adjust it.");
     const auto evaluated_grid_columns=resolved.layout&&resolved.layout->grid?resolved.layout->grid->columns:initial_grid.columns;
     auto* grid_columns=make_number(grid_box,"grid-columns","Columns",QString::number(static_cast<qulonglong>(grid_columns_is_driven?evaluated_grid_columns:initial_grid.columns)));
     grid_columns->setReadOnly(grid_columns_is_driven);
@@ -3665,7 +3665,15 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     // its rounded representation and mutate exact sibling literals.
     const auto grid_number_reader=[parse_number](QLineEdit* input,double initial) {
         return [parse_number,input,initial,displayed=input->text()] {
-            return input->text().trimmed()==displayed?initial:parse_number(input);
+            const auto text=input->text().trimmed();
+            if(text==displayed)return initial;
+            const bool subtract=text.startsWith("-=");
+            if(!subtract&&!text.startsWith("+="))return parse_number(input);
+            bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+            const auto value=initial+(subtract?-amount:amount);
+            if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+                throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+            return value;
         };
     };
     const auto grid_x_value=grid_number_reader(grid_x,initial_grid.bounds.x);
