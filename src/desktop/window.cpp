@@ -903,6 +903,7 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
     const auto state=std::make_shared<Interaction>();
     const auto identity=host.session_id;const auto revision=host.session.revision();
     const auto document=host.session.document().id;
+    const bool born_preview=host.session.gesture_active();
     QPointer<RotationKnob> safe_knob=knob;QPointer<QLineEdit> safe_numeric=numeric;
     auto owns=[this,state,identity,revision,document] {
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
@@ -951,11 +952,13 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
     };
     register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
     auto last_valid=std::make_shared<double>(initial);
-    knob->begin_drag=[this,state,validate,report,safe_knob,safe_numeric,refuse_numeric_draft,last_valid,initial] {
+    knob->begin_drag=[this,state,validate,report,safe_knob,safe_numeric,refuse_numeric_draft,last_valid,initial,born_preview] {
         try {
             if(refuse_numeric_draft&&safe_numeric&&safe_numeric->isModified())
                 throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before using the dial");
-            validate();host.session.begin_gesture(host.session.revision());
+            validate();
+            if(born_preview)throw Error("GESTURE_ACTIVE","Refresh the Inspector before using a control created during a preview");
+            host.session.begin_gesture(host.session.revision());
             *last_valid=initial;
             if(safe_knob)safe_knob->set_value(initial);
             if(safe_numeric){safe_numeric->setText(QString::number(initial,'g',17));safe_numeric->setModified(false);}
@@ -994,6 +997,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         const SemanticParameterDescriptor& descriptor,bool macro) {
     validate_semantic_descriptor(descriptor);
     const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
+    const bool born_preview=host.session.gesture_active();
     const auto read=[macro](const Document& d,const Ref& r) {
         return macro?macro_parameter_value(d,r.object,r.point,r.field):evaluate(d).at(r);
     };
@@ -1082,10 +1086,12 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         }
     };
     register_angle_adapter(control,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
-    auto begin_interaction=[this,state,validate,report,safe_input,committed_text] {
+    auto begin_interaction=[this,state,validate,report,safe_input,committed_text,born_preview] {
         try {
             if(safe_input&&safe_input->isModified())throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
-            validate();host.session.begin_gesture(host.session.revision());
+            validate();
+            if(born_preview)throw Error("GESTURE_ACTIVE","Refresh the Inspector before using a control created during a preview");
+            host.session.begin_gesture(host.session.revision());
             state->generation=host.session.gesture_generation();state->owned=true;state->last_text=committed_text;return true;
         } catch(const std::exception& exception){report(exception);return false;}
     };
