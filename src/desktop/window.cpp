@@ -1918,6 +1918,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
 }
 
 Window::~Window() {
+    // Retire numeric callbacks before base-widget destruction changes focus.
+    for(auto* input:findChildren<QLineEdit*>())if(dynamic_cast<SemanticNumberInput*>(input)) {
+        QObject::disconnect(qApp,&QApplication::focusChanged,input,nullptr);
+        QObject::disconnect(input,&QLineEdit::editingFinished,this,nullptr);
+    }
     cancel_angle_adapters(true);
     qApp->removeEventFilter(this);
     cancel_whip();
@@ -10266,7 +10271,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 auto* editor=semantic_number_input(metadata,QString::number(initial,'g',17),group);
                 editor->setObjectName("macro-amount-"+qs(operation.id));
                 editor->setAccessibleName(name+" / "+qs(parameter->label)+" / "+qs(parameter->unit));
-                editor->setToolTip(qs(metadata.help)+"\nEnter a finite value in "+qs(metadata.unit)+". Escape cancels the edit.");
+                editor->setToolTip(qs(metadata.help)+"\nEnter a finite value in "+qs(metadata.unit)+". += / -= makes a one-shot relative adjustment. Escape cancels the edit.");
                 editor->setProperty("nect-reference",QJsonDocument(ref_json(amount_ref)).toJson(QJsonDocument::Compact));
                 auto* reset=operation.macro->overrides.contains(parameter_id)?new QPushButton("Reset",group):nullptr;
                 if(reset)reset->setObjectName("macro-reset-amount-"+qs(operation.id));
@@ -10282,8 +10287,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     if(reset&&QApplication::focusWidget()==reset&&(QApplication::mouseButtons()&Qt::LeftButton))return;
                     perform([&]{
                         verify_macro_control_context();
-                        bool valid=false;const auto value=editor->text().trimmed().toDouble(&valid);
-                        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite Macro Amount");
+                        const auto text=editor->text().trimmed();
+                        const bool relative=text.startsWith("+=")||text.startsWith("-=");
+                        bool valid=false;auto value=(relative?text.mid(2):text).toDouble(&valid);
+                        if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite value or += / -= adjustment");
+                        if(relative)value=initial+(text.startsWith("-=")?-value:value);
+                        if(!std::isfinite(value))throw Error("INVALID_VALUE","Relative adjustment must produce a finite value");
                         if(value==initial){editor->setModified(false);statusBar()->clearMessage();return;}
                         host.session.apply({MacroCommand{SetMacroOverride{id,instance,parameter_id,value}}},frozen_macro_revision);
                         editor->setModified(false);statusBar()->clearMessage();host.edited();
