@@ -4753,16 +4753,22 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
         if(source.position_expression)expression->setPlainText(qs(source.position_expression->source));
         auto source_revision=frozen_revision;
+        bool source_replace=false;
         if(const auto found=guide_expression_drafts_.find(position_ref);found!=guide_expression_drafts_.end()) {
             expression->setPlainText(found->second.source);source_revision=found->second.revision;
+            source_replace=found->second.replace_binding;
         }
-        connect(expression,&QPlainTextEdit::textChanged,this,[this,expression,position_ref,frozen_session,guide_source_document,source_revision] {
-            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document)return;
-            guide_expression_drafts_[position_ref]={frozen_session,expression->toPlainText(),guide_source_document,source_revision};
-        });
         auto* replace_source=new QCheckBox("Replace current position source",row);
         replace_source->setObjectName("guide-position-replace-"+qs(source.id));
         replace_source->setVisible(position_driven);
+        replace_source->setChecked(position_driven&&source_replace);
+        const auto retain_source=[this,expression,replace_source,position_ref,position_driven,frozen_session,guide_source_document,source_revision] {
+            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document)return;
+            guide_expression_drafts_[position_ref]={frozen_session,expression->toPlainText(),guide_source_document,source_revision,
+                position_driven&&replace_source->isChecked()};
+        };
+        connect(expression,&QPlainTextEdit::textChanged,this,retain_source);
+        connect(replace_source,&QCheckBox::toggled,this,[retain_source](bool){retain_source();});
         auto* apply_expression=new QPushButton("Apply position expression",row);
         apply_expression->setObjectName("guide-position-apply-expression-"+qs(source.id));
         if(position_driven) {
@@ -4808,7 +4814,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 statusBar()->showMessage("GESTURE_ACTIVE: Finish or cancel the current edit first",12000);return;
             }
             commit_explicit(row,expression_command);
-            if(host.session.revision()!=source_revision)guide_expression_drafts_.erase(position_ref);
+            if(host.session.revision()!=source_revision) {
+                guide_expression_drafts_.erase(position_ref);
+                if(utility_setup_dialog_)rebuild_layout_setup();else rebuild_inspector();
+            }
         };
         expression->apply=apply_source;
         expression->cancel=[this,position_ref,frozen_session,guide_source_document] {
