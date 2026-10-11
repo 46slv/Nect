@@ -927,7 +927,8 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
         if(const auto* error=dynamic_cast<const Error*>(&exception))statusBar()->showMessage(qs(error->code)+": "+QString::fromUtf8(error->what()),12000);
         else statusBar()->showMessage(QString::fromUtf8(exception.what()),12000);
     };
-    auto cancel=[this,state,owns,safe_knob,safe_numeric,current_value] {
+    auto cancel=[this,state,owns,safe_knob,safe_numeric,current_value,identity,revision,document,
+        selection=canvas->selections(),composition=canvas->active_composition(),artboard=canvas->active_artboard(),frame=artboard_editing_] {
         const bool local_interaction=state->owned;const bool active=owns();
         if(active)host.session.cancel_gesture();
         state->owned=false;
@@ -936,7 +937,17 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
             if(safe_knob)safe_knob->disarm_drag(value);
             if(safe_numeric){safe_numeric->setText(QString::number(value,'g',17));safe_numeric->setModified(false);}
         }
-        if(active){canvas->refresh();canvas->update();}
+        if(active) {
+            canvas->refresh();canvas->update();
+            const auto generation=host.session.gesture_generation();
+            QTimer::singleShot(0,this,[this,state,identity,document,revision,selection,composition,artboard,frame,generation] {
+                if(!state->live||host.session_id!=identity||host.session.document().id!=document||
+                   host.session.revision()!=revision||host.session.gesture_active()||
+                   host.session.gesture_generation()!=generation||canvas->selections()!=selection||
+                   canvas->active_composition()!=composition||canvas->active_artboard()!=artboard||artboard_editing_!=frame)return;
+                rebuild_inspector();
+            });
+        }
     };
     register_angle_adapter(knob,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
     auto last_valid=std::make_shared<double>(initial);
