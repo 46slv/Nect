@@ -10656,9 +10656,30 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     mode->setEnabled(!gradient_driven);
     if(gradient_driven)mode->setToolTip("Unlink the Gradient enabled source before changing Paint mode.");
     form->addRow("Paint",mode);
-    connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,id,op,apply,before=mode->currentIndex()](int index) {
+    const auto original=std::find_if(object.stack.begin(),object.stack.end(),[&](const auto& entry){return entry.id==op;});
+    if(original==object.stack.end())throw Error("PROPERTY_CONFLICT","The original Gradient paint operation changed");
+    const auto verify_mode_context=[this,id,op,session=frozen_session,document_id=document.id,
+        revision=host.session.revision(),generation=host.session.gesture_generation(),
+        preview=host.session.gesture_active(),original=*original] {
+        if(host.session_id!=session||host.session.document().id!=document_id)
+            throw Error("SESSION_CONFLICT","The gradient belongs to another document");
+        if(host.session.revision()!=revision)
+            throw Error("REVISION_CONFLICT","Gradient context changed; reopen the Inspector");
+        if(preview||host.session.gesture_active())
+            throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(host.session.gesture_generation()!=generation)
+            throw Error("REVISION_CONFLICT","Gradient context changed; reopen the Inspector");
+        const auto& objects=host.session.document().objects;const auto owner=objects.find(id);
+        if(owner==objects.end())throw Error("PROPERTY_CONFLICT","The original Gradient paint owner changed");
+        const auto& stack=owner->second.stack;
+        const auto current=std::find_if(stack.begin(),stack.end(),[&](const auto& entry){return entry.id==op;});
+        if(current==stack.end()||*current!=original)
+            throw Error("PROPERTY_CONFLICT","The original Gradient paint operation changed");
+    };
+    connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,id,op,apply,verify_mode_context,before=mode->currentIndex()](int index) {
         bool applied=false;
         perform([&]{
+            verify_mode_context();
             auto gradient=find_operation(host.session.document(),id,op).gradient;
             if(gradient&&(gradient->enabled_driver||gradient->enabled_expression))
                 throw Error("DRIVEN_PROPERTY","Unlink the Gradient enabled source before changing Paint mode");
