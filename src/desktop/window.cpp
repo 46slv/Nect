@@ -3511,7 +3511,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_row_gutter->setReadOnly(grid_row_gutter_is_driven);
     grid_row_gutter->setToolTip(grid_row_gutter_is_driven?
         "This authored literal is read-only while its source is active. Unlink to edit it.":
-        "Artboard-local Grid row gutter in du.");
+        "Artboard-local Grid row gutter in du. Enter a number, +=number or -=number to adjust it.");
     grid_form->addRow("X · du",grid_x);grid_form->addRow("Y · du",grid_y);
     grid_form->addRow("Width · du",grid_width);grid_form->addRow("Height · du",grid_height);
     grid_form->addRow("Columns · integer",grid_columns);grid_form->addRow("Rows · integer",grid_rows);
@@ -3531,7 +3531,19 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto grid_width_value=grid_number_reader(grid_width,initial_grid.bounds.width);
     const auto grid_height_value=grid_number_reader(grid_height,initial_grid.bounds.height);
     const auto grid_column_gutter_value=grid_number_reader(grid_column_gutter,initial_grid.column_gutter);
-    const auto grid_row_gutter_value=grid_number_reader(grid_row_gutter,initial_grid.row_gutter);
+    // One-shot edits use the captured authored/inherited value, not a prior preview.
+    const auto grid_row_gutter_value=[parse_number,grid_row_gutter,
+        initial=initial_grid.row_gutter,displayed=grid_row_gutter->text()] {
+        const auto text=grid_row_gutter->text().trimmed();
+        if(text==displayed)return initial;
+        const bool subtract=text.startsWith("-=");
+        if(!subtract&&!text.startsWith("+="))return parse_number(grid_row_gutter);
+        bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+        const auto value=initial+(subtract?-amount:amount);
+        if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+            throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+        return value;
+    };
     const bool grid_is_inherited=board.template_assignment&&!board.template_assignment->grid_overridden&&
         resolved.layout&&resolved.layout->grid;
     const bool grid_exists=(board.layout&&board.layout->grid)||(resolved.layout&&resolved.layout->grid);
