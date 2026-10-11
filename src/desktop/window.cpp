@@ -4788,10 +4788,21 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* actions=new QWidget(row);auto* buttons=new FrameActionLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
-        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,position_display=position_input->text(),parse_number] {
+        if(!position_input->isReadOnly())position_input->setToolTip(position_input->toolTip()+" Use +=number or -=number for a one-shot adjustment from the initial position.");
+        const auto position_value=[position_input,parse_number,initial=source.position] {
+            const auto text=position_input->text().trimmed();
+            const bool subtract=text.startsWith("-=");
+            if(!subtract&&!text.startsWith("+="))return parse_number(position_input);
+            bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+            const auto value=initial+(subtract?-amount:amount);
+            if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+                throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+            return value;
+        };
+        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,position_display=position_input->text(),position_value] {
             auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
             const bool untouched=position_input->text()==position_display&&!position_input->isModified();
-            changed.position=(source.position_driver||source.position_expression||untouched)?source.position:parse_number(position_input);
+            changed.position=(source.position_driver||source.position_expression||untouched)?source.position:position_value();
             return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
         };
         const auto guide_current=[this,row,frozen_session,frozen_revision,guide_source_document] {
@@ -4815,7 +4826,11 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             position_input->setToolTip(position_input->toolTip()+" Enter =expression and press Enter to edit its source draft.");
             connect(position_input,&QLineEdit::textEdited,this,[this,position_input,row,builder,preview_from,guide_current] {
                 if(!guide_current())return;
-                if(!position_input->text().trimmed().startsWith('=')){preview_from(row,builder);return;}
+                if(!position_input->text().trimmed().startsWith('=')){
+                    preview_from(row,builder);
+                    if(layout_preview_scope_==row&&layout_draft_current()&&!layout_preview_invalid_)statusBar()->clearMessage();
+                    return;
+                }
                 if(layout_preview_scope_==row)cancel_layout_draft();
             });
             connect(position_input,&QLineEdit::returnPressed,this,[this,position_input,expression,literal,row,builder,commit_from,guide_current] {
