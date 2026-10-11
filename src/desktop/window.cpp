@@ -3051,7 +3051,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     margin_left->setToolTip(margin_left_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin Left inset in du. Enter a number, +=number or -=number to adjust it.");
     const bool margin_top_is_driven=margin_top_driver.has_value()||margin_top_authored_expression.has_value();
     margin_top->setReadOnly(margin_top_is_driven);
-    margin_top->setToolTip(margin_top_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
+    margin_top->setToolTip(margin_top_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin Top inset in du. Enter a number, +=number or -=number to adjust it.");
     const bool margin_right_is_driven=margin_right_driver.has_value()||margin_right_expression.has_value();
     margin_right->setReadOnly(margin_right_is_driven);
     margin_right->setToolTip(margin_right_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
@@ -3082,10 +3082,21 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
         return value;
     };
-    const auto margin_top_value=margin_number_reader(margin_top,initial_margin.top);
+    const auto margin_top_value=[parse_number,margin_top,
+        initial=initial_margin.top,displayed=margin_top->text()] {
+        const auto text=margin_top->text().trimmed();
+        if(text==displayed)return initial;
+        const bool subtract=text.startsWith("-=");
+        if(!subtract&&!text.startsWith("+="))return parse_number(margin_top);
+        bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+        const auto value=initial+(subtract?-amount:amount);
+        if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+            throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+        return value;
+    };
     const auto margin_right_value=margin_number_reader(margin_right,initial_margin.right);
     const auto margin_bottom_value=margin_number_reader(margin_bottom,initial_margin.bottom);
-    const auto build_margin=[read,composition,id,set_layout_command,initial_margin,margin_left,
+    const auto build_margin=[read,composition,id,set_layout_command,initial_margin,margin_left,margin_top,
         margin_is_inherited=board.template_assignment&&!board.template_assignment->margin_overridden,
         margin_left_value,margin_top_value,margin_right_value,margin_bottom_value,
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
@@ -3104,7 +3115,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->bottom_expression=margin_bottom_expression;
         // A zero-net one-shot input must not create gesture History or an inherited override.
         const auto left_text=margin_left->text().trimmed();
-        if((!explicit_override||!margin_is_inherited)&&(left_text.startsWith("+=")||left_text.startsWith("-="))&&
+        const auto top_text=margin_top->text().trimmed();
+        const bool relative=left_text.startsWith("+=")||left_text.startsWith("-=")||
+            top_text.startsWith("+=")||top_text.startsWith("-=");
+        if((!explicit_override||!margin_is_inherited)&&relative&&
             *value.margin==initial_margin)return std::vector<Command>{};
         return set_layout_command(value,"layout.margin");
     };
