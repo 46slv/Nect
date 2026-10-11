@@ -3048,7 +3048,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto margin_bottom_expression=board.layout&&board.layout->margin?board.layout->margin->bottom_expression:std::optional<Expression>{};
     const bool margin_left_is_driven=margin_left_driver.has_value()||margin_left_expression.has_value();
     margin_left->setReadOnly(margin_left_is_driven);
-    margin_left->setToolTip(margin_left_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
+    margin_left->setToolTip(margin_left_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin Left inset in du. Enter a number, +=number or -=number to adjust it.");
     const bool margin_top_is_driven=margin_top_driver.has_value()||margin_top_authored_expression.has_value();
     margin_top->setReadOnly(margin_top_is_driven);
     margin_top->setToolTip(margin_top_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin inset in du.");
@@ -3070,16 +3070,28 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             return input->text().trimmed()==displayed?initial:parse_number(input);
         };
     };
-    const auto margin_left_value=margin_number_reader(margin_left,initial_margin.left);
+    const auto margin_left_value=[parse_number,margin_left,
+        initial=initial_margin.left,displayed=margin_left->text()] {
+        const auto text=margin_left->text().trimmed();
+        if(text==displayed)return initial;
+        const bool subtract=text.startsWith("-=");
+        if(!subtract&&!text.startsWith("+="))return parse_number(margin_left);
+        bool valid=false;const auto amount=text.mid(2).trimmed().toDouble(&valid);
+        const auto value=initial+(subtract?-amount:amount);
+        if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+            throw Error("INVALID_VALUE","Enter a finite number, +=number or -=number");
+        return value;
+    };
     const auto margin_top_value=margin_number_reader(margin_top,initial_margin.top);
     const auto margin_right_value=margin_number_reader(margin_right,initial_margin.right);
     const auto margin_bottom_value=margin_number_reader(margin_bottom,initial_margin.bottom);
-    const LayoutBuilder margin_builder=[read,composition,id,set_layout_command,
+    const auto build_margin=[read,composition,id,set_layout_command,initial_margin,margin_left,
+        margin_is_inherited=board.template_assignment&&!board.template_assignment->margin_overridden,
         margin_left_value,margin_top_value,margin_right_value,margin_bottom_value,
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
         margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top,
         margin_right_driver,margin_right_expression,margin_right_is_driven,authored_margin_right,
-        margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom] {
+        margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom](bool explicit_override) {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
         value.margin=Margin{margin_left_is_driven?authored_margin_left:margin_left_value(),
             margin_top_is_driven?authored_margin_top:margin_top_value(),
@@ -3090,8 +3102,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
         value.margin->bottom_driver=margin_bottom_driver;
         value.margin->bottom_expression=margin_bottom_expression;
+        // A zero-net one-shot input must not create gesture History or an inherited override.
+        const auto left_text=margin_left->text().trimmed();
+        if((!explicit_override||!margin_is_inherited)&&(left_text.startsWith("+=")||left_text.startsWith("-="))&&
+            *value.margin==initial_margin)return std::vector<Command>{};
         return set_layout_command(value,"layout.margin");
     };
+    const LayoutBuilder margin_builder=[build_margin]{return build_margin(false);};
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
     auto* margin_source_state=new QLabel(margin_source_box);margin_source_state->setObjectName("margin-left-source-state");
@@ -3420,7 +3437,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     if(!margin_top_is_driven)bind_number(margin_top,margin_box,margin_builder);
     if(!margin_right_is_driven)bind_number(margin_right,margin_box,margin_builder);
     if(!margin_bottom_is_driven)bind_number(margin_bottom,margin_box,margin_builder);
-    connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,margin_builder]{commit_from(margin_box,margin_builder);});
+    connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,build_margin]{commit_from(margin_box,[build_margin]{return build_margin(true);});});
     connect(margin_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,margin_box] {
         if(guard_editor())return;
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});value.margin.reset();
