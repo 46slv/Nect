@@ -6,8 +6,20 @@ namespace text_path_keyboard_window_smoke {
 using text_path_batch_window_smoke::check;
 using text_path_batch_window_smoke::events;
 using text_path_batch_window_smoke::same;
-inline void context(bool pending,const std::string& cause="current",bool attached=false) {
-    std::cout<<"PATH_KEYBOARD_BEGIN pending="<<pending<<" cause="<<cause<<" attached="<<attached<<std::endl;
+struct ReverseFocusProof {
+    QString name,reference,object,field;
+};
+inline ReverseFocusProof reverse_focus;
+class FocusOutProof final : public QObject {
+public:
+    int reason=-1;
+    bool eventFilter(QObject*,QEvent* event) override {
+        if(event->type()==QEvent::FocusOut)reason=static_cast<QFocusEvent*>(event)->reason();
+        return false;
+    }
+};
+inline void context(bool pending,const std::string& cause="current",bool attached=false,bool reverse=false) {
+    std::cout<<"PATH_KEYBOARD_BEGIN pending="<<pending<<" cause="<<cause<<" attached="<<attached<<" reverse="<<reverse<<std::endl;
     auto d=text_path_rechoose_window_smoke::fixture(attached);d.id="keyboard-path-document";
     check(decode(encode(d))==d,"Complete keyboard fixture native-validates BEFORE Window");
     Session initial(d),scalar(d),expected(d);
@@ -50,10 +62,12 @@ inline void context(bool pending,const std::string& cause="current",bool attache
     check(scalar_control->hasFocus()&&same(w.host.session,initial)&&scalar_control->isModified()==pending,
         "Original Font size entry keeps full Session neutral before actual Tab route");
     const auto original_choice=choice;const auto original_scalar=scalar_control;
+    FocusOutProof focus_out;scalar_control->installEventFilter(&focus_out);
+    const auto traverse=[&]{QTest::keyClick(w.windowHandle(),Qt::Key_Tab,reverse?Qt::ShiftModifier:Qt::NoModifier);events();};
     if(cause=="target")w.host.session=Session(incoming);
     else if(cause=="revision")w.host.session.apply({Rename{"source","Incoming keyboard revision"}},w.host.session.revision());
     if(cause=="target"||cause=="revision"||cause=="invalid") {
-        const auto before=w.host.session;QTest::keyClick(w.windowHandle(),Qt::Key_Tab);events();
+        const auto before=w.host.session;traverse();
         check(same(w.host.session,before),"Keyboard refusal preserves complete incoming authored/preview/history/context");
         check(original_scalar&&original_choice&&start&&spacing&&scalar_control->text()==draft&&
             start->text()=="1100"&&spacing->text()=="3.5"&&!choice->view()->isVisible(),
@@ -66,15 +80,33 @@ inline void context(bool pending,const std::string& cause="current",bool attache
     for(;tabs<100;++tabs) {
         choice=w.findChild<QComboBox*>("text-path-contour");
         if(choice&&choice->hasFocus())break;
-        QTest::keyClick(w.windowHandle(),Qt::Key_Tab);events();
+        traverse();
         auto* focus=QApplication::focusWidget();
         std::cout<<"PATH_KEYBOARD_TAB pending="<<pending<<" step="<<tabs+1<<" class="<<(focus?focus->metaObject()->className():"none")
             <<" name="<<(focus?focus->objectName().toStdString():"none")<<" ref="<<(focus?focus->property("nect-reference").toByteArray().toStdString():"")
-            <<" revision="<<w.host.session.revision()<<" original_scalar="<<bool(original_scalar)<<" original_choice="<<bool(original_choice)<<std::endl;
+            <<" revision="<<w.host.session.revision()<<" original_scalar="<<bool(original_scalar)<<" original_choice="<<bool(original_choice)
+            <<" reverse="<<reverse<<" reason="<<focus_out.reason
+            <<" start="<<(w.findChild<QLineEdit*>("text-path-start")?w.findChild<QLineEdit*>("text-path-start")->text().toStdString():"missing")
+            <<" spacing="<<(w.findChild<QLineEdit*>("text-path-spacing")?w.findChild<QLineEdit*>("text-path-spacing")->text().toStdString():"missing")<<std::endl;
         check(same(w.host.session,pending?scalar:initial),"Actual Tab commits only independent own scalar and preserves full native/history/context");
+        if(reverse&&tabs==0) {
+            check(focus_out.reason==Qt::BacktabFocusReason,"Actual Shift+Tab produces the installed Qt Backtab focus reason");
+            if(!pending) {
+                check(focus,"Neutral actual reverse traversal has a live focus destination");
+                reverse_focus={focus->objectName(),focus->property("nect-reference").toString(),
+                    focus->property("nect-text-scalar-fx-action-object").toString(),focus->property("nect-text-scalar-fx-action-field").toString()};
+                const auto ref=QJsonDocument::fromJson(reverse_focus.reference.toUtf8()).object();
+                check(reverse_focus.name=="property-source-pick"&&ref.value("object")=="second"&&
+                    ref.value("point").toString().isEmpty()&&ref.value("field")=="text.origin_y",
+                    "Neutral Shift+Tab qualifies exact existing same-target Origin Y source action");
+            }else {
+                check(focus&&focus->objectName()==reverse_focus.name&&focus->property("nect-reference").toString()==reverse_focus.reference,
+                    "Prepared Shift+Tab restores the exact neutral-qualified existing reverse destination");
+            }
+        }
         if(pending&&tabs==0) {
             check(!original_scalar&&!original_choice,"Forward Tab QPointer proves originals expire only after prepared rearm");
-            check(focus&&focus->objectName()=="property-expression"&&
+            if(!reverse)check(focus&&focus->objectName()=="property-expression"&&
                 focus->property("nect-text-scalar-fx-action-object").toString()=="second"&&
                 focus->property("nect-text-scalar-fx-action-field").toString()=="text.font_size",
                 "First actual Tab restores exact existing same-target Font size action without shortcut remap");
@@ -138,5 +170,13 @@ inline void run() {
     context(true);context(true,"current",true);context(true,"cancel");
     for(const auto* cause:{"target","revision","invalid"})context(true,cause);
     std::cout<<"PathKeyboard Windows cases=7 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;
+}
+inline void run_reverse() {
+    const int before=text_path_batch_window_smoke::checks;
+    context(false,"current",false,true);
+    context(true,"current",false,true);
+    context(true,"current",true,true);context(true,"cancel",false,true);
+    for(const auto* cause:{"target","revision","invalid"})context(true,cause,false,true);
+    std::cout<<"PathReverseKeyboard Windows cases=7 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;
 }
 }

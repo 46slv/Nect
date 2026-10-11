@@ -353,12 +353,13 @@ private:
 class TextPathScalarTabGuard final : public QObject {
 public:
     explicit TextPathScalarTabGuard(QObject* parent):QObject(parent){}
-    std::function<bool()> finish;
+    std::function<bool(Qt::FocusReason)> finish;
 protected:
     bool eventFilter(QObject* watched,QEvent* event) override {
-        if(event->type()==QEvent::FocusOut&&
-           static_cast<QFocusEvent*>(event)->reason()==Qt::TabFocusReason&&finish) {
-            if(auto* scalar=qobject_cast<QLineEdit*>(watched);scalar&&scalar->isModified()&&!finish()) {
+        if(event->type()==QEvent::FocusOut&&finish) {
+            const auto reason=static_cast<QFocusEvent*>(event)->reason();
+            if(reason!=Qt::TabFocusReason&&reason!=Qt::BacktabFocusReason)return QObject::eventFilter(watched,event);
+            if(auto* scalar=qobject_cast<QLineEdit*>(watched);scalar&&scalar->isModified()&&!finish(reason)) {
                 // Rejected preparation must not fall through to ordinary blur
                 // and consume an incoming target. Keep its raw draft editable.
                 scalar->setModified(false);
@@ -7035,12 +7036,18 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                 const auto chosen=original->currentData(),mode=start_mode->currentData();
                 const auto start_draft=start->text(),spacing_draft=spacing->text();const bool reverse_draft=reversed->isChecked();
                 const bool keyboard_rearm=original->property("nect-text-path-keyboard-rearm").toBool();
+                const bool reverse_rearm=original->property("nect-text-path-keyboard-reverse").toBool();
                 const auto* focused=QApplication::focusWidget();
-                const bool restore_font_action=keyboard_rearm&&focused&&focused->objectName()=="property-expression"&&
+                const bool restore_font_action=keyboard_rearm&&!reverse_rearm&&focused&&focused->objectName()=="property-expression"&&
                     focused->property("nect-text-scalar-fx-action-object").toString()==qs(id)&&
                     focused->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
                     focused->property("nect-text-scalar-fx-action-field").toString()=="text.font_size";
-                if(keyboard_rearm&&!restore_font_action)
+                bool restore_previous_pick=false;
+                if(keyboard_rearm&&reverse_rearm&&focused&&focused->objectName()=="property-source-pick") {
+                    const auto ref=read_ref(focused->property("nect-reference").toByteArray());
+                    restore_previous_pick=ref.object==id&&ref.point.empty()&&ref.field=="text.origin_y";
+                }
+                if(keyboard_rearm&&!restore_font_action&&!restore_previous_pick)
                     throw Error("TEXT_EDIT_CONFLICT","The keyboard destination changed; reopen this Text's Path controls");
                 // The completed own Scalar advances the ordinary property fields.
                 // Preserve only this verified source/attachment draft across that refresh.
@@ -7080,6 +7087,20 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                     }
                     if(!action)throw Error("TEXT_EDIT_CONFLICT","The original Font size action is no longer available");
                     action->setFocus(Qt::TabFocusReason);
+                }
+                if(restore_previous_pick) {
+                    QPushButton* action=nullptr;
+                    for(int row=0;row<inspector_->layout()->count();++row) {
+                        auto* owner=inspector_->layout()->itemAt(row)->widget();if(!owner)continue;
+                        for(auto* candidate:owner->findChildren<QPushButton*>("property-source-pick")) {
+                            const auto ref=read_ref(candidate->property("nect-reference").toByteArray());
+                            if(ref.object!=id||!ref.point.empty()||ref.field!="text.origin_y")continue;
+                            if(action)throw Error("TEXT_EDIT_CONFLICT","Reopen the original Origin Y source action");
+                            action=candidate;
+                        }
+                    }
+                    if(!action)throw Error("TEXT_EDIT_CONFLICT","The original Origin Y source action is no longer available");
+                    action->setFocus(Qt::BacktabFocusReason);
                 }
 
             });
@@ -8830,15 +8851,16 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     locale_status->setObjectName("text-locale-state");locale_status->setWordWrap(true);locale_status->setTextFormat(Qt::PlainText);form->addRow("",locale_status);
     for(const auto* parameter:{"origin_x","origin_y","font_size","frame_width","frame_height","tracking","line_spacing"})
         add_property(form,{id,"",std::string("text.")+parameter},parameter_label(parameter));
-    // Forward Tab finishes this target's own Scalar before ordinary blur can
+    // Tab/Shift+Tab finishes this target's own Scalar before ordinary blur can
     // replace its Path drafts. Rearm the existing focus destination immediately.
     auto* path_tab_guard=new TextPathScalarTabGuard(path_contour);
-    path_tab_guard->finish=[path_contour] {
+    path_tab_guard->finish=[path_contour](Qt::FocusReason reason) {
         path_contour->setProperty("nect-retain-text-inspector",true);
         const bool ready=path_contour->prepare();
         path_contour->setProperty("nect-retain-text-inspector",false);
         if(ready&&path_contour->property("nect-text-path-scalar-prepared").toBool()) {
             path_contour->setProperty("nect-text-path-keyboard-rearm",true);
+            path_contour->setProperty("nect-text-path-keyboard-reverse",reason==Qt::BacktabFocusReason);
             path_contour->closed();
         }
         return ready;
