@@ -1,4 +1,5 @@
 #include "window.hpp"
+#include "template_reset_window_smoke.hpp"
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -581,8 +582,15 @@ void window_template_command_parity() {
 }
 
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    const auto mode=argc>1?std::string(argv[1]):std::string{};
+    qputenv("QT_QPA_PLATFORM",mode=="--template-reset-incoming"||mode=="--template-reset-incoming-cold"?"windows":"offscreen");
+    QApplication app(argc,argv);
     try {
+        if(mode=="--template-reset-incoming")return template_reset_incoming::run();
+        if(mode=="--template-reset-incoming-cold") {
+            if(argc!=3)throw std::runtime_error("Exact owned cold native path required");
+            return template_reset_incoming::cold(QString::fromLocal8Bit(argv[2]));
+        }
         window_template_command_parity();
         std::cout<<"PASS offscreen Window Artboard Template, stale context, and descendant R04 controls\n";
         return 0;
