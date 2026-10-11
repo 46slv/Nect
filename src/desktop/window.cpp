@@ -2960,8 +2960,9 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         connect(source_search,&QLineEdit::textChanged,this,[source,link,link_available](const QString&){
             link->setEnabled(link_available&&source->currentIndex()>=0);
         });
-        auto commit=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Artboard source belongs to another document");
+        auto commit=[this,frozen_session,frozen_revision,frozen_document](const std::vector<Command>& commands) {
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","Artboard source belongs to another document");
             canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
         };
         connect(link,&QPushButton::clicked,this,[this,source,source_refs,target,replace,commit]{perform([&]{
