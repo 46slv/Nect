@@ -136,6 +136,7 @@ private:
     };
     std::map<Ref,LayoutExpressionDraft> margin_expression_drafts_;
     std::map<Ref,LayoutExpressionDraft> grid_expression_drafts_;
+    std::map<Ref,LayoutExpressionDraft> guide_expression_drafts_;
     std::optional<Ref> whip_target_;
     std::vector<Ref> whip_targets_;
     std::vector<Canvas::Selection> whip_selection_;

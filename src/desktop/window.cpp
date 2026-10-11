@@ -4733,6 +4733,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     });
     layout->addWidget(grid_box);
 
+    const auto guide_source_document=host.session.document().id;
+    std::erase_if(guide_expression_drafts_,[this](const auto& item) {
+        return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
+    });
     auto* guides_box=new QGroupBox("Composition Guides");guides_box->setObjectName("composition-guides");auto* guides_layout=new QVBoxLayout(guides_box);
     auto build_guide_row=[&](const Guide& source) {
         auto* row=new QGroupBox(qs(source.name),guides_box);row->setObjectName("guide-row-"+qs(source.id));auto* form=new QFormLayout(row);
@@ -4748,6 +4752,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         expression->setAccessibleName(qs(source.name)+" position expression");expression->enable_inline_expansion();
         expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
         if(source.position_expression)expression->setPlainText(qs(source.position_expression->source));
+        auto source_revision=frozen_revision;
+        if(const auto found=guide_expression_drafts_.find(position_ref);found!=guide_expression_drafts_.end()) {
+            expression->setPlainText(found->second.source);source_revision=found->second.revision;
+        }
+        connect(expression,&QPlainTextEdit::textChanged,this,[this,expression,position_ref,frozen_session,guide_source_document,source_revision] {
+            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document)return;
+            guide_expression_drafts_[position_ref]={frozen_session,expression->toPlainText(),guide_source_document,source_revision};
+        });
         auto* replace_source=new QCheckBox("Replace current position source",row);
         replace_source->setObjectName("guide-position-replace-"+qs(source.id));
         replace_source->setVisible(position_driven);
@@ -4785,9 +4797,31 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             return std::vector<Command>{SetGuidePositionExpression{position_ref,
                 {expression->toPlainText().toStdString(),1},replace_source->isChecked()}};
         };
-        expression->apply=[commit_explicit,row,expression_command]{commit_explicit(row,expression_command);};
-        expression->cancel=[this]{rebuild_inspector();};
-        connect(apply_expression,&QPushButton::clicked,this,[commit_explicit,row,expression_command]{commit_explicit(row,expression_command);});
+        const auto apply_source=[this,commit_explicit,row,expression_command,position_ref,frozen_session,guide_source_document,source_revision] {
+            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document) {
+                statusBar()->showMessage("SESSION_CONFLICT: Guide source belongs to another document",12000);return;
+            }
+            if(host.session.revision()!=source_revision) {
+                statusBar()->showMessage("REVISION_CONFLICT: Guide source draft changed elsewhere; cancel and reopen it",12000);return;
+            }
+            if(host.session.gesture_active()) {
+                statusBar()->showMessage("GESTURE_ACTIVE: Finish or cancel the current edit first",12000);return;
+            }
+            commit_explicit(row,expression_command);
+            if(host.session.revision()!=source_revision)guide_expression_drafts_.erase(position_ref);
+        };
+        expression->apply=apply_source;
+        expression->cancel=[this,position_ref,frozen_session,guide_source_document] {
+            if(host.session_id!=frozen_session||host.session.document().id!=guide_source_document) {
+                statusBar()->showMessage("SESSION_CONFLICT: Guide source belongs to another document",12000);return;
+            }
+            if(host.session.gesture_active()) {
+                statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before cancelling Guide source",12000);return;
+            }
+            guide_expression_drafts_.erase(position_ref);
+            if(utility_setup_dialog_)rebuild_layout_setup();else rebuild_inspector();
+        };
+        connect(apply_expression,&QPushButton::clicked,this,apply_source);
         connect(remove,&QPushButton::clicked,this,[commit_explicit,row,composition,guide_id=source.id]{commit_explicit(row,[composition,guide_id]{return std::vector<Command>{DeleteGuide{composition,guide_id}};});});
         guides_layout->addWidget(row);
     };
