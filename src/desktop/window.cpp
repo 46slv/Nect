@@ -10544,11 +10544,12 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             if(operation.type=="nect.paint.stroke") {
                 const auto stroke_session=host.session_id;
                 const auto stroke_revision=host.session.revision();
-                auto apply_style=[this,id=object.id,op=operation.id,stroke_session,stroke_revision](
+                auto apply_style=[this,id=object.id,op=operation.id,stroke_session,stroke_revision,verify_operation_context](
                     const std::string& line_cap,const std::string& line_join,bool promote) {
                     if(host.session_id!=stroke_session)throw Error("SESSION_CONFLICT","The stroke belongs to another document");
                     if(host.session.revision()!=stroke_revision)throw Error("REVISION_CONFLICT","The stroke changed elsewhere; reopen the Inspector");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before changing stroke style");
+                    verify_operation_context();
                     const auto& current=find_operation(host.session.document(),id,op);
                     if(current.type!="nect.paint.stroke")throw Error("INVALID_DOMAIN","The selected operation is no longer a stroke");
                     const auto values=evaluate(host.session.document());
