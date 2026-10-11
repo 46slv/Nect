@@ -10047,7 +10047,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         enabled->setAccessibleName(name+" enabled");row->addWidget(enabled);row->addStretch();
         auto* enabled_driver=new QPushButton(enabled_state.driver?"Driver…":enabled_state.expression?"Expression…":"Link…");
         enabled_driver->setObjectName("operation-enabled-driver-"+qs(operation.id));
-        enabled_driver->setEnabled(true);
+        enabled_driver->setEnabled(!operation.macro);
+        if(operation.macro)enabled_driver->setToolTip("Enabled links and expressions are unavailable for Macro entries.");
         row->addWidget(enabled_driver);
         auto* up=new QPushButton("↑");up->setFixedWidth(28);up->setEnabled(index>0);
         up->setObjectName("operation-up-"+qs(operation.id));
