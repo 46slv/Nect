@@ -10219,9 +10219,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         composite->setObjectName("operation-composite-"+qs(operation.id));
         composite->addItem("Below previous paints / copies","below");composite->addItem("Above previous paints / copies","above");
         composite->setCurrentIndex(operation.composite=="above"?1:0);form->addRow("Composite",composite);
-        connect(composite,&QComboBox::currentIndexChanged,this,[this,composite,apply,id=object.id,op=operation.id,before=composite->currentIndex()](int) {
+        connect(composite,&QComboBox::currentIndexChanged,this,[this,composite,apply,verify_operation_context,id=object.id,op=operation.id,before=composite->currentIndex()](int) {
             bool applied=false;
-            perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+            perform([&]{verify_operation_context();const auto& current=find_operation(host.session.document(),id,op);
                 apply({OperationOptions{id,op,composite->currentData().toString().toStdString(),current.fill_rule}});applied=true;});
             if(!applied){const QSignalBlocker blocker(composite);composite->setCurrentIndex(before);}
         });
