@@ -132,6 +132,7 @@ private:
         QString session,source;
         Id document;
         std::uint64_t revision=0;
+        bool replace_binding=false;
     };
     std::map<Ref,LayoutExpressionDraft> margin_expression_drafts_;
     std::map<Ref,LayoutExpressionDraft> grid_expression_drafts_;

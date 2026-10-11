@@ -3572,27 +3572,31 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     });});
     connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_bottom_ref]{cancel_margin_expression(margin_bottom_ref);});
     const auto bind_margin_expression_keys=[this,cancel_margin_expression,frozen_session,frozen_revision,margin_document](
-        ExpressionInput* editor,QPushButton* apply,const Ref& target) {
+        ExpressionInput* editor,QPushButton* apply,QCheckBox* replace,const Ref& target) {
         std::erase_if(margin_expression_drafts_,[this](const auto& item) {
             return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
         });
         auto revision=frozen_revision;
         if(const auto found=margin_expression_drafts_.find(target);found!=margin_expression_drafts_.end()) {
             editor->setPlainText(found->second.source);revision=found->second.revision;
+            replace->setChecked(replace->isEnabled()&&found->second.replace_binding);
         }
-        connect(editor,&QPlainTextEdit::textChanged,this,[this,editor,target,frozen_session,margin_document,revision] {
+        const auto retain=[this,editor,replace,target,frozen_session,margin_document,revision] {
             if(host.session_id!=frozen_session||host.session.document().id!=margin_document)return;
-            margin_expression_drafts_[target]={frozen_session,editor->toPlainText(),margin_document,revision};
-        });
+            margin_expression_drafts_[target]={frozen_session,editor->toPlainText(),margin_document,revision,
+                replace->isEnabled()&&replace->isChecked()};
+        };
+        connect(editor,&QPlainTextEdit::textChanged,this,retain);
+        connect(replace,&QCheckBox::toggled,this,[retain](bool){retain();});
         const QPointer<QPushButton> safe_apply=apply;
         editor->apply=[safe_apply]{if(safe_apply)safe_apply->click();};
         editor->cancel=[cancel_margin_expression,target]{cancel_margin_expression(target);};
         editor->setToolTip("Ctrl+Enter applies this expression. Escape cancels the draft.");
     };
-    bind_margin_expression_keys(margin_expression,margin_expression_apply,margin_left_ref);
-    bind_margin_expression_keys(margin_top_expression,margin_top_expression_apply,margin_top_ref);
-    bind_margin_expression_keys(margin_right_expression_input,margin_right_expression_apply,margin_right_ref);
-    bind_margin_expression_keys(margin_bottom_expression_input,margin_bottom_expression_apply,margin_bottom_ref);
+    bind_margin_expression_keys(margin_expression,margin_expression_apply,margin_replace,margin_left_ref);
+    bind_margin_expression_keys(margin_top_expression,margin_top_expression_apply,margin_top_replace,margin_top_ref);
+    bind_margin_expression_keys(margin_right_expression_input,margin_right_expression_apply,margin_right_replace,margin_right_ref);
+    bind_margin_expression_keys(margin_bottom_expression_input,margin_bottom_expression_apply,margin_bottom_replace,margin_bottom_ref);
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
@@ -4561,31 +4565,35 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         });});
     connect(grid_row_gutter_cancel,&QPushButton::clicked,this,[cancel_grid_expression,grid_row_gutter_ref]{cancel_grid_expression(grid_row_gutter_ref);});
     const auto bind_grid_expression_keys=[this,cancel_grid_expression,frozen_session,frozen_revision,grid_source_document](
-        ExpressionInput* editor,QPushButton* apply,const Ref& target) {
+        ExpressionInput* editor,QPushButton* apply,QCheckBox* replace,const Ref& target) {
         std::erase_if(grid_expression_drafts_,[this](const auto& item) {
             return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
         });
         auto revision=frozen_revision;
         if(const auto found=grid_expression_drafts_.find(target);found!=grid_expression_drafts_.end()) {
             editor->setPlainText(found->second.source);revision=found->second.revision;
+            replace->setChecked(replace->isEnabled()&&found->second.replace_binding);
         }
-        connect(editor,&QPlainTextEdit::textChanged,this,[this,editor,target,frozen_session,grid_source_document,revision] {
+        const auto retain=[this,editor,replace,target,frozen_session,grid_source_document,revision] {
             if(host.session_id!=frozen_session||host.session.document().id!=grid_source_document)return;
-            grid_expression_drafts_[target]={frozen_session,editor->toPlainText(),grid_source_document,revision};
-        });
+            grid_expression_drafts_[target]={frozen_session,editor->toPlainText(),grid_source_document,revision,
+                replace->isEnabled()&&replace->isChecked()};
+        };
+        connect(editor,&QPlainTextEdit::textChanged,this,retain);
+        connect(replace,&QCheckBox::toggled,this,[retain](bool){retain();});
         const QPointer<QPushButton> safe_apply=apply;
         editor->apply=[safe_apply]{if(safe_apply)safe_apply->click();};
         editor->cancel=[cancel_grid_expression,target]{cancel_grid_expression(target);};
         editor->setToolTip("Ctrl+Enter applies this expression. Escape cancels the draft.");
     };
-    bind_grid_expression_keys(grid_x_expression,grid_x_expression_apply,grid_bounds_x_ref);
-    bind_grid_expression_keys(grid_y_expression,grid_y_expression_apply,grid_bounds_y_ref);
-    bind_grid_expression_keys(grid_width_expression,grid_width_expression_apply,grid_bounds_width_ref);
-    bind_grid_expression_keys(grid_height_expression,grid_height_expression_apply,grid_bounds_height_ref);
-    bind_grid_expression_keys(grid_columns_expression_input,grid_columns_expression_apply,grid_columns_ref);
-    bind_grid_expression_keys(grid_rows_expression_input,grid_rows_expression_apply,grid_rows_ref);
-    bind_grid_expression_keys(grid_column_gutter_expression_input,grid_column_gutter_apply_expression,grid_column_gutter_ref);
-    bind_grid_expression_keys(grid_row_gutter_expression_input,grid_row_gutter_apply_expression,grid_row_gutter_ref);
+    bind_grid_expression_keys(grid_x_expression,grid_x_expression_apply,grid_x_replace,grid_bounds_x_ref);
+    bind_grid_expression_keys(grid_y_expression,grid_y_expression_apply,grid_y_replace,grid_bounds_y_ref);
+    bind_grid_expression_keys(grid_width_expression,grid_width_expression_apply,grid_width_replace,grid_bounds_width_ref);
+    bind_grid_expression_keys(grid_height_expression,grid_height_expression_apply,grid_height_replace,grid_bounds_height_ref);
+    bind_grid_expression_keys(grid_columns_expression_input,grid_columns_expression_apply,grid_columns_replace,grid_columns_ref);
+    bind_grid_expression_keys(grid_rows_expression_input,grid_rows_expression_apply,grid_rows_replace,grid_rows_ref);
+    bind_grid_expression_keys(grid_column_gutter_expression_input,grid_column_gutter_apply_expression,grid_column_gutter_replace,grid_column_gutter_ref);
+    bind_grid_expression_keys(grid_row_gutter_expression_input,grid_row_gutter_apply_expression,grid_row_gutter_replace,grid_row_gutter_ref);
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new FrameActionLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
