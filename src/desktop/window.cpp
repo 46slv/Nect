@@ -2035,12 +2035,14 @@ void Window::perform(const std::function<void()>& action) {
 
 bool Window::layout_draft_current() const {
     return layout_preview_active_&&layout_preview_session_==host.session_id&&
-        layout_preview_revision_==host.session.revision();
+        layout_preview_revision_==host.session.revision()&&host.session.gesture_active()&&
+        layout_preview_generation_==host.session.gesture_generation();
 }
 
 bool Window::reject_stale_layout_draft() {
     if((!layout_preview_active_&&!layout_preview_invalid_)||
-       (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()))return false;
+       (layout_preview_session_==host.session_id&&layout_preview_revision_==host.session.revision()&&
+        (!layout_preview_active_||layout_draft_current())))return false;
     cancel_layout_draft();
     statusBar()->showMessage("REVISION_CONFLICT: Discarded a stale layout draft",12000);
     QTimer::singleShot(0,this,[this]{refresh();if(utility_setup_dialog_)rebuild_layout_setup();});
@@ -2052,24 +2054,25 @@ void Window::cancel_layout_draft(bool refresh_canvas) {
     // Keep the Grid token on Window too: Qt can destroy its scope and clear the
     // QPointer before the stale view bookkeeping is dismissed.
     const bool grid_scope=property("nect-grid-draft-session").isValid();
-    const bool owns=!grid_scope||grid_draft_owned(this,host);
+    const bool owns=layout_draft_current()&&(!grid_scope||grid_draft_owned(this,host));
     if(active&&owns&&host.session.gesture_active())host.session.cancel_gesture();
     if(grid_scope&&layout_preview_scope_)layout_preview_scope_->setProperty("nect-grid-draft-generation",QVariant{});
     setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
     layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
-    layout_preview_revision_=0;layout_preview_scope_.clear();
+    layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
     if(refresh_canvas&&active&&owns&&canvas) {canvas->refresh();canvas->update();}
 }
 
 bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* scope) {
     if(reject_stale_layout_draft())return false;
-    if(commands.empty())return false;
+    if(commands.empty()){cancel_layout_draft();return false;}
     if(layout_preview_active_&&layout_preview_scope_!=scope)cancel_layout_draft();
     const bool starting=!layout_preview_active_;
     try {
         if(starting) {
             layout_preview_session_=host.session_id;layout_preview_revision_=host.session.revision();
             layout_preview_scope_=scope;host.session.begin_gesture(layout_preview_revision_);layout_preview_active_=true;
+            layout_preview_generation_=host.session.gesture_generation();
             const bool grid_scope=scope->property("nect-grid-draft-session").isValid();
             for(const auto* key:{"nect-grid-draft-session","nect-grid-draft-document","nect-grid-draft-revision"})
                 setProperty(key,grid_scope?scope->property(key):QVariant{});
@@ -2101,7 +2104,7 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
         if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
         host.session.commit_gesture();
         layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
-        layout_preview_revision_=0;layout_preview_scope_.clear();
+        layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
         setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
         host.edited();
         QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();});
@@ -3115,11 +3118,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     };
     const auto build_margin=[read,composition,id,set_layout_command,initial_margin,margin_left,margin_top,margin_right,margin_bottom,
         margin_is_inherited=board.template_assignment&&!board.template_assignment->margin_overridden,
+        margin_exists=bool(resolved.layout&&resolved.layout->margin),
         margin_left_value,margin_top_value,margin_right_value,margin_bottom_value,
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
         margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top,
         margin_right_driver,margin_right_expression,margin_right_is_driven,authored_margin_right,
-        margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom](bool explicit_override) {
+        margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom]
+        (bool explicit_override,QLineEdit* edited_input=nullptr) {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
         value.margin=Margin{margin_left_is_driven?authored_margin_left:margin_left_value(),
             margin_top_is_driven?authored_margin_top:margin_top_value(),
@@ -3130,20 +3135,23 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
         value.margin->bottom_driver=margin_bottom_driver;
         value.margin->bottom_expression=margin_bottom_expression;
-        // A zero-net one-shot input must not create gesture History or an inherited override.
+        // Relative no-ops preserve presence/inheritance; an absolute field or explicit
+        // Apply authors its own intent even when another field retains relative text.
         const auto left_text=margin_left->text().trimmed();
         const auto top_text=margin_top->text().trimmed();
         const auto right_text=margin_right->text().trimmed();
         const auto bottom_text=margin_bottom->text().trimmed();
-        const bool relative=left_text.startsWith("+=")||left_text.startsWith("-=")||
+        const auto edited_text=edited_input?edited_input->text().trimmed():QString{};
+        const bool relative=edited_input?
+            (edited_text.startsWith("+=")||edited_text.startsWith("-=")):
+            (left_text.startsWith("+=")||left_text.startsWith("-=")||
             top_text.startsWith("+=")||top_text.startsWith("-=")||
             right_text.startsWith("+=")||right_text.startsWith("-=")||
-            bottom_text.startsWith("+=")||bottom_text.startsWith("-=");
-        if((!explicit_override||!margin_is_inherited)&&relative&&
+            bottom_text.startsWith("+=")||bottom_text.startsWith("-="));
+        if((!explicit_override||(margin_exists&&!margin_is_inherited))&&relative&&
             *value.margin==initial_margin)return std::vector<Command>{};
         return set_layout_command(value,"layout.margin");
     };
-    const LayoutBuilder margin_builder=[build_margin]{return build_margin(false);};
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
     auto* margin_source_state=new QLabel(margin_source_box);margin_source_state->setObjectName("margin-left-source-state");
@@ -3468,10 +3476,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
-    if(!margin_left_is_driven)bind_number(margin_left,margin_box,margin_builder);
-    if(!margin_top_is_driven)bind_number(margin_top,margin_box,margin_builder);
-    if(!margin_right_is_driven)bind_number(margin_right,margin_box,margin_builder);
-    if(!margin_bottom_is_driven)bind_number(margin_bottom,margin_box,margin_builder);
+    for(auto* input:{margin_left,margin_top,margin_right,margin_bottom})
+        bind_number(input,margin_box,[build_margin,input]{return build_margin(false,input);});
     connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,build_margin]{commit_from(margin_box,[build_margin]{return build_margin(true);});});
     connect(margin_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,margin_box] {
         if(guard_editor())return;
@@ -4381,7 +4387,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             // or gesture remains owned by its current caller and must not cancel.
             if(local_scope) {
                 layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();
-                layout_preview_revision_=0;layout_preview_scope_.clear();
+                layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
                 setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
             }
             grid_generation->reset();

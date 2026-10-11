@@ -144,6 +144,7 @@ private:
     bool layout_preview_invalid_=false;
     QString layout_preview_session_;
     std::uint64_t layout_preview_revision_=0;
+    std::uint64_t layout_preview_generation_=0;
     void cancel_whip();
     void reveal_whip_source();
     bool preview_layout_draft(const std::vector<Command>& commands,QWidget* scope);

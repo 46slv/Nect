@@ -211,7 +211,7 @@ Named Colors and image assets keep their shared sources; existing links into the
 originals stay there. Duplication is one Undo and preserves retained sources.
 
 Inspector fields accept
-numbers and one-shot `+=`/`-=` adjustments. Grid Row and Column gutters also accept these adjustments in du, using the captured initial value for every preview; Enter commits one Undo step. Linked or expression-driven gutters stay read-only. Editing one Margin inset leaves the other insets unchanged, including inherited Template values. All four Margin insets accept one-shot +=number / -=number input; a zero-net relative edit leaves inheritance and Undo unchanged, while explicit Apply Margin can still author an inherited family override. Right-click provides Copy Value,
+numbers and one-shot `+=`/`-=` adjustments. Grid Row and Column gutters also accept these adjustments in du, using the captured initial value for every preview; Enter commits one Undo step. Linked or expression-driven gutters stay read-only. Editing one Margin inset leaves the other insets unchanged, including inherited Template values. All four Margin insets accept one-shot +=number / -=number input; a zero-net relative edit cancels its preview and leaves inheritance and Undo unchanged. An absolute Margin input can author an inherited override even when another field retains relative text. Explicit Apply Margin creates an absent family or an inherited family override. An old layout draft cannot commit or cancel a newer gesture. Right-click provides Copy Value,
 Copy Reference, Paste Value, Paste Link and explicit Unlink. Drag ↗ to a source
 field (hover Objects to inspect another source); click ↗ to search.
 Expressions use the same row (see below). With multiple targets, common
