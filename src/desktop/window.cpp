@@ -2820,8 +2820,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto resolved=evaluate_artboard(comp,board.id);
     const auto composition=comp.id,id=board.id;const auto frozen_session=host.session_id;
     const auto frozen_revision=host.session.revision();
-    auto apply=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
-        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","This frame belongs to another document");
+    const auto frozen_document=host.session.document().id;
+    auto apply=[this,frozen_session,frozen_revision,frozen_document](const std::vector<Command>& commands) {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","This frame belongs to another document");
         if(host.session.revision()!=frozen_revision)
             throw Error("REVISION_CONFLICT","This Artboard inspector is stale; refresh the captured target before applying");
         canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
