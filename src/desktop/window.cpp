@@ -3286,9 +3286,31 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_expression_cancel=new QPushButton("Cancel expression",margin_source_box);
     margin_expression_cancel->setObjectName("margin-left-cancel-expression");margin_expression_actions->addWidget(margin_expression_cancel);
     margin_form->addRow(margin_source_box);
-    auto margin_source_commit=[this,frozen_session,frozen_revision](const std::vector<Command>& commands) {
-        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Margin source belongs to another document");
-        canvas->cancel_interaction();host.session.apply(commands,frozen_revision);host.edited();
+    const auto margin_document=host.session.document().id;
+    const auto cancel_margin_expression=[this,cancel_layout_editor,frozen_session,margin_document](const Ref& target) {
+        if(host.session_id!=frozen_session||host.session.document().id!=margin_document) {
+            statusBar()->showMessage("SESSION_CONFLICT: Margin draft belongs to another document",12000);return;
+        }
+        margin_expression_drafts_.erase(target);cancel_layout_editor();
+    };
+    auto margin_source_commit=[this,frozen_session,frozen_revision,margin_document](const std::vector<Command>& commands,
+        const std::optional<Ref>& source_target=std::nullopt) {
+        if(host.session_id!=frozen_session||host.session.document().id!=margin_document)
+            throw Error("SESSION_CONFLICT","Margin source belongs to another document");
+        auto revision=frozen_revision;
+        if(source_target)if(const auto found=margin_expression_drafts_.find(*source_target);found!=margin_expression_drafts_.end()) {
+            const auto& draft=found->second;
+            if(draft.session!=host.session_id||draft.document!=host.session.document().id)
+                throw Error("SESSION_CONFLICT","Margin draft belongs to another document");
+            revision=draft.revision;
+        }
+        if(host.session.revision()!=revision)
+            throw Error("REVISION_CONFLICT","Margin source draft changed elsewhere; cancel and reopen it");
+        if(host.session.gesture_active())
+            throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        canvas->cancel_interaction();host.session.apply(commands,revision);
+        if(source_target)margin_expression_drafts_.erase(*source_target);
+        host.edited();
     };
     connect(margin_link,&QPushButton::clicked,this,[this,margin_left_source,margin_left_sources,margin_left_ref,margin_replace,margin_source_commit]{perform([&]{
         bool valid=false;const auto candidate=margin_left_source->currentData(Qt::UserRole).toInt(&valid);
@@ -3300,12 +3322,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_unlink,&QPushButton::clicked,this,[this,margin_left_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginLeftCommand{UnlinkMarginLeft{margin_left_ref}}});});
     });
-    connect(margin_source_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_source_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_left_ref]{cancel_margin_expression(margin_left_ref);});
     connect(margin_expression_apply,&QPushButton::clicked,this,[this,margin_expression,margin_replace,margin_left_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginLeftCommand{SetMarginLeftExpression{margin_left_ref,
-            {margin_expression->toPlainText().toStdString(),1},margin_replace->isChecked()}}});
+            {margin_expression->toPlainText().toStdString(),1},margin_replace->isChecked()}}},margin_left_ref);
     });});
-    connect(margin_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_left_ref]{cancel_margin_expression(margin_left_ref);});
     auto* margin_top_source_box=new QGroupBox("Top source",margin_box);margin_top_source_box->setObjectName("margin-top-source");
     auto* margin_top_source_layout=new QVBoxLayout(margin_top_source_box);
     auto* margin_top_source_state=new QLabel(margin_top_source_box);margin_top_source_state->setObjectName("margin-top-source-state");
@@ -3373,12 +3395,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_top_unlink,&QPushButton::clicked,this,[this,margin_top_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginTopCommand{UnlinkMarginTop{margin_top_ref}}});});
     });
-    connect(margin_top_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_top_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_top_ref]{cancel_margin_expression(margin_top_ref);});
     connect(margin_top_expression_apply,&QPushButton::clicked,this,[this,margin_top_expression,margin_top_replace,margin_top_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginTopCommand{SetMarginTopExpression{margin_top_ref,
-            {margin_top_expression->toPlainText().toStdString(),1},margin_top_replace->isChecked()}}});
+            {margin_top_expression->toPlainText().toStdString(),1},margin_top_replace->isChecked()}}},margin_top_ref);
     });});
-    connect(margin_top_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_top_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_top_ref]{cancel_margin_expression(margin_top_ref);});
     const Ref margin_right_ref{id,"","margin.right"};
     auto* margin_right_source_box=new QGroupBox("Right source",margin_box);margin_right_source_box->setObjectName("margin-right-source");
     auto* margin_right_source_layout=new QVBoxLayout(margin_right_source_box);
@@ -3451,13 +3473,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_right_unlink,&QPushButton::clicked,this,[this,margin_right_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginRightCommand{UnlinkMarginRight{margin_right_ref}}});});
     });
-    connect(margin_right_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_right_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_right_ref]{cancel_margin_expression(margin_right_ref);});
     connect(margin_right_expression_apply,&QPushButton::clicked,this,[this,margin_right_expression_input,margin_right_replace,
         margin_right_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginRightCommand{SetMarginRightExpression{margin_right_ref,
-            {margin_right_expression_input->toPlainText().toStdString(),1},margin_right_replace->isChecked()}}});
+            {margin_right_expression_input->toPlainText().toStdString(),1},margin_right_replace->isChecked()}}},margin_right_ref);
     });});
-    connect(margin_right_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_right_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_right_ref]{cancel_margin_expression(margin_right_ref);});
     const Ref margin_bottom_ref{id,"","margin.bottom"};
     auto* margin_bottom_source_box=new QGroupBox("Bottom source",margin_box);
     margin_bottom_source_box->setObjectName("margin-bottom-source");
@@ -3542,23 +3564,35 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_bottom_unlink,&QPushButton::clicked,this,[this,margin_bottom_ref,margin_source_commit]{
         perform([&]{margin_source_commit({MarginBottomCommand{UnlinkMarginBottom{margin_bottom_ref}}});});
     });
-    connect(margin_bottom_cancel,&QPushButton::clicked,this,cancel_layout_editor);
+    connect(margin_bottom_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_bottom_ref]{cancel_margin_expression(margin_bottom_ref);});
     connect(margin_bottom_expression_apply,&QPushButton::clicked,this,[this,margin_bottom_expression_input,
         margin_bottom_replace,margin_bottom_ref,margin_source_commit]{perform([&]{
         margin_source_commit({MarginBottomCommand{SetMarginBottomExpression{margin_bottom_ref,
-            {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}});
+            {margin_bottom_expression_input->toPlainText().toStdString(),1},margin_bottom_replace->isChecked()}}},margin_bottom_ref);
     });});
-    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,cancel_layout_editor);
-    const auto bind_margin_expression_keys=[cancel_layout_editor](ExpressionInput* editor,QPushButton* apply) {
+    connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_bottom_ref]{cancel_margin_expression(margin_bottom_ref);});
+    const auto bind_margin_expression_keys=[this,cancel_margin_expression,frozen_session,frozen_revision,margin_document](
+        ExpressionInput* editor,QPushButton* apply,const Ref& target) {
+        std::erase_if(margin_expression_drafts_,[this](const auto& item) {
+            return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
+        });
+        auto revision=frozen_revision;
+        if(const auto found=margin_expression_drafts_.find(target);found!=margin_expression_drafts_.end()) {
+            editor->setPlainText(found->second.source);revision=found->second.revision;
+        }
+        connect(editor,&QPlainTextEdit::textChanged,this,[this,editor,target,frozen_session,margin_document,revision] {
+            if(host.session_id!=frozen_session||host.session.document().id!=margin_document)return;
+            margin_expression_drafts_[target]={frozen_session,editor->toPlainText(),margin_document,revision};
+        });
         const QPointer<QPushButton> safe_apply=apply;
         editor->apply=[safe_apply]{if(safe_apply)safe_apply->click();};
-        editor->cancel=cancel_layout_editor;
+        editor->cancel=[cancel_margin_expression,target]{cancel_margin_expression(target);};
         editor->setToolTip("Ctrl+Enter applies this expression. Escape cancels the draft.");
     };
-    bind_margin_expression_keys(margin_expression,margin_expression_apply);
-    bind_margin_expression_keys(margin_top_expression,margin_top_expression_apply);
-    bind_margin_expression_keys(margin_right_expression_input,margin_right_expression_apply);
-    bind_margin_expression_keys(margin_bottom_expression_input,margin_bottom_expression_apply);
+    bind_margin_expression_keys(margin_expression,margin_expression_apply,margin_left_ref);
+    bind_margin_expression_keys(margin_top_expression,margin_top_expression_apply,margin_top_ref);
+    bind_margin_expression_keys(margin_right_expression_input,margin_right_expression_apply,margin_right_ref);
+    bind_margin_expression_keys(margin_bottom_expression_input,margin_bottom_expression_apply,margin_bottom_ref);
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
