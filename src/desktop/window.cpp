@@ -4788,9 +4788,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* actions=new QWidget(row);auto* buttons=new FrameActionLayout(actions);buttons->setContentsMargins(0,0,0,0);
         auto* apply=new QPushButton("Apply Guide",actions);apply->setObjectName("guide-apply-"+qs(source.id));buttons->addWidget(apply);
         auto* remove=new QPushButton("Delete Guide",actions);remove->setObjectName("guide-delete-"+qs(source.id));buttons->addWidget(remove);form->addRow(actions);
-        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,parse_number] {
+        const LayoutBuilder builder=[composition,source,name_input,axis_input,position_input,position_display=position_input->text(),parse_number] {
             auto changed=source;changed.name=name_input->text().toStdString();changed.axis=axis_input->currentData().toString().toStdString();
-            changed.position=(source.position_driver||source.position_expression)?source.position:parse_number(position_input);
+            const bool untouched=position_input->text()==position_display&&!position_input->isModified();
+            changed.position=(source.position_driver||source.position_expression||untouched)?source.position:parse_number(position_input);
             return std::vector<Command>{UpdateGuide{composition,std::move(changed)}};
         };
         bind_number(name_input,row,builder);bind_number(position_input,row,builder);
