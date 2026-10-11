@@ -10,8 +10,8 @@ namespace text_path_source_keyboard_window_smoke {
 using text_path_batch_window_smoke::check;
 using text_path_batch_window_smoke::events;
 using text_path_batch_window_smoke::same;
-inline void context(bool pending) {
-    std::cout<<"PATH_SOURCE_KEYBOARD_BEGIN pending="<<pending<<" platform="<<QGuiApplication::platformName().toStdString()
+inline void context(bool pending,const std::string& mode="cancel") {
+    std::cout<<"PATH_SOURCE_KEYBOARD_BEGIN pending="<<pending<<" mode="<<mode<<" platform="<<QGuiApplication::platformName().toStdString()
         <<" Qt="<<qVersion()<<" pid="<<QCoreApplication::applicationPid()<<std::endl;
     auto d=text_path_rechoose_window_smoke::fixture(false);
     d.id="source-action-keyboard-document";
@@ -97,13 +97,50 @@ inline void context(bool pending) {
         "Picker opening is source-neutral for full authored/preview/history/identity/context");
     std::cout<<"PATH_SOURCE_KEYBOARD_OPEN pending="<<pending<<" key=Space pressed="<<pressed<<" released="<<released<<" clicked="<<clicked
         <<" target=second/text.origin_y session="<<session_id.toStdString()<<" revision="<<w.host.session.revision()<<" neutral=1"<<std::endl;
-    QTest::keyClick(picker->windowHandle(),Qt::Key_Escape);events();
+    if(mode!="cancel") {
+        check(search->hasFocus(),"Qualified picker search owns actual input focus");
+        QTest::keyClicks(search,"source text.origin_y");events();
+        int visible=0;for(int i=0;i<list->count();++i)if(!list->item(i)->isHidden())++visible;
+        check(visible==1&&same(w.host.session,scalar),"Actual search uniquely resolves stable source without authored mutation");
+        QTest::keyClick(picker->windowHandle(),Qt::Key_Tab);events();
+        check(list->hasFocus(),"Actual picker Tab reaches its existing source list");
+        QTest::keyClick(picker->windowHandle(),Qt::Key_Home);events();
+        auto* item=list->currentItem();const auto chosen=item?QJsonDocument::fromJson(item->data(Qt::UserRole).toByteArray()).object():QJsonObject{};
+        check(item&&!item->isHidden()&&chosen.value("object")=="source"&&chosen.value("point").toString().isEmpty()&&chosen.value("field")=="text.origin_y",
+            "Actual source list navigation selects exact stable compatible source");
+        check(same(w.host.session,scalar)&&w.host.session_id==session_id&&
+            w.canvas->selections()==std::vector<Canvas::Selection>{{"source",{}}}&&
+            w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
+            "Source browsing changes only viewed selection with full Session/revision/scope neutral");
+        check(!action&&!start&&!spacing&&!contour,"Source browsing expires only original Inspector controls");
+        std::cout<<"PATH_SOURCE_KEYBOARD_BROWSE pending="<<pending<<" mode="<<mode<<" source=source/text.origin_y revision="<<w.host.session.revision()<<" neutral=1 controls=expired"<<std::endl;
+        if(mode=="link") {
+            auto* buttons=picker->findChild<QDialogButtonBox*>();check(buttons,"Existing Source picker confirm owner exists");
+            QTest::keyClick(picker->windowHandle(),Qt::Key_Tab);events();
+            check(buttons->button(QDialogButtonBox::Ok)->hasFocus(),"Actual source-list Tab reaches existing OK button");
+            QTest::keyClick(picker->windowHandle(),Qt::Key_Space);events();
+            check(!picker&&same(w.host.session,linked)&&w.host.session_id==session_id&&w.canvas->selections()==selected&&
+                w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
+                "Actual existing OK activation links exact frozen target/source and full independent canonical Session");
+            text_path_batch_window_smoke::history(w,"Undo");linked.undo(linked.revision());
+            check(same(w.host.session,linked)&&linked.document()==scalar_document,"Source Link Undo independently restores complete scalar-only native document");
+            if(pending){text_path_batch_window_smoke::history(w,"Undo");linked.undo(linked.revision());
+                check(same(w.host.session,linked)&&linked.document()==d,"Independent Scalar Undo remains separate after Source Link");
+                text_path_batch_window_smoke::history(w,"Redo");linked.redo(linked.revision());check(same(w.host.session,linked),"Independent Scalar Redo remains separate");}
+            text_path_batch_window_smoke::history(w,"Redo");linked.redo(linked.revision());
+            check(same(w.host.session,linked)&&linked.document()==linked_document,"Independent Source Link Redo restores entire linked native state");
+            scalar=linked;
+        }
+    }
+    if(picker){QTest::keyClick(picker->windowHandle(),Qt::Key_Escape);events();}
     check(!picker&&same(w.host.session,scalar)&&w.host.session_id==session_id&&w.canvas->selections()==selected&&
         w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
         "Actual Escape destroys only owned picker and preserves scalar Session/target/scope");
-    check(action&&start&&spacing&&contour&&start->text()=="1100"&&spacing->text()=="3.5",
+    if(mode=="cancel")check(action&&start&&spacing&&contour&&start->text()=="1100"&&spacing->text()=="3.5",
         "Picker Cancel keeps exact existing controls and raw Path drafts alive");
-    if(pending){text_path_batch_window_smoke::history(w,"Undo");auto history=scalar;history.undo(history.revision());
+    else check(w.findChild<QLineEdit*>("text-path-start")&&w.findChild<QLineEdit*>("text-path-spacing"),
+        "Source browser completion restores current target Path controls");
+    if(pending&&mode!="link"){text_path_batch_window_smoke::history(w,"Undo");auto history=scalar;history.undo(history.revision());
         check(same(w.host.session,history)&&history.document()==d,"Cancel keeps independent Scalar Undo");
         text_path_batch_window_smoke::history(w,"Redo");history.redo(history.revision());check(same(w.host.session,history),"Cancel keeps independent Scalar Redo");scalar=history;}
     const auto native=scratch.filePath("source-entry.nect");w.host.save(native);w.host.flush();
@@ -113,8 +150,11 @@ inline void context(bool pending) {
     check(cold.host.session.document()==scalar.document()&&encode(cold.host.session.document())==encode(scalar.document()),
         "Cold Window with owned settings preserves complete native Text/Path/Refs/styles/Composition");
     cold.host.changed={};cold.hide();events();
-    std::cout<<"PATH_SOURCE_KEYBOARD_PASS pending="<<pending<<" native=PASS physical OS input NOT_RUN"<<std::endl;
+    std::cout<<"PATH_SOURCE_KEYBOARD_PASS pending="<<pending<<" mode="<<mode<<" native=PASS physical OS input NOT_RUN"<<std::endl;
 }
 inline void run(){const int before=text_path_batch_window_smoke::checks;context(false);context(true);
     std::cout<<"PathSourceKeyboard Windows cases=2 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
+inline void run_choice(){const int before=text_path_batch_window_smoke::checks;
+    context(false,"browse-cancel");context(false,"link");context(true,"link");
+    std::cout<<"PathSourceKeyboardChoice Windows cases=3 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
 }
