@@ -3657,7 +3657,6 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_row_gutter->setToolTip(grid_row_gutter_is_driven?
         "This authored literal is read-only while its source is active. Unlink to edit it.":
         "Artboard-local Grid row gutter in du. Enter a number, +=number or -=number to adjust it.");
-    grid_form->addRow("X · du",grid_x);grid_form->addRow("Y · du",grid_y);
     grid_form->addRow("Columns · integer",grid_columns);grid_form->addRow("Rows · integer",grid_rows);
     const auto authored_grid_x=initial_grid.bounds.x;
     const auto authored_grid_y=initial_grid.bounds.y;
@@ -3744,6 +3743,10 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         if(grid_exists&&(!grid_is_inherited||!explicit_override)&&grid==initial_grid_values)return std::vector<Command>{};
         value.grid=std::move(grid);return set_layout_command(value,"layout.grid");
     };
+    grid_form->insertRow(0,"X · du",layout_scrub_row(grid_box,grid_x,"Grid X",
+        initial_grid.bounds.x,[build_grid]{return build_grid(false);}));
+    grid_form->insertRow(1,"Y · du",layout_scrub_row(grid_box,grid_y,"Grid Y",
+        initial_grid.bounds.y,[build_grid]{return build_grid(false);}));
     grid_form->insertRow(2,"Width · du",layout_scrub_row(grid_box,grid_width,"Grid width",
         initial_grid.bounds.width,[build_grid]{return build_grid(false);}));
     grid_form->insertRow(3,"Height · du",layout_scrub_row(grid_box,grid_height,"Grid height",
