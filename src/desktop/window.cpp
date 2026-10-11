@@ -4145,7 +4145,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_width_unlink->setEnabled(grid_bounds_width_is_driven);grid_width_source_actions->addWidget(grid_width_unlink);
     auto* grid_width_cancel=new QPushButton("Cancel draft",grid_width_source_box);
     grid_width_cancel->setObjectName("grid-bounds-width-cancel");grid_width_source_actions->addWidget(grid_width_cancel);
-    auto* grid_width_expression=new QPlainTextEdit(grid_width_source_box);
+    auto* grid_width_expression=new ExpressionInput;
     grid_width_expression->setObjectName("grid-bounds-width-expression");
     grid_width_expression->setAccessibleName("Grid bounds width expression draft");
     grid_width_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.width\")");
@@ -4238,7 +4238,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* grid_height_cancel=new QPushButton("Cancel draft",grid_height_source_box);
     grid_height_cancel->setObjectName("grid-bounds-height-cancel");
     grid_height_source_actions->addWidget(grid_height_cancel);
-    auto* grid_height_expression=new QPlainTextEdit(grid_height_source_box);
+    auto* grid_height_expression=new ExpressionInput;
     grid_height_expression->setObjectName("grid-bounds-height-expression");
     grid_height_expression->setAccessibleName("Grid bounds height expression draft");
     grid_height_expression->setPlaceholderText("du expression using ref(\"artboard-id\",\"\",\"artboard.height\")");
@@ -4462,6 +4462,20 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 {grid_row_gutter_expression_input->toPlainText().toStdString(),1},grid_row_gutter_replace->isChecked()}}});
         });});
     connect(grid_row_gutter_cancel,&QPushButton::clicked,this,cancel_grid_editor);
+    const auto bind_grid_expression_keys=[cancel_grid_editor](ExpressionInput* editor,QPushButton* apply) {
+        const QPointer<QPushButton> safe_apply=apply;
+        editor->apply=[safe_apply]{if(safe_apply)safe_apply->click();};
+        editor->cancel=cancel_grid_editor;
+        editor->setToolTip("Ctrl+Enter applies this expression. Escape cancels the draft.");
+    };
+    bind_grid_expression_keys(grid_x_expression,grid_x_expression_apply);
+    bind_grid_expression_keys(grid_y_expression,grid_y_expression_apply);
+    bind_grid_expression_keys(grid_width_expression,grid_width_expression_apply);
+    bind_grid_expression_keys(grid_height_expression,grid_height_expression_apply);
+    bind_grid_expression_keys(grid_columns_expression_input,grid_columns_expression_apply);
+    bind_grid_expression_keys(grid_rows_expression_input,grid_rows_expression_apply);
+    bind_grid_expression_keys(grid_column_gutter_expression_input,grid_column_gutter_apply_expression);
+    bind_grid_expression_keys(grid_row_gutter_expression_input,grid_row_gutter_apply_expression);
     auto* grid_actions=new QWidget(grid_box);auto* grid_buttons=new FrameActionLayout(grid_actions);grid_buttons->setContentsMargins(0,0,0,0);
     auto* grid_apply=new QPushButton("Apply Grid",grid_actions);grid_apply->setObjectName("grid-apply");grid_buttons->addWidget(grid_apply);
     auto* grid_copy=new QPushButton("Set Grid to margin box",grid_actions);grid_copy->setObjectName("grid-copy-margin-box");grid_copy->setToolTip("Copy the evaluated Margin box once; later Margin edits do not change Grid.");grid_buttons->addWidget(grid_copy);
