@@ -10102,7 +10102,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         connect(enabled_driver,&QPushButton::clicked,this,[this,object_id=object.id,operation_id=operation.id,
             macro_entry=operation.macro.has_value(),
             enabled_ref,enabled_state,frozen_session,enabled_composition,verify_operation_context,frozen_revision=host.session.revision()] {
-            try {verify_operation_context();}
+            try {verify_operation_context();find_composition(host.session.document(),enabled_composition);}
             catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
             QDialog dialog(this);dialog.setObjectName("operation-enabled-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Operation enabled dependency");auto* dialog_layout=new QVBoxLayout(&dialog);
@@ -10382,7 +10382,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* edit_rule=driver_menu->addAction("Edit, link or unlink…");
             const auto frozen_revision=host.session.revision();
             connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision,enabled_composition,verify_operation_context] {
-                try {verify_operation_context();}
+                try {verify_operation_context();find_composition(host.session.document(),enabled_composition);}
                 catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
                 QDialog dialog(this);dialog.setObjectName("fill-rule-dialog-"+qs(operation_id));dialog.setWindowTitle("Edit Fill rule");
                 auto* dialog_layout=new QVBoxLayout(&dialog);
