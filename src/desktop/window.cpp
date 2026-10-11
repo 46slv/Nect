@@ -12945,7 +12945,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);
-                    record_scalar_commit();host.edited();}
+                    record_scalar_commit();statusBar()->clearMessage();host.edited();}
                 catch(const Error& e){if(e.code=="REVISION_CONFLICT"||e.code=="SESSION_CONFLICT")throw;expand(text);input->setText(input->property("nect-exact-value").toBool()?QString::number(inspector_values_.at(ref),'g',17):display_value(inspector_values_.at(ref)));}
                 return;
             }
@@ -12953,10 +12953,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             if(input->property("nect-semantic-key").isValid()&&!relative&&
                std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
-                record_scalar_commit();return;
+                record_scalar_commit();statusBar()->clearMessage();return;
             }
             canvas->cancel_interaction();host.session.apply({EditProperties{targets,value,relative}},field_revision);
-            record_scalar_commit();host.edited();
+            record_scalar_commit();statusBar()->clearMessage();host.edited();
             if(keep_focus)QTimer::singleShot(0,this,[this,target_data,scroll,frozen_session]{
                 if(host.session_id!=frozen_session)return;
                 for(auto* current:inspector_->findChildren<QLineEdit*>())if(current->isVisible()&&current->property("nect-targets").toByteArray()==target_data) {
