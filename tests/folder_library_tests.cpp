@@ -31,6 +31,7 @@
 #include <cmath>
 #include <limits>
 #include <set>
+#include "macro_favorite_window_smoke.hpp"
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -1868,10 +1869,16 @@ void unsafe_preset_root_keeps_legacy_library_usable(const QString& scratch) {
 }
 
 int main(int argc,char** argv) {
-    qputenv("QT_QPA_PLATFORM","offscreen");
+    const auto argument=argc>1?QString::fromUtf8(argv[1]):QString{};
+    const bool native_macro=argument=="--macro-favorite-source-closed"||argument=="--macro-favorite-source-closed-child";
+    qputenv("QT_QPA_PLATFORM",native_macro?"windows":"offscreen");
     QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
     QApplication app(argc,argv);
     try {
+        if(argc==2&&QString::fromUtf8(argv[1])=="--macro-favorite-source-closed")
+            return macro_favorite_closed::run();
+        if(argc==5&&QString::fromUtf8(argv[1])=="--macro-favorite-source-closed-child")
+            return macro_favorite_closed::child(QString::fromUtf8(argv[2]),QString::fromUtf8(argv[3]),QString::fromUtf8(argv[4]));
         if(argc==2&&QString::fromUtf8(argv[1])=="--folder-navigation") {
             QTemporaryDir scratch;check(scratch.isValid(),"Owned navigation scratch is available");
             folder_favorite_navigation(scratch.path());
