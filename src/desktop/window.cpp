@@ -3562,8 +3562,33 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* margin_actions=new QWidget(margin_box);auto* margin_buttons=new FrameActionLayout(margin_actions);margin_buttons->setContentsMargins(0,0,0,0);
     auto* margin_apply=new QPushButton("Apply Margin",margin_actions);margin_apply->setObjectName("margin-apply");margin_buttons->addWidget(margin_apply);
     auto* margin_clear=new QPushButton("Clear Margin",margin_actions);margin_clear->setObjectName("margin-clear");margin_clear->setEnabled(resolved.layout&&resolved.layout->margin);margin_buttons->addWidget(margin_clear);margin_form->addRow(margin_actions);
-    for(auto* input:{margin_left,margin_top,margin_right,margin_bottom})
-        bind_number(input,margin_box,[build_margin,input]{return build_margin(false,input);});
+    const auto bind_margin_number=[this,guard_editor,preview_from,commit_from,margin_box,build_margin](
+        QLineEdit* input,ExpressionInput* editor) {
+        if(input->isReadOnly())return;
+        const auto literal=input->text();
+        const LayoutBuilder build=[build_margin,input]{return build_margin(false,input);};
+        input->setToolTip(input->toolTip()+" Enter =expression and press Enter to edit its source draft.");
+        connect(input,&QLineEdit::textEdited,this,[this,input,guard_editor,preview_from,margin_box,build] {
+            if(!input->text().trimmed().startsWith('=')){preview_from(margin_box,build);return;}
+            if(guard_editor())return;
+            cancel_layout_draft();
+        });
+        connect(input,&QLineEdit::returnPressed,this,[this,input,editor,literal,guard_editor,commit_from,margin_box,build] {
+            const auto text=input->text();
+            if(!text.trimmed().startsWith('=')){commit_from(margin_box,build);return;}
+            if(guard_editor())return;
+            cancel_layout_draft();
+            if(host.session.gesture_active()) {
+                statusBar()->showMessage("GESTURE_ACTIVE: Finish or cancel the current edit first",12000);return;
+            }
+            editor->setPlainText(text.mid(text.indexOf('=')+1));input->setText(literal);input->setModified(false);
+            editor->setFocus(Qt::OtherFocusReason);statusBar()->clearMessage();
+        });
+    };
+    bind_margin_number(margin_left,margin_expression);
+    bind_margin_number(margin_top,margin_top_expression);
+    bind_margin_number(margin_right,margin_right_expression_input);
+    bind_margin_number(margin_bottom,margin_bottom_expression_input);
     connect(margin_apply,&QPushButton::clicked,this,[commit_from,margin_box,build_margin]{commit_from(margin_box,[build_margin]{return build_margin(true);});});
     connect(margin_clear,&QPushButton::clicked,this,[read,set_layout_command,commit_explicit,guard_editor,margin_box] {
         if(guard_editor())return;
