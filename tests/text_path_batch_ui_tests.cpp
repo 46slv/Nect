@@ -230,8 +230,10 @@ void stale_and_lifetime(){
 #include "text_path_pending_chooser_window_smoke.hpp"
 #include "text_path_keyboard_window_smoke.hpp"
 #include "text_path_source_keyboard_window_smoke.hpp"
+#include "text_path_origin_source_keyboard_window_smoke.hpp"
 int main(int argc,char** argv){
-    bool pointer=false,single=false,pending_only=false,rechoose=false,pending_chooser=false,keyboard=false,reverse_keyboard=false,popup_incoming=false,popup_source=false,source_keyboard=false,source_choice=false,source_incoming=false;std::string pending_case;for(int i=1;i<argc;++i){
+    bool pointer=false,single=false,pending_only=false,rechoose=false,pending_chooser=false,keyboard=false,reverse_keyboard=false,popup_incoming=false,popup_source=false,source_keyboard=false,source_choice=false,source_incoming=false,origin_source=false;std::string pending_case;for(int i=1;i<argc;++i){
+        if(std::string(argv[i])=="--single-origin-source-keyboard"){pointer=true;origin_source=true;}
         if(std::string(argv[i])=="--single-path-source-keyboard-incoming"){pointer=true;source_incoming=true;}
         if(std::string(argv[i])=="--single-path-source-keyboard-choice"){pointer=true;source_choice=true;}
         if(std::string(argv[i])=="--single-path-source-keyboard"){pointer=true;source_keyboard=true;}
@@ -249,7 +251,8 @@ int main(int argc,char** argv){
     }
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
     if(pointer){application.setStyle("Fusion");application.setStyleSheet(application_style_sheet());}
-    try{if(source_incoming){text_path_source_keyboard_window_smoke::run_incoming();return 0;}
+    try{if(origin_source){text_path_origin_source_keyboard_window_smoke::run();return 0;}
+        if(source_incoming){text_path_source_keyboard_window_smoke::run_incoming();return 0;}
         if(source_choice){text_path_source_keyboard_window_smoke::run_choice();return 0;}
         if(source_keyboard){text_path_source_keyboard_window_smoke::run();return 0;}
         if(popup_source){text_path_keyboard_window_smoke::run_popup_source();return 0;}

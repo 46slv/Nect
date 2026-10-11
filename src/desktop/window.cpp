@@ -8871,6 +8871,78 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
         const auto ref=read_ref(reference_data);
         if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")input->installEventFilter(path_tab_guard);
     }
+    // Origin Y's own forward Tab reaches its expression action before Source.
+    // Finish only this scalar through that existing action, then restore the
+    // neutral-qualified destination and this Text's raw Path drafts together.
+    for(auto* input:box->findChildren<QLineEdit*>()) {
+        const auto data=input->property("nect-reference").toByteArray();if(data.isEmpty())continue;
+        const auto ref=read_ref(data);if(ref.object!=id||!ref.point.empty()||ref.field!="text.origin_y")continue;
+        PreparedTextActionButton* expression=nullptr;
+        for(auto* action:input->parentWidget()->findChildren<QPushButton*>("property-expression"))
+            if(action->property("nect-text-scalar-fx-action-object").toString()==qs(id)&&
+               action->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
+               action->property("nect-text-scalar-fx-action-field").toString()=="text.origin_y")
+                expression=static_cast<PreparedTextActionButton*>(action);
+        if(!expression)continue;
+        auto* origin_guard=new TextPathScalarTabGuard(input);
+        origin_guard->finish=[this,id,input=QPointer<QLineEdit>(input),expression=QPointer<PreparedTextActionButton>(expression),
+            path_contour,path_start_mode,path_start,path_spacing,path_reversed,path_target,path_revision,verify_path,verify_path_choice](Qt::FocusReason reason) {
+            if(reason!=Qt::TabFocusReason)return true;
+            bool ready=false;perform([&] {
+                verify_path(*path_revision);verify_path_choice();
+                if(!input||!expression||QApplication::focusWidget()!=expression)
+                    throw Error("TEXT_EDIT_CONFLICT","The Origin Y keyboard destination changed; reopen this Text");
+                const auto chosen=path_contour->currentData(),mode=path_start_mode->currentData();
+                const auto start_draft=path_start->text(),spacing_draft=path_spacing->text();const bool reversed=path_reversed->isChecked();
+                expression->setProperty("nect-retain-text-inspector",true);
+                const bool prepared=expression->prepare();
+                expression->setProperty("nect-retain-text-inspector",false);
+                if(!prepared)return;
+                const auto committed=input->property("nect-text-scalar-fx-committed-revision");
+                if(!committed.isValid())return;
+                auto advanced=*path_target;
+                advanced.text->parameters.at("origin_y")=host.session.document().objects.at(id).text->parameters.at("origin_y");
+                *path_target=std::move(advanced);verify_path(committed.toULongLong());*path_revision=committed.toULongLong();
+                path_contour->setProperty("nect-text-path-scalar-prepared",true);
+                QTimer::singleShot(0,this,[this,id,original=QPointer<QComboBox>(path_contour),expression,
+                    verify_path,verify_path_choice,path_revision,chosen,mode,start_draft,spacing_draft,reversed] {
+                    if(!original)return;original->setProperty("nect-text-path-scalar-prepared",false);
+                    perform([&] {
+                        verify_path(*path_revision);verify_path_choice();
+                        if(!expression||QApplication::focusWidget()!=expression)
+                            throw Error("TEXT_EDIT_CONFLICT","The Origin Y keyboard destination changed; reopen this Text");
+                        rebuild_inspector(true);
+                        QComboBox* current=nullptr;QPushButton* action=nullptr;
+                        for(int row=0;row<inspector_->layout()->count();++row) {
+                            auto* owner=inspector_->layout()->itemAt(row)->widget();if(!owner)continue;
+                            if(auto* candidate=owner->findChild<QComboBox*>("text-path-contour")) {
+                                if(current)throw Error("TEXT_EDIT_CONFLICT","Reopen this Text's Path controls");current=candidate;
+                            }
+                            for(auto* candidate:owner->findChildren<QPushButton*>("property-expression"))
+                                if(candidate->property("nect-text-scalar-fx-action-object").toString()==qs(id)&&
+                                   candidate->property("nect-text-scalar-fx-action-point").toString().isEmpty()&&
+                                   candidate->property("nect-text-scalar-fx-action-field").toString()=="text.origin_y") {
+                                    if(action)throw Error("TEXT_EDIT_CONFLICT","Reopen the original Origin Y action");action=candidate;
+                                }
+                        }
+                        auto* group=current?current->parentWidget():nullptr;
+                        auto* current_mode=group?group->findChild<QComboBox*>("text-path-start-mode"):nullptr;
+                        auto* current_start=group?group->findChild<QLineEdit*>("text-path-start"):nullptr;
+                        auto* current_spacing=group?group->findChild<QLineEdit*>("text-path-spacing"):nullptr;
+                        auto* current_reversed=group?group->findChild<QCheckBox*>("text-path-reversed"):nullptr;
+                        if(!action||!current||!current_mode||!current_start||!current_spacing||!current_reversed)
+                            throw Error("TEXT_EDIT_CONFLICT","Reopen the original Origin Y and Path controls");
+                        const int chosen_index=current->findData(chosen),mode_index=current_mode->findData(mode);
+                        if(chosen_index<0||mode_index<0)throw Error("TEXT_EDIT_CONFLICT","The original Path draft is no longer available");
+                        current->setCurrentIndex(chosen_index);current_mode->setCurrentIndex(mode_index);
+                        current_start->setText(start_draft);current_spacing->setText(spacing_draft);current_reversed->setChecked(reversed);
+                        action->setFocus(Qt::TabFocusReason);
+                    });
+                });ready=true;
+            });return ready;
+        };
+        input->installEventFilter(origin_guard);
+    }
     auto* receipt=add_text_typography(layout,object);
     QStringList lines;
     try {
