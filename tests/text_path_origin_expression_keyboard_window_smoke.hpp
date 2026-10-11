@@ -5,8 +5,8 @@ namespace text_path_origin_expression_keyboard_window_smoke {
 using text_path_batch_window_smoke::check;
 using text_path_batch_window_smoke::events;
 using text_path_batch_window_smoke::same;
-inline void context(bool pending,bool apply) {
-    std::cout<<"ORIGIN_EXPRESSION_BEGIN pending="<<pending<<" apply="<<apply<<" platform="
+inline void context(bool pending,bool apply,const std::string& incoming_mode={}) {
+    std::cout<<"ORIGIN_EXPRESSION_BEGIN pending="<<pending<<" apply="<<apply<<" incoming="<<incoming_mode<<" platform="
         <<QGuiApplication::platformName().toStdString()<<" Qt="<<qVersion()<<std::endl;
     auto d=text_path_rechoose_window_smoke::fixture(false);d.id="origin-expression-keyboard-document";
     const Ref target{"second","","text.origin_y"};
@@ -22,6 +22,30 @@ inline void context(bool pending,bool apply) {
     expression.apply({SetExpression{{target},{"80+4",1},false}},expression.revision());
     check(expression.document()==expression_document&&decode(encode(expression_document))==expression_document,
         "Independent entire Origin Y expression/history/native oracle exists BEFORE Window");
+    Session incoming=scalar;auto incoming_document=scalar_document;
+    if(incoming_mode=="source") {
+        auto base=d;base.objects.at("second").name="Incoming full Origin expression target";
+        base.objects.at("second").text->id="incoming-origin-expression-text";
+        base.objects.at("second").text->content="Incoming 日本語 body";
+        incoming=Session(base);incoming.apply({EditProperties{{target},64,false}},incoming.revision());
+        incoming_document=base;incoming_document.objects.at("second").text->parameters.at("origin_y").literal=64;
+        check(incoming.revision()==scalar.revision(),"Independent changed full Text source retains equal scalar revision BEFORE Window");
+    }else if(incoming_mode=="revision") {
+        incoming.apply({Rename{"source","Incoming independent revision"}},incoming.revision());
+        incoming_document.objects.at("source").name="Incoming independent revision";
+        auto stale=incoming;bool refused=false;
+        try{stale.apply({SetExpression{{target},{"80+4",1},false}},scalar.revision());}
+        catch(const Error& error){check(error.code=="REVISION_CONFLICT","Independent canonical stale expression reports REVISION_CONFLICT BEFORE Window");refused=true;}
+        check(refused&&same(stale,incoming),"Independent stale expression refuses the entire incoming Session/history/gesture atomically BEFORE Window");
+    }
+    if(!incoming_mode.empty())check(incoming.document()==incoming_document&&decode(encode(incoming_document))==incoming_document,
+        "Independent whole incoming Text/Path/Contour/Composition/source/history oracle native-validates BEFORE Window");
+    // The production result renders Error::what(), without its separate code.
+    // Bind both to the existing frozen Text context owner before opening Window.
+    const Error expected_refusal=incoming_mode=="source"
+        ?Error("TEXT_EDIT_CONFLICT","The original Text source no longer exists. This draft cannot target a replacement.")
+        :Error("REVISION_CONFLICT","The document was edited. Copy this draft, cancel, and reopen the latest Text.");
+    const auto expected_result=QString::fromUtf8(expected_refusal.what())+"\nCommitted result is unchanged.";
     QTemporaryDir scratch;check(scratch.isValid(),"Origin Y expression owns settings/recovery/native scratch");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -61,7 +85,24 @@ inline void context(bool pending,bool apply) {
     check(start&&spacing&&start->text()=="1100"&&spacing->text()=="3.5","Own expression opening retains raw original Path drafts");
     QTest::keyClick(w.windowHandle(),Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(editor,"80+4");events();
     check(editor->toPlainText()=="80+4"&&same(w.host.session,scalar),"Actual expression draft remains complete Session/history neutral");
-    if(apply){
+    if(!incoming_mode.empty()) {
+        auto* result=panel->findChild<QLabel*>("nect-expression-result");check(result,"Exact own expression result exists before incoming context");
+        w.host.session=incoming;
+        check(editor&&editor->hasFocus()&&same(w.host.session,incoming),"Incoming full Session is installed with existing owned editor and actual focus retained");
+        QTest::keyClick(w.windowHandle(),Qt::Key_Return,Qt::ControlModifier);events();
+        std::cout<<"ORIGIN_EXPRESSION_INCOMING_RESULT mode="<<incoming_mode<<" owner_code="<<expected_refusal.code<<" result="<<result->text().toStdString()<<std::endl;
+        check(editor&&editor->isVisible()&&editor->hasFocus()&&editor->toPlainText()=="80+4"&&result->text()==expected_result,
+            "Actual Ctrl+Enter retains own focused editor/draft and reports exact incoming context refusal");
+        check(same(w.host.session,incoming)&&w.host.session_id==session_id&&w.canvas->selections()==selected&&
+            w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
+            "Actual incoming refusal preserves entire Session/history/revision/gesture and target/context");
+        QTest::keyClick(w.windowHandle(),Qt::Key_Escape);events();
+        check(!editor&&same(w.host.session,incoming),"Actual Escape discards only stale own expression and retains complete incoming Session");
+        auto history=incoming;text_path_batch_window_smoke::history(w,"Undo");history.undo(history.revision());
+        check(same(w.host.session,history),"Incoming refusal and Cancel add no history: exact independent incoming Undo remains intact");
+        text_path_batch_window_smoke::history(w,"Redo");history.redo(history.revision());
+        check(same(w.host.session,history)&&history.document()==incoming_document,"Independent incoming Redo restores entire incoming native source");scalar=history;
+    }else if(apply){
         QTest::keyClick(w.windowHandle(),Qt::Key_Return,Qt::ControlModifier);events();
         check(!editor&&same(w.host.session,expression),"Actual existing Ctrl+Enter applies exact own expression and independent full canonical Session");
         text_path_batch_window_smoke::history(w,"Undo");expression.undo(expression.revision());check(same(w.host.session,expression)&&expression.document()==scalar_document,"Expression Undo retains independent own scalar completion");
@@ -79,8 +120,10 @@ inline void context(bool pending,bool apply) {
     Window cold(scratch.filePath("cold"),std::make_unique<FolderLibrary>(settings),&settings);cold.setAttribute(Qt::WA_DontShowOnScreen);cold.resize(1400,900);cold.host.open(native);cold.show();events();
     check(cold.host.session.document()==scalar.document()&&encode(cold.host.session.document())==encode(scalar.document()),"Cold owned Window preserves full native expression/Text/Path/Composition/Refs");
     cold.host.changed={};cold.hide();events();
-    std::cout<<"ORIGIN_EXPRESSION_PASS pending="<<pending<<" apply="<<apply<<" native=PASS physical OS input NOT_RUN"<<std::endl;
+    std::cout<<"ORIGIN_EXPRESSION_PASS pending="<<pending<<" apply="<<apply<<" incoming="<<incoming_mode<<" native=PASS physical OS input NOT_RUN"<<std::endl;
 }
 inline void run(){const int before=text_path_batch_window_smoke::checks;context(false,false);context(false,true);context(true,false);context(true,true);
     std::cout<<"OriginExpressionKeyboard Windows cases=4 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
+inline void run_incoming(){const int before=text_path_batch_window_smoke::checks;context(true,false,"source");context(true,false,"revision");
+    std::cout<<"OriginExpressionKeyboardIncoming Windows cases=2 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
 }
