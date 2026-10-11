@@ -455,6 +455,15 @@ public:
 class ExpressionInput final : public QPlainTextEdit {
 public:
     std::function<void()> apply,cancel;
+    void enable_inline_expansion() {
+        const auto resize_to_lines=[this] {
+            const auto lines=std::clamp(document()->blockCount(),1,8);
+            const auto padding=2*frameWidth()+static_cast<int>(std::ceil(2*document()->documentMargin()))+4;
+            setFixedHeight(fontMetrics().lineSpacing()*lines+padding);
+        };
+        connect(document(),&QTextDocument::blockCountChanged,this,[resize_to_lines](int){resize_to_lines();});
+        resize_to_lines();
+    }
     void keyPressEvent(QKeyEvent* event) override {
         if((event->key()==Qt::Key_Return||event->key()==Qt::Key_Enter)&&event->modifiers()==Qt::ControlModifier) {
             if(apply)apply();event->accept();return;
@@ -3573,6 +3582,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(margin_bottom_expression_cancel,&QPushButton::clicked,this,[cancel_margin_expression,margin_bottom_ref]{cancel_margin_expression(margin_bottom_ref);});
     const auto bind_margin_expression_keys=[this,cancel_margin_expression,frozen_session,frozen_revision,margin_document](
         ExpressionInput* editor,QPushButton* apply,QCheckBox* replace,const Ref& target) {
+        editor->enable_inline_expansion();
         std::erase_if(margin_expression_drafts_,[this](const auto& item) {
             return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
         });
@@ -4566,6 +4576,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(grid_row_gutter_cancel,&QPushButton::clicked,this,[cancel_grid_expression,grid_row_gutter_ref]{cancel_grid_expression(grid_row_gutter_ref);});
     const auto bind_grid_expression_keys=[this,cancel_grid_expression,frozen_session,frozen_revision,grid_source_document](
         ExpressionInput* editor,QPushButton* apply,QCheckBox* replace,const Ref& target) {
+        editor->enable_inline_expansion();
         std::erase_if(grid_expression_drafts_,[this](const auto& item) {
             return item.second.session!=host.session_id||item.second.document!=host.session.document().id;
         });
