@@ -4519,7 +4519,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto grid_generation=std::make_shared<std::optional<std::uint64_t>>();
     const auto grid_document=host.session.document().id;
     const auto grid_input=[this,build_grid,grid_box,grid_generation,grid_document,frozen_session,frozen_revision,
-        guard_editor,mark_invalid](bool commit,bool explicit_override) {
+        guard_editor,mark_invalid](bool commit,bool explicit_override,QLineEdit* source_input=nullptr,
+        ExpressionInput* source_editor=nullptr,const QString& literal=QString{}) {
         const bool local_scope=layout_preview_scope_==grid_box;
         const bool owns=local_scope&&layout_draft_current()&&*grid_generation&&
             host.session.gesture_active()&&host.session.gesture_generation()==**grid_generation;
@@ -4546,6 +4547,17 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             statusBar()->showMessage("GESTURE_ACTIVE: Finish the other draft before editing Grid",12000);return;
         }
         if(guard_editor())return;
+        if(source_input) {
+            if(local_scope)cancel_layout_draft();
+            grid_generation->reset();
+            if(source_editor) {
+                const auto text=source_input->text();
+                source_editor->setPlainText(text.mid(text.indexOf('=')+1));
+                source_input->setText(literal);source_input->setModified(false);
+                source_editor->setFocus(Qt::OtherFocusReason);
+            }
+            statusBar()->clearMessage();return;
+        }
         try {
             const auto commands=build_grid(explicit_override);
             if(commands.empty()) {
@@ -4563,11 +4575,27 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         } catch(const Error& error) {mark_invalid(grid_box,qs(error.code)+": "+QString::fromUtf8(error.what()));}
         catch(const std::exception& error) {mark_invalid(grid_box,QString::fromUtf8(error.what()));}
     };
-    for(auto* input:{grid_x,grid_y,grid_width,grid_height,grid_columns,grid_rows,grid_column_gutter,grid_row_gutter}) {
-        if(input->isReadOnly())continue;
-        connect(input,&QLineEdit::textEdited,this,[grid_input]{grid_input(false,false);});
-        connect(input,&QLineEdit::returnPressed,this,[grid_input]{grid_input(true,false);});
-    }
+    const auto bind_grid_number=[this,grid_input](QLineEdit* input,ExpressionInput* editor) {
+        if(input->isReadOnly())return;
+        const auto literal=input->text();
+        input->setToolTip(input->toolTip()+" Enter =expression and press Enter to edit its source draft.");
+        connect(input,&QLineEdit::textEdited,this,[input,grid_input] {
+            if(input->text().trimmed().startsWith('='))grid_input(false,false,input);
+            else grid_input(false,false);
+        });
+        connect(input,&QLineEdit::returnPressed,this,[input,editor,literal,grid_input] {
+            if(input->text().trimmed().startsWith('='))grid_input(false,false,input,editor,literal);
+            else grid_input(true,false);
+        });
+    };
+    bind_grid_number(grid_x,grid_x_expression);
+    bind_grid_number(grid_y,grid_y_expression);
+    bind_grid_number(grid_width,grid_width_expression);
+    bind_grid_number(grid_height,grid_height_expression);
+    bind_grid_number(grid_columns,grid_columns_expression_input);
+    bind_grid_number(grid_rows,grid_rows_expression_input);
+    bind_grid_number(grid_column_gutter,grid_column_gutter_expression_input);
+    bind_grid_number(grid_row_gutter,grid_row_gutter_expression_input);
     connect(grid_apply,&QPushButton::clicked,this,[grid_input]{grid_input(true,true);});
     connect(grid_copy,&QPushButton::clicked,this,[this,read,composition,id,grid_id,set_layout_command,commit_explicit,guard_editor,grid_box] {
         if(guard_editor())return;
