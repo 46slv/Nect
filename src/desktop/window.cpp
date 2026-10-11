@@ -10491,9 +10491,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             rule->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
             rule->setMinimumContentsLength(10);rule->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
             form->addRow("Fill rule",rule);
-            connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,apply,id=object.id,op=operation.id,before=rule->currentIndex()](int) {
+            connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,apply,verify_operation_context,id=object.id,op=operation.id,before=rule->currentIndex()](int) {
                 bool applied=false;
-                perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+                perform([&]{verify_operation_context();const auto& current=find_operation(host.session.document(),id,op);
                     apply({OperationOptions{id,op,current.composite,rule->currentData().toString().toStdString()}});applied=true;});
                 if(!applied){const QSignalBlocker blocker(rule);rule->setCurrentIndex(before);}
             });
@@ -10602,9 +10602,9 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* join=new QComboBox;join->setObjectName("operation-line-join-"+qs(operation.id));
             join->addItem("Miter","miter");join->addItem("Round","round");join->addItem("Bevel","bevel");
             join->setCurrentIndex(join->findData(qs(operation.line_join)));form->addRow("Line join",join);
-            connect(join,&QComboBox::currentIndexChanged,this,[this,join,apply,id=object.id,op=operation.id,before=join->currentIndex()](int) {
+            connect(join,&QComboBox::currentIndexChanged,this,[this,join,apply,verify_operation_context,id=object.id,op=operation.id,before=join->currentIndex()](int) {
                 bool applied=false;
-                perform([&]{const auto& current=find_operation(host.session.document(),id,op);
+                perform([&]{verify_operation_context();const auto& current=find_operation(host.session.document(),id,op);
                     apply({OperationOptions{id,op,current.composite,current.fill_rule,join->currentData().toString().toStdString()}});applied=true;});
                 if(!applied){const QSignalBlocker blocker(join);join->setCurrentIndex(before);}
             });
