@@ -227,8 +227,12 @@ void stale_and_lifetime(){
 #include "text_path_batch_window_smoke.hpp"
 #include "text_path_single_window_smoke.hpp"
 #include "text_path_rechoose_window_smoke.hpp"
+#include "text_path_pending_chooser_window_smoke.hpp"
 int main(int argc,char** argv){
-    bool pointer=false,single=false,pending_only=false,rechoose=false;for(int i=1;i<argc;++i){
+    bool pointer=false,single=false,pending_only=false,rechoose=false,pending_chooser=false;std::string pending_case;for(int i=1;i<argc;++i){
+        if(std::string(argv[i]).starts_with("--pending-chooser-case=")){pointer=true;pending_chooser=true;pending_case=std::string(argv[i]).substr(23);}
+        if(std::string(argv[i])=="--single-pending-chooser-attached"){pointer=true;pending_chooser=true;pending_case="attached";}
+        if(std::string(argv[i])=="--single-pending-chooser-pointer"){pointer=true;pending_chooser=true;}
         if(std::string(argv[i])=="--single-rechoose-pointer"){pointer=true;rechoose=true;}
         if(std::string(argv[i])=="--context-pointer")pointer=true;
         if(std::string(argv[i])=="--single-context-pointer"){pointer=true;single=true;}
@@ -236,7 +240,8 @@ int main(int argc,char** argv){
     }
     if(!pointer)qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
     if(pointer){application.setStyle("Fusion");application.setStyleSheet(application_style_sheet());}
-    try{if(rechoose){text_path_rechoose_window_smoke::run();return 0;}
+    try{if(pending_chooser){text_path_pending_chooser_window_smoke::run(pending_case);return 0;}
+        if(rechoose){text_path_rechoose_window_smoke::run();return 0;}
         if(single){text_path_single_window_smoke::run(pending_only);return 0;}
         if(pointer){text_path_batch_window_smoke::run();return 0;}
         lifecycle();mixed_and_partial();atomic_refusals();stale_and_lifetime();

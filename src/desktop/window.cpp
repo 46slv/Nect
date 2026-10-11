@@ -5004,6 +5004,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     // It must not destroy the retained Text control that just received that edit.
     // Explicit refresh/selection changes still use the normal context path.
     if(use_canvas_values) {
+        const auto* path=inspector_->findChild<QComboBox*>("text-path-contour");
+        if(path&&(path->property("nect-text-path-scalar-prepared").toBool()||path->view()->isVisible()))return;
         const auto* family=inspector_->findChild<QComboBox*>("text-family");
         if(family&&(family->property("nect-text-family-popup-opening").toBool()||
            (family->lineEdit()&&family->lineEdit()->hasFocus())||family->view()->isVisible()))return;
@@ -5027,6 +5029,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
     // Canvas/recovery still refresh; keep this control alive until it can open.
     if(auto* writing=inspector_->findChild<QComboBox*>("text-direction");
        writing&&writing->property("nect-retain-text-inspector").toBool())return;
+    if(auto* path=inspector_->findChild<QComboBox*>("text-path-contour");
+       path&&path->property("nect-retain-text-inspector").toBool())return;
     if(auto* family=inspector_->findChild<QComboBox*>("text-family");
        family&&family->property("nect-retain-text-inspector").toBool())return;
     if(auto* weight=inspector_->findChild<QSpinBox*>("text-weight");
@@ -6879,7 +6883,8 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     };
     auto* path_group=new QGroupBox("Text on Path",box);auto* path_form=new QFormLayout(path_group);
     path_form->setRowWrapPolicy(QFormLayout::WrapLongRows);form->addRow(path_group);
-    auto* path_contour=new QComboBox(path_group);path_contour->setObjectName("text-path-contour");
+    auto* path_contour=new PreparedTextCombo;path_contour->setParent(path_group);path_contour->setObjectName("text-path-contour");
+    path_contour->setProperty("nect-text-path-action-object",qs(id));
     path_contour->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);path_contour->setMinimumContentsLength(20);
     path_contour->addItem("Choose an authored Path contour…",QString{});
     const auto& path_composition=find_composition(host.session.document(),canvas->active_composition());
@@ -6921,7 +6926,9 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     });};
     const auto path_document=host.session.document().id,path_source=source.id;
     const auto path_target=std::make_shared<Object>(host.session.document().objects.at(id));
-    const auto path_revision=host.session.revision(),path_generation=text_selection_generation_,path_gesture=host.session.gesture_generation();
+    const auto path_revision=std::make_shared<std::uint64_t>(host.session.revision());
+    auto path_refresh_needed=std::make_shared<bool>(false);
+    const auto path_generation=text_selection_generation_,path_gesture=host.session.gesture_generation();
     const auto path_composition_id=canvas->active_composition(),path_artboard=canvas->active_artboard();
     const bool path_preview=host.session.gesture_active();
     const auto path_contains=[this,path_composition_id](const Id& target){
@@ -6955,7 +6962,7 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
     };
     retain_path_choice();
     const auto choose_path=[this,verify_path,path_revision,retain_path_choice](int){
-        perform([&]{verify_path(path_revision);retain_path_choice();});
+        perform([&]{verify_path(*path_revision);retain_path_choice();});
     };
     connect(path_contour,qOverload<int>(&QComboBox::currentIndexChanged),path_group,choose_path);
     // Explicitly choosing the current item does not change its index. Rebind
@@ -6968,10 +6975,76 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
             throw Error("PROPERTY_CONFLICT","The chosen Path changed; choose its contour again");
         if(!path_contains(found->first))throw Error("SELECTION_CONFLICT","The chosen Path Composition changed; choose its contour again");
     };
+    // Source browsing must finish the original target's own Scalar without
+    // rebuilding away the pressed chooser. Choice and attachment stay separate.
+    path_contour->prepare=[this,id,path_contour,verify_path,path_target,path_revision] {
+        QPointer<QLineEdit> pending;
+        for(auto* input:inspector_->findChildren<QLineEdit*>()) {
+            const auto data=input->property("nect-reference").toByteArray();
+            if(!input->isVisible()||!input->isModified()||data.isEmpty())continue;
+            const auto ref=read_ref(data);if(ref.object==id&&ref.point.empty()&&ref.field=="text.font_size")pending=input;
+        }
+        if(!pending)return true; // Existing choice guards own source-only browsing.
+        bool ready=false;
+        perform([&] {
+            verify_path(*path_revision);
+            if(pending) {
+                pending->setProperty("nect-finishing-text-path",true);
+                pending->setProperty("nect-text-path-committed-revision",QVariant{});
+                pending->editingFinished();
+                const auto committed=pending?pending->property("nect-text-path-committed-revision"):QVariant{};
+                if(pending)pending->setProperty("nect-finishing-text-path",false);
+                if(!committed.isValid())return;
+                path_target->text->parameters.at("font_size")=host.session.document().objects.at(id).text->parameters.at("font_size");
+                verify_path(committed.toULongLong());*path_revision=committed.toULongLong();
+                path_contour->setProperty("nect-text-path-scalar-prepared",true);
+            }
+            ready=true;
+        });return ready;
+    };
+    path_contour->closed=[this,path_contour,path_start_mode,path_start,path_spacing,path_reversed,verify_path,verify_path_choice,path_revision] {
+        if(!isVisible()||!path_contour->property("nect-text-path-scalar-prepared").toBool())return;
+        QTimer::singleShot(0,this,[this,original=QPointer<QComboBox>(path_contour),
+            start_mode=QPointer<QComboBox>(path_start_mode),start=QPointer<QLineEdit>(path_start),
+            spacing=QPointer<QLineEdit>(path_spacing),reversed=QPointer<QCheckBox>(path_reversed),
+            verify_path,verify_path_choice,path_revision] {
+            if(!original||!original->isVisible()||original->view()->isVisible()||
+               !original->property("nect-text-path-scalar-prepared").toBool()||!start_mode||!start||!spacing||!reversed)return;
+            perform([&] {
+                verify_path(*path_revision);verify_path_choice();
+                const auto chosen=original->currentData(),mode=start_mode->currentData();
+                const auto start_draft=start->text(),spacing_draft=spacing->text();const bool reverse_draft=reversed->isChecked();
+                // The completed own Scalar advances the ordinary property fields.
+                // Preserve only this verified source/attachment draft across that refresh.
+                original->setProperty("nect-text-path-scalar-prepared",false);rebuild_inspector(true);
+                // deleteLater leaves old controls in the QObject tree. Resolve
+                // only the new form actually owned by the current layout.
+                QComboBox* current=nullptr;
+                for(int row=0;row<inspector_->layout()->count();++row) {
+                    auto* owner=inspector_->layout()->itemAt(row)->widget();
+                    if(auto* candidate=owner?owner->findChild<QComboBox*>("text-path-contour"):nullptr) {
+                        if(current)throw Error("TEXT_EDIT_CONFLICT","Reopen this Text's Path controls");
+                        current=candidate;
+                    }
+                }
+                auto* group=current?current->parentWidget():nullptr;
+                auto* current_mode=group?group->findChild<QComboBox*>("text-path-start-mode"):nullptr;
+                auto* current_start=group?group->findChild<QLineEdit*>("text-path-start"):nullptr;
+                auto* current_spacing=group?group->findChild<QLineEdit*>("text-path-spacing"):nullptr;
+                auto* current_reversed=group?group->findChild<QCheckBox*>("text-path-reversed"):nullptr;
+                if(!current||!current_mode||!current_start||!current_spacing||!current_reversed)
+                    throw Error("TEXT_EDIT_CONFLICT","Reopen this Text's Path controls");
+                const int chosen_index=current->findData(chosen),mode_index=current_mode->findData(mode);
+                if(chosen_index<0||mode_index<0)throw Error("TEXT_EDIT_CONFLICT","The original Path draft is no longer available");
+                current->setCurrentIndex(chosen_index);current_mode->setCurrentIndex(mode_index);
+                current_start->setText(start_draft);current_spacing->setText(spacing_draft);current_reversed->setChecked(reverse_draft);
+            });
+        });
+    };
     for(auto* button:{path_apply,path_detach}) {
         const bool detach=button==path_detach;
         button->setProperty("nect-text-path-action-object",qs(id));button->setFocusPolicy(Qt::StrongFocus);
-        auto revision=std::make_shared<std::uint64_t>(path_revision);auto refresh_needed=std::make_shared<bool>(false);
+        auto revision=path_revision;auto refresh_needed=path_refresh_needed;
         button->prepare=[this,id,detach,verify_path,verify_path_choice,path_target,revision,refresh_needed] {
             bool ready=false;
             perform([&]{
@@ -7011,8 +7084,9 @@ void Window::add_text_properties(QVBoxLayout* layout,const Object& object) {
                     if(!spacing_ok||!std::isfinite(spacing)||spacing<0)throw Error("TEXT_PATH_SPACING","Enter finite nonnegative extra spacing");
                     next.path_attachment=TextPathAttachment{parts[0].toStdString(),parts[1].toStdString(),path_start_mode->currentData().toString().toStdString(),start,spacing,path_reversed->isChecked()};
                 }
+                *refresh_needed=true;
                 if(next==*host.session.document().objects.at(id).text)return;
-                host.session.apply({UpdateText{id,std::move(next)}},*revision);*refresh_needed=true;host.edited();
+                host.session.apply({UpdateText{id,std::move(next)}},*revision);host.edited();
             });
             button->setProperty("nect-retain-text-inspector",false);
         });

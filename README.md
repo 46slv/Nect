@@ -288,7 +288,11 @@ the changed Path contour again; Detach remains independent of the Path draft.
 Choosing the same currently selected contour explicitly accepts the current
 whole Path without an edit. The original Text, selection and scope must still
 match; a later Path change requires another explicit choice.
-A pending Font size completes before the attachment, with separate Undo steps.
+The first Source contour click finishes a pending Font size and opens the chooser.
+Choosing a contour makes no authored edit; Escape keeps only the completed size edit.
+Closing the chooser preserves the selected stable source and raw start/spacing drafts
+while refreshing the property fields, so another size edit remains usable.
+Font size and the attachment keep separate Undo/Redo steps.
 Repeated expanding Offset/Repeater Macros retain editable Text sources and paint
 geometry. Invalid authored outlines still reject the entire edit atomically.
 For a published numeric Macro control, **Reset** discards an unfinished number
