@@ -10163,10 +10163,11 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                     "No other operation in this Composition can drive the enabled state. Cancel leaves the Session unchanged.":
                     "No link source is available in this Composition. An expression can still use true or false; Cancel leaves the Session unchanged.");
             status->setObjectName("operation-enabled-status-"+qs(operation_id));status->setWordWrap(true);dialog_layout->addWidget(status);
-            const auto update_mode=[mode,source,source_search,expression] {
+            const auto update_mode=[mode,source,source_search,expression,&dialog] {
                 const auto selected=mode->currentData().toString();
                 source->setVisible(selected=="link");source_search->setVisible(selected=="link");
                 expression->setVisible(selected=="expression");
+                if(dialog.isVisible())dialog.resize(dialog.size().expandedTo(dialog.sizeHint()));
             };
             connect(mode,&QComboBox::currentIndexChanged,&dialog,[update_mode](int){update_mode();});update_mode();
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
