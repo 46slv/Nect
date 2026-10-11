@@ -3064,16 +3064,27 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto authored_margin_top=initial_margin.top;
     const auto authored_margin_right=initial_margin.right;
     const auto authored_margin_bottom=initial_margin.bottom;
-    const LayoutBuilder margin_builder=[read,composition,id,parse_number,set_layout_command,margin_left,margin_top,margin_right,margin_bottom,
+    // Compact display text must not round an untouched authored sibling.
+    const auto margin_number_reader=[parse_number](QLineEdit* input,double initial) {
+        return [parse_number,input,initial,displayed=input->text()] {
+            return input->text().trimmed()==displayed?initial:parse_number(input);
+        };
+    };
+    const auto margin_left_value=margin_number_reader(margin_left,initial_margin.left);
+    const auto margin_top_value=margin_number_reader(margin_top,initial_margin.top);
+    const auto margin_right_value=margin_number_reader(margin_right,initial_margin.right);
+    const auto margin_bottom_value=margin_number_reader(margin_bottom,initial_margin.bottom);
+    const LayoutBuilder margin_builder=[read,composition,id,set_layout_command,
+        margin_left_value,margin_top_value,margin_right_value,margin_bottom_value,
         margin_left_driver,margin_left_expression,margin_left_is_driven,authored_margin_left,
         margin_top_driver,margin_top_authored_expression,margin_top_is_driven,authored_margin_top,
         margin_right_driver,margin_right_expression,margin_right_is_driven,authored_margin_right,
         margin_bottom_driver,margin_bottom_expression,margin_bottom_is_driven,authored_margin_bottom] {
         auto current=read();auto value=current.layout.value_or(ArtboardLayout{});
-        value.margin=Margin{margin_left_is_driven?authored_margin_left:parse_number(margin_left),
-            margin_top_is_driven?authored_margin_top:parse_number(margin_top),
-            margin_right_is_driven?authored_margin_right:parse_number(margin_right),
-            margin_bottom_is_driven?authored_margin_bottom:parse_number(margin_bottom)};
+        value.margin=Margin{margin_left_is_driven?authored_margin_left:margin_left_value(),
+            margin_top_is_driven?authored_margin_top:margin_top_value(),
+            margin_right_is_driven?authored_margin_right:margin_right_value(),
+            margin_bottom_is_driven?authored_margin_bottom:margin_bottom_value()};
         value.margin->left_driver=margin_left_driver;value.margin->left_expression=margin_left_expression;
         value.margin->top_driver=margin_top_driver;value.margin->top_expression=margin_top_authored_expression;
         value.margin->right_driver=margin_right_driver;value.margin->right_expression=margin_right_expression;
