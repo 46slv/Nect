@@ -2876,7 +2876,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
         connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key),
-            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview]{
+            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview,initial=resolved.*member]{
             if(!input->isModified())return;input->setModified(false);
             perform([&]{
                 // Hiding a focused field during refresh can finish its old draft.
@@ -2888,24 +2888,32 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 // Cancel keeps revision/generation, so preview-born fields remain ineligible.
                 if(numeric_preview||host.session.gesture_active())
                     throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
-                bool valid=false;const auto value=input->text().trimmed().toDouble(&valid);
-                if(!valid||!std::isfinite(value))throw Error("INVALID_VALUE","Enter a finite frame coordinate or size");
+                const auto text=input->text().trimmed();
+                const bool subtract=text.startsWith("-="),relative=subtract||text.startsWith("+=");
+                bool valid=false;const auto amount=(relative?text.mid(2).trimmed():text).toDouble(&valid);
+                const auto value=relative?initial+(subtract?-amount:amount):amount;
+                if(!valid||!std::isfinite(amount)||!std::isfinite(value))
+                    throw Error("INVALID_VALUE","Enter a finite frame value, +=number or -=number");
+                if(relative&&amount==0) {
+                    input->setText(display_value(initial));statusBar()->clearMessage();return;
+                }
                 auto board=read();
                 if(board.template_assignment&&(key=="width"||key=="height")) {
                     // An explicit field edit must not disappear when its value
                     // equals the retained authored fallback used by UpdateArtboard.
                     apply({ArtboardTemplateCommand{SetArtboardTemplateOverride{
                         composition,board.id,"frame."+key,value}}});
-                    return;
+                    statusBar()->clearMessage();return;
                 }
                 board.*member=value;
                 if(board.parent_size) {
                     if(key=="width")board.parent_size->width=false;
                     if(key=="height")board.parent_size->height=false;
                 }
-                apply({UpdateArtboard{composition,board}});
+                apply({UpdateArtboard{composition,board}});statusBar()->clearMessage();
             });
         });
+        input->setToolTip(input->toolTip()+" Enter a finite value or use +=number / -=number to adjust once; a negative value is absolute.");
     };
     number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
     number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
