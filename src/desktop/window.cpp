@@ -3440,13 +3440,13 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         Grid{board.template_assignment?board.template_assignment->grid_id:new_id(),{0,0,resolved.width,resolved.height},1,1,0,0};
     const Id grid_id=initial_grid.id;
     // Resolve each preview against the captured count, never the previous preview.
-    const auto parse_columns=[parse_count,base=initial_grid.columns](QLineEdit* input) {
+    const auto parse_grid_count=[parse_count](QLineEdit* input,std::size_t base) {
         const auto text=input->text().trimmed();
         const bool subtract=text.startsWith("-=");
         if(!subtract&&!text.startsWith("+="))return parse_count(input);
         const auto digits=text.mid(2);
         if(digits.isEmpty()||std::any_of(digits.begin(),digits.end(),[](QChar ch){return ch<'0'||ch>'9';}))
-            throw Error("INVALID_INTEGER","Enter a column count, +=integer or -=integer");
+            throw Error("INVALID_INTEGER","Enter a Grid count, +=integer or -=integer");
         bool valid=false;const auto amount=digits.toLongLong(&valid,10);
         const auto count=static_cast<qlonglong>(base);
         // Check before arithmetic so even the largest integer draft cannot overflow.
@@ -3501,7 +3501,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     grid_rows->setReadOnly(grid_rows_is_driven);
     grid_rows->setToolTip(grid_rows_is_driven?
         "This authored integer is read-only while its Grid source is active. Unlink to edit it.":
-        "Unitless Grid row count from 1 to 1000.");
+        "Unitless Grid row count from 1 to 1000. Enter a count, +=integer or -=integer to adjust it.");
     auto* grid_column_gutter=make_number(grid_box,"grid-column-gutter","Column gutter",QString::number(initial_grid.column_gutter,'g',15));
     grid_column_gutter->setReadOnly(grid_column_gutter_is_driven);
     grid_column_gutter->setToolTip(grid_column_gutter_is_driven?
@@ -3537,7 +3537,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const bool grid_exists=(board.layout&&board.layout->grid)||(resolved.layout&&resolved.layout->grid);
     const Grid initial_grid_values=grid_is_inherited?
         Grid{grid_id,initial_grid.bounds,initial_grid.columns,initial_grid.rows,initial_grid.column_gutter,initial_grid.row_gutter}:initial_grid;
-    const auto build_grid=[read,composition,id,parse_count,parse_columns,set_layout_command,grid_id,grid_columns,grid_rows,
+    const auto build_grid=[read,composition,id,parse_grid_count,set_layout_command,grid_id,grid_columns,grid_rows,
         grid_x_value,grid_y_value,grid_width_value,grid_height_value,grid_column_gutter_value,grid_row_gutter_value,
         grid_is_inherited,grid_exists,initial_grid_values,
         grid_columns_driver,grid_columns_expression,grid_columns_is_driven,authored_grid_columns=initial_grid.columns,
@@ -3554,8 +3554,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             grid_bounds_y_is_driven?authored_grid_y:grid_y_value(),
             grid_bounds_width_is_driven?authored_grid_width:grid_width_value(),
             grid_bounds_height_is_driven?authored_grid_height:grid_height_value()},
-            grid_columns_is_driven?authored_grid_columns:parse_columns(grid_columns),
-            grid_rows_is_driven?authored_grid_rows:parse_count(grid_rows),grid_column_gutter_is_driven?authored_grid_column_gutter:grid_column_gutter_value(),
+            grid_columns_is_driven?authored_grid_columns:parse_grid_count(grid_columns,authored_grid_columns),
+            grid_rows_is_driven?authored_grid_rows:parse_grid_count(grid_rows,authored_grid_rows),grid_column_gutter_is_driven?authored_grid_column_gutter:grid_column_gutter_value(),
             grid_row_gutter_is_driven?authored_grid_row_gutter:grid_row_gutter_value()};
         grid.columns_driver=grid_columns_driver;
         grid.columns_expression=grid_columns_expression;
