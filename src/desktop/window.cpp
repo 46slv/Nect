@@ -10381,7 +10381,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);rule_layout->addWidget(driver_button);
             auto* edit_rule=driver_menu->addAction("Edit, link or unlink…");
             const auto frozen_revision=host.session.revision();
-            connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision,enabled_composition] {
+            connect(edit_rule,&QAction::triggered,this,[this,object_id=object.id,operation_id=operation.id,target,state,frozen_session,frozen_revision,enabled_composition,verify_operation_context] {
                 QDialog dialog(this);dialog.setObjectName("fill-rule-dialog-"+qs(operation_id));dialog.setWindowTitle("Edit Fill rule");
                 auto* dialog_layout=new QVBoxLayout(&dialog);
                 auto* mode=new QComboBox(&dialog);mode->setObjectName("fill-rule-mode-"+qs(operation_id));
@@ -10447,7 +10447,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                 auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);dialog_layout->addWidget(buttons);
                 connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
                 connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-                    [this,&dialog,object_id,operation_id,target,state,frozen_session,frozen_revision,mode,value,source,source_refs,unlink_edit,status] {
+                    [this,&dialog,object_id,operation_id,target,state,frozen_session,frozen_revision,verify_operation_context,mode,value,source,source_refs,unlink_edit,status] {
                         try {
                             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Fill belongs to another document");
                             if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","The Fill changed while its rule editor was open; reopen it");
@@ -10456,6 +10456,8 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
                             const auto current=std::find_if(object->second.stack.begin(),object->second.stack.end(),
                                 [&](const auto& candidate){return candidate.id==operation_id&&candidate.type=="nect.paint.fill";});
                             if(current==object->second.stack.end())throw Error("MISSING_OPERATION",operation_id);
+                            if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+                            verify_operation_context();
                             const auto selected=mode->currentData().toString();std::vector<Command> commands;
                             if(selected=="link") {
                                 if(source->currentIndex()<0)throw Error("MISSING_REFERENCE","Choose a visible Fill rule source");
