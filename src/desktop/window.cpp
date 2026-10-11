@@ -12978,7 +12978,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 return;
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
-            if(!valid||!std::isfinite(value)) throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
+            if(!valid||!std::isfinite(value)) {
+                if(input->property("nect-semantic-key").isValid())input->setModified(true);
+                throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
+            }
             if(input->property("nect-semantic-key").isValid()&&!relative&&
                std::all_of(targets.begin(),targets.end(),[&](const Ref& target){return inspector_values_.at(target)==value;})) {
                 record_scalar_commit();statusBar()->clearMessage();return;
