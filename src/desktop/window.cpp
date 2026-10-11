@@ -3061,8 +3061,6 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const bool margin_bottom_is_driven=margin_bottom_driver.has_value()||margin_bottom_expression.has_value();
     margin_bottom->setReadOnly(margin_bottom_is_driven);
     margin_bottom->setToolTip(margin_bottom_is_driven?"This authored literal is read-only while its source is active. Unlink to edit it.":"Artboard-local Margin Bottom inset in du. Enter a number, +=number or -=number to adjust it.");
-    margin_form->addRow("Left · du",margin_left);margin_form->addRow("Top · du",margin_top);
-    margin_form->addRow("Right · du",margin_right);margin_form->addRow("Bottom · du",margin_bottom);
     const auto authored_margin_left=initial_margin.left;
     const auto authored_margin_top=initial_margin.top;
     const auto authored_margin_right=initial_margin.right;
@@ -3152,6 +3150,79 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             *value.margin==initial_margin)return std::vector<Command>{};
         return set_layout_command(value,"layout.margin");
     };
+    const auto margin_row=[this,margin_box,build_margin,frozen_session,frozen_revision,
+        document=host.session.document().id](QLineEdit* input,const QString& label,double initial) {
+        auto* row=new QWidget(margin_box);auto* line=new QHBoxLayout(row);
+        line->setContentsMargins(0,0,0,0);line->setSpacing(4);line->addWidget(input,1);
+        auto* scrub=new SemanticScrub(row);line->addWidget(scrub);
+        scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" Margin scrub · du");
+        scrub->setEnabled(!input->isReadOnly());
+        if(input->isReadOnly())scrub->setToolTip("Driven Margin: explicitly unlink before scrubbing.");
+        struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+        auto state=std::make_shared<Interaction>();
+        const QPointer<SemanticScrub> safe_scrub=scrub;const QPointer<QLineEdit> safe_input=input;
+        const auto initial_text=QString::number(initial,'g',17);
+        const auto owns=[this,state,frozen_session,frozen_revision,document] {
+            return state->owned&&host.session_id==frozen_session&&host.session.document().id==document&&
+                host.session.revision()==frozen_revision&&host.session.gesture_active()&&
+                host.session.gesture_generation()==state->generation;
+        };
+        const auto validate=[this,state,frozen_session,frozen_revision,document,safe_input] {
+            if(!state->live||!safe_input||host.session_id!=frozen_session||host.session.document().id!=document)
+                throw Error("SESSION_CONFLICT","Margin scrub belongs to another document");
+            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Refresh Margin controls before scrubbing");
+            if(safe_input->isReadOnly())throw Error("DRIVEN_PROPERTY","Explicitly unlink before scrubbing");
+        };
+        const auto cancel=[this,state,owns,safe_scrub,safe_input,initial_text] {
+            const bool local=state->owned,active=owns();
+            if(active)host.session.cancel_gesture();state->owned=false;
+            if(safe_scrub)safe_scrub->disarm();
+            if(local&&safe_input){safe_input->setText(initial_text);safe_input->setModified(false);}
+            if(active){canvas->refresh();canvas->update();}
+        };
+        const auto report=[this](const std::exception& exception) {
+            const auto* error=dynamic_cast<const Error*>(&exception);
+            statusBar()->showMessage((error?qs(error->code)+": ":QString{})+QString::fromUtf8(exception.what()),12000);
+        };
+        register_angle_adapter(scrub,[state,cancel](bool dispose){if(dispose)state->live=false;cancel();});
+        connect(scrub,&QObject::destroyed,this,[state,cancel]{state->live=false;cancel();});
+        connect(qApp,&QGuiApplication::applicationStateChanged,scrub,[cancel](Qt::ApplicationState value){
+            if(value!=Qt::ApplicationActive)cancel();
+        });
+        scrub->begin=[this,state,validate,report,safe_input] {
+            try {
+                validate();
+                if(safe_input->isModified()||layout_preview_active_||layout_preview_invalid_)
+                    throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
+                host.session.begin_gesture(host.session.revision());state->generation=host.session.gesture_generation();
+                state->owned=true;return true;
+            }catch(const std::exception& error){report(error);return false;}
+        };
+        scrub->preview_delta=[this,state,owns,validate,cancel,report,safe_input,build_margin,initial,initial_text](double delta) {
+            if(!owns()){if(state->owned)cancel();return;}
+            try {
+                validate();const auto value=initial+delta;
+                if(!std::isfinite(value))throw Error("INVALID_VALUE","Margin must remain finite");
+                // An empty canonical preview returns to inherited/absent authored state.
+                // It keeps this one gesture armed until release, without creating History.
+                safe_input->setText(delta==0?initial_text:QString::number(value,'g',17));safe_input->setModified(false);
+                host.session.update_gesture(delta==0?std::vector<Command>{}:build_margin(false,safe_input));
+                statusBar()->clearMessage();
+                canvas->refresh();canvas->update();
+            }catch(const std::exception& error){cancel();report(error);}
+        };
+        scrub->commit=[this,state,owns,validate,cancel,report] {
+            if(!owns()){if(state->owned)cancel();return;}
+            try{validate();host.session.commit_gesture();state->owned=false;statusBar()->clearMessage();host.edited();}
+            catch(const std::exception& error){cancel();report(error);}
+        };
+        scrub->cancel=cancel;
+        return row;
+    };
+    margin_form->addRow("Left · du",margin_row(margin_left,"Left",initial_margin.left));
+    margin_form->addRow("Top · du",margin_row(margin_top,"Top",initial_margin.top));
+    margin_form->addRow("Right · du",margin_row(margin_right,"Right",initial_margin.right));
+    margin_form->addRow("Bottom · du",margin_row(margin_bottom,"Bottom",initial_margin.bottom));
     auto* margin_source_box=new QGroupBox("Left source",margin_box);margin_source_box->setObjectName("margin-left-source");
     auto* margin_source_layout=new QVBoxLayout(margin_source_box);
     auto* margin_source_state=new QLabel(margin_source_box);margin_source_state->setObjectName("margin-left-source-state");
