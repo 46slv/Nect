@@ -2860,6 +2860,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     const auto numeric_document=host.session.document().id;
     const auto numeric_gesture=host.session.gesture_generation();
     const auto numeric_preview=host.session.gesture_active();
+    auto size_expression_editors=std::make_shared<std::array<QPointer<ExpressionInput>,2>>();
     auto number=[&](const char* key,const QString& label,double Artboard::* member) {
         auto* input=new QLineEdit(display_value(resolved.*member));input->setObjectName(QString("artboard-")+key);
         input->setAccessibleName(label);form->addRow(label,input);
@@ -2876,7 +2877,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         }
         else input->setToolTip("Crop position only; this does not move any artwork.");
         connect(input,&QLineEdit::editingFinished,this,[this,input,composition,read,apply,member,key=std::string(key),
-            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview,initial=resolved.*member]{
+            frozen_session,frozen_revision,numeric_document,numeric_gesture,numeric_preview,size_expression_editors,initial=resolved.*member]{
             if(!input->isModified())return;input->setModified(false);
             perform([&]{
                 // Hiding a focused field during refresh can finish its old draft.
@@ -2888,7 +2889,18 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 // Cancel keeps revision/generation, so preview-born fields remain ineligible.
                 if(numeric_preview||host.session.gesture_active())
                     throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
-                const auto text=input->text().trimmed();
+                const auto raw=input->text(),text=raw.trimmed();
+                if(text.startsWith('=')) {
+                    if(key!="width"&&key!="height")
+                        throw Error("UNSUPPORTED_EXPRESSION","Frame X/Y do not support typed expressions");
+                    auto editor=(*size_expression_editors)[key=="width"?0:1];
+                    if(!editor)throw Error("EDIT_CONTEXT_LOST","Reopen the frame size source editor");
+                    editor->setPlainText(raw.mid(raw.indexOf('=')+1));
+                    input->setText(display_value(initial));input->setModified(false);
+                    for(auto* parent=editor->parentWidget();parent;parent=parent->parentWidget())
+                        if(auto* scroll=qobject_cast<QScrollArea*>(parent))scroll->ensureWidgetVisible(editor);
+                    editor->setFocus(Qt::OtherFocusReason);statusBar()->clearMessage();return;
+                }
                 const bool subtract=text.startsWith("-="),relative=subtract||text.startsWith("+=");
                 bool valid=false;const auto amount=(relative?text.mid(2).trimmed():text).toDouble(&valid);
                 const auto value=relative?initial+(subtract?-amount:amount):amount;
@@ -2914,6 +2926,8 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             });
         });
         input->setToolTip(input->toolTip()+" Enter a finite value or use +=number / -=number to adjust once; a negative value is absolute.");
+        if(std::string(key)=="width"||std::string(key)=="height")
+            input->setToolTip(input->toolTip()+" Use =expression to edit its source, then Ctrl+Enter to apply.");
     };
     number("x","Frame X · crop",&Artboard::x);number("y","Frame Y · crop",&Artboard::y);
     number("width","Width",&Artboard::width);number("height","Height",&Artboard::height);
@@ -2947,6 +2961,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         source_layout->addWidget(source);
         auto* expression=new ExpressionInput;expression->setObjectName("artboard-"+axis+"-expression");
         expression->setAccessibleName(axis+" expression");expression->enable_inline_expansion();
+        (*size_expression_editors)[width?0:1]=expression;
         expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
         if(driver&&std::holds_alternative<Expression>(driver->value))expression->setPlainText(qs(std::get<Expression>(driver->value).source));
         source_layout->addWidget(expression);
