@@ -30,6 +30,24 @@ inline void context(bool pending,const std::string& mode="cancel") {
     linked.apply({LinkProperties{{target},source,false}},linked.revision());
     check(linked.document()==linked_document&&decode(encode(linked_document))==linked_document,
         "Independent exact source/target Link oracle native-validates BEFORE Window");
+    const bool refusal=mode=="incoming-source"||mode=="incoming-revision";
+    Session incoming=scalar;auto incoming_document=scalar_document;
+    if(mode=="incoming-source") {
+        auto base=d;base.objects.at("second").name="Incoming whole Source-picker target";
+        base.objects.at("second").text->id="incoming-second-text";
+        incoming=Session(base);incoming.apply({EditProperties{{{"second","","text.font_size"}},64,false}},incoming.revision());
+        incoming_document=base;incoming_document.objects.at("second").text->parameters.at("font_size").literal=64;
+        check(incoming.revision()==scalar.revision(),"Independent incoming whole target retains equal scalar revision BEFORE Window");
+    }else if(mode=="incoming-revision") {
+        incoming.apply({Rename{"source","Incoming source context revision"}},incoming.revision());
+        incoming_document.objects.at("source").name="Incoming source context revision";
+        const auto before=incoming;bool rejected=false;
+        try{incoming.apply({LinkProperties{{target},source,false}},scalar.revision());}
+        catch(const Error& error){check(error.code=="REVISION_CONFLICT","Independent stale Link revision reports exact refusal BEFORE Window");rejected=true;}
+        check(rejected&&same(incoming,before),"Canonical stale Link refusal preserves complete incoming Session BEFORE Window");
+    }
+    check(incoming.document()==incoming_document&&decode(encode(incoming_document))==incoming_document,
+        "Independent whole incoming source/target/context native-validates BEFORE Window");
     QTemporaryDir scratch;check(scratch.isValid(),"Source-action Window owns settings/recovery/native scratch");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
     Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
@@ -114,11 +132,21 @@ inline void context(bool pending,const std::string& mode="cancel") {
             "Source browsing changes only viewed selection with full Session/revision/scope neutral");
         check(!action&&!start&&!spacing&&!contour,"Source browsing expires only original Inspector controls");
         std::cout<<"PATH_SOURCE_KEYBOARD_BROWSE pending="<<pending<<" mode="<<mode<<" source=source/text.origin_y revision="<<w.host.session.revision()<<" neutral=1 controls=expired"<<std::endl;
-        if(mode=="link") {
+        if(mode=="link"||refusal) {
             auto* buttons=picker->findChild<QDialogButtonBox*>();check(buttons,"Existing Source picker confirm owner exists");
             QTest::keyClick(picker->windowHandle(),Qt::Key_Tab);events();
             check(buttons->button(QDialogButtonBox::Ok)->hasFocus(),"Actual source-list Tab reaches existing OK button");
+            if(refusal)w.host.session=incoming;
             QTest::keyClick(picker->windowHandle(),Qt::Key_Space);events();
+            if(refusal) {
+                const auto code=mode=="incoming-source"?"TEXT_EDIT_CONFLICT":"REVISION_CONFLICT";
+                check(picker&&picker->isVisible()&&w.statusBar()->currentMessage().startsWith(code)&&same(w.host.session,incoming)&&
+                    w.host.session_id==session_id&&w.canvas->selections()==std::vector<Canvas::Selection>{{"source",{}}}&&
+                    w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
+                    "Actual stale owned-picker confirm refuses exact incoming lineage/revision atomically");
+                std::cout<<"PATH_SOURCE_KEYBOARD_REFUSAL mode="<<mode<<" code="<<code<<" incoming_revision="<<incoming.revision()<<" atomic=1"<<std::endl;
+                scalar=incoming;
+            }else {
             check(!picker&&same(w.host.session,linked)&&w.host.session_id==session_id&&w.canvas->selections()==selected&&
                 w.canvas->active_composition()==composition&&w.canvas->active_artboard()==artboard,
                 "Actual existing OK activation links exact frozen target/source and full independent canonical Session");
@@ -130,6 +158,7 @@ inline void context(bool pending,const std::string& mode="cancel") {
             text_path_batch_window_smoke::history(w,"Redo");linked.redo(linked.revision());
             check(same(w.host.session,linked)&&linked.document()==linked_document,"Independent Source Link Redo restores entire linked native state");
             scalar=linked;
+            }
         }
     }
     if(picker){QTest::keyClick(picker->windowHandle(),Qt::Key_Escape);events();}
@@ -140,7 +169,7 @@ inline void context(bool pending,const std::string& mode="cancel") {
         "Picker Cancel keeps exact existing controls and raw Path drafts alive");
     else check(w.findChild<QLineEdit*>("text-path-start")&&w.findChild<QLineEdit*>("text-path-spacing"),
         "Source browser completion restores current target Path controls");
-    if(pending&&mode!="link"){text_path_batch_window_smoke::history(w,"Undo");auto history=scalar;history.undo(history.revision());
+    if(pending&&mode!="link"&&!refusal){text_path_batch_window_smoke::history(w,"Undo");auto history=scalar;history.undo(history.revision());
         check(same(w.host.session,history)&&history.document()==d,"Cancel keeps independent Scalar Undo");
         text_path_batch_window_smoke::history(w,"Redo");history.redo(history.revision());check(same(w.host.session,history),"Cancel keeps independent Scalar Redo");scalar=history;}
     const auto native=scratch.filePath("source-entry.nect");w.host.save(native);w.host.flush();
@@ -157,4 +186,7 @@ inline void run(){const int before=text_path_batch_window_smoke::checks;context(
 inline void run_choice(){const int before=text_path_batch_window_smoke::checks;
     context(false,"browse-cancel");context(false,"link");context(true,"link");
     std::cout<<"PathSourceKeyboardChoice Windows cases=3 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
+inline void run_incoming(){const int before=text_path_batch_window_smoke::checks;
+    context(true,"incoming-source");context(true,"incoming-revision");
+    std::cout<<"PathSourceKeyboardIncoming Windows cases=2 checks="<<text_path_batch_window_smoke::checks-before<<" failures=0 physical OS input NOT_RUN"<<std::endl;}
 }
