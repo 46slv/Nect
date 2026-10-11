@@ -10026,6 +10026,7 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
         host.session.apply(commands,host.session.revision());host.edited();
     };
+    std::vector<Id> original_operation_order;for(const auto& item:object.stack)original_operation_order.push_back(item.id);
     for(std::size_t index=0;index<object.stack.size();++index) {
         const auto& operation=object.stack[index];
         const auto name=operation.macro?qs(host.session.document().macro_definitions.at(operation.macro->definition).label):operation_label(operation);
@@ -10199,12 +10200,16 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             perform([&]{verify_operation_context();apply({EnableOperation{id,op,checked}});applied=true;});
             if(!applied){const QSignalBlocker blocker(enabled);enabled->setChecked(!checked);}
         });
-        connect(up,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,frozen_session]{perform([&]{
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
-            move_operation(id,op,-1);});});
-        connect(down,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,frozen_session]{perform([&]{
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The shape stack belongs to another document");
-            move_operation(id,op,1);});});
+        const auto verify_operation_order=[this,verify_operation_context,id=object.id,order=original_operation_order] {
+            verify_operation_context();const auto& stack=host.session.document().objects.at(id).stack;
+            if(stack.size()!=order.size()||!std::equal(stack.begin(),stack.end(),order.begin(),
+                [](const auto& entry,const Id& expected){return entry.id==expected;}))
+                throw Error("PROPERTY_CONFLICT","The original stack order changed; reopen the Inspector");
+        };
+        connect(up,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,verify_operation_order]{perform([&]{
+            verify_operation_order();move_operation(id,op,-1);});});
+        connect(down,&QPushButton::clicked,this,[this,id=object.id,op=operation.id,verify_operation_order]{perform([&]{
+            verify_operation_order();move_operation(id,op,1);});});
         connect(remove,&QPushButton::clicked,this,[this,apply,verify_operation_context,id=object.id,op=operation.id]{perform([&]{verify_operation_context();apply({RemoveOperation{id,op}});});});
         if(!operation.macro&&operation.type!="nect.shape.offset") {
         auto* composite=new QComboBox;
