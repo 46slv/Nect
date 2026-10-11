@@ -987,7 +987,7 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
     };
     knob->commit_drag=[this,state,owns,validate,cancel,report] {
         if(!owns()){if(state->owned)cancel();return;}
-        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        try {validate();host.session.commit_gesture();state->owned=false;statusBar()->clearMessage();host.edited();}
         catch(const std::exception& exception){cancel();report(exception);}
     };
     knob->cancel_drag=cancel;
@@ -1118,7 +1118,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     };
     auto commit_interaction=[this,state,owns,validate,cancel,report] {
         if(!owns()){if(state->owned)cancel();return;}
-        try {validate();host.session.commit_gesture();state->owned=false;host.edited();}
+        try {validate();host.session.commit_gesture();state->owned=false;statusBar()->clearMessage();host.edited();}
         catch(const std::exception& exception){cancel();report(exception);}
     };
     if(slider) {
