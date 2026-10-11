@@ -4745,7 +4745,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         auto* position_status=new QLabel(row);position_status->setObjectName("guide-position-status-"+qs(source.id));
         auto* unlink_position=new QPushButton("Unlink position",row);unlink_position->setObjectName("guide-unlink-position-"+qs(source.id));
         auto* expression=new ExpressionInput;expression->setObjectName("guide-position-expression-"+qs(source.id));
-        expression->setAccessibleName(qs(source.name)+" position expression");expression->setFixedHeight(58);
+        expression->setAccessibleName(qs(source.name)+" position expression");expression->enable_inline_expansion();
         expression->setPlaceholderText("Numeric expression in du; Ctrl+Enter to apply");
         if(source.position_expression)expression->setPlainText(qs(source.position_expression->source));
         auto* replace_source=new QCheckBox("Replace current position source",row);
