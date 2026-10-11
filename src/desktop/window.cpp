@@ -4894,8 +4894,6 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     auto* new_guide_name=new QLineEdit(QString::fromStdString(new_guide.name),add_guide_box);new_guide_name->setObjectName("guide-new-name");
     auto* new_guide_axis=new QComboBox(add_guide_box);new_guide_axis->setObjectName("guide-new-axis");new_guide_axis->addItem("Vertical · x",QStringLiteral("x"));new_guide_axis->addItem("Horizontal · y",QStringLiteral("y"));
     auto* new_guide_position=make_number(add_guide_box,"guide-new-position","Guide position","0");
-    add_guide_form->addRow("Name",new_guide_name);add_guide_form->addRow("Axis",new_guide_axis);add_guide_form->addRow("Position · du",new_guide_position);
-    auto* add_guide=new QPushButton("Add Guide",add_guide_box);add_guide->setObjectName("guide-add");add_guide_form->addRow(add_guide);
     const LayoutBuilder add_guide_builder=[composition,new_guide,new_guide_name,new_guide_axis,new_guide_position,parse_number] {
         auto value=new_guide;value.name=new_guide_name->text().toStdString();value.axis=new_guide_axis->currentData().toString().toStdString();value.position=parse_number(new_guide_position);
         return std::vector<Command>{AddGuide{composition,std::move(value)}};
@@ -4914,6 +4912,12 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         }
         return true;
     };
+    SemanticScrub* new_guide_scrub=nullptr;
+    auto* new_guide_position_row=layout_scrub_row(add_guide_box,new_guide_position,"New Guide position",new_guide.position,add_guide_builder,&new_guide_scrub);
+    const auto add_scrub_begin=new_guide_scrub->begin;
+    new_guide_scrub->begin=[add_guide_current,add_scrub_begin]{return add_guide_current()&&add_scrub_begin();};
+    add_guide_form->addRow("Name",new_guide_name);add_guide_form->addRow("Axis",new_guide_axis);add_guide_form->addRow("Position · du",new_guide_position_row);
+    auto* add_guide=new QPushButton("Add Guide",add_guide_box);add_guide->setObjectName("guide-add");add_guide_form->addRow(add_guide);
     for(auto* input:{new_guide_name,new_guide_position}) {
         connect(input,&QLineEdit::textEdited,this,[preview_from,add_guide_box,add_guide_builder,add_guide_current]{if(add_guide_current())preview_from(add_guide_box,add_guide_builder);});
         connect(input,&QLineEdit::returnPressed,this,[commit_from,add_guide_box,add_guide_builder,add_guide_current]{if(add_guide_current())commit_from(add_guide_box,add_guide_builder);});
