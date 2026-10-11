@@ -97,9 +97,11 @@ inline QByteArray bytes(const QString& path) {
     QFile file(path);check(file.open(QIODevice::ReadOnly),"Read exact owned bytes");
     auto value=file.readAll();check(file.error()==QFileDevice::NoError,"Owned read complete");return value;
 }
-inline int cold(const QString& path) {
+inline int cold(const QString& path,bool replacement=false) {
     check(QApplication::platformName()=="windows","Cold native process uses Windows platform");
-    const auto expected=incoming_document();native_valid(expected);
+    auto expected=incoming_document();
+    if(replacement)expected.compositions.front().artboards[1].width=1400;
+    native_valid(expected);
     QTemporaryDir scratch;check(scratch.isValid(),"Cold Host owns recovery directory");
     const auto original=bytes(path);
     Host host(scratch.path());host.open(path);
@@ -108,12 +110,21 @@ inline int cold(const QString& path) {
     host.flush();check(bytes(path)==original,"Cold Host preserves original incoming native bytes");
     std::cout<<"PASS cold Template Reset incoming native: "<<checks<<" checks\n";return 0;
 }
-inline int run() {
+inline int run(bool replacement=false) {
     check(QApplication::platformName()=="windows","Actual native Windows Window platform");
-    const auto before=fixture(),incoming=incoming_document();
+    const auto seed=fixture();auto before=seed, incoming=incoming_document();
+    Session initial(seed);
+    if(replacement) {
+        before.objects.at("reset-caption").name="Original prior edit";
+        initial.apply({Rename{"reset-caption","Original prior edit"}},0);
+        incoming.compositions.front().artboards[1].width=1400;
+    }
+    check(initial.document()==before,"Independent original whole Document and prior History are established before Window");
     auto reset=incoming;reset.compositions.front().artboards.front().template_assignment->width_override.reset();
     native_valid(before);native_valid(incoming);native_valid(reset);
-    Session initial(before),reference(before);
+    const auto replacement_document=incoming_document();
+    if(replacement)native_valid(replacement_document);
+    Session replacement_base(replacement_document),reference(replacement?replacement_document:before);
     reference.apply({UpdateArtboard{"reset-composition",incoming.compositions.front().artboards[1]}},0);
     state(reference,reference,incoming);
     check(reference.revision()==1,"Independent incoming source edit advances canonical revision before Window");
@@ -124,23 +135,33 @@ inline int run() {
     source_frame.remove("local_guides");
     const QJsonObject command{{"type","update_artboard"},{"composition","reset-composition"},{"artboard",source_frame}};
     const QJsonObject core_request{{"op","apply"},{"expected_revision",0},{"commands",QJsonArray{command}}};
-    auto api_reference=initial;
+    auto api_reference=replacement?replacement_base:initial;
     const auto api_result=QJsonDocument::fromJson(QByteArray::fromStdString(nect::request(api_reference,
         QJsonDocument(core_request).toJson(QJsonDocument::Compact).toStdString()))).object();
     check(api_result.value("ok").toBool(),"Independent exact incoming API request validates before Window");
     state(api_reference,reference,incoming);
-    auto stale=reference;bool refused=false;
-    try{stale.apply({ArtboardTemplateCommand{ResetArtboardTemplateOverride{"reset-composition","reset-target","frame.width"}}},0);}
-    catch(const Error& error){check(error.code=="REVISION_CONFLICT","Independent canonical stale Reset code derived before Window");refused=true;}
-    check(refused,"Canonical stale Reset refuses before Window");state(stale,reference,incoming);
+    auto stale=reference;
+    const Command reset_command=ArtboardTemplateCommand{ResetArtboardTemplateOverride{"reset-composition","reset-target","frame.width"}};
+    if(replacement) {
+        check(initial.revision()==reference.revision(),"Independent replacement incoming revision equals original captured revision before Window");
+        stale.apply({reset_command},initial.revision());
+        check(stale.document()==reset,"Independent numeric revision alone would accept Reset in replacement Session before Window");
+    }else {
+        bool refused=false;
+        try{stale.apply({reset_command},0);}
+        catch(const Error& error){check(error.code=="REVISION_CONFLICT","Independent canonical stale Reset code derived before Window");refused=true;}
+        check(refused,"Canonical stale Reset refuses before Window");state(stale,reference,incoming);
+    }
     auto undone=reference;undone.undo(undone.revision());
-    check(undone.document()==before,"Independent incoming Undo returns entire prior Document before Window");
+    const auto& undo_document=replacement?replacement_document:before;
+    check(undone.document()==undo_document,"Independent incoming Undo returns entire prior Document before Window");
     auto redone=undone;redone.redo(redone.revision());
     check(redone.document()==incoming,"Independent incoming Redo returns entire source edit before Window");
     const auto effective=evaluate_artboard(incoming.compositions.front(),"reset-target");
     check(effective.width==700&&effective.height==490,"Independent incoming target still has both own overrides");
-    check(evaluate_artboard(reset.compositions.front(),"reset-target").width==1300,"Independent Reset result would inherit changed source width");
-    const auto expected_error=QString("REVISION_CONFLICT: Template command captured revision 0 but the current revision is 1; discard it and refresh the captured Artboard");
+    check(evaluate_artboard(reset.compositions.front(),"reset-target").width==(replacement?1400:1300),"Independent Reset result would inherit changed source width");
+    const auto expected_error=replacement?QString("SESSION_CONFLICT: Template command belongs to another document session"):
+        QString("REVISION_CONFLICT: Template command captured revision 0 but the current revision is 1; discard it and refresh the captured Artboard");
     // Window::perform renders code + what(); Reset's accepted dialog closes before revalidation.
     QTemporaryDir scratch;check(scratch.isValid(),"Owned recovery/settings/native scratch");
     QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
@@ -150,6 +171,12 @@ inline int run() {
     {QFile file(source_path);check(file.open(QIODevice::WriteOnly),"Owned original snapshot opens");
         const auto encoded=QByteArray::fromStdString(encode(before));check(file.write(encoded)==encoded.size(),"Entire owned initial snapshot writes");}
     const auto source_before=bytes(source_path);
+    const auto replacement_path=scratch.filePath("replacement.nect");
+    if(replacement) {
+        QFile file(replacement_path);check(file.open(QIODevice::WriteOnly),"Owned replacement native snapshot opens");
+        const auto encoded=QByteArray::fromStdString(encode(replacement_document));
+        check(file.write(encoded)==encoded.size(),"Whole independent replacement native snapshot writes before Window");
+    }
     Window window(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);
     window.resize(1400,900);window.host.session=initial;window.host.session_id="template-reset-incoming-session";
     window.refresh();window.show();window.activateWindow();events();
@@ -165,6 +192,7 @@ inline int run() {
     if(auto* scroll=window.findChild<QScrollArea*>("inspector-scroll"))scroll->ensureWidgetVisible(action);
     events();state(window.host.session,initial,before);
     const auto session_id=window.host.session_id;
+    auto live_session_id=session_id;
     const auto composition=window.canvas->active_composition(),artboard=window.canvas->active_artboard();
     const auto selection=window.canvas->selections();
     std::exception_ptr failure;QPointer<QDialog> modal;bool entered=false;int pressed=0,released=0,clicked=0;
@@ -180,15 +208,22 @@ inline int run() {
             const auto index=field->findData("frame.width");check(index>=0,"Exact original own width override is offered");
             field->setCurrentIndex(index);state(window.host.session,initial,before);
             check(field->currentData().toString()=="frame.width","Choosing width reset remains authored-state neutral");
+            if(replacement) {
+                window.host.open(replacement_path);events();live_session_id=window.host.session_id;
+                check(live_session_id!=session_id,"Actual Host.open creates a different owning Session, retaining Document and target IDs");
+                state(window.host.session,replacement_base,replacement_document);
+                check(modal&&modal->isVisible()&&QApplication::activeModalWidget()==modal,"Actual native replacement keeps original owned Reset modal open");
+            }
             // Use the exact frame request independently validated before Window.
-            const QJsonObject envelope{{"op","core"},{"session_id",session_id},{"document_id","reset-incoming-document"},{"request",core_request}};
+            const QJsonObject envelope{{"op","core"},{"session_id",live_session_id},{"document_id","reset-incoming-document"},{"request",core_request}};
             const auto response=QJsonDocument::fromJson(window.host.dispatch(QJsonDocument(envelope).toJson(QJsonDocument::Compact))).object();
             if(!response.value("ok").toBool()||response.value("revision").toInteger()!=1)
                 std::cerr<<"Incoming Host API response: "<<QJsonDocument(response).toJson(QJsonDocument::Compact).toStdString()<<'\n';
             check(response.value("ok").toBool()&&response.value("revision").toInteger()==1,"Canonical Host source-width edit succeeds while original Reset modal is open");
             state(window.host.session,reference,incoming);
+            if(replacement)check(window.host.session.revision()==initial.revision(),"Actual replacement incoming revision matches original modal's numeric revision");
             check(modal&&modal->isVisible()&&QApplication::activeModalWidget()==modal,"Incoming leaves original Reset modal open until confirmation");
-            check(window.host.session_id==session_id&&window.canvas->active_composition()==composition&&window.canvas->active_artboard()==artboard&&window.canvas->selections()==selection,
+            check(window.host.session_id==live_session_id&&window.canvas->active_composition()==composition&&window.canvas->active_artboard()==artboard&&window.canvas->selections()==selection,
                 "Incoming retains exact Host/Canvas target and selection identities");
             auto* buttons=modal->findChild<QDialogButtonBox*>();check(buttons&&buttons->button(QDialogButtonBox::Apply),"Existing Reset selected field Apply exists");
             QTest::mouseClick(buttons->button(QDialogButtonBox::Apply),Qt::LeftButton);
@@ -197,16 +232,16 @@ inline int run() {
     QTest::mouseClick(action,Qt::LeftButton);events();if(failure)std::rethrow_exception(failure);
     check(entered&&pressed==1&&released==1&&clicked==1,"Native QTest Reset pointer press/release invokes existing handler exactly once");
     check(!modal&&!QApplication::activeModalWidget(),"Accepted existing Reset dialog closes before stale error is displayed");
-    check(window.statusBar()->currentMessage()==expected_error,"Exact existing Window code/message reports revision conflict");
+    check(window.statusBar()->currentMessage()==expected_error,"Exact existing Window conflict code/message matches captured context owner");
     state(window.host.session,reference,incoming);
-    check(window.host.session_id==session_id&&window.canvas->active_composition()==composition&&window.canvas->active_artboard()==artboard&&window.canvas->selections()==selection,
+    check(window.host.session_id==live_session_id&&window.canvas->active_composition()==composition&&window.canvas->active_artboard()==artboard&&window.canvas->selections()==selection,
         "Stale Reset retains exact Host/Canvas target and selection identities");
     const auto undo=[&](const QString& text){for(auto* a:window.findChildren<QAction*>())if(a->text()==text){a->trigger();events();return;}throw std::runtime_error("Missing existing History action");};
-    undo("Undo");state(window.host.session,undone,before);
+    undo("Undo");state(window.host.session,undone,undo_document);
     undo("Redo");state(window.host.session,redone,incoming);
     const auto path=scratch.filePath("incoming.nect");window.host.save(path);
     check(bytes(path)==QByteArray::fromStdString(encode(incoming)),"Actual Host Save contains entire independent incoming Document");
-    QProcess process;process.start(QCoreApplication::applicationFilePath(),{"--template-reset-incoming-cold",path});
+    QProcess process;process.start(QCoreApplication::applicationFilePath(),{replacement?"--template-reset-session-cold":"--template-reset-incoming-cold",path});
     check(process.waitForStarted(10000),"Start fresh native Host process for incoming cold reopen");
     const bool finished=process.waitForFinished(15000);if(!finished){process.kill();process.waitForFinished(5000);}
     const auto output=process.readAllStandardOutput(),errors=process.readAllStandardError();
@@ -214,8 +249,9 @@ inline int run() {
     check(finished&&process.exitStatus()==QProcess::NormalExit&&process.exitCode()==0&&output.contains("PASS cold Template Reset incoming native:"),
         "Fresh Windows Host cold native readback passes its complete independent oracle");
     check(bytes(source_path)==source_before,"Original source native snapshot remains byte-identical");
+    if(replacement)check(bytes(replacement_path)==QByteArray::fromStdString(encode(replacement_document)),"Actual Host.open original replacement file remains byte-identical through refusal/Undo/Redo/Save");
     settings.sync();check(bytes(settings.fileName())==settings_before,"Whole owned settings remain byte-identical");
     window.close();window.host.flush();
-    std::cout<<"PASS native Windows Template Reset after incoming source: "<<checks<<" checks\n";return 0;
+    std::cout<<"PASS native Windows Template Reset after "<<(replacement?"replacement Session":"incoming source")<<": "<<checks<<" checks\n";return 0;
 }
 }

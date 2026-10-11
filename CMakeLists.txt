@@ -304,6 +304,9 @@ if(BUILD_TESTING)
         add_test(NAME template_reset_incoming_native_contract COMMAND template_ui_tests --template-reset-incoming)
         set_tests_properties(template_reset_incoming_native_contract PROPERTIES
             TIMEOUT 45 ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")
+        add_test(NAME template_reset_session_incoming_native_contract COMMAND template_ui_tests --template-reset-session-incoming)
+        set_tests_properties(template_reset_session_incoming_native_contract PROPERTIES
+            TIMEOUT 45 ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")
     endif()
     add_executable(artboard_guide_alignment_ui_tests tests/artboard_guide_alignment_ui_tests.cpp)
     target_link_libraries(artboard_guide_alignment_ui_tests PRIVATE nect_desktop_client)

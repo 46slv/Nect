@@ -583,13 +583,16 @@ void window_template_command_parity() {
 
 int main(int argc,char** argv) {
     const auto mode=argc>1?std::string(argv[1]):std::string{};
-    qputenv("QT_QPA_PLATFORM",mode=="--template-reset-incoming"||mode=="--template-reset-incoming-cold"?"windows":"offscreen");
+    const bool native=mode=="--template-reset-incoming"||mode=="--template-reset-incoming-cold"||
+        mode=="--template-reset-session-incoming"||mode=="--template-reset-session-cold";
+    qputenv("QT_QPA_PLATFORM",native?"windows":"offscreen");
     QApplication app(argc,argv);
     try {
         if(mode=="--template-reset-incoming")return template_reset_incoming::run();
-        if(mode=="--template-reset-incoming-cold") {
+        if(mode=="--template-reset-session-incoming")return template_reset_incoming::run(true);
+        if(mode=="--template-reset-incoming-cold"||mode=="--template-reset-session-cold") {
             if(argc!=3)throw std::runtime_error("Exact owned cold native path required");
-            return template_reset_incoming::cold(QString::fromLocal8Bit(argv[2]));
+            return template_reset_incoming::cold(QString::fromLocal8Bit(argv[2]),mode=="--template-reset-session-cold");
         }
         window_template_command_parity();
         std::cout<<"PASS offscreen Window Artboard Template, stale context, and descendant R04 controls\n";
