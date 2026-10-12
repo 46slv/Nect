@@ -13018,13 +13018,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         prepared_pick->setProperty("nect-text-scalar-pick-action-object",qs(ref.object));prepared_pick->setProperty("nect-text-scalar-pick-action-point",qs(ref.point));prepared_pick->setProperty("nect-text-scalar-pick-action-field",qs(ref.field));prepared_pick->setFocusPolicy(Qt::StrongFocus);
         auto context=std::make_shared<PropertyActionContext>(PropertyActionContext{field_session,ref.object,scalar_source,
             canvas->active_composition(),canvas->active_artboard(),field_revision,text_selection_generation_,d.id,host.session.gesture_generation(),host.session.gesture_active()});
-        prepared_pick->prepare=[this,input,context,verify_scalar_context,advance_scalar_context] {
+        prepared_pick->prepare=[this,input,context,verify_scalar_context,advance_scalar_context,retain_text_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
             bool ready=false;perform([&]{
                 verify_scalar_context(*context);
                 if(input->isModified()) {
                     input->setProperty("nect-finishing-text-scalar-pick",true);input->setProperty("nect-text-scalar-pick-committed-revision",QVariant{});
                     input->editingFinished();const auto committed=input->property("nect-text-scalar-pick-committed-revision");
-                    input->setProperty("nect-finishing-text-scalar-pick",false);if(!committed.isValid())return;
+                    input->setProperty("nect-finishing-text-scalar-pick",false);
+                    if(!committed.isValid()){if(retain_text_draft)input->setModified(true);return;}
                     auto advanced=*context;advanced.revision=committed.toULongLong();advance_scalar_context(advanced);*context=std::move(advanced);
                     const auto session=context->session,document=qs(context->document);
                     QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&qs(host.session.document().id)==document)rebuild_inspector();});
