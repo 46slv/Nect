@@ -13397,7 +13397,9 @@ void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<vo
                 throw Error("PROPERTY_CONFLICT","Source picker target property changed; reopen it");
             host.session.apply({LinkProperties{targets,source,relative}},expected_revision);
             canvas->set_active_artboard(composition,artboard,false);
-            canvas->set_selections(selection);host.edited();dialog->accept();
+            canvas->set_selections(selection);host.edited();
+            if(target_property)statusBar()->clearMessage();
+            dialog->accept();
         });
     };
     connect(buttons,&QDialogButtonBox::accepted,dialog,accept);
