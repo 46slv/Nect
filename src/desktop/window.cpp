@@ -12272,20 +12272,20 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
             throw;
         }
     };
-    const auto open_picker=[this,targets,target_ids,source_ids,selected,frozen_session,frozen_revision,composition,artboard,status,verify_weight_source](bool relative,bool replace_driver) {
+    const auto open_picker=[this,targets,target_ids,source_ids,selected,frozen_session,frozen_document,frozen_revision,composition,artboard,status,verify_weight_source](bool relative,bool replace_driver) {
         try {verify_weight_source();}
         catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));return;}
         catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));return;}
         auto picker=make_text_source_picker(this,host.session.document(),targets.front().object,"text.weight",source_ids,
             relative?"Link relative Text weights":"Link absolute Text weights");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* picker_status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session](QListWidgetItem* item,QListWidgetItem*) {
-            if(!item||item->isHidden()||host.session_id!=frozen_session)return;
+        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,frozen_document](QListWidgetItem* item,QListWidgetItem*) {
+            if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=frozen_document)return;
             const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
         });
-        connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,composition,artboard] {
-            if(host.session_id==frozen_session) {
+        connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,frozen_document,composition,artboard] {
+            if(host.session_id==frozen_session&&host.session.document().id==frozen_document) {
                 perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selected);
             }
         });
