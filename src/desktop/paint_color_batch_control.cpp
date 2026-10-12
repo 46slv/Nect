@@ -79,12 +79,12 @@ QWidget* make_paint_color_batch_controls(Host& host,const std::vector<Ref>& targ
     box->setObjectName("paint-color-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("paint-color-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("paint-color-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* choose=new QPushButton("Color…",box);choose->setObjectName("paint-color-batch-choose");
     choose->setAccessibleName("sRGB color for every retained solid paint target");
     choose->setToolTip("OK applies one sRGB/straight-alpha color to all retained targets in one Undo step. Cancel keeps every color.");
     choose->setEnabled(false);layout->addWidget(choose);
-    auto* status=new QLabel(box);status->setObjectName("paint-color-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QPushButton> safe_choose(choose);const QPointer<QLabel> safe_status(status);
     const auto current_selection=[safe_host,session_id,document_id,revision,gesture,targets]{

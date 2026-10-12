@@ -129,6 +129,8 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
     auto* source_state=new QLabel(box);source_state->setObjectName("instance-color-source-state");
     auto* local_state=new QLabel(box);local_state->setObjectName("instance-color-local-state");
     for(auto* label:{source_state,local_state}){label->setTextFormat(Qt::PlainText);label->setWordWrap(true);layout->addWidget(label);}
+    auto* status=new QLabel(box);status->setObjectName("instance-color-error");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* row=new QHBoxLayout;
     auto* choose=new QPushButton("Color…",box);choose->setObjectName("instance-color-choose");
     choose->setAccessibleName("Local sRGB Fill color for this Instance");
@@ -138,8 +140,6 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
     row->addWidget(choose);row->addWidget(reset);layout->addLayout(row);
     auto* note=new QLabel("Descendant solid Fill only. Stroke and gradient paint are unavailable. OK can freeze the current occurrence color locally.",box);
     note->setTextFormat(Qt::PlainText);note->setWordWrap(true);layout->addWidget(note);
-    auto* status=new QLabel(box);status->setObjectName("instance-color-error");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QWidget> safe_parent(parent);const QPointer<QComboBox> safe_source(source),safe_fill(fill);
