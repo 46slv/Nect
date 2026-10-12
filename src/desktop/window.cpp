@@ -13099,7 +13099,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             const auto values=evaluate(host.session.document());
             const bool batch_mixed=batch_path_scalar_fx&&std::any_of(targets.begin(),targets.end(),[&](const Ref& target){return values.at(target)!=values.at(ref);});
             const auto source=batch_mixed?QString{}:formula?qs(formula->source):QString::number(values.at(ref),'g',17);
-            expand(source,frozen.revision,[frozen,verify_scalar_context]{verify_scalar_context(frozen);});
+            const auto target_scalar=text_scalar_fx&&ref.field.starts_with("text.")
+                ?std::optional<Scalar>{nect::property(host.session.document(),ref)}:std::nullopt;
+            expand(source,frozen.revision,[this,frozen,verify_scalar_context,ref,target_scalar] {
+                verify_scalar_context(frozen);
+                if(target_scalar&&nect::property(host.session.document(),ref)!=*target_scalar)
+                    throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+            });
             if(prepared)prepared_fx->completed();
         });});
     } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
