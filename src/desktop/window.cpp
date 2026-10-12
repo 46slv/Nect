@@ -175,6 +175,9 @@ Ref read_ref(const QByteArray& data) {
 QByteArray refs_json(const std::vector<Ref>& refs) {
     QJsonArray array;for(const auto& ref:refs)array.append(ref_json(ref));return QJsonDocument(array).toJson(QJsonDocument::Compact);
 }
+bool is_text_scrub_ref(const Ref& ref) {
+    return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing");
+}
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
 TextContentLineage text_content_lineage(const Document& document,const Id& root) {
     TextContentLineage result;Id current=root;
@@ -998,13 +1001,13 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     validate_semantic_descriptor(descriptor);
     const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
     const bool born_preview=host.session.gesture_active();
-    const bool text_font_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+    const bool text_scalar_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         const auto found=host.session.document().objects.find(target.object);
-        return target.point.empty()&&target.field=="text.font_size"&&found!=host.session.document().objects.end()&&
+        return is_text_scrub_ref(target)&&found!=host.session.document().objects.end()&&
             found->second.kind==Kind::text&&found->second.text.has_value();
     });
     std::vector<Id> text_sources;std::vector<Scalar> text_scalars;
-    if(text_font_scrub)for(const auto& target:targets) {
+    if(text_scalar_scrub)for(const auto& target:targets) {
         text_sources.push_back(host.session.document().objects.at(target.object).text->id);
         text_scalars.push_back(nect::property(host.session.document(),target));
     }
@@ -1036,7 +1039,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     control->setProperty("nect-targets",refs_json(targets));
     control->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
     control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
-    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_font_scrub)input->setReadOnly(driven);
+    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub)input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
         control->setToolTip("Driven: explicitly unlink before scrubbing.");}
     const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
@@ -1051,13 +1054,13 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_font_scrub,text_sources,text_scalars] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
         std::size_t text_index=0;
         for(const auto& target:targets) {
-            if(text_font_scrub) {
+            if(text_scalar_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
                 if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
                    !found->second.text||found->second.text->id!=text_sources.at(text_index))
@@ -1068,7 +1071,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             }
             auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
                 property_semantic_descriptor(host.session.document(),target);
-            if(!current&&text_font_scrub)current=descriptor;
+            if(!current&&text_scalar_scrub)current=descriptor;
             if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
                current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
                 throw Error("MISSING_PROPERTY","Semantic control target changed");
@@ -12562,14 +12565,17 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
     else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             const auto found=d.objects.find(target.object);
-            return target.point.empty()&&target.field=="text.font_size"&&found!=d.objects.end()&&
+            return is_text_scrub_ref(target)&&found!=d.objects.end()&&
                 found->second.kind==Kind::text&&found->second.text.has_value();
         })) {
-        SemanticParameterDescriptor font_size;
-        font_size.key=ref.field;font_size.unit="du";font_size.domain="text";font_size.step=1;
-        font_size.default_value=default_text("font-size-control","").parameters.at("font_size").literal;
-        font_size.label="Font size";font_size.help="Adjust the Text font size. Escape cancels the preview.";
-        add_semantic_scrub(box,input,targets,font_size);
+        SemanticParameterDescriptor text_parameter;
+        text_parameter.key=ref.field;text_parameter.unit=property_unit(ref);text_parameter.domain="text";text_parameter.step=1;
+        text_parameter.default_value=default_text("text-scrub-control","").parameters.at(ref.field.substr(5)).literal;
+        text_parameter.label=label.toStdString();text_parameter.help="Adjust "+text_parameter.label+". Escape cancels the preview.";
+        if(ref.field=="text.tracking"){text_parameter.minimum=-10000;text_parameter.maximum=10000;}
+        if(ref.field=="text.line_spacing"){text_parameter.minimum=0;text_parameter.maximum=10000;
+            text_parameter.help+=" Zero uses the font metrics.";}
+        add_semantic_scrub(box,input,targets,text_parameter);
     }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
     const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
@@ -13145,8 +13151,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
         input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
-        if(rebuilding_inspector_&&ref.field=="text.font_size"&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-            return target.point.empty()&&target.field=="text.font_size"&&input_text_sources.contains(target.object);
+        if(rebuilding_inspector_&&is_text_scrub_ref(ref)&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            return is_text_scrub_ref(target)&&input_text_sources.contains(target.object);
         }))return;
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
