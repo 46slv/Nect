@@ -149,6 +149,14 @@ void show_error(QLabel* status,const std::exception& error){
 QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    const auto retained_selections=[&]{
+        std::map<std::string,TextSelection> retained;
+        for(const auto* field:{"text.family","text.locale"}) {
+            try {retained.emplace(field,require_targets(host.session.document(),targets,field));}
+            catch(const std::exception&) {} // Original field validation still reports unavailable targets.
+        }
+        return retained;
+    }();
     auto* box=new QGroupBox(QString("Text sources · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-string-source-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* field=new QComboBox(box);field->setObjectName("text-string-source-batch-field");
@@ -261,6 +269,17 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
         try{
             const auto& document=current_document();const auto selected_field=safe_field->currentData().toString().toStdString();
             const auto selection=require_targets(document,targets,selected_field);
+            if(safe_mode->currentData().toString()=="unlink") {
+                const auto retained=retained_selections.find(selected_field);
+                if(retained==retained_selections.end()||selection.composition!=retained->second.composition||
+                        selection.states.size()!=retained->second.states.size()||
+                        !std::equal(selection.states.begin(),selection.states.end(),retained->second.states.begin(),
+                            [](const auto& current,const auto& original){
+                                return current.literal==original.literal&&current.driver==original.driver&&
+                                    current.evaluated==original.evaluated;
+                            }))
+                    throw Error("PROPERTY_CONFLICT","The retained Text source changed; refresh before unlinking");
+            }
             const auto commands=source_commands(document,targets,selection,selected_field,
                 safe_mode->currentData().toString().toStdString(),selected_source(),safe_replace->isChecked());
             if(commands.empty())return;
