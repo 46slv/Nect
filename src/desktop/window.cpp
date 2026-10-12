@@ -13050,7 +13050,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||!found->second.text||found->second.text->id!=context->source)throw Error("TEXT_EDIT_CONFLICT","The original Text source changed");
             if(artboard_editing_||canvas->active_composition()!=context->composition||canvas->active_artboard()!=context->artboard)throw Error("SELECTION_CONFLICT","The source picker scope changed");
         };
-        connect(pick,&QPushButton::clicked,this,[this,targets,ref,text_scalar_fx,context,verify_scalar_context,verify=prepared_pick->verify_context]{perform([&]{verify_scalar_context(*context);pick_source(targets,false,verify,text_scalar_fx&&ref.field.starts_with("text."));});});
+        connect(pick,&QPushButton::clicked,this,[this,input,prepared_pick,targets,ref,text_scalar_fx,context,verify_scalar_context,verify=prepared_pick->verify_context]{perform([&]{
+            verify_scalar_context(*context);
+            if(text_scalar_fx&&ref.field.starts_with("text.")&&input->isModified()) {
+                prepared_pick->setProperty("nect-retain-text-inspector",true);const bool ready=prepared_pick->prepare();
+                prepared_pick->setProperty("nect-retain-text-inspector",false);if(!ready)return;
+            }
+            pick_source(targets,false,verify,text_scalar_fx&&ref.field.starts_with("text."));
+        });});
     } else connect(pick,&QPushButton::clicked,this,[this,targets]{pick_source(targets);});
     auto expand=[this,column,row,input,targets,target_data,label,field_session,field_revision](QString source,std::optional<std::uint64_t> prepared_revision={},std::function<void()> verify_context={}) {
         if(host.session_id!=field_session)return;
@@ -13093,7 +13100,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,paint_scalar_fx,batch_paint_scalar_fx] {
+        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
@@ -13228,7 +13235,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             }
             auto value=(relative?text.mid(2):text).toDouble(&valid);if(relative&&text.startsWith("-="))value=-value;
             if(!valid||!std::isfinite(value)) {
-                if(input->property("nect-semantic-key").isValid())input->setModified(true);
+                if(input->property("nect-semantic-key").isValid()||retain_text_scalar_draft)input->setModified(true);
                 throw Error("INVALID_VALUE","Enter a number, += / -= adjustment, or =expression");
             }
             if(input->property("nect-semantic-key").isValid()&&!relative&&
