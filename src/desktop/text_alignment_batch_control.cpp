@@ -44,6 +44,11 @@ void show_error(QLabel* status,const std::exception& error){
 QWidget* make_text_alignment_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    std::vector<std::string> retained_alignments;retained_alignments.reserve(targets.size());
+    for(const auto& id:targets) {
+        const auto found=host.session.document().objects.find(id);
+        retained_alignments.push_back(found!=host.session.document().objects.end()&&found->second.text?found->second.text->alignment:std::string{});
+    }
     auto* box=new QGroupBox(QString("Text alignment · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-alignment-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-alignment-batch-state");
@@ -62,7 +67,7 @@ QWidget* make_text_alignment_batch_controls(Host& host,const std::vector<Id>& ta
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
     const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document&{
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,retained_alignments]()->const Document&{
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Text selection belongs to another document");
         if(safe_host->session.revision()!=revision)
@@ -71,7 +76,11 @@ QWidget* make_text_alignment_batch_controls(Host& host,const std::vector<Id>& ta
             throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying alignment");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();require_targets(document,targets);
+        for(std::size_t i=0;i<targets.size();++i)
+            if(document.objects.at(targets[i]).text->alignment!=retained_alignments[i])
+                throw Error("PROPERTY_CONFLICT","The retained Text alignment changed; refresh before applying the draft");
+        return document;
     };
     try{
         const auto& document=current_document();const auto& first=document.objects.at(targets.front()).text->alignment;
