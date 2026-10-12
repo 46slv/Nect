@@ -178,6 +178,14 @@ QByteArray refs_json(const std::vector<Ref>& refs) {
 bool is_text_scrub_ref(const Ref& ref) {
     return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.origin_x"||ref.field=="text.origin_y");
 }
+bool is_authored_point_scrub_ref(const Document& document,const Ref& ref) {
+    if(ref.point.empty()||(ref.field!="x"&&ref.field!="y"))return false;
+    const auto found=document.objects.find(ref.object);
+    if(found==document.objects.end()||found->second.kind!=Kind::path||found->second.source||found->second.text)return false;
+    return std::any_of(found->second.contours.begin(),found->second.contours.end(),[&](const Contour& contour) {
+        return std::any_of(contour.points.begin(),contour.points.end(),[&](const Point& point){return point.id==ref.point;});
+    });
+}
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
 TextContentLineage text_content_lineage(const Document& document,const Id& root) {
     TextContentLineage result;Id current=root;
@@ -1006,6 +1014,11 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return is_text_scrub_ref(target)&&found!=host.session.document().objects.end()&&
             found->second.kind==Kind::text&&found->second.text.has_value();
     });
+    const bool point_coordinate_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        return is_authored_point_scrub_ref(host.session.document(),target);
+    });
+    std::vector<Scalar> point_scalars;
+    if(point_coordinate_scrub)for(const auto& target:targets)point_scalars.push_back(nect::property(host.session.document(),target));
     std::vector<Id> text_sources;std::vector<Scalar> text_scalars;
     if(text_scalar_scrub)for(const auto& target:targets) {
         text_sources.push_back(host.session.document().objects.at(target.object).text->id);
@@ -1034,7 +1047,9 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     }else {scrub=new SemanticScrub(layout->parentWidget());control=scrub;}
     layout->addWidget(control);
     annotate_semantic_control(control,descriptor);
-    control->setObjectName((slider?"semantic-slider-":"semantic-scrub-")+qs(targets.front().point.empty()?targets.front().field:targets.front().point));
+    const auto control_key=point_coordinate_scrub?"point."+targets.front().point+"."+targets.front().field:
+        targets.front().point.empty()?targets.front().field:targets.front().point;
+    control->setObjectName((slider?"semantic-slider-":"semantic-scrub-")+qs(control_key));
     control->setAccessibleName(qs(descriptor.label)+(slider?" slider / ":" scrub / ")+qs(descriptor.unit));
     control->setProperty("nect-targets",refs_json(targets));
     control->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
@@ -1042,7 +1057,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     // Mouse focus still enables the scrub's arrow keys.
     if(text_scalar_scrub&&targets.size()==1&&targets.front().field=="text.origin_y")control->setFocusPolicy(Qt::ClickFocus);
     control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
-    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub)input->setReadOnly(driven);
+    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub&&!point_coordinate_scrub)input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
         control->setToolTip("Driven: explicitly unlink before scrubbing.");}
     const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
@@ -1057,12 +1072,18 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
-        std::size_t text_index=0;
+        std::size_t text_index=0,point_index=0;
         for(const auto& target:targets) {
+            if(point_coordinate_scrub) {
+                if(!is_authored_point_scrub_ref(host.session.document(),target))
+                    throw Error("PROPERTY_CONFLICT","The retained Path point changed; reopen this Inspector");
+                if(nect::property(host.session.document(),target)!=point_scalars.at(point_index++))
+                    throw Error("PROPERTY_CONFLICT","The retained point coordinate changed; reopen this Inspector");
+            }
             if(text_scalar_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
                 if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
@@ -1074,7 +1095,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             }
             auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
                 property_semantic_descriptor(host.session.document(),target);
-            if(!current&&text_scalar_scrub)current=descriptor;
+            if(!current&&(text_scalar_scrub||point_coordinate_scrub))current=descriptor;
             if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
                current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
                 throw Error("MISSING_PROPERTY","Semantic control target changed");
@@ -12525,6 +12546,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             input_text_properties.emplace(target,nect::property(d,target));
         }
     }
+    const bool input_authored_point=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        return is_authored_point_scrub_ref(d,target);
+    });
     const auto origin=property_origin(d,ref);
     const auto evaluated=inspector_values_.at(ref);
     // Generated fallback has no authored Scalar to inspect. Reuse this panel's
@@ -12585,6 +12609,15 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             text_parameter.minimum=-1000000000;text_parameter.maximum=1000000000;
             text_parameter.help+=" Negative coordinates are allowed.";}
         add_semantic_scrub(box,input,targets,text_parameter);
+    }else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            return is_authored_point_scrub_ref(d,target);
+        })) {
+        SemanticParameterDescriptor point_parameter;
+        point_parameter.key=ref.field;point_parameter.unit=property_unit(ref);point_parameter.domain="geometry";point_parameter.step=1;
+        point_parameter.default_value=0;point_parameter.minimum=-1000000000;point_parameter.maximum=1000000000;
+        point_parameter.label=ref.field=="x"?"Point X":"Point Y";
+        point_parameter.help="Adjust the local point coordinate. Escape cancels the preview.";
+        add_semantic_scrub(box,input,targets,point_parameter);
     }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
     const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
@@ -13159,10 +13192,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
-        if(rebuilding_inspector_&&is_text_scrub_ref(ref)&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,input_authored_point,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
+        if(rebuilding_inspector_&&(input_authored_point||(is_text_scrub_ref(ref)&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             return is_text_scrub_ref(target)&&input_text_sources.contains(target.object);
-        }))return;
+        }))))return;
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
