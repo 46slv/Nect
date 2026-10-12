@@ -10776,7 +10776,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
             });
         });
         connect(set_expression,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
-            initial_expression=gradient_state->expression,has_enabled_source,operation_id=op] {
+            initial_expression=gradient_state->expression,has_enabled_source,operation_id=op,verify_mode_context] {
             QDialog dialog(this);dialog.setObjectName("gradient-enabled-expression-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Gradient enabled expression");auto* layout=new QVBoxLayout(&dialog);
             auto* expression=new QPlainTextEdit(&dialog);
@@ -10791,11 +10791,12 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);layout->addWidget(buttons);
             connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
             connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-                [this,&dialog,target_ref,frozen_session,frozen_revision,expression,replace,status] {
+                [this,&dialog,target_ref,frozen_session,frozen_revision,expression,replace,status,verify_mode_context] {
                     try {
                         if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
                         if(host.session.revision()!=frozen_revision)
                             throw Error("STALE_CONTEXT","Gradient enabled source changed while its editor was open; reopen it");
+                        verify_mode_context();
                         host.session.apply({SetGradientEnabledExpression{target_ref,
                             {expression->toPlainText().toStdString(),1},replace->isChecked()}},frozen_revision);
                         host.edited();dialog.accept();
