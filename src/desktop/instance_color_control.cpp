@@ -31,7 +31,7 @@ const Definition& require_definition(const Document& document,const Id& instance
     if(definition==document.definitions.end())throw Error("MISSING_DEFINITION",found->second.instance->definition);
     return definition->second;
 }
-void require_target(const Document& document,const Id& instance,const Ref& target){
+const ProcessingEntry& require_target(const Document& document,const Id& instance,const Ref& target){
     const auto& definition=require_definition(document,instance);
     std::function<bool(const Id&)> descendant=[&](const Id& id){
         for(const auto& child:document.objects.at(id).children)
@@ -46,6 +46,7 @@ void require_target(const Document& document,const Id& instance,const Ref& targe
     });
     if(found==object.stack.end()||!solid_fill(*found))
         throw Error("UNSUPPORTED_OVERRIDE","Color overrides support descendant solid Fill operations only");
+    return *found;
 }
 ColorValue occurrence_color(const Document& document,const Id& instance,const Ref& target){
     // Keep the render snapshot local: another descendant's local override may
@@ -223,7 +224,8 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
     QObject::connect(choose,&QPushButton::clicked,box,[=]{
         if(!safe_box||!safe_host||*picker_active)return;
         try{
-            const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
+            const auto& current=current_document();const auto target=selected_target();const auto original_paint=require_target(current,instance,target);
+            const auto original_instance=current.objects.at(instance);
             const auto retained=occurrence_color(current,instance,target);
             const auto& rgba=retained.rgba;
             auto* dialog=new QColorDialog(QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]),safe_box.data());
@@ -239,7 +241,10 @@ QWidget* make_instance_color_controls(Host& host,const Id& instance,QWidget* par
             const auto selected=safe_dialog?safe_dialog->currentColor():QColor{};if(safe_dialog)safe_dialog->deleteLater();
             if(!safe_box||!safe_host)return;
             if(!accepted||!selected.isValid()){update_state();return;}
-            const auto& latest=current_document();require_target(latest,instance,target);ColorValue value=retained;
+            const auto& latest=current_document();const auto& latest_paint=require_target(latest,instance,target);
+            if(latest_paint!=original_paint||latest.objects.at(instance)!=original_instance||occurrence_color(latest,instance,target)!=retained)
+                throw Error("PROPERTY_CONFLICT","The Instance or source Fill changed while choosing a color");
+            ColorValue value=retained;
             if(selected!=displayed_initial)value.rgba={selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
             const auto& latest_overrides=latest.objects.at(instance).instance->color_overrides;const auto existing=latest_overrides.find(target);
             if(existing!=latest_overrides.end()&&existing->second==value){update_state();return;}
