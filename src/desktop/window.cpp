@@ -186,8 +186,11 @@ bool is_authored_point_scrub_ref(const Document& document,const Ref& ref) {
         return std::any_of(contour.points.begin(),contour.points.end(),[&](const Point& point){return point.id==ref.point;});
     });
 }
+bool is_affine_matrix_field(const std::string& field) {
+    return field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
+}
 bool is_authored_path_transform_scrub_ref(const Document& document,const Ref& ref) {
-    if(!ref.point.empty()||(ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
+    if(!ref.point.empty()||(!is_affine_matrix_field(ref.field)&&ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
     const auto found=document.objects.find(ref.object);
     return found!=document.objects.end()&&found->second.kind==Kind::path&&!found->second.source&&!found->second.text;
 }
@@ -1126,7 +1129,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
                 if(!is_authored_path_transform_scrub_ref(host.session.document(),target)||
                    nect::property(host.session.document(),target)!=path_transform_scalars.at(path_transform_index))
                     throw Error("PROPERTY_CONFLICT",target.field.starts_with("transform.anchor_")?
-                        "The retained Path anchor changed; reopen this Inspector":"The retained Path translation changed; reopen this Inspector");
+                        "The retained Path anchor changed; reopen this Inspector":is_affine_matrix_field(target.field)?
+                        "The retained Path matrix changed; reopen this Inspector":"The retained Path translation changed; reopen this Inspector");
                 ++path_transform_index;
             }
             if(point_coordinate_scrub) {
@@ -12670,10 +12674,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     }else if(input_path_transform) {
         SemanticParameterDescriptor transform_parameter;
         transform_parameter.key=ref.field;transform_parameter.label=ref.field=="transform.tx"?"Translation X":ref.field=="transform.ty"?"Translation Y":
-            ref.field=="transform.anchor_x"?"Anchor X":"Anchor Y";
-        transform_parameter.unit=property_unit(ref);transform_parameter.domain="geometry";transform_parameter.step=1;
-        transform_parameter.default_value=0;transform_parameter.minimum=-1000000000;transform_parameter.maximum=1000000000;
+            ref.field=="transform.anchor_x"?"Anchor X":ref.field=="transform.anchor_y"?"Anchor Y":"Matrix "+ref.field.substr(10);
+        transform_parameter.unit=property_unit(ref);transform_parameter.domain="geometry";transform_parameter.step=is_affine_matrix_field(ref.field)?0.01:1;
+        transform_parameter.default_value=ref.field=="transform.a"||ref.field=="transform.d"?1:0;transform_parameter.minimum=-1000000000;transform_parameter.maximum=1000000000;
         transform_parameter.help=ref.field.starts_with("transform.anchor_")?"Adjust the local pivot. Artwork stays in place; Escape cancels the preview.":
+            is_affine_matrix_field(ref.field)?"Adjust the local affine component. Escape cancels the preview.":
             "Adjust the authored Path's local translation. Escape cancels the preview.";
         add_semantic_scrub(box,input,targets,transform_parameter);
     }else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
