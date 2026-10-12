@@ -12164,13 +12164,31 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
     }))return;
 
     std::vector<Ref> targets;std::set<Id> target_ids;std::vector<unsigned> evaluated;
+    std::vector<TextWeightProperty> retained_weights;
     bool any_driven=false;
     for(const auto& item:selected) {
         const Ref ref{item.object,"","text.weight"};targets.push_back(ref);target_ids.insert(item.object);
-        const auto state=text_weight_property(document,ref);evaluated.push_back(state.evaluated);
+        const auto state=text_weight_property(document,ref);evaluated.push_back(state.evaluated);retained_weights.push_back(state);
         any_driven=any_driven||state.driver.has_value()||state.expression.has_value();
     }
     const auto frozen_session=host.session_id;const auto frozen_revision=host.session.revision();
+    const auto frozen_document=document.id;const auto frozen_gesture=host.session.gesture_generation();
+    const bool born_in_gesture=host.session.gesture_active();
+    const auto verify_weight_draft=[this,targets,retained_weights,frozen_session,frozen_document,frozen_revision,frozen_gesture,born_in_gesture] {
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+            throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
+        if(host.session.revision()!=frozen_revision)
+            throw Error("REVISION_CONFLICT","Text weights changed while the draft was open");
+        if(born_in_gesture||host.session.gesture_active())
+            throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        if(host.session.gesture_generation()!=frozen_gesture)
+            throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying Text weights");
+        for(std::size_t i=0;i<targets.size();++i) {
+            const auto current=text_weight_property(host.session.document(),targets[i]);const auto& retained=retained_weights[i];
+            if(current.literal!=retained.literal||current.driver!=retained.driver||current.expression!=retained.expression||current.evaluated!=retained.evaluated)
+                throw Error("PROPERTY_CONFLICT","The retained Text weight changed; refresh before applying the draft");
+        }
+    };
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* group=new QGroupBox(QString("Text weight · %1 selected Text objects").arg(targets.size()));
     group->setObjectName("text-weight-batch-panel");auto* column=new QVBoxLayout(group);
@@ -12212,10 +12230,9 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
         if(!relative&&(amount<1||amount>999))throw Error("OUT_OF_RANGE","Font weight must be 1..999");
         return {static_cast<std::int64_t>(amount),relative};
     };
-    connect(apply,&QPushButton::clicked,this,[this,value,status,targets,frozen_session,frozen_revision,parse_draft] {
+    connect(apply,&QPushButton::clicked,this,[this,value,status,targets,frozen_revision,parse_draft,verify_weight_draft] {
         try {
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text weight draft belongs to another document");
-            if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the draft was open");
+            verify_weight_draft();
             const auto [amount,relative]=parse_draft(value->text());canvas->cancel_interaction();
             host.session.apply({TextWeightBatch{TextWeightBatchMode::edit,targets,amount,{},relative,false}},frozen_revision);
             host.edited();
