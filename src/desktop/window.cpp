@@ -10765,12 +10765,13 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         state_label->setWordWrap(true);state_label->setTextFormat(Qt::PlainText);form->addRow("",state_label);
         const auto frozen_revision=host.session.revision();const auto target_ref=*gradient_ref_value;
         connect(link_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
-            replace_driver=has_enabled_source,source_refs,source_labels] {
+            replace_driver=has_enabled_source,source_refs,source_labels,verify_mode_context] {
             choose_boolean_source(this,"gradient-enabled-source-dialog","Link Gradient enabled",
                 qs(target_ref.object)+" / "+qs(target_ref.field),source_refs,source_labels,
-                [this,target_ref,frozen_session,frozen_revision,replace_driver](const Ref& source) {
+                [this,target_ref,frozen_session,frozen_revision,replace_driver,verify_mode_context](const Ref& source) {
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
                 if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Gradient enabled source changed while its editor was open; reopen it");
+                verify_mode_context();
                 host.session.apply({LinkGradientEnabled{target_ref,source,replace_driver}},frozen_revision);
                 host.edited();
             });
