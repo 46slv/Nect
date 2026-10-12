@@ -176,7 +176,7 @@ QByteArray refs_json(const std::vector<Ref>& refs) {
     QJsonArray array;for(const auto& ref:refs)array.append(ref_json(ref));return QJsonDocument(array).toJson(QJsonDocument::Compact);
 }
 bool is_text_scrub_ref(const Ref& ref) {
-    return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing");
+    return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.frame_width"||ref.field=="text.frame_height");
 }
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
 TextContentLineage text_content_lineage(const Document& document,const Id& root) {
@@ -12575,6 +12575,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(ref.field=="text.tracking"){text_parameter.minimum=-10000;text_parameter.maximum=10000;}
         if(ref.field=="text.line_spacing"){text_parameter.minimum=0;text_parameter.maximum=10000;
             text_parameter.help+=" Zero uses the font metrics.";}
+        if(ref.field=="text.frame_width"||ref.field=="text.frame_height"){
+            text_parameter.minimum=0;text_parameter.maximum=1000000;
+            text_parameter.help+=" Use a positive dimension. Auto sizing retains it without wrapping.";}
         add_semantic_scrub(box,input,targets,text_parameter);
     }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
