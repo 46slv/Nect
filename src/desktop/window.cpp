@@ -10531,12 +10531,13 @@ void Window::add_stack(QVBoxLayout* layout,const Object& object) {
             form->addRow(color_tools_->menu_button(paint_ref));
             const auto color_revision=host.session.revision();
             const QPointer<SemanticColorInput> safe_color(color_input);
-            color_input->commit=[this,safe_color,paint_ref,frozen_session,color_revision,exact_color](const std::array<double,4>& rgba) {
+            color_input->commit=[this,safe_color,paint_ref,frozen_session,color_revision,exact_color,verify_operation_context](const std::array<double,4>& rgba) {
                 bool applied=false;
                 perform([&]{
                     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Color belongs to another document");
                     if(host.session.revision()!=color_revision)throw Error("REVISION_CONFLICT","Color changed elsewhere; reopen the Inspector");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before changing color");
+                    verify_operation_context();
                     auto value=exact_color;value.rgba=rgba;
                     if(value!=color_value(host.session.document(),paint_ref,evaluate(host.session.document()))) {
                         host.session.apply({SetColor{paint_ref,value}},color_revision);host.edited();
