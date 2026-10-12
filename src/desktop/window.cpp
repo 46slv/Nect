@@ -13291,7 +13291,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression,input_document,input_text_sources,input_text_properties,input_gesture,input_preview](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression,input_document,input_text_sources,input_text_properties,input_gesture,input_preview,input_session,input_revision,text_scalar_fx](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
@@ -13302,7 +13302,29 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         perform([&] {
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
             if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
-            if(chosen==expression)expand(initial_expression);
+            if(chosen==expression) {
+                if(text_scalar_fx&&ref.field.starts_with("text.")) {
+                    auto verify_context=[this,input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties] {
+                        if(host.session_id!=input_session||host.session.document().id!=input_document)
+                            throw Error("SESSION_CONFLICT","This property draft belongs to another document");
+                        if(host.session.revision()!=input_revision||host.session.gesture_generation()!=input_gesture)
+                            throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
+                        if(input_preview||host.session.gesture_active())
+                            throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                        for(const auto& [object,source]:input_text_sources) {
+                            const auto found=host.session.document().objects.find(object);
+                            if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
+                               !found->second.text||found->second.text->id!=source)
+                                throw Error("TEXT_EDIT_CONFLICT","The retained Text property source was replaced; reopen this Inspector");
+                        }
+                        for(const auto& [target,retained]:input_text_properties)
+                            if(nect::property(host.session.document(),target)!=retained)
+                                throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+                    };
+                    verify_context();
+                    expand(initial_expression,field_revision,std::move(verify_context));
+                } else expand(initial_expression);
+            }
             else if(chosen==paste_expression)expand(QApplication::clipboard()->text());
             else if(chosen==copy) QApplication::clipboard()->setText(QString::number(evaluate(host.session.document()).at(ref),'g',17));
             else if(chosen==reference) {
