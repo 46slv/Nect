@@ -13293,7 +13293,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 host.session.apply({UnlinkProperties{targets}},field_revision);host.edited();
             }
             else if(chosen==relative) {
-                if(!input_text_sources.empty()) {
+                if(input_text_sources.empty()){pick_source(targets,true);return;}
+                auto verify_targets=[this,input_document,input_text_sources,input_text_properties] {
                     if(host.session.document().id!=input_document)
                         throw Error("SESSION_CONFLICT","Text scalar source picker belongs to another document");
                     for(const auto& [object,source]:input_text_sources) {
@@ -13305,8 +13306,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     for(const auto& [target,retained]:input_text_properties)
                         if(nect::property(host.session.document(),target)!=retained)
                             throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
-                }
-                pick_source(targets,true);
+                };
+                verify_targets();pick_source(targets,true,verify_targets);
             }
         });
     });
