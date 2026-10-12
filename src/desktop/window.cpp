@@ -10803,10 +10803,11 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                 });
             dialog.exec();
         });
-        connect(unlink_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision] {
+        connect(unlink_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,verify_mode_context] {
             perform([&]{
                 if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient belongs to another document");
                 if(host.session.revision()!=frozen_revision)throw Error("STALE_CONTEXT","Gradient enabled state changed while its editor was open; reopen it");
+                verify_mode_context();
                 host.session.apply({UnlinkGradientEnabled{target_ref}},frozen_revision);host.edited();
             });
         });
