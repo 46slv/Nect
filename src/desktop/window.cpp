@@ -12370,7 +12370,9 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
         auto* dialog=picker.dialog;auto* list=picker.list;auto* picker_status=picker.status;
         auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(canvas->selections());
         auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
-        const auto verify_picker_selection=[this,picker_selection,picker_generation] {
+        const auto verify_picker_selection=[this,picker_selection,picker_generation,composition,artboard] {
+            if(canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+                throw Error("SELECTION_CONFLICT","The weight source chooser artboard changed outside this chooser");
             if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
                 throw Error("SELECTION_CONFLICT","The weight source chooser selection changed outside this chooser");
         };
@@ -12388,6 +12390,7 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
         });
         connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,frozen_document,composition,artboard,picker_selection,picker_generation] {
             if(host.session_id==frozen_session&&host.session.document().id==frozen_document&&
+               canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&
                canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation) {
                 perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selected);
             }
