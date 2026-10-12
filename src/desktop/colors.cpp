@@ -208,6 +208,9 @@ void ColorTools::edit_expressions(const Ref& target,const QString& session) {
     check_target(target,session);
     const auto revision=window_.host.session.revision();
     const auto& document=window_.host.session.document();
+    const auto document_id=document.id;
+    const auto gesture_generation=window_.host.session.gesture_generation();
+    const auto preview_born=window_.host.session.gesture_active();
     const auto refs=color_channels(document,target);
     const auto values=evaluate(document);
     auto* dialog=new QDialog(&window_);dialog->setObjectName("color-expression-editor");
@@ -237,10 +240,15 @@ void ColorTools::edit_expressions(const Ref& target,const QString& session) {
     auto* status=new QLabel(dialog);status->setObjectName("color-expression-status");status->setWordWrap(true);layout->addWidget(status);
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,dialog);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,status,replace,edits,initial,authored,refs,target,session,revision]{
+    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,status,replace,edits,initial,authored,refs,target,session,revision,document_id,gesture_generation,preview_born]{
         try {
             check_target(target,session);
             if(window_.host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while the Color draft was open");
+            if(window_.host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Color draft belongs to another document");
+            if(preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit before changing Color");
+            if(window_.host.session.gesture_generation()!=gesture_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen the editor");
+            for(std::size_t i=0;i<refs.size();++i)
+                if(nect::property(window_.host.session.document(),refs[i])!=authored[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
             std::vector<Command> commands;
             for(std::size_t i=0;i<4;++i) {
                 const auto input=edits[i]->text().trimmed();
