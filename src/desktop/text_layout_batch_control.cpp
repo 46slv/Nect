@@ -44,6 +44,11 @@ void show_error(QLabel* status,const std::exception& error){
 QWidget* make_text_layout_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    std::vector<std::string> retained_layouts;retained_layouts.reserve(targets.size());
+    for(const auto& id:targets) {
+        const auto found=host.session.document().objects.find(id);
+        retained_layouts.push_back(found!=host.session.document().objects.end()&&found->second.text?found->second.text->layout:std::string{});
+    }
     auto* box=new QGroupBox(QString("Text sizing mode · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-layout-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-layout-batch-state");
@@ -62,7 +67,7 @@ QWidget* make_text_layout_batch_controls(Host& host,const std::vector<Id>& targe
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
     const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document&{
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,retained_layouts]()->const Document&{
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Text selection belongs to another document");
         if(safe_host->session.revision()!=revision)
@@ -71,7 +76,11 @@ QWidget* make_text_layout_batch_controls(Host& host,const std::vector<Id>& targe
             throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying layout");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();require_targets(document,targets);
+        for(std::size_t i=0;i<targets.size();++i)
+            if(document.objects.at(targets[i]).text->layout!=retained_layouts[i])
+                throw Error("PROPERTY_CONFLICT","The retained Text sizing mode changed; refresh before applying the draft");
+        return document;
     };
     try{
         const auto& document=current_document();const auto& first=document.objects.at(targets.front()).text->layout;
