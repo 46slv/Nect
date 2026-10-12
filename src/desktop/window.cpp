@@ -13247,7 +13247,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression,input_document,input_text_sources,input_text_properties](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
@@ -13272,7 +13272,22 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 const auto* mime=QApplication::clipboard()->mimeData();
                 const auto source=read_ref(mime->hasFormat(reference_mime)?mime->data(reference_mime):mime->text().toUtf8());
                 host.session.apply({LinkProperties{targets,source,false}},field_revision);host.edited();
-            } else if(chosen==unlink) {host.session.apply({UnlinkProperties{targets}},field_revision);host.edited();}
+            } else if(chosen==unlink) {
+                if(!input_text_sources.empty()) {
+                    if(host.session.document().id!=input_document)
+                        throw Error("SESSION_CONFLICT","Text scalar Unlink belongs to another document");
+                    for(const auto& [object,source]:input_text_sources) {
+                        const auto found=host.session.document().objects.find(object);
+                        if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
+                           !found->second.text||found->second.text->id!=source)
+                            throw Error("TEXT_EDIT_CONFLICT","The retained Text property source was replaced; reopen this Inspector");
+                    }
+                    for(const auto& [target,retained]:input_text_properties)
+                        if(nect::property(host.session.document(),target)!=retained)
+                            throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+                }
+                host.session.apply({UnlinkProperties{targets}},field_revision);host.edited();
+            }
             else if(chosen==relative) pick_source(targets,true);
         });
     });
