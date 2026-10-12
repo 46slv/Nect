@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QGroupBox>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPointer>
@@ -54,6 +55,9 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
     box->setObjectName("text-family-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-family-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-family-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);
     auto* editor=new QComboBox(box);editor->setObjectName("text-family-batch-editor");
     editor->setAccessibleName("Font family for every selected Text object");
     editor->setEditable(true);
@@ -71,8 +75,6 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
     layout->addWidget(editor);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-family-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
