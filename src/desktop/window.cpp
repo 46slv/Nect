@@ -10843,7 +10843,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         form->addRow(edit_pair);
         const auto point_revision=host.session.revision();
         const std::array<double,2> initial{inspector_values_.at(xref),inspector_values_.at(yref)};
-        connect(edit_pair,&QPushButton::clicked,this,[this,xref,yref,metadata,initial,frozen_session,point_revision] {
+        connect(edit_pair,&QPushButton::clicked,this,[this,xref,yref,metadata,initial,frozen_session,point_revision,verify_mode_context] {
             auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);
             dialog->setObjectName("semantic-gradient-point-dialog");dialog->setWindowTitle(qs(metadata.label)+" · local XY");
             auto* layout=new QVBoxLayout(dialog);auto* editor=new SemanticPointInput(initial,dialog);
@@ -10851,12 +10851,13 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
             layout->addWidget(editor);const QPointer<QDialog> safe_dialog(dialog);
             const QPointer<SemanticPointInput> safe_editor(editor);
             connect(editor->cancel_button(),&QPushButton::clicked,dialog,&QDialog::reject);
-            editor->commit=[this,xref,yref,frozen_session,point_revision,safe_dialog,safe_editor,initial](const std::array<double,2>& value) {
+            editor->commit=[this,xref,yref,frozen_session,point_revision,safe_dialog,safe_editor,initial,verify_mode_context](const std::array<double,2>& value) {
                 bool applied=false;
                 perform([&]{
                     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Gradient point belongs to another document");
                     if(host.session.revision()!=point_revision)throw Error("REVISION_CONFLICT","Gradient point changed; reopen its editor");
                     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before editing a point");
+                    verify_mode_context();
                     const auto xs=nect::property(host.session.document(),xref),ys=nect::property(host.session.document(),yref);
                     if(xs.binding||xs.expression||ys.binding||ys.expression)throw Error("DRIVEN_PROPERTY","Unlink both coordinates before editing the point");
                     if(value!=initial){host.session.apply({Set{xref,value[0]},Set{yref,value[1]}},point_revision);host.edited();}
