@@ -151,8 +151,30 @@ void ColorTools::populate_menu(QMenu* menu,const Ref& ref,const QString& session
     });
     action("color-link-named","Link named color…",[this,ref,session]{check_target(ref,session);pick_named(ref,session);});
     action("color-edit-expressions","Edit RGBA expressions…",[this,ref,session]{check_target(ref,session);edit_expressions(ref,session);});
-    action("color-unlink","Unlink · keep evaluated RGBA",[this,ref,session]{
-        check_target(ref,session);window_.host.session.apply({UnlinkColor{ref}},window_.host.session.revision());window_.host.edited();
+    const auto unlink_document_id=window_.host.session.document().id;
+    const auto unlink_revision=window_.host.session.revision();
+    const auto unlink_generation=window_.host.session.gesture_generation();
+    const auto unlink_preview_born=window_.host.session.gesture_active();
+    std::optional<std::array<Scalar,4>> unlink_authored;
+    try {
+        const auto refs=color_channels(window_.host.session.document(),ref);
+        std::array<Scalar,4> authored{};
+        for(std::size_t i=0;i<refs.size();++i)authored[i]=nect::property(window_.host.session.document(),refs[i]);
+        unlink_authored=authored;
+    } catch(const Error&) {
+        // Invocation keeps the existing missing-target diagnostic; menu refresh cannot throw it.
+    }
+    action("color-unlink","Unlink · keep evaluated RGBA",[this,ref,session,unlink_document_id,unlink_revision,unlink_generation,unlink_preview_born,unlink_authored]{
+        check_target(ref,session);
+        if(window_.host.session.document().id!=unlink_document_id)throw Error("SESSION_CONFLICT","Color unlink action belongs to another document");
+        if(window_.host.session.revision()!=unlink_revision)throw Error("REVISION_CONFLICT","Color target changed; reopen its actions");
+        if(unlink_preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(window_.host.session.gesture_generation()!=unlink_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen its actions");
+        if(!unlink_authored)throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        const auto refs=color_channels(window_.host.session.document(),ref);
+        for(std::size_t i=0;i<refs.size();++i)
+            if(nect::property(window_.host.session.document(),refs[i])!=(*unlink_authored)[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        window_.host.session.apply({UnlinkColor{ref}},unlink_revision);window_.host.edited();
     });
     auto* history=menu->addMenu("Copied Color History · this window");history->setObjectName("color-history-menu");
     if(history_.empty()){auto* empty=history->addAction("No colors explicitly copied yet");empty->setEnabled(false);}
