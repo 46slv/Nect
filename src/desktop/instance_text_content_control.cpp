@@ -46,6 +46,7 @@ void show_error(QLabel* status,const std::exception& error){
     else status->setText(QString::fromUtf8(error.what()));
 }
 struct Draft {
+    std::optional<Object> source_context,instance_context;
     Id source;
     std::string raw;
     QString displayed;
@@ -157,7 +158,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     };
     const auto load_selection=[=]{
         if(!safe_box||!safe_source||!safe_editor||!safe_source_state||!safe_local_state)return;
-        disable();draft->source.clear();
+        disable();draft->source.clear();draft->source_context.reset();draft->instance_context.reset();
         if(safe_source->currentIndex()<0){
             safe_source->setEnabled(false);const QSignalBlocker blocker(safe_editor.data());safe_editor->clear();
             safe_source_state->setText("Source: —");safe_local_state->setText("Local: —");
@@ -175,6 +176,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
             // Inheritance can follow another descendant's local content link.
             // The typed core evaluator owns that occurrence-local dependency.
             draft->raw=overridden?local->second:evaluate_instance_text_content(current,instance,target);
+            draft->source_context=current.objects.at(target);draft->instance_context=current.objects.at(instance);
             {const QSignalBlocker blocker(safe_editor.data());safe_editor->setPlainText(QString::fromStdString(draft->raw));}
             draft->displayed=safe_editor->toPlainText();
             if(safe_parent)safe_parent->setProperty(selection_property,QVariantMap{
@@ -208,6 +210,9 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
         try{
             const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
             if(target!=draft->source)throw Error("REVISION_CONFLICT","The Text draft belongs to another source Object");
+            if(!draft->source_context||!draft->instance_context||current.objects.at(target)!=*draft->source_context||
+               current.objects.at(instance)!=*draft->instance_context||evaluate_instance_text_content(current,instance,target)!=draft->raw)
+                throw Error("PROPERTY_CONFLICT","The Instance or source Text changed; reload the draft before applying");
             const auto value=draft_value();const auto& overrides=current.objects.at(instance).instance->text_content_overrides;
             const auto local=overrides.find(target);if(local!=overrides.end()&&local->second==value)return;
             // Core validation owns UTF-8/size and direct or indirectly linked
