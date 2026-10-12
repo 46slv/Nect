@@ -998,6 +998,11 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     validate_semantic_descriptor(descriptor);
     const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
     const bool born_preview=host.session.gesture_active();
+    const bool text_font_scrub=!macro&&targets.size()==1&&targets.front().point.empty()&&
+        targets.front().field=="text.font_size"&&host.session.document().objects.at(targets.front().object).kind==Kind::text&&
+        host.session.document().objects.at(targets.front().object).text.has_value();
+    const auto text_source=text_font_scrub?std::optional<Id>{host.session.document().objects.at(targets.front().object).text->id}:std::nullopt;
+    const auto text_scalar=text_font_scrub?std::optional<Scalar>{nect::property(host.session.document(),targets.front())}:std::nullopt;
     const auto read=[macro](const Document& d,const Ref& r) {
         return macro?macro_parameter_value(d,r.object,r.point,r.field):evaluate(d).at(r);
     };
@@ -1026,7 +1031,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     control->setProperty("nect-targets",refs_json(targets));
     control->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
     control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
-    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));input->setReadOnly(driven);
+    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_font_scrub)input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
         control->setToolTip("Driven: explicitly unlink before scrubbing.");}
     const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
@@ -1041,13 +1046,22 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_source,text_scalar] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
         for(const auto& target:targets) {
+            if(text_source) {
+                const auto found=host.session.document().objects.find(target.object);
+                if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
+                   !found->second.text||found->second.text->id!=*text_source)
+                    throw Error("TEXT_EDIT_CONFLICT","The retained Text property source was replaced; reopen this Inspector");
+                if(nect::property(host.session.document(),target)!=*text_scalar)
+                    throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+            }
             auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
                 property_semantic_descriptor(host.session.document(),target);
+            if(!current&&text_source)current=descriptor;
             if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
                current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
                 throw Error("MISSING_PROPERTY","Semantic control target changed");
@@ -12539,6 +12553,14 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
+    else if(targets.size()==1&&ref.point.empty()&&ref.field=="text.font_size"&&
+            d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text) {
+        SemanticParameterDescriptor font_size;
+        font_size.key=ref.field;font_size.unit="du";font_size.domain="text";font_size.step=1;
+        font_size.default_value=default_text("font-size-control","").parameters.at("font_size").literal;
+        font_size.label="Font size";font_size.help="Adjust the Text font size. Escape cancels the preview.";
+        add_semantic_scrub(box,input,targets,font_size);
+    }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
     const bool circle_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="composite.opacity")&&
         d.objects.at(ref.object).kind==Kind::path&&d.objects.at(ref.object).source&&d.objects.at(ref.object).source->type=="nect.shape.circle";
