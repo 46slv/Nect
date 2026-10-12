@@ -186,8 +186,8 @@ bool is_authored_point_scrub_ref(const Document& document,const Ref& ref) {
         return std::any_of(contour.points.begin(),contour.points.end(),[&](const Point& point){return point.id==ref.point;});
     });
 }
-bool is_authored_path_translation_scrub_ref(const Document& document,const Ref& ref) {
-    if(!ref.point.empty()||(ref.field!="transform.tx"&&ref.field!="transform.ty"))return false;
+bool is_authored_path_transform_scrub_ref(const Document& document,const Ref& ref) {
+    if(!ref.point.empty()||(ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
     const auto found=document.objects.find(ref.object);
     return found!=document.objects.end()&&found->second.kind==Kind::path&&!found->second.source&&!found->second.text;
 }
@@ -1032,8 +1032,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     const bool point_coordinate_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_authored_point_scrub_ref(host.session.document(),target);
     });
-    const bool path_translation_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-        return is_authored_path_translation_scrub_ref(host.session.document(),target);
+    const bool path_transform_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        return is_authored_path_transform_scrub_ref(host.session.document(),target);
     });
     const bool primitive_scalar_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_primitive_source_scrub_ref(host.session.document(),target);
@@ -1046,8 +1046,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     }
     std::vector<Scalar> point_scalars;
     if(point_coordinate_scrub)for(const auto& target:targets)point_scalars.push_back(nect::property(host.session.document(),target));
-    std::vector<Scalar> path_translation_scalars;
-    if(path_translation_scrub)for(const auto& target:targets)path_translation_scalars.push_back(nect::property(host.session.document(),target));
+    std::vector<Scalar> path_transform_scalars;
+    if(path_transform_scrub)for(const auto& target:targets)path_transform_scalars.push_back(nect::property(host.session.document(),target));
     std::vector<Id> text_sources;std::vector<Scalar> text_scalars;
     if(text_scalar_scrub)for(const auto& target:targets) {
         text_sources.push_back(host.session.document().objects.at(target.object).text->id);
@@ -1086,7 +1086,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     // Mouse focus still enables the scrub's arrow keys.
     if(text_scalar_scrub&&targets.size()==1&&targets.front().field=="text.origin_y")control->setFocusPolicy(Qt::ClickFocus);
     control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
-    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub&&!point_coordinate_scrub&&!primitive_scalar_scrub&&!path_translation_scrub)input->setReadOnly(driven);
+    control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub&&!point_coordinate_scrub&&!primitive_scalar_scrub&&!path_transform_scrub)input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
         control->setToolTip("Driven: explicitly unlink before scrubbing.");}
     const bool mixed=std::any_of(initial.begin(),initial.end(),[&](double value){return value!=initial.front();});
@@ -1101,11 +1101,11 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_translation_scrub,path_translation_scalars] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_transform_scrub,path_transform_scalars] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
-        std::size_t text_index=0,point_index=0,primitive_index=0,path_translation_index=0;
+        std::size_t text_index=0,point_index=0,primitive_index=0,path_transform_index=0;
         for(const auto& target:targets) {
             if(primitive_scalar_scrub) {
                 const auto& primitive_type=primitive_types.at(primitive_index);
@@ -1122,11 +1122,12 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
                 }
                 ++primitive_index;
             }
-            if(path_translation_scrub) {
-                if(!is_authored_path_translation_scrub_ref(host.session.document(),target)||
-                   nect::property(host.session.document(),target)!=path_translation_scalars.at(path_translation_index))
-                    throw Error("PROPERTY_CONFLICT","The retained Path translation changed; reopen this Inspector");
-                ++path_translation_index;
+            if(path_transform_scrub) {
+                if(!is_authored_path_transform_scrub_ref(host.session.document(),target)||
+                   nect::property(host.session.document(),target)!=path_transform_scalars.at(path_transform_index))
+                    throw Error("PROPERTY_CONFLICT",target.field.starts_with("transform.anchor_")?
+                        "The retained Path anchor changed; reopen this Inspector":"The retained Path translation changed; reopen this Inspector");
+                ++path_transform_index;
             }
             if(point_coordinate_scrub) {
                 if(!is_authored_point_scrub_ref(host.session.document(),target))
@@ -1146,7 +1147,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             }
             auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
                 property_semantic_descriptor(host.session.document(),target);
-            if(!current&&(text_scalar_scrub||point_coordinate_scrub||primitive_scalar_scrub||path_translation_scrub))current=descriptor;
+            if(!current&&(text_scalar_scrub||point_coordinate_scrub||primitive_scalar_scrub||path_transform_scrub))current=descriptor;
             if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
                current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
                 throw Error("MISSING_PROPERTY","Semantic control target changed");
@@ -12600,8 +12601,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const bool input_authored_point=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_authored_point_scrub_ref(d,target);
     });
-    const bool input_path_translation=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-        return is_authored_path_translation_scrub_ref(d,target);
+    const bool input_path_transform=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        return is_authored_path_transform_scrub_ref(d,target);
     });
     const bool input_primitive_scalar=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_primitive_source_scrub_ref(d,target);
@@ -12666,13 +12667,15 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             text_parameter.minimum=-1000000000;text_parameter.maximum=1000000000;
             text_parameter.help+=" Negative coordinates are allowed.";}
         add_semantic_scrub(box,input,targets,text_parameter);
-    }else if(input_path_translation) {
-        SemanticParameterDescriptor translation_parameter;
-        translation_parameter.key=ref.field;translation_parameter.label=ref.field=="transform.tx"?"Translation X":"Translation Y";
-        translation_parameter.unit=property_unit(ref);translation_parameter.domain="geometry";translation_parameter.step=1;
-        translation_parameter.default_value=0;translation_parameter.minimum=-1000000000;translation_parameter.maximum=1000000000;
-        translation_parameter.help="Adjust the authored Path's local translation. Escape cancels the preview.";
-        add_semantic_scrub(box,input,targets,translation_parameter);
+    }else if(input_path_transform) {
+        SemanticParameterDescriptor transform_parameter;
+        transform_parameter.key=ref.field;transform_parameter.label=ref.field=="transform.tx"?"Translation X":ref.field=="transform.ty"?"Translation Y":
+            ref.field=="transform.anchor_x"?"Anchor X":"Anchor Y";
+        transform_parameter.unit=property_unit(ref);transform_parameter.domain="geometry";transform_parameter.step=1;
+        transform_parameter.default_value=0;transform_parameter.minimum=-1000000000;transform_parameter.maximum=1000000000;
+        transform_parameter.help=ref.field.starts_with("transform.anchor_")?"Adjust the local pivot. Artwork stays in place; Escape cancels the preview.":
+            "Adjust the authored Path's local translation. Escape cancels the preview.";
+        add_semantic_scrub(box,input,targets,transform_parameter);
     }else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             return is_authored_point_scrub_ref(d,target);
         })) {
@@ -13266,8 +13269,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,input_authored_point,input_primitive_scalar,input_path_translation,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
-        if(rebuilding_inspector_&&(input_authored_point||input_primitive_scalar||input_path_translation||(is_text_scrub_ref(ref)&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,input_authored_point,input_primitive_scalar,input_path_transform,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
+        if(rebuilding_inspector_&&(input_authored_point||input_primitive_scalar||input_path_transform||(is_text_scrub_ref(ref)&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             return is_text_scrub_ref(target)&&input_text_sources.contains(target.object);
         }))))return;
         if(!input->isModified()) return;
