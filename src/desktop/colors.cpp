@@ -410,6 +410,9 @@ void ColorTools::clear_editor() {
 }
 void ColorTools::load_editor(const Id& id,const std::map<Ref,double>& values) {
     const auto& document=window_.host.session.document();editor_base_=document.named_colors.at(id);editor_session_=window_.host.session_id;
+    editor_document_=document.id;
+    editor_generation_=window_.host.session.gesture_generation();
+    editor_preview_born_=window_.host.session.gesture_active();
     editor_value_=color_value(document,{id,"","color"},values);editor_->setEnabled(true);apply_->setEnabled(true);
     clear_modified(name_,qs(editor_base_->name));clear_modified(hex_,hex_color(editor_value_));
     for(std::size_t i=0;i<channels_.size();++i)clear_modified(channels_[i],number(editor_value_.rgba[i]));
@@ -432,7 +435,11 @@ void ColorTools::create_named(const ColorValue& value) {
 void ColorTools::apply_editor() {
     if(!editor_base_)throw Error("NO_COLOR_SOURCE","Select a named color");
     const auto id=editor_base_->id;const Ref ref{id,"","color"};check_target(ref,editor_session_);
-    const auto& document=window_.host.session.document();const auto& current=document.named_colors.at(id);
+    const auto& document=window_.host.session.document();
+    if(document.id!=editor_document_)throw Error("SESSION_CONFLICT","Named color draft belongs to another document");
+    if(editor_preview_born_||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+    if(window_.host.session.gesture_generation()!=editor_generation_)throw Error("REVISION_CONFLICT","Named color context changed; reload the draft");
+    const auto& current=document.named_colors.at(id);
     const bool rename=name_->isModified();const bool recolor=hex_->isModified()||std::any_of(channels_.begin(),channels_.end(),[](const auto* input){return input->isModified();});
     if(rename&&current.name!=editor_base_->name)throw Error("COLOR_DRAFT_CONFLICT","This color was renamed while the draft was open; discard the draft to reload it");
     if(recolor) {
