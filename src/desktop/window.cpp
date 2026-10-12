@@ -12013,10 +12013,12 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
 
 void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
         const std::vector<Canvas::Selection>& selected,const QString& frozen_session,std::uint64_t frozen_revision,
-        const Id& composition,const Id& artboard,const std::function<void(bool)>& verify_context) {
+        const Id& composition,const Id& artboard,const std::function<void(bool)>& verify_context,
+        const std::function<void()>& verify_targets) {
     if(verify_context)verify_context(false);
     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
     if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed before the source chooser opened");
+    if(verify_targets)verify_targets();
     if(targets.empty()||targets.size()>1000)throw Error("INVALID_SELECTION","Choose 1 to 1000 Text content targets");
     const auto& document=host.session.document();std::set<Id> target_ids;bool any_driven=false;
     for(const auto& target:targets) {
@@ -12083,12 +12085,13 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     };
     connect(dialog,&QDialog::rejected,dialog,restore);
     connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_document,frozen_revision,restore,verify_context,verify_picker,chosen_source,chosen_lineage] {
+        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_document,frozen_revision,restore,verify_context,verify_picker,chosen_source,chosen_lineage,verify_targets] {
             try {
                 verify_picker();
                 if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
                     throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                 if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+                if(verify_targets)verify_targets();
                 auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                 const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                 if(!source.point.empty()||source.field!="text.content"||target_ids.contains(source.object))
@@ -12164,11 +12167,18 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             host.session.apply(commands,frozen_revision);host.edited();
         });
     });
-    connect(link,&QPushButton::clicked,this,[this,targets,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+    connect(link,&QPushButton::clicked,this,[this,targets,retained_contents,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
         perform([&]{
             if(host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
-            open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard);
+            const auto verify_targets=[this,targets,retained_contents] {
+                for(std::size_t i=0;i<targets.size();++i) {
+                    const auto current=text_content_property(host.session.document(),targets[i]);const auto& retained=retained_contents[i];
+                    if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
+                        throw Error("PROPERTY_CONFLICT","The retained Text content source changed; refresh before linking");
+                }
+            };
+            open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard,{},verify_targets);
         });
     });
 }

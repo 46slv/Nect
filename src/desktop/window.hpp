@@ -171,7 +171,8 @@ private:
     void add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void open_text_content_source_picker(const std::vector<Ref>& targets,
         const std::vector<Canvas::Selection>& selected,const QString& session,std::uint64_t revision,
-        const Id& composition,const Id& artboard,const std::function<void(bool)>& verify_context={});
+        const Id& composition,const Id& artboard,const std::function<void(bool)>& verify_context={},
+        const std::function<void()>& verify_targets={});
     void add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected);
     void transform_selection();
     void distribute_selection(const std::string& axis,const std::string& reference="selection",std::optional<double> spacing={});
