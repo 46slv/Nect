@@ -12158,7 +12158,7 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
     const auto frozen_document=document.id;
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     const auto frozen_gesture=host.session.gesture_generation();
-    connect(unlink,&QPushButton::clicked,this,[this,targets,retained_contents,frozen_session,frozen_document,frozen_revision,frozen_gesture] {
+    connect(unlink,&QPushButton::clicked,this,[this,targets,retained_contents,retained_content_sources,frozen_session,frozen_document,frozen_revision,frozen_gesture,composition] {
         perform([&]{
             if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text selection belongs to another document");
@@ -12170,6 +12170,22 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
                 if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
                     throw Error("PROPERTY_CONFLICT","The retained Text content source changed; refresh before unlinking");
             }
+            for(std::size_t i=0;i<targets.size();++i)
+                if(host.session.document().objects.at(targets[i].object).text->id!=retained_content_sources[i])
+                    throw Error("TEXT_EDIT_CONFLICT","The retained Text source was replaced; refresh before unlinking");
+            const auto& current_document=host.session.document();
+            const auto owner=std::find_if(current_document.compositions.begin(),current_document.compositions.end(),
+                [&](const auto& item){return item.id==composition;});
+            std::set<Id> members;std::vector<Id> pending;
+            if(owner!=current_document.compositions.end())pending=owner->roots;
+            while(!pending.empty()) {
+                auto id=std::move(pending.back());pending.pop_back();if(!members.insert(id).second)continue;
+                const auto found=current_document.objects.find(id);
+                if(found!=current_document.objects.end())
+                    pending.insert(pending.end(),found->second.children.begin(),found->second.children.end());
+            }
+            for(const auto& target:targets)if(!members.contains(target.object))
+                throw Error("SELECTION_CONFLICT","The retained Text target moved to another composition; refresh before unlinking");
             std::vector<Command> commands;
             for(const auto& target:targets)
                 if(text_content_property(host.session.document(),target).driver)
