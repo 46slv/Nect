@@ -10844,6 +10844,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         const auto point_revision=host.session.revision();
         const std::array<double,2> initial{inspector_values_.at(xref),inspector_values_.at(yref)};
         connect(edit_pair,&QPushButton::clicked,this,[this,xref,yref,metadata,initial,frozen_session,point_revision,verify_mode_context] {
+            try {verify_mode_context();}
+            catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
             auto* dialog=new QDialog(this);dialog->setAttribute(Qt::WA_DeleteOnClose);
             dialog->setObjectName("semantic-gradient-point-dialog");dialog->setWindowTitle(qs(metadata.label)+" · local XY");
             auto* layout=new QVBoxLayout(dialog);auto* editor=new SemanticPointInput(initial,dialog);
