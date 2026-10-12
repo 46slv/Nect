@@ -13320,6 +13320,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
 
 void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context,bool track_view) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
+    const auto target_property=track_view&&!relative&&targets.size()==1&&target.point.empty()&&target.field.starts_with("text.")?std::optional<Scalar>{nect::property(host.session.document(),target)}:std::nullopt;
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
     dialog->setWindowTitle(relative?"Pick Relative Link source":"Pick property source");
@@ -13376,7 +13377,7 @@ void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<vo
     connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context),track_view,view_current]{
         if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)&&(!track_view||view_current())){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
-    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context,track_view,view_current] {
+    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context,track_view,view_current,target_property] {
         perform([&]{
             if(verify_context)verify_context();
             if(track_view&&!view_current())throw Error("SELECTION_CONFLICT","Source picker view changed; reopen it");
@@ -13384,6 +13385,8 @@ void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<vo
             if(!list->currentItem()||list->currentItem()->isHidden()||!(list->currentItem()->flags()&Qt::ItemIsEnabled))
                 throw Error("NO_SOURCE","Choose a visible compatible source property");
             const auto source=read_ref(list->currentItem()->data(Qt::UserRole).toByteArray());
+            if(target_property&&nect::property(host.session.document(),targets.front())!=*target_property)
+                throw Error("PROPERTY_CONFLICT","Source picker target property changed; reopen it");
             host.session.apply({LinkProperties{targets,source,relative}},expected_revision);
             canvas->set_active_artboard(composition,artboard,false);
             canvas->set_selections(selection);host.edited();dialog->accept();
