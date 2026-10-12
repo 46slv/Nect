@@ -13247,7 +13247,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         });
     });
     input->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression,input_document,input_text_sources,input_text_properties](const QPoint& point) {
+    connect(input,&QWidget::customContextMenuRequested,this,[this,input,ref,targets,mixed,driven,field_session,field_revision,expand,initial_expression,input_document,input_text_sources,input_text_properties,input_gesture,input_preview](const QPoint& point) {
         QMenu menu;
         auto* copy=menu.addAction("Copy Value");auto* reference=menu.addAction("Copy Reference");
         auto* paste=menu.addAction("Paste Value");auto* link=menu.addAction("Paste Link");
@@ -13285,6 +13285,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     for(const auto& [target,retained]:input_text_properties)
                         if(nect::property(host.session.document(),target)!=retained)
                             throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+                    if(input_preview||host.session.gesture_active())
+                        throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+                    if(host.session.gesture_generation()!=input_gesture)
+                        throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
                 }
                 host.session.apply({UnlinkProperties{targets}},field_revision);host.edited();
             }
