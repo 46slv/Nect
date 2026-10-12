@@ -2,7 +2,7 @@
 
 ## Mission Brief
 
-**Goal:** Discover the next accepted Group Object Scalar continuous-input gap using existing Scalar/Session contracts.
+**Goal:** Continue accepted native authoring work from the Completion Route, selecting a concrete uncovered production obligation and reusing valid evidence.
 **Completion conditions:** Focused real semantic/runtime acceptance and synchronized coherent checkpoints. Whole Mission/Requirement closure follows canonical Completion Route/Outcome; packets/tests/pushes do not close it.
 **Authority:** Direct user2026-10-04/05/06/07/08, DEC71 and authorized formal rollover continuation. Owner/every Worker GPT-6.1 Sol. Reversible edits/build/tests/coherent commits/dev nonforce pushes/Draft maintenance proceed. Protected-main/release/publication/force/history/account/irreversible remain gated.
 **Constraints:** Canonical D:/Documents/Nect-worktrees/sol-integration-20261004 only; original D:/Documents/Nect NEVER edit/build. One writer/all8; exact Local+one U+005C+NectBuild(length15); nodeReuse:false. Core Session/native0.87/asset1/2/envelope1/stable IDs/full source/atomic refusal/Undo protected. Canvas primary/fixed regions/no Timeline/stable Rail/Text variants. Preserve SDK/task10/25/27 caches/sample1597048/unknown Undo/unrelated apps/settings/assets/models/accounts. No new fonts/dependencies/schema/property-model expansion; no qualification/count chase or replay of valid proof.
