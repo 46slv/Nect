@@ -12368,22 +12368,37 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
         auto picker=make_text_source_picker(this,host.session.document(),targets.front().object,"text.weight",source_ids,
             relative?"Link relative Text weights":"Link absolute Text weights");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* picker_status=picker.status;
-        connect(list,&QListWidget::currentItemChanged,this,[this,frozen_session,frozen_document](QListWidgetItem* item,QListWidgetItem*) {
+        auto picker_selection=std::make_shared<std::vector<Canvas::Selection>>(canvas->selections());
+        auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+        const auto verify_picker_selection=[this,picker_selection,picker_generation] {
+            if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
+                throw Error("SELECTION_CONFLICT","The weight source chooser selection changed outside this chooser");
+        };
+        connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session,frozen_document,picker_status,verify_picker_selection,picker_selection,picker_generation](QListWidgetItem* item,QListWidgetItem*) {
             if(!item||item->isHidden()||host.session_id!=frozen_session||host.session.document().id!=frozen_document)return;
-            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
-            if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,{});
+            try {
+                verify_picker_selection();
+                const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                if(host.session.document().objects.contains(source.object)) {
+                    canvas->set_selection(source.object,{});
+                    *picker_selection=canvas->selections();*picker_generation=text_selection_generation_;
+                }
+            } catch(const Error& error) {picker_status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
+              catch(const std::exception& error) {picker_status->setText(QString::fromUtf8(error.what()));}
         });
-        connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,frozen_document,composition,artboard] {
-            if(host.session_id==frozen_session&&host.session.document().id==frozen_document) {
+        connect(dialog,&QDialog::rejected,this,[this,selected,frozen_session,frozen_document,composition,artboard,picker_selection,picker_generation] {
+            if(host.session_id==frozen_session&&host.session.document().id==frozen_document&&
+               canvas->selections()==*picker_selection&&text_selection_generation_==*picker_generation) {
                 perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selected);
             }
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,picker_status,targets,target_ids,frozen_session,frozen_revision,relative,replace_driver,selected,composition,artboard,verify_weight_source] {
+            [this,dialog,list,picker_status,targets,target_ids,frozen_session,frozen_revision,relative,replace_driver,selected,composition,artboard,verify_weight_source,verify_picker_selection] {
                 try {
                     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
                     if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the source chooser was open");
                     verify_weight_source();
+                    verify_picker_selection();
                     auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.point!=""||source.field!="text.weight"||target_ids.contains(source.object))
