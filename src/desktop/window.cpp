@@ -12041,13 +12041,15 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     auto picker_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
     auto chosen_source=std::make_shared<std::optional<Object>>();
     auto chosen_lineage=std::make_shared<TextContentLineage>();
-    const auto verify_picker=[this,verify_context,verify_targets,frozen_session,frozen_document,frozen_revision,picker_selection,picker_generation] {
+    const auto verify_picker=[this,verify_context,verify_targets,frozen_session,frozen_document,frozen_revision,composition,artboard,picker_selection,picker_generation] {
         if(verify_context)verify_context(true);
         else if(verify_targets) {
             if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
             if(host.session.revision()!=frozen_revision)
                 throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
+            if(canvas->active_composition()!=composition||canvas->active_artboard()!=artboard)
+                throw Error("SELECTION_CONFLICT","The content source chooser artboard changed outside this chooser");
         }else return;
         if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
             throw Error("SELECTION_CONFLICT","The content source chooser selection changed outside this chooser");
@@ -12076,7 +12078,8 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     const auto restore=[this,selected,targets,frozen_session,frozen_document,composition,artboard,verify_context,verify_targets,picker_selection,picker_generation] {
         if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)return;
         if(!verify_context&&verify_targets&&
-           (canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation))return;
+           (canvas->active_composition()!=composition||canvas->active_artboard()!=artboard||
+            canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation))return;
         if(verify_context) {
             const auto& current=host.session.document();
             const auto owner=std::find_if(current.compositions.begin(),current.compositions.end(),[&](const auto& c){return c.id==composition;});
