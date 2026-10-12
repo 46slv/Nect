@@ -12167,11 +12167,14 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             host.session.apply(commands,frozen_revision);host.edited();
         });
     });
-    connect(link,&QPushButton::clicked,this,[this,targets,retained_contents,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+    connect(link,&QPushButton::clicked,this,[this,targets,retained_contents,selected,frozen_session,frozen_document,frozen_revision,frozen_gesture,composition,artboard] {
         perform([&]{
             if(host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
-            const auto verify_targets=[this,targets,retained_contents] {
+            const auto verify_targets=[this,targets,retained_contents,frozen_gesture] {
+                if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                if(host.session.gesture_generation()!=frozen_gesture)
+                    throw Error("REVISION_CONFLICT","The edit context changed; refresh before linking");
                 for(std::size_t i=0;i<targets.size();++i) {
                     const auto current=text_content_property(host.session.document(),targets[i]);const auto& retained=retained_contents[i];
                     if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
