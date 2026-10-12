@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QGroupBox>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -164,6 +165,9 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
     field->addItem("Font family","text.family");field->addItem("Language tag (locale)","text.locale");layout->addWidget(field);
     auto* state=new QLabel(box);state->setObjectName("text-string-source-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-string-source-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);
     auto* mode=new QComboBox(box);mode->setObjectName("text-string-source-batch-mode");
     mode->setAccessibleName("Link or Unlink every retained Text target");
     // Long source/action labels stay in the popup instead of widening the panel.
@@ -187,8 +191,6 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
     auto* cancel=new QPushButton("Cancel",box);cancel->setObjectName("text-string-source-batch-cancel");
     cancel->setToolTip("Discard the source draft without changing the document or Undo history.");cancel->setEnabled(false);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-string-source-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_field(field),safe_mode(mode),safe_source(source);
