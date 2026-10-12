@@ -53,6 +53,8 @@ QWidget* make_text_alignment_batch_controls(Host& host,const std::vector<Id>& ta
     box->setObjectName("text-alignment-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-alignment-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-alignment-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* row=new QHBoxLayout;
     auto* editor=new QComboBox(box);editor->setObjectName("text-alignment-batch-editor");
     editor->setAccessibleName("Alignment for every selected Text object");
@@ -61,8 +63,6 @@ QWidget* make_text_alignment_batch_controls(Host& host,const std::vector<Id>& ta
     auto* apply=new QPushButton("Apply",box);apply->setObjectName("text-alignment-batch-apply");
     apply->setToolTip("Sets every retained Text target in one Undo step.");apply->setEnabled(false);
     row->addWidget(editor,1);row->addWidget(apply);layout->addLayout(row);
-    auto* status=new QLabel(box);status->setObjectName("text-alignment-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
