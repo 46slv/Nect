@@ -13145,6 +13145,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
         input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,input_text_properties,paint_scalar_fx,batch_paint_scalar_fx,retain_text_scalar_draft=text_scalar_fx&&ref.field.starts_with("text.")] {
+        if(rebuilding_inspector_&&ref.field=="text.font_size"&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            return target.point.empty()&&target.field=="text.font_size"&&input_text_sources.contains(target.object);
+        }))return;
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
