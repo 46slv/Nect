@@ -2045,7 +2045,8 @@ bool Window::eventFilter(QObject* watched,QEvent* event) {
     const auto verify=whip_verify_;
     cancel_whip();
     if(!dragged) {
-        if(verify)perform([&]{verify();pick_source(targets,false,verify);});
+        const bool track_text_view=targets.size()==1&&targets.front().point.empty()&&targets.front().field.starts_with("text.");
+        if(verify)perform([&]{verify();pick_source(targets,false,verify,track_text_view);});
         else pick_source(targets);
         return true;
     }
