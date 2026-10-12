@@ -5832,7 +5832,10 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             // View-only navigation must not cancel a preview or retarget an old
             // Properties control after an external edit or document replacement.
             const auto& current=host.session.document();
-            if(host.session_id!=name_session||current.id!=name_document||host.session.revision()!=name_revision||
+            const auto current_instance=current.objects.find(id);
+            if(current_instance==current.objects.end()||current_instance->second.kind!=Kind::instance||
+               !current_instance->second.instance||current_instance->second.instance->definition!=definition_id||
+               host.session_id!=name_session||current.id!=name_document||host.session.revision()!=name_revision||
                host.session.gesture_generation()!=name_gesture||host.session.gesture_active()||
                canvas->selections()!=source_selection||canvas->selected_object!=id||
                !current.definitions.contains(definition_id)||current.definitions.at(definition_id).root!=root||
