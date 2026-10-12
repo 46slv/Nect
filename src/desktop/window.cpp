@@ -179,7 +179,7 @@ bool is_text_scrub_ref(const Ref& ref) {
     return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.origin_x"||ref.field=="text.origin_y");
 }
 bool is_authored_point_scrub_ref(const Document& document,const Ref& ref) {
-    if(ref.point.empty()||(ref.field!="x"&&ref.field!="y"))return false;
+    if(ref.point.empty()||(ref.field!="x"&&ref.field!="y"&&ref.field!="in.length"&&ref.field!="out.length"))return false;
     const auto found=document.objects.find(ref.object);
     if(found==document.objects.end()||found->second.kind!=Kind::path||found->second.source||found->second.text)return false;
     return std::any_of(found->second.contours.begin(),found->second.contours.end(),[&](const Contour& contour) {
@@ -1082,7 +1082,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
                 if(!is_authored_point_scrub_ref(host.session.document(),target))
                     throw Error("PROPERTY_CONFLICT","The retained Path point changed; reopen this Inspector");
                 if(nect::property(host.session.document(),target)!=point_scalars.at(point_index++))
-                    throw Error("PROPERTY_CONFLICT","The retained point coordinate changed; reopen this Inspector");
+                    throw Error("PROPERTY_CONFLICT",target.field.ends_with(".length")?
+                        "The retained handle length changed; reopen this Inspector":"The retained point coordinate changed; reopen this Inspector");
             }
             if(text_scalar_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
@@ -12614,9 +12615,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         })) {
         SemanticParameterDescriptor point_parameter;
         point_parameter.key=ref.field;point_parameter.unit=property_unit(ref);point_parameter.domain="geometry";point_parameter.step=1;
-        point_parameter.default_value=0;point_parameter.minimum=-1000000000;point_parameter.maximum=1000000000;
-        point_parameter.label=ref.field=="x"?"Point X":"Point Y";
-        point_parameter.help="Adjust the local point coordinate. Escape cancels the preview.";
+        point_parameter.default_value=0;point_parameter.minimum=ref.field.ends_with(".length")?0:-1000000000;point_parameter.maximum=1000000000;
+        point_parameter.label=ref.field=="x"?"Point X":ref.field=="y"?"Point Y":ref.field=="in.length"?"Incoming length":"Outgoing length";
+        point_parameter.help=ref.field.ends_with(".length")?"Adjust the local handle length. Zero keeps the stored angle; Escape cancels the preview.":
+            "Adjust the local point coordinate. Escape cancels the preview.";
         add_semantic_scrub(box,input,targets,point_parameter);
     }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
