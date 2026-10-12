@@ -13294,7 +13294,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             }
             else if(chosen==relative) {
                 if(input_text_sources.empty()){pick_source(targets,true);return;}
-                auto verify_targets=[this,input_document,input_text_sources,input_text_properties] {
+                auto verify_targets=[this,input_document,input_text_sources,input_text_properties,input_gesture,input_preview] {
                     if(host.session.document().id!=input_document)
                         throw Error("SESSION_CONFLICT","Text scalar source picker belongs to another document");
                     for(const auto& [object,source]:input_text_sources) {
@@ -13306,6 +13306,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     for(const auto& [target,retained]:input_text_properties)
                         if(nect::property(host.session.document(),target)!=retained)
                             throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+                    if(input_preview||host.session.gesture_active())
+                        throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+                    if(host.session.gesture_generation()!=input_gesture)
+                        throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
                 };
                 verify_targets();pick_source(targets,true,verify_targets);
             }
