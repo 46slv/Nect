@@ -77,9 +77,11 @@ QWidget* make_text_content_batch_controls(Host& host,const std::vector<Id>& targ
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying content");
         const auto& document=safe_host->session.document();require_targets(document,targets);return document;
     };
+    std::vector<std::string> retained_contents;
     QString initial_text;std::string initial_raw;bool shared=false;
     try{
         const auto& document=current_document();const auto& first=document.objects.at(targets.front()).text->content;
+        for(const auto& id:targets)retained_contents.push_back(document.objects.at(id).text->content);
         if(unchanged_content(document,targets,first)){
             shared=true;initial_raw=first;initial_text=QString::fromStdString(first);state->setText("Shared content");editor->setPlainText(initial_text);
         }else{
@@ -126,7 +128,13 @@ QWidget* make_text_content_batch_controls(Host& host,const std::vector<Id>& targ
     QObject::connect(apply,&QPushButton::clicked,box,[=]{
         if(!safe_box||!safe_editor||!*drafted)return;
         try{
-            const auto& document=current_document();const auto authored=value();
+            const auto& document=current_document();
+            if(retained_contents.size()!=targets.size())
+                throw Error("PROPERTY_CONFLICT","The retained Text content changed; refresh before applying the draft");
+            for(std::size_t i=0;i<targets.size();++i)
+                if(document.objects.at(targets[i]).text->content!=retained_contents[i])
+                    throw Error("PROPERTY_CONFLICT","The retained Text content changed; refresh before applying the draft");
+            const auto authored=value();
             if(unchanged_content(document,targets,authored))return;
             std::vector<Command> commands;commands.reserve(targets.size());
             for(const auto& id:targets){
