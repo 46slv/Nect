@@ -12124,9 +12124,11 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             "Unavailable: choose at most 1000 Text content targets.");return;
     }
     std::vector<Ref> targets;std::set<Id> target_ids;std::size_t driven=0;
+    std::vector<TextContentProperty> retained_contents;
     for(const auto& item:selected) {
         targets.push_back({item.object,"","text.content"});target_ids.insert(item.object);
-        if(text_content_property(document,targets.back()).driver)++driven;
+        const auto state=text_content_property(document,targets.back());retained_contents.push_back(state);
+        if(state.driver)++driven;
     }
     link->setEnabled(std::any_of(document.objects.begin(),document.objects.end(),[&](const auto& entry) {
         return entry.second.kind==Kind::text&&entry.second.text&&!target_ids.contains(entry.first);
@@ -12135,14 +12137,21 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
     status->setText(QString("%1 Text content targets · %2 with sources. Choose one source; literals remain stored. Existing sources require explicit replacement.")
         .arg(targets.size()).arg(driven));
     const auto frozen_session=host.session_id;const auto frozen_revision=host.session.revision();
+    const auto frozen_document=document.id;
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     const auto frozen_gesture=host.session.gesture_generation();
-    connect(unlink,&QPushButton::clicked,this,[this,targets,frozen_session,frozen_revision,frozen_gesture] {
+    connect(unlink,&QPushButton::clicked,this,[this,targets,retained_contents,frozen_session,frozen_document,frozen_revision,frozen_gesture] {
         perform([&]{
-            if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text selection belongs to another document");
+            if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","Text selection belongs to another document");
             if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed; refresh before unlinking");
             if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(host.session.gesture_generation()!=frozen_gesture)throw Error("REVISION_CONFLICT","The edit context changed; refresh before unlinking");
+            for(std::size_t i=0;i<targets.size();++i) {
+                const auto current=text_content_property(host.session.document(),targets[i]);const auto& retained=retained_contents[i];
+                if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
+                    throw Error("PROPERTY_CONFLICT","The retained Text content source changed; refresh before unlinking");
+            }
             std::vector<Command> commands;
             for(const auto& target:targets)
                 if(text_content_property(host.session.document(),target).driver)
