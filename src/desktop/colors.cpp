@@ -185,6 +185,13 @@ void ColorTools::copy(const Ref& ref,const QString& session,bool reference) {
 }
 
 void ColorTools::pick_named(const Ref& target,const QString& session) {
+    const auto document_id=window_.host.session.document().id;
+    const auto revision=window_.host.session.revision();
+    const auto gesture_generation=window_.host.session.gesture_generation();
+    const auto preview_born=window_.host.session.gesture_active();
+    const auto refs=color_channels(window_.host.session.document(),target);
+    std::array<Scalar,4> authored{};
+    for(std::size_t i=0;i<refs.size();++i)authored[i]=nect::property(window_.host.session.document(),refs[i]);
     auto* dialog=new QDialog(&window_);dialog->setObjectName("named-color-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle("Link named color");dialog->resize(420,330);auto* layout=new QVBoxLayout(dialog);
     auto* label=new QLabel("Target: "+qs(property_name(window_.host.session.document(),target)));label->setWordWrap(true);layout->addWidget(label);
@@ -197,10 +204,17 @@ void ColorTools::pick_named(const Ref& target,const QString& session) {
     auto* note=new QLabel("This explicitly replaces all four channel links. Equal color values alone never create a link.");note->setWordWrap(true);layout->addWidget(note);
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,list,target,session]{window_.perform([&]{
-        check_target(target,session);if(!list->currentItem())throw Error("NO_COLOR_SOURCE","Choose a named color");
+    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,list,target,session,document_id,revision,gesture_generation,preview_born,refs,authored]{window_.perform([&]{
+        check_target(target,session);
+        if(window_.host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Color picker belongs to another document");
+        if(window_.host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Color target changed while its picker was open; reopen it");
+        if(preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit before linking Color");
+        if(window_.host.session.gesture_generation()!=gesture_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen the picker");
+        for(std::size_t i=0;i<refs.size();++i)
+            if(nect::property(window_.host.session.document(),refs[i])!=authored[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        if(!list->currentItem())throw Error("NO_COLOR_SOURCE","Choose a named color");
         const Ref source{list->currentItem()->data(Qt::UserRole).toString().toStdString(),"","color"};
-        window_.host.session.apply({LinkColor{target,source}},window_.host.session.revision());window_.host.edited();dialog->accept();
+        window_.host.session.apply({LinkColor{target,source}},revision);window_.host.edited();dialog->accept();
     });});dialog->show();
 }
 
