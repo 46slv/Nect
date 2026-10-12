@@ -12181,10 +12181,23 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
         perform([&]{
             if(host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
-            const auto verify_targets=[this,targets,retained_contents,frozen_gesture] {
+            const auto verify_targets=[this,targets,retained_contents,frozen_gesture,composition] {
                 if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(host.session.gesture_generation()!=frozen_gesture)
                     throw Error("REVISION_CONFLICT","The edit context changed; refresh before linking");
+                const auto& current_document=host.session.document();
+                const auto owner=std::find_if(current_document.compositions.begin(),current_document.compositions.end(),
+                    [&](const auto& item){return item.id==composition;});
+                std::set<Id> members;std::vector<Id> pending;
+                if(owner!=current_document.compositions.end())pending=owner->roots;
+                while(!pending.empty()) {
+                    auto id=std::move(pending.back());pending.pop_back();if(!members.insert(id).second)continue;
+                    const auto found=current_document.objects.find(id);
+                    if(found!=current_document.objects.end())
+                        pending.insert(pending.end(),found->second.children.begin(),found->second.children.end());
+                }
+                for(const auto& target:targets)if(!members.contains(target.object))
+                    throw Error("SELECTION_CONFLICT","The retained Text target moved to another composition; refresh before linking");
                 for(std::size_t i=0;i<targets.size();++i) {
                     const auto current=text_content_property(host.session.document(),targets[i]);const auto& retained=retained_contents[i];
                     if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
