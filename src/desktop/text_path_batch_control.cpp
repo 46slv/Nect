@@ -3,6 +3,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
+#include <QFontMetrics>
+#include <QHBoxLayout>
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -115,6 +117,9 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     box->setObjectName("text-path-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-path-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-path-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);
     auto* form=new QFormLayout;form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addLayout(form);
     auto combo=[&](const char* name){auto* value=new QComboBox(box);value->setObjectName(name);
         value->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);value->setMinimumContentsLength(12);return value;};
@@ -131,9 +136,9 @@ QWidget* make_text_path_batch_controls(Host& host,const std::vector<Id>& targets
     auto* apply=new QPushButton("Attach / update selected",box);apply->setObjectName("text-path-batch-apply");
     auto* detach=new QPushButton("Detach selected",box);detach->setObjectName("text-path-batch-detach");
     auto* cancel=new QPushButton("Cancel draft",box);cancel->setObjectName("text-path-batch-cancel");
-    for(auto* button:{apply,detach,cancel}){button->setEnabled(false);layout->addWidget(button);}
-    auto* status=new QLabel(box);status->setObjectName("text-path-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    for(auto* button:{apply,detach,cancel})button->setEnabled(false);
+    layout->addWidget(apply);auto* secondary_actions=new QHBoxLayout;
+    secondary_actions->addWidget(detach);secondary_actions->addWidget(cancel);layout->addLayout(secondary_actions);
     start->setToolTip("Blank keeps each Text's start; detached Text starts at 0.");
     spacing->setToolTip("Blank keeps each Text's spacing; detached Text uses 0.");
     reversed->setToolTip("Mixed keeps each Text's traversal; detached Text uses forward traversal.");
