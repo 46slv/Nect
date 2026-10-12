@@ -1,5 +1,6 @@
 #include "text_locale_batch_control.hpp"
 #include "host.hpp"
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -50,6 +51,9 @@ QWidget* make_text_locale_batch_controls(Host& host,const std::vector<Id>& targe
     box->setObjectName("text-locale-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-locale-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-locale-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);layout->addWidget(status);
     auto* editor=new QLineEdit(box);editor->setObjectName("text-locale-batch-editor");
     editor->setAccessibleName("Language tag for every selected Text object");
     editor->setToolTip("Enter a locale, then Apply to every retained Text object. The core validates the exact text.");
@@ -61,8 +65,6 @@ QWidget* make_text_locale_batch_controls(Host& host,const std::vector<Id>& targe
     layout->addWidget(editor);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-locale-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QLineEdit> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply),safe_cancel(cancel);
