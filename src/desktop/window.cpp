@@ -10825,7 +10825,10 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     handles->setObjectName("gradient-handles-"+qs(op));
     handles->setToolTip("Edit the source motif's local start/end frame. Repeated copies share this gradient. Escape cancels a drag or exits handles.");
     form->addRow(handles);
-    connect(handles,&QPushButton::clicked,this,[this,id,op]{canvas->set_gradient_edit(id,op);});
+    connect(handles,&QPushButton::clicked,this,[this,id,op,verify_mode_context]{
+        try {verify_mode_context();canvas->set_gradient_edit(id,op);}
+        catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);}
+    });
     // Keep the individual source/expression controls below; the paired editor
     // provides an atomic edit without replacing their canonical scalar owners.
     for(const auto* endpoint:{"start","end"}) {
