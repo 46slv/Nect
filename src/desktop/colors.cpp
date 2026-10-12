@@ -196,8 +196,8 @@ void ColorTools::populate_menu(QMenu* menu,const Ref& ref,const QString& session
         });});
     }
     menu->addSeparator();
-    action("color-create-named","Save value as named color",[this,ref,session]{
-        check_target(ref,session);const auto& document=window_.host.session.document();
+    action("color-create-named","Save value as named color",[this,ref,session,verify_editor_context]{
+        verify_editor_context();const auto& document=window_.host.session.document();
         create_named(color_value(document,ref,evaluate(document)));
     });
     action("color-manager","Manage colors…",[this]{show_manager();});
