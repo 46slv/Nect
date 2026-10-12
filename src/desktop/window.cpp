@@ -12243,10 +12243,17 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
         value->clear();QStringList values;for(const auto item:evaluated)values.push_back(QString::number(item));
         status->setText("Draft cancelled; committed weights remain "+values.join(", ")+".");
     });
-    connect(unlink,&QPushButton::clicked,this,[this,targets,frozen_session,frozen_revision,status] {
+    connect(unlink,&QPushButton::clicked,this,[this,targets,frozen_session,frozen_revision,status,verify_weight_draft] {
         try {
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text weights belong to another document");
             if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the Inspector was open");
+            try {verify_weight_draft();}
+            catch(const Error& error) {
+                if(error.code=="SESSION_CONFLICT")throw Error(error.code,"Text weights belong to another document");
+                if(error.code=="REVISION_CONFLICT")throw Error(error.code,"The edit context changed; refresh before unlinking Text weights");
+                if(error.code=="PROPERTY_CONFLICT")throw Error(error.code,"The retained Text weight changed; refresh before unlinking");
+                throw;
+            }
             canvas->cancel_interaction();host.session.apply({TextWeightBatch{TextWeightBatchMode::unlink,targets}},frozen_revision);host.edited();
         } catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));}
           catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));}
