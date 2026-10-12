@@ -92,6 +92,8 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     editor->setAccessibleName("Local Text content draft for this Instance");
     editor->setToolTip("Starts from current occurrence content, including local upstream Text links. Typing edits a draft; Apply local writes only this Instance's selected Text content.");
     layout->addWidget(editor);
+    auto* status=new QLabel(box);status->setObjectName("instance-text-content-error");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* row=new QGridLayout;
     auto* apply=new QPushButton("Apply local",box);apply->setObjectName("instance-text-content-apply");
     apply->setToolTip("Sets a literal content override in one Undo step. Unchanged inherited text can be frozen locally; source links remain unchanged.");
@@ -106,8 +108,6 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     row->addWidget(clear,1,0);row->addWidget(reset,1,1);layout->addLayout(row);
     auto* note=new QLabel("Descendant Text only. Source content links stay intact. Unsupported Text-on-Path line breaks are refused on Apply.",box);
     note->setTextFormat(Qt::PlainText);note->setWordWrap(true);layout->addWidget(note);
-    auto* status=new QLabel(box);status->setObjectName("instance-text-content-error");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QWidget> safe_parent(parent);const QPointer<QComboBox> safe_source(source);
