@@ -998,11 +998,16 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     validate_semantic_descriptor(descriptor);
     const auto identity=host.session_id;const auto revision=host.session.revision();const auto document=host.session.document().id;
     const bool born_preview=host.session.gesture_active();
-    const bool text_font_scrub=!macro&&targets.size()==1&&targets.front().point.empty()&&
-        targets.front().field=="text.font_size"&&host.session.document().objects.at(targets.front().object).kind==Kind::text&&
-        host.session.document().objects.at(targets.front().object).text.has_value();
-    const auto text_source=text_font_scrub?std::optional<Id>{host.session.document().objects.at(targets.front().object).text->id}:std::nullopt;
-    const auto text_scalar=text_font_scrub?std::optional<Scalar>{nect::property(host.session.document(),targets.front())}:std::nullopt;
+    const bool text_font_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+        const auto found=host.session.document().objects.find(target.object);
+        return target.point.empty()&&target.field=="text.font_size"&&found!=host.session.document().objects.end()&&
+            found->second.kind==Kind::text&&found->second.text.has_value();
+    });
+    std::vector<Id> text_sources;std::vector<Scalar> text_scalars;
+    if(text_font_scrub)for(const auto& target:targets) {
+        text_sources.push_back(host.session.document().objects.at(target.object).text->id);
+        text_scalars.push_back(nect::property(host.session.document(),target));
+    }
     const auto read=[macro](const Document& d,const Ref& r) {
         return macro?macro_parameter_value(d,r.object,r.point,r.field):evaluate(d).at(r);
     };
@@ -1046,22 +1051,24 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_source,text_scalar] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_font_scrub,text_sources,text_scalars] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
+        std::size_t text_index=0;
         for(const auto& target:targets) {
-            if(text_source) {
+            if(text_font_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
                 if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
-                   !found->second.text||found->second.text->id!=*text_source)
+                   !found->second.text||found->second.text->id!=text_sources.at(text_index))
                     throw Error("TEXT_EDIT_CONFLICT","The retained Text property source was replaced; reopen this Inspector");
-                if(nect::property(host.session.document(),target)!=*text_scalar)
+                if(nect::property(host.session.document(),target)!=text_scalars.at(text_index))
                     throw Error("PROPERTY_CONFLICT","The retained Text property changed; reopen this Inspector");
+                ++text_index;
             }
             auto current=macro?std::optional<SemanticParameterDescriptor>{macro_semantic_descriptor(host.session.document(),target)}:
                 property_semantic_descriptor(host.session.document(),target);
-            if(!current&&text_source)current=descriptor;
+            if(!current&&text_font_scrub)current=descriptor;
             if(!current||current->key!=descriptor.key||current->value_type!=descriptor.value_type||
                current->unit!=descriptor.unit||current->widget_hint!=descriptor.widget_hint)
                 throw Error("MISSING_PROPERTY","Semantic control target changed");
@@ -12553,8 +12560,11 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     input->setToolTip(input->toolTip()+"\nEnter =expression or use fx. += / -= makes a one-time relative edit.");
     box->addWidget(input);
     if(semantic)add_semantic_scrub(box,input,targets,*semantic);
-    else if(targets.size()==1&&ref.point.empty()&&ref.field=="text.font_size"&&
-            d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text) {
+    else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
+            const auto found=d.objects.find(target.object);
+            return target.point.empty()&&target.field=="text.font_size"&&found!=d.objects.end()&&
+                found->second.kind==Kind::text&&found->second.text.has_value();
+        })) {
         SemanticParameterDescriptor font_size;
         font_size.key=ref.field;font_size.unit="du";font_size.domain="text";font_size.step=1;
         font_size.default_value=default_text("font-size-control","").parameters.at("font_size").literal;
