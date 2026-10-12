@@ -13311,13 +13311,13 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                     if(host.session.gesture_generation()!=input_gesture)
                         throw Error("REVISION_CONFLICT","The property edit context changed; edit it again");
                 };
-                verify_targets();pick_source(targets,true,verify_targets);
+                verify_targets();pick_source(targets,true,verify_targets,true);
             }
         });
     });
 }
 
-void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context) {
+void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context,bool track_view) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
@@ -13353,13 +13353,27 @@ void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<vo
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     const auto frozen_session=host.session_id;
     const auto frozen_document=host.session.document().id;
-    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session,frozen_document,guarded=bool(verify_context)](QListWidgetItem* item,QListWidgetItem*){
+    auto expected_selection=std::make_shared<std::vector<Canvas::Selection>>(selection);
+    auto expected_generation=std::make_shared<std::uint64_t>(text_selection_generation_);
+    auto view_current=[this,expected_selection,expected_generation,composition,artboard]{
+        return canvas->active_composition()==composition&&canvas->active_artboard()==artboard&&canvas->selections()==*expected_selection&&text_selection_generation_==*expected_generation;
+    };
+    connect(list,&QListWidget::currentItemChanged,dialog,[this,frozen_session,frozen_document,guarded=bool(verify_context),track_view,view_current,expected_selection,expected_generation](QListWidgetItem* item,QListWidgetItem*){
         if(!item||host.session_id!=frozen_session||(guarded&&host.session.document().id!=frozen_document))return;
+        if(track_view){
+            perform([&]{
+                if(!view_current())throw Error("SELECTION_CONFLICT","Source picker view changed; reopen it");
+                const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+                if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
+                *expected_selection=canvas->selections();*expected_generation=text_selection_generation_;
+            });
+            return;
+        }
         const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
         if(host.session.document().objects.contains(source.object))canvas->set_selection(source.object,source.point);
     });
-    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context)]{
-        if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
+    connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context),track_view,view_current]{
+        if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)&&(!track_view||view_current())){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
     auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context] {
         perform([&]{

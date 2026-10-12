@@ -203,7 +203,7 @@ private:
     void add_property(QFormLayout* layout,const Ref& ref,const QString& label);
     void add_properties(QFormLayout* layout,const std::vector<Ref>& targets,const QString& label);
     void add_expression_editor(QVBoxLayout* layout,const QByteArray& key,const std::vector<Ref>& targets,const QString& label);
-    void pick_source(std::vector<Ref> targets,bool relative=false,std::function<void()> verify_context={});
+    void pick_source(std::vector<Ref> targets,bool relative=false,std::function<void()> verify_context={},bool track_view=false);
     void save(bool choose);
     void export_png();
     void import_svg();
