@@ -12263,7 +12263,19 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
     for(const auto& [id,object]:document.objects)
         if(object.kind==Kind::text&&object.text&&!target_ids.contains(id))source_ids.push_back(id);
     absolute_link->setEnabled(!source_ids.empty());relative_link->setEnabled(!source_ids.empty());
-    const auto open_picker=[this,targets,target_ids,source_ids,selected,frozen_session,frozen_revision,composition,artboard](bool relative,bool replace_driver) {
+    const auto verify_weight_source=[verify_weight_draft] {
+        try {verify_weight_draft();}
+        catch(const Error& error) {
+            if(error.code=="SESSION_CONFLICT")throw Error(error.code,"Text source chooser belongs to another document");
+            if(error.code=="REVISION_CONFLICT")throw Error(error.code,"The edit context changed; refresh before linking Text weights");
+            if(error.code=="PROPERTY_CONFLICT")throw Error(error.code,"The retained Text weight changed; refresh before linking");
+            throw;
+        }
+    };
+    const auto open_picker=[this,targets,target_ids,source_ids,selected,frozen_session,frozen_revision,composition,artboard,status,verify_weight_source](bool relative,bool replace_driver) {
+        try {verify_weight_source();}
+        catch(const Error& error) {status->setText(qs(error.code)+": "+QString::fromUtf8(error.what()));return;}
+        catch(const std::exception& error) {status->setText(QString::fromUtf8(error.what()));return;}
         auto picker=make_text_source_picker(this,host.session.document(),targets.front().object,"text.weight",source_ids,
             relative?"Link relative Text weights":"Link absolute Text weights");
         auto* dialog=picker.dialog;auto* list=picker.list;auto* picker_status=picker.status;
@@ -12278,10 +12290,11 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
             }
         });
         connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-            [this,dialog,list,picker_status,targets,target_ids,frozen_session,frozen_revision,relative,replace_driver,selected,composition,artboard] {
+            [this,dialog,list,picker_status,targets,target_ids,frozen_session,frozen_revision,relative,replace_driver,selected,composition,artboard,verify_weight_source] {
                 try {
                     if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to another document");
                     if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text weights changed while the source chooser was open");
+                    verify_weight_source();
                     auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                     const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
                     if(source.point!=""||source.field!="text.weight"||target_ids.contains(source.object))
