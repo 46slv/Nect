@@ -345,6 +345,11 @@ void ColorTools::show_manager() {
         if(!editor_base_)throw Error("NO_COLOR_SOURCE","Select a named color");
         if(editor_dirty())throw Error("COLOR_DRAFT","Apply or discard the current draft before deleting its color");
         check_target({editor_base_->id,"","color"},editor_session_);
+        const auto& document=window_.host.session.document();
+        if(document.id!=editor_document_)throw Error("SESSION_CONFLICT","Named color selection belongs to another document");
+        if(editor_preview_born_||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(window_.host.session.gesture_generation()!=editor_generation_)throw Error("REVISION_CONFLICT","Named color context changed; reload the selection");
+        if(document.named_colors.at(editor_base_->id)!=*editor_base_)throw Error("PROPERTY_CONFLICT","The selected named color changed; reload it before deleting");
         window_.host.session.apply({DeleteNamedColor{editor_base_->id}},window_.host.session.revision());window_.host.edited();
     });});
     editor_=new QGroupBox("Selected named color");auto* editor_layout=new QVBoxLayout(editor_);named_layout->addWidget(editor_);
