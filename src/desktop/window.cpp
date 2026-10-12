@@ -12194,6 +12194,8 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
     group->setObjectName("text-weight-batch-panel");auto* column=new QVBoxLayout(group);
     auto* note=new QLabel("Enter one absolute value or += / -= to preserve each selected Text's weight difference.");
     note->setWordWrap(true);column->addWidget(note);
+    auto* status=new QLabel("The target Refs, Session and revision are captured for this draft.",group);
+    status->setObjectName("text-weight-batch-status");status->setWordWrap(true);column->addWidget(status);
     auto* edit_row=new QHBoxLayout;auto* value=new QLineEdit(group);value->setObjectName("text-weight-batch-value");
     value->setAccessibleName("Shared Text weight draft");value->setPlaceholderText("400, +=10, or -=10");
     if(std::all_of(evaluated.begin(),evaluated.end(),[&](unsigned current){return current==evaluated.front();}))
@@ -12214,8 +12216,6 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
     replace->setVisible(any_driven);column->addWidget(replace);
     auto* unlink=new QPushButton("Unlink",group);unlink->setObjectName("text-weight-batch-unlink");
     unlink->setEnabled(any_driven);source_row->addWidget(unlink);source_row->addStretch();column->addLayout(source_row);
-    auto* status=new QLabel("The target Refs, Session and revision are captured for this draft.",group);
-    status->setObjectName("text-weight-batch-status");status->setWordWrap(true);column->addWidget(status);
     layout->addWidget(group);
 
     const auto parse_draft=[](const QString& raw)->std::pair<std::int64_t,bool> {
