@@ -12141,10 +12141,11 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             "Unavailable: choose at most 1000 Text content targets.");return;
     }
     std::vector<Ref> targets;std::set<Id> target_ids;std::size_t driven=0;
-    std::vector<TextContentProperty> retained_contents;
+    std::vector<TextContentProperty> retained_contents;std::vector<Id> retained_content_sources;
     for(const auto& item:selected) {
         targets.push_back({item.object,"","text.content"});target_ids.insert(item.object);
         const auto state=text_content_property(document,targets.back());retained_contents.push_back(state);
+        retained_content_sources.push_back(document.objects.at(item.object).text->id);
         if(state.driver)++driven;
     }
     link->setEnabled(std::any_of(document.objects.begin(),document.objects.end(),[&](const auto& entry) {
@@ -12177,11 +12178,11 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             host.session.apply(commands,frozen_revision);host.edited();
         });
     });
-    connect(link,&QPushButton::clicked,this,[this,targets,retained_contents,selected,frozen_session,frozen_document,frozen_revision,frozen_gesture,composition,artboard] {
+    connect(link,&QPushButton::clicked,this,[this,targets,retained_contents,retained_content_sources,selected,frozen_session,frozen_document,frozen_revision,frozen_gesture,composition,artboard] {
         perform([&]{
             if(host.session.document().id!=frozen_document)
                 throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
-            const auto verify_targets=[this,targets,retained_contents,frozen_gesture,composition] {
+            const auto verify_targets=[this,targets,retained_contents,retained_content_sources,frozen_gesture,composition] {
                 if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
                 if(host.session.gesture_generation()!=frozen_gesture)
                     throw Error("REVISION_CONFLICT","The edit context changed; refresh before linking");
@@ -12202,6 +12203,8 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
                     const auto current=text_content_property(host.session.document(),targets[i]);const auto& retained=retained_contents[i];
                     if(current.literal!=retained.literal||current.driver!=retained.driver||current.evaluated!=retained.evaluated)
                         throw Error("PROPERTY_CONFLICT","The retained Text content source changed; refresh before linking");
+                    if(host.session.document().objects.at(targets[i].object).text->id!=retained_content_sources[i])
+                        throw Error("TEXT_EDIT_CONFLICT","The retained Text source was replaced; refresh before linking");
                 }
             };
             open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard,{},verify_targets);
