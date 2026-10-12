@@ -193,7 +193,8 @@ bool is_primitive_source_scrub_ref(const Document& document,const Ref& ref) {
     const auto& source=*found->second.source;
     const bool circle=source.type=="nect.shape.circle"&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y");
     const bool ellipse=source.type=="nect.shape.ellipse"&&(ref.field=="generator.width"||ref.field=="generator.height"||ref.field=="generator.center_x"||ref.field=="generator.center_y");
-    return (circle||ellipse)&&source.parameters.contains(ref.field.substr(10));
+    const bool rectangle=source.type=="nect.shape.rectangle"&&(ref.field=="generator.width"||ref.field=="generator.height");
+    return (circle||ellipse||rectangle)&&source.parameters.contains(ref.field.substr(10));
 }
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
 TextContentLineage text_content_lineage(const Document& document,const Id& root) {
@@ -1097,16 +1098,19 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         std::size_t text_index=0,point_index=0,primitive_index=0;
         for(const auto& target:targets) {
             if(primitive_scalar_scrub) {
+                const auto& primitive_type=primitive_types.at(primitive_index);
+                const std::string primitive_name=primitive_type=="nect.shape.circle"?"Circle":
+                    primitive_type=="nect.shape.ellipse"?"Ellipse":"Rectangle";
                 if(!is_primitive_source_scrub_ref(host.session.document(),target)||
                    host.session.document().objects.at(target.object).source->id!=primitive_sources.at(primitive_index)||
-                   host.session.document().objects.at(target.object).source->type!=primitive_types.at(primitive_index))
-                    throw Error("PROPERTY_CONFLICT",primitive_types.at(primitive_index)=="nect.shape.circle"?
-                        "The retained Circle source changed; reopen this Inspector":"The retained Ellipse source changed; reopen this Inspector");
-                if(nect::property(host.session.document(),target)!=primitive_scalars.at(primitive_index++))
-                    throw Error("PROPERTY_CONFLICT",target.field=="generator.radius"?
-                        "The retained Circle radius changed; reopen this Inspector":target.field=="generator.width"||target.field=="generator.height"?
-                        "The retained Ellipse dimension changed; reopen this Inspector":primitive_types.at(primitive_index-1)=="nect.shape.ellipse"?
-                        "The retained Ellipse center changed; reopen this Inspector":"The retained Circle center changed; reopen this Inspector");
+                   host.session.document().objects.at(target.object).source->type!=primitive_type)
+                    throw Error("PROPERTY_CONFLICT","The retained "+primitive_name+" source changed; reopen this Inspector");
+                if(nect::property(host.session.document(),target)!=primitive_scalars.at(primitive_index)) {
+                    const std::string parameter_name=target.field=="generator.radius"?"radius":
+                        target.field=="generator.width"||target.field=="generator.height"?"dimension":"center";
+                    throw Error("PROPERTY_CONFLICT","The retained "+primitive_name+" "+parameter_name+" changed; reopen this Inspector");
+                }
+                ++primitive_index;
             }
             if(point_coordinate_scrub) {
                 if(!is_authored_point_scrub_ref(host.session.document(),target))
