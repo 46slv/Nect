@@ -12489,6 +12489,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const auto input_preview=host.session.gesture_active();
     const auto& ref=targets.front();
     const auto& d=host.session.document();
+    std::map<Id,Id> input_text_sources;
+    for(const auto& target:targets)if(target.point.empty()&&target.field.starts_with("text.")) {
+        const auto found=d.objects.find(target.object);
+        if(found!=d.objects.end()&&found->second.kind==Kind::text&&found->second.text)
+            input_text_sources.emplace(target.object,found->second.text->id);
+    }
     const auto origin=property_origin(d,ref);
     const auto evaluated=inspector_values_.at(ref);
     // Generated fallback has no authored Scalar to inspect. Reuse this panel's
@@ -13083,7 +13089,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
     if(expression_drafts_.contains(target_data))expand(expression_drafts_.at(target_data).source);
     connect(input,&QLineEdit::editingFinished,this,[this,input,ref,targets,target_data,field_session,field_revision,expand,
-        input_session,input_document,input_revision,input_gesture,input_preview,paint_scalar_fx,batch_paint_scalar_fx] {
+        input_session,input_document,input_revision,input_gesture,input_preview,input_text_sources,paint_scalar_fx,batch_paint_scalar_fx] {
         if(!input->isModified()) return;
         // Image actions finish their own pointer gesture before handling the
         // dimension draft; blur must not rebuild away the pressed button.
@@ -13200,6 +13206,12 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
                 throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
             if(host.session_id!=field_session)throw Error("SESSION_CONFLICT","These properties belong to another document");
             if(host.session.revision()!=field_revision)throw Error("REVISION_CONFLICT","These properties changed elsewhere; reopen the Inspector");
+            for(const auto& [object,source]:input_text_sources) {
+                const auto found=host.session.document().objects.find(object);
+                if(found==host.session.document().objects.end()||found->second.kind!=Kind::text||
+                   !found->second.text||found->second.text->id!=source)
+                    throw Error("TEXT_EDIT_CONFLICT","The retained Text property source was replaced; reopen this Inspector");
+            }
             auto text=input->text().trimmed();bool valid=false;const bool relative=text.startsWith("+=")||text.startsWith("-=");
             if(text.startsWith('=')) {
                 try {canvas->cancel_interaction();host.session.apply({SetExpression{targets,{text.mid(1).toStdString(),1},false}},field_revision);
