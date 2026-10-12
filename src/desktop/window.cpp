@@ -12045,11 +12045,14 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
         if(canvas->selections()!=*picker_selection||text_selection_generation_!=*picker_generation)
             throw Error("SELECTION_CONFLICT","The content source chooser selection changed outside this chooser");
     };
-    const auto choose_source=[this,frozen_session,status,verify_context,verify_picker,picker_selection,picker_generation,chosen_source,chosen_lineage](QListWidgetItem* item) {
+    const auto choose_source=[this,frozen_session,frozen_document,status,verify_context,verify_picker,picker_selection,picker_generation,chosen_source,chosen_lineage](QListWidgetItem* item) {
         chosen_source->reset();chosen_lineage->clear();
         if(!item||item->isHidden()||host.session_id!=frozen_session)return;
         try {
-            verify_picker();const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
+            verify_picker();
+            if(host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+            const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
             if(verify_context) {
                 *chosen_source=host.session.document().objects.at(source.object);
                 *chosen_lineage=text_content_lineage(host.session.document(),source.object);
@@ -12064,7 +12067,7 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     // Browsing deliberately changes the live selection. Targets and board remain
     // captured independently of the Inspector widgets rebuilt by that navigation.
     const auto restore=[this,selected,targets,frozen_session,frozen_document,composition,artboard,verify_context,picker_selection,picker_generation] {
-        if(host.session_id!=frozen_session)return;
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)return;
         if(verify_context) {
             const auto& current=host.session.document();
             const auto owner=std::find_if(current.compositions.begin(),current.compositions.end(),[&](const auto& c){return c.id==composition;});
@@ -12080,10 +12083,11 @@ void Window::open_text_content_source_picker(const std::vector<Ref>& targets,
     };
     connect(dialog,&QDialog::rejected,dialog,restore);
     connect(picker.buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,dialog,
-        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_revision,restore,verify_context,verify_picker,chosen_source,chosen_lineage] {
+        [this,dialog,list,status,replace,targets,target_ids,frozen_session,frozen_document,frozen_revision,restore,verify_context,verify_picker,chosen_source,chosen_lineage] {
             try {
                 verify_picker();
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+                if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
+                    throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
                 if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Text changed while the source chooser was open");
                 auto* item=list->currentItem();if(!item||item->isHidden())throw Error("NO_SOURCE","Choose a visible Text source");
                 const auto source=read_ref(item->data(Qt::UserRole).toByteArray());
@@ -12160,8 +12164,12 @@ void Window::add_multi_text_content(QVBoxLayout* layout,const std::vector<Canvas
             host.session.apply(commands,frozen_revision);host.edited();
         });
     });
-    connect(link,&QPushButton::clicked,this,[this,targets,selected,frozen_session,frozen_revision,composition,artboard] {
-        perform([&]{open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard);});
+    connect(link,&QPushButton::clicked,this,[this,targets,selected,frozen_session,frozen_document,frozen_revision,composition,artboard] {
+        perform([&]{
+            if(host.session.document().id!=frozen_document)
+                throw Error("SESSION_CONFLICT","Text source chooser belongs to a different document");
+            open_text_content_source_picker(targets,selected,frozen_session,frozen_revision,composition,artboard);
+        });
     });
 }
 
