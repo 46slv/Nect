@@ -13375,9 +13375,10 @@ void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<vo
     connect(dialog,&QDialog::rejected,this,[this,selection,frozen_session,frozen_document,composition,artboard,guarded=bool(verify_context),track_view,view_current]{
         if(host.session_id==frozen_session&&(!guarded||host.session.document().id==frozen_document)&&(!track_view||view_current())){perform([&]{canvas->set_active_artboard(composition,artboard,false);});canvas->set_selections(selection);}
     });
-    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context] {
+    auto accept=[this,dialog,list,targets,selection,relative,frozen_session,expected_revision,composition,artboard,verify_context,track_view,view_current] {
         perform([&]{
             if(verify_context)verify_context();
+            if(track_view&&!view_current())throw Error("SELECTION_CONFLICT","Source picker view changed; reopen it");
             if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Source picker belongs to a different document");
             if(!list->currentItem()||list->currentItem()->isHidden()||!(list->currentItem()->flags()&Qt::ItemIsEnabled))
                 throw Error("NO_SOURCE","Choose a visible compatible source property");
