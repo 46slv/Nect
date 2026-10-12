@@ -271,7 +271,7 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
         try{
             const auto& document=current_document();const auto selected_field=safe_field->currentData().toString().toStdString();
             const auto selection=require_targets(document,targets,selected_field);
-            if(safe_mode->currentData().toString()=="unlink") {
+            if(safe_mode->currentData().toString()=="unlink"||safe_mode->currentData().toString()=="link") {
                 const auto retained=retained_selections.find(selected_field);
                 if(retained==retained_selections.end()||selection.composition!=retained->second.composition||
                         selection.states.size()!=retained->second.states.size()||
@@ -280,7 +280,9 @@ QWidget* make_text_string_source_batch_controls(Host& host,const std::vector<Id>
                                 return current.literal==original.literal&&current.driver==original.driver&&
                                     current.evaluated==original.evaluated;
                             }))
-                    throw Error("PROPERTY_CONFLICT","The retained Text source changed; refresh before unlinking");
+                    throw Error("PROPERTY_CONFLICT",safe_mode->currentData().toString()=="unlink"?
+                        "The retained Text source changed; refresh before unlinking":
+                        "The retained Text source changed; refresh before linking");
             }
             const auto commands=source_commands(document,targets,selection,selected_field,
                 safe_mode->currentData().toString().toStdString(),selected_source(),safe_replace->isChecked());
