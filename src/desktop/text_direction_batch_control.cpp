@@ -2,6 +2,7 @@
 #include "host.hpp"
 #include <QComboBox>
 #include <QGroupBox>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPointer>
@@ -66,6 +67,9 @@ QWidget* make_text_direction_batch_controls(Host& host,const std::vector<Id>& ta
     box->setObjectName("text-direction-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-direction-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-direction-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);
     auto* editor=new QComboBox(box);editor->setObjectName("text-direction-batch-editor");
     editor->setAccessibleName("Writing direction for every selected Text object");
     editor->addItem("Horizontal","horizontal");editor->addItem("Vertical","vertical");
@@ -79,8 +83,6 @@ QWidget* make_text_direction_batch_controls(Host& host,const std::vector<Id>& ta
     layout->addWidget(editor);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-direction-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
