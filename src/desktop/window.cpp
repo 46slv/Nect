@@ -176,7 +176,7 @@ QByteArray refs_json(const std::vector<Ref>& refs) {
     QJsonArray array;for(const auto& ref:refs)array.append(ref_json(ref));return QJsonDocument(array).toJson(QJsonDocument::Compact);
 }
 bool is_text_scrub_ref(const Ref& ref) {
-    return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.frame_width"||ref.field=="text.frame_height");
+    return ref.point.empty()&&(ref.field=="text.font_size"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.origin_x"||ref.field=="text.origin_y");
 }
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
 TextContentLineage text_content_lineage(const Document& document,const Id& root) {
@@ -1038,6 +1038,9 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     control->setAccessibleName(qs(descriptor.label)+(slider?" slider / ":" scrub / ")+qs(descriptor.unit));
     control->setProperty("nect-targets",refs_json(targets));
     control->setProperty("nect-reference",QJsonDocument(ref_json(targets.front())).toJson(QJsonDocument::Compact));
+    // Origin Y's existing Tab completion owns the transition to fx.
+    // Mouse focus still enables the scrub's arrow keys.
+    if(text_scalar_scrub&&targets.size()==1&&targets.front().field=="text.origin_y")control->setFocusPolicy(Qt::ClickFocus);
     control->setToolTip(qs(descriptor.help)+(slider?"\nDrag or use arrow keys within the allowed range. Escape cancels.":"\nDrag horizontally; Shift is fine, Control is coarse. Left/Right adjusts one step. Escape cancels."));
     control->setEnabled(!driven&&(!slider||slider->minimum()<slider->maximum()));if(!text_scalar_scrub)input->setReadOnly(driven);
     if(driven) {input->setToolTip(input->toolTip()+"\nDriven: use fx or explicitly unlink before direct editing.");
@@ -12578,6 +12581,9 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         if(ref.field=="text.frame_width"||ref.field=="text.frame_height"){
             text_parameter.minimum=0;text_parameter.maximum=1000000;
             text_parameter.help+=" Use a positive dimension. Auto sizing retains it without wrapping.";}
+        if(ref.field=="text.origin_x"||ref.field=="text.origin_y"){
+            text_parameter.minimum=-1000000000;text_parameter.maximum=1000000000;
+            text_parameter.help+=" Negative coordinates are allowed.";}
         add_semantic_scrub(box,input,targets,text_parameter);
     }
     const bool text_scalar_fx=targets.size()==1&&ref.point.empty()&&(ref.field=="composite.opacity"||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.a"||ref.field=="transform.b"||ref.field=="transform.c"||ref.field=="transform.d"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y"||ref.field=="text.font_size"||ref.field=="text.frame_width"||ref.field=="text.frame_height"||ref.field=="text.tracking"||ref.field=="text.line_spacing"||ref.field=="text.origin_x"||ref.field=="text.origin_y")&&d.objects.at(ref.object).kind==Kind::text&&d.objects.at(ref.object).text.has_value();
