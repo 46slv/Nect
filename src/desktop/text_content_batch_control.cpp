@@ -56,12 +56,12 @@ QWidget* make_text_content_batch_controls(Host& host,const std::vector<Id>& targ
     cancel->setToolTip("Discard the content draft without editing the document.");cancel->setEnabled(false);
     // Keep the value usable at narrow Inspector widths; actions have their own row.
     layout->addWidget(editor);
+    auto* status=new QLabel(box);status->setObjectName("text-content-literal-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
     auto* clear=new QPushButton("Clear draft",box);clear->setObjectName("text-content-literal-clear");
     clear->setToolTip("Stage empty text for every selected Text object; Apply commits it.");layout->addWidget(clear);
-    auto* status=new QLabel(box);status->setObjectName("text-content-literal-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QPlainTextEdit> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply),safe_cancel(cancel);

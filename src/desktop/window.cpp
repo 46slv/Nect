@@ -12193,7 +12193,7 @@ void Window::add_multi_text_weight(QVBoxLayout* layout,const std::vector<Canvas:
     auto* absolute_link=menu->addAction("Link absolute source…");
     auto* relative_link=menu->addAction("Link relative source…");source_row->addWidget(drive);
     auto* replace=new QCheckBox("Replace current sources",group);replace->setObjectName("text-weight-batch-replace");
-    replace->setVisible(any_driven);source_row->addWidget(replace);
+    replace->setVisible(any_driven);column->addWidget(replace);
     auto* unlink=new QPushButton("Unlink",group);unlink->setObjectName("text-weight-batch-unlink");
     unlink->setEnabled(any_driven);source_row->addWidget(unlink);source_row->addStretch();column->addLayout(source_row);
     auto* status=new QLabel("The target Refs, Session and revision are captured for this draft.",group);
