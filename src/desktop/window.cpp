@@ -10891,7 +10891,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         row_layout->addWidget(hex);row_layout->addWidget(remove);stop_form->addRow("sRGB",row);
         stop_form->addRow(color_tools_->menu_button(ref("color")));
         connect(hex,&QLineEdit::editingFinished,this,[this,hex,id,op,gradient_id,stop_id,apply,
-            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview,displayed_color=color]{
+            frozen_session,hex_document,hex_revision,hex_gesture,hex_preview,displayed_color=color,verify_mode_context]{
             if(!hex->isModified())return;hex->setModified(false);
             perform([&]{
                 // Refresh hides the old focused input. Refuse its draft before reading current channels.
@@ -10901,6 +10901,7 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                     throw Error("REVISION_CONFLICT","Gradient color changed; edit it again");
                 // Cancel retains revision/generation, so a preview-born form must also refuse after cancel.
                 if(hex_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+                verify_mode_context();
                 const auto text=hex->text().trimmed();
                 const bool opaque_alpha=(text.startsWith('#')?text.size()-1:text.size())==6;
                 const auto color=parse_hex_color(text);const auto values=evaluate(host.session.document());
