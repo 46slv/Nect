@@ -193,7 +193,7 @@ bool is_authored_path_scalar_scrub_ref(const Document& document,const Ref& ref) 
     if(!ref.point.empty()||(ref.field!="composite.opacity"&&!is_affine_matrix_field(ref.field)&&ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
     const auto found=document.objects.find(ref.object);
     return found!=document.objects.end()&&found->second.kind==Kind::path&&!found->second.text&&
-        (!found->second.source||(found->second.source->type=="nect.shape.rectangle"&&(is_affine_matrix_field(ref.field)||ref.field=="transform.tx"||ref.field=="transform.ty")));
+        (!found->second.source||(found->second.source->type=="nect.shape.rectangle"&&(is_affine_matrix_field(ref.field)||ref.field=="transform.tx"||ref.field=="transform.ty"||ref.field=="transform.anchor_x"||ref.field=="transform.anchor_y")));
 }
 bool is_primitive_source_scrub_ref(const Document& document,const Ref& ref) {
     if(!ref.point.empty())return false;
