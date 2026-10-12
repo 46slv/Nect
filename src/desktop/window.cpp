@@ -10766,6 +10766,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         const auto frozen_revision=host.session.revision();const auto target_ref=*gradient_ref_value;
         connect(link_enabled,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
             replace_driver=has_enabled_source,source_refs,source_labels,verify_mode_context] {
+            try {verify_mode_context();}
+            catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
             choose_boolean_source(this,"gradient-enabled-source-dialog","Link Gradient enabled",
                 qs(target_ref.object)+" / "+qs(target_ref.field),source_refs,source_labels,
                 [this,target_ref,frozen_session,frozen_revision,replace_driver,verify_mode_context](const Ref& source) {
@@ -10778,6 +10780,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
         });
         connect(set_expression,&QAction::triggered,this,[this,target_ref,frozen_session,frozen_revision,
             initial_expression=gradient_state->expression,has_enabled_source,operation_id=op,verify_mode_context] {
+            try {verify_mode_context();}
+            catch(const Error& error) {statusBar()->showMessage(qs(error.code)+": "+QString::fromUtf8(error.what()),12000);return;}
             QDialog dialog(this);dialog.setObjectName("gradient-enabled-expression-dialog-"+qs(operation_id));
             dialog.setWindowTitle("Gradient enabled expression");auto* layout=new QVBoxLayout(&dialog);
             auto* expression=new QPlainTextEdit(&dialog);
