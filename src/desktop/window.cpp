@@ -193,7 +193,7 @@ bool is_primitive_source_scrub_ref(const Document& document,const Ref& ref) {
     const auto& source=*found->second.source;
     const bool circle=source.type=="nect.shape.circle"&&(ref.field=="generator.radius"||ref.field=="generator.center_x"||ref.field=="generator.center_y");
     const bool ellipse=source.type=="nect.shape.ellipse"&&(ref.field=="generator.width"||ref.field=="generator.height"||ref.field=="generator.center_x"||ref.field=="generator.center_y");
-    const bool rectangle=source.type=="nect.shape.rectangle"&&(ref.field=="generator.width"||ref.field=="generator.height");
+    const bool rectangle=source.type=="nect.shape.rectangle"&&(ref.field=="generator.width"||ref.field=="generator.height"||ref.field=="generator.center_x"||ref.field=="generator.center_y");
     return (circle||ellipse||rectangle)&&source.parameters.contains(ref.field.substr(10));
 }
 using TextContentLineage=std::map<Id,std::tuple<Id,std::string,std::optional<TextContentDriver>>>;
