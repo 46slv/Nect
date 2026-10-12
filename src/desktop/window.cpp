@@ -10922,7 +10922,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
                 }
             });
         });
-        connect(remove,&QPushButton::clicked,this,[this,id,op,stop_id,apply]{perform([&]{
+        connect(remove,&QPushButton::clicked,this,[this,id,op,stop_id,apply,verify_mode_context]{perform([&]{
+            verify_mode_context();
             auto current=find_operation(host.session.document(),id,op).gradient;
             if(!current)throw Error("MISSING_GRADIENT","This gradient no longer exists");
             std::erase_if(current->stops,[&](const auto& entry){return entry.id==stop_id;});
