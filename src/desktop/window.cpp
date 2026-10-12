@@ -13088,13 +13088,19 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
             if(!*scalar_prepared)return;const auto session=context->session;const auto document=context->document;
             QTimer::singleShot(0,this,[this,session,document]{if(host.session_id==session&&host.session.document().id==document)rebuild_inspector();});
         };
-        connect(fx,&QPushButton::clicked,this,[this,batch_path_scalar_fx,targets,ref,context,expand,verify_scalar_context]{perform([&]{
-            verify_scalar_context(*context);const auto frozen=*context;
+        connect(fx,&QPushButton::clicked,this,[this,input,prepared_fx,text_scalar_fx,batch_path_scalar_fx,targets,ref,context,expand,verify_scalar_context]{perform([&]{
+            verify_scalar_context(*context);bool prepared=false;
+            if(text_scalar_fx&&ref.field.starts_with("text.")&&input->isModified()) {
+                prepared_fx->setProperty("nect-retain-text-inspector",true);const bool ready=prepared_fx->prepare();
+                prepared_fx->setProperty("nect-retain-text-inspector",false);if(!ready)return;prepared=true;
+            }
+            const auto frozen=*context;
             const auto formula=nect::property(host.session.document(),ref).expression;
             const auto values=evaluate(host.session.document());
             const bool batch_mixed=batch_path_scalar_fx&&std::any_of(targets.begin(),targets.end(),[&](const Ref& target){return values.at(target)!=values.at(ref);});
             const auto source=batch_mixed?QString{}:formula?qs(formula->source):QString::number(values.at(ref),'g',17);
             expand(source,frozen.revision,[frozen,verify_scalar_context]{verify_scalar_context(frozen);});
+            if(prepared)prepared_fx->completed();
         });});
     } else connect(fx,&QPushButton::clicked,this,[expand,initial_expression]{expand(initial_expression);});
     if(generated)generated->multiline=expand;else ordinary->multiline=expand;
