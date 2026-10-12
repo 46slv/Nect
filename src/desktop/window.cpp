@@ -10934,7 +10934,8 @@ void Window::add_gradient(QFormLayout* form,const Object& object,const ShapeOper
     }
     auto* add=new QPushButton("Add color stop");add->setObjectName("gradient-stop-add-"+qs(op));
     add->setEnabled(gradient.stops.size()<64);form->addRow(add);
-    connect(add,&QPushButton::clicked,this,[this,id,op,apply]{perform([&]{
+    connect(add,&QPushButton::clicked,this,[this,id,op,apply,verify_mode_context]{perform([&]{
+        verify_mode_context();
         auto current=find_operation(host.session.document(),id,op).gradient;
         if(!current)throw Error("MISSING_GRADIENT","This gradient no longer exists");
         const auto values=evaluate(host.session.document());
