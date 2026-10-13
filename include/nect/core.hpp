@@ -1553,6 +1553,8 @@ public:
     bool gesture_active() const { return preview_.has_value(); }
     // Transient interaction identity; pair with the owning Host/Session identity.
     std::uint64_t gesture_generation() const { return gesture_generation_; }
+    // Ephemeral interaction ownership. Copies share it; independent begin calls do not.
+    std::shared_ptr<const std::uint8_t> gesture_identity() const { return gesture_identity_; }
     const Document& preview_document() const { return preview_ ? *preview_ : document_; }
     // Derived values from the last successful preview validation. Null before an
     // update or after an empty/reset/commit/cancel. Invalidated by gesture changes.
@@ -1584,6 +1586,7 @@ private:
     std::optional<Document> preview_;
     std::optional<std::map<Ref,double>> preview_values_;
     std::uint64_t gesture_generation_ = 0;
+    std::shared_ptr<const std::uint8_t> gesture_identity_;
     bool preview_changed_ = false;
     std::string preview_label_;
     void check_revision(std::uint64_t expected) const;

@@ -272,6 +272,12 @@ private:
     struct PointStart {Selection target;QPointF anchor;QTransform inverse;};
     std::vector<PointStart> point_starts_;
     bool gesture_owned_ = false;
+    struct OwnedGesture {
+        Id document;QString host;
+        std::uint64_t revision=0,generation=0;
+        std::shared_ptr<const std::uint8_t> identity;
+    };
+    std::optional<OwnedGesture> owned_gesture_;
     bool drag_moved_ = false;
     bool snap_enabled_ = true;
     bool snap_guides_enabled_=true,snap_grid_enabled_=true;
@@ -358,6 +364,10 @@ private:
     void clear_circle_source_edit(bool notify=true);
     std::optional<CircleSourceControl> circle_source_control() const;
     bool circle_drag_context_current() const;
+    void begin_owned_gesture(std::uint64_t revision);
+    bool owns_live_gesture() const;
+    bool owned_gesture_context_current() const;
+    bool verify_owned_gesture();
     void fit_bounds(QRectF bounds);
 };
 

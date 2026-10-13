@@ -8882,7 +8882,9 @@ void Session::apply_preset_command(const PresetCommand& command,std::uint64_t ex
 void Session::begin_gesture(std::uint64_t expected) {
     check_revision(expected);
     require(gesture_generation_!=std::numeric_limits<std::uint64_t>::max(),"GESTURE_LIMIT","Start a new Session before beginning another gesture");
+    const auto identity=std::make_shared<const std::uint8_t>(0);
     preview_=document_;
+    gesture_identity_=identity;
     preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
@@ -8910,6 +8912,7 @@ void Session::commit_gesture() {
     // Keep the preview intact if history admission rejects the commit.
     if(preview_changed_) commit(*preview_,preview_label_);
     preview_.reset();
+    gesture_identity_.reset();
     preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();
@@ -8917,6 +8920,7 @@ void Session::commit_gesture() {
 
 void Session::cancel_gesture() {
     preview_.reset();
+    gesture_identity_.reset();
     preview_values_.reset();
     preview_changed_=false;
     preview_label_.clear();

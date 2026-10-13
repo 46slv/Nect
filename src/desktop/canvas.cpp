@@ -105,8 +105,30 @@ Canvas::Canvas(Session& session, QWidget* parent) : QWidget(parent), session_(se
 }
 
 Canvas::~Canvas() {
-    if (gesture_owned_ && session_.gesture_active()) session_.cancel_gesture();
+    if (owns_live_gesture()) session_.cancel_gesture();
 }
+
+void Canvas::begin_owned_gesture(std::uint64_t revision) {
+    OwnedGesture owned{session_.document().id,session_identity_provider_?session_identity_provider_():QString{},
+        session_.revision(),0,{}};
+    session_.begin_gesture(revision);
+    owned.generation=session_.gesture_generation();owned.identity=session_.gesture_identity();
+    owned_gesture_=std::move(owned);gesture_owned_=true;
+}
+bool Canvas::owns_live_gesture() const {
+    return gesture_owned_&&owned_gesture_&&session_.gesture_active()&&
+        session_.gesture_identity()==owned_gesture_->identity&&
+        session_.document().id==owned_gesture_->document&&session_.revision()==owned_gesture_->revision&&
+        session_.gesture_generation()==owned_gesture_->generation;
+}
+bool Canvas::owned_gesture_context_current() const {
+    return owns_live_gesture()&&(!session_identity_provider_||session_identity_provider_()==owned_gesture_->host);
+}
+bool Canvas::verify_owned_gesture() {
+    if(!gesture_owned_||owned_gesture_context_current())return true;
+    cancel_interaction();return false;
+}
+
 
 QTransform Canvas::view() const {
     return {zoom_, 0, 0, zoom_, pan_.x(), pan_.y()};
@@ -163,17 +185,18 @@ bool Canvas::circle_drag_context_current() const {
 
 void Canvas::refresh() {
     projection_error_ = {};
+    if(!verify_owned_gesture())return;
     if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
-        if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
-        gesture_owned_=false;drag_=Drag::none;drag_moved_=false;
+        if(owns_live_gesture())session_.cancel_gesture();
+        gesture_owned_=false;owned_gesture_.reset();drag_=Drag::none;drag_moved_=false;
         circle_drag_session_.clear();circle_drag_document_.clear();circle_drag_object_.clear();
         circle_drag_source_.clear();circle_drag_composition_.clear();circle_drag_revision_=0;
         report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));
         update_cursor();
     }
     if(drag_==Drag::guide&&!guide_context_current()) {
-        if(gesture_owned_&&session_.gesture_active())session_.cancel_gesture();
-        gesture_owned_=false;drag_=Drag::none;guide_drag_invalid_=false;disarm_scoped_guide();
+        if(owns_live_gesture())session_.cancel_gesture();
+        gesture_owned_=false;owned_gesture_.reset();drag_=Drag::none;guide_drag_invalid_=false;disarm_scoped_guide();
         report_error(Error("REVISION_CONFLICT","Guide drag belongs to an older document session or revision"));
     }
     if(armed_guide_&&!scoped_guide_context_current(*armed_guide_))disarm_scoped_guide();
@@ -1552,7 +1575,7 @@ void Canvas::begin_guide_drag(const Guide& guide,QPointF screen,std::optional<Sc
         guide_drag_document_=session_.document().id;guide_drag_composition_=active_composition_;
         guide_drag_revision_=session_.revision();guide_drag_invalid_=false;
         press_position_=screen;press_pan_=pan_;drag_moved_=false;
-        session_.begin_gesture(guide_drag_revision_);scoped_guide_drag_=std::move(scope);gesture_owned_=true;drag_=Drag::guide;
+        begin_owned_gesture(guide_drag_revision_);scoped_guide_drag_=std::move(scope);drag_=Drag::guide;
         if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();update();
     } catch(const std::exception& exception) {report_error(exception);}
@@ -2142,8 +2165,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
         if (!invertible) throw Error("SINGULAR_TRANSFORM", "Cannot drag through a singular parent/object transform");
         if(kind==Drag::object)prepare_snap(false);
         else if(kind==Drag::anchor)prepare_snap(true);
-        session_.begin_gesture(session_.revision());
-        gesture_owned_ = true;
+        begin_owned_gesture(session_.revision());
         drag_ = kind;
         if (timing_observation_enabled()) ++input_sequence_;
         update_cursor();
@@ -2156,6 +2178,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
 
 void Canvas::update_drag(QPointF screen) {
     if (drag_ == Drag::none) return;
+    if(!verify_owned_gesture())return;
     if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
         cancel_interaction();report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));return;
     }
@@ -2306,6 +2329,7 @@ void Canvas::finish_marquee() {
 }
 
 void Canvas::finish_drag() {
+    if(!verify_owned_gesture())return;
     if(drag_==Drag::marquee) {
         try {finish_marquee();}catch(const std::exception& exception){cancel_interaction();report_error(exception);}
         return;
@@ -2330,12 +2354,12 @@ void Canvas::finish_drag() {
     if (gesture_owned_) {
         const auto revision = session_.revision();
         try {
-            if (session_.gesture_active()) session_.commit_gesture();
+            if (owns_live_gesture()) session_.commit_gesture();
         } catch (const std::exception& exception) {
-            if (session_.gesture_active()) session_.cancel_gesture();
+            if (owns_live_gesture()) session_.cancel_gesture();
             report_error(exception);
         }
-        gesture_owned_ = false;
+        gesture_owned_ = false;owned_gesture_.reset();
         drag_ = Drag::none;
         disarm_scoped_guide();
         if(session_.revision()!=revision) {
@@ -2362,15 +2386,16 @@ void Canvas::finish_drag() {
 }
 
 void Canvas::cancel_interaction() {
+    const bool stale_owned=gesture_owned_&&!owned_gesture_context_current();
     disarm_scoped_guide();
     snap_guide_x_.reset(); snap_guide_y_.reset();
     snap_prepared_=false;snap_point_mode_=false;snap_point_world_.reset();snap_bounds_.reset();
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
     snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
-    if (gesture_owned_ && session_.gesture_active()) session_.cancel_gesture();
+    if (owns_live_gesture()) session_.cancel_gesture();
     const bool had_marquee=drag_==Drag::marquee;marquee_start_.clear();
     const bool had_preview = gesture_owned_;
-    gesture_owned_ = false;
+    gesture_owned_ = false;owned_gesture_.reset();
     drag_ = Drag::none;
     drag_moved_ = false;
     pan_button_ = Qt::NoButton;
@@ -2380,6 +2405,7 @@ void Canvas::cancel_interaction() {
     update_cursor();
     if (had_preview) refresh();
     else if(had_marquee)update();
+    if(stale_owned)report_error(Error("REVISION_CONFLICT","Canvas gesture belongs to another Session, document, revision, or gesture"));
 }
 
 void Canvas::finish_draw_path() {
