@@ -5738,6 +5738,7 @@ void Window::set_artboard_template_override(const ArtboardTemplateContext& conte
     else grid=Grid{board.template_assignment->grid_id,{20,20,std::max(1.0,evaluated.width-40),
         std::max(1.0,evaluated.height-40)},2,2,10,10};
     grid.id=board.template_assignment->grid_id;
+    std::map<const QDoubleSpinBox*,std::pair<double,bool>> numeric_originals;
     QDialog dialog(this);dialog.setObjectName("set-artboard-template-override-dialog");
     dialog.setWindowTitle("Set Template frame or layout override");
     auto* layout=new QFormLayout(&dialog);auto* field=new QComboBox(&dialog);field->setObjectName("template-override-field");
@@ -5746,9 +5747,18 @@ void Window::set_artboard_template_override(const ArtboardTemplateContext& conte
     field->addItem("No Margin · local override",QStringLiteral("layout.margin.absent"));
     field->addItem("Grid family",QStringLiteral("layout.grid"));
     field->addItem("No Grid · local override",QStringLiteral("layout.grid.absent"));
-    auto make_value=[&dialog](const char* name,double value,double minimum,double maximum,double step) {
+    auto make_value=[&dialog,&numeric_originals](const char* name,double value,double minimum,double maximum,double step) {
         auto* spin=new QDoubleSpinBox(&dialog);spin->setObjectName(QString::fromLatin1(name));spin->setDecimals(3);
-        spin->setRange(minimum,maximum);spin->setSingleStep(step);spin->setValue(value);return spin;
+        spin->setRange(minimum,maximum);spin->setSingleStep(step);spin->setValue(value);
+        numeric_originals.emplace(spin,std::pair{value,false});
+        connect(spin,qOverload<double>(&QDoubleSpinBox::valueChanged),&dialog,[&numeric_originals,spin](double) {
+            numeric_originals.at(spin).second=true;
+        });
+        return spin;
+    };
+    const auto numeric_value=[&numeric_originals](const QDoubleSpinBox* spin) {
+        const auto& [original,changed]=numeric_originals.at(spin);
+        return changed?spin->value():original;
     };
     auto* frame_width=make_value("template-frame-width",evaluated.width,0.001,10000000,10);
     auto* frame_height=make_value("template-frame-height",evaluated.height,0.001,10000000,10);
@@ -5779,20 +5789,20 @@ void Window::set_artboard_template_override(const ArtboardTemplateContext& conte
     if(dialog.exec()!=QDialog::Accepted)return;
     const auto selected_field=field->currentData().toString();
     if(selected_field=="frame.width")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
-        context.composition,context.artboard,"frame.width",frame_width->value()}});
+        context.composition,context.artboard,"frame.width",numeric_value(frame_width)}});
     else if(selected_field=="frame.height")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
-        context.composition,context.artboard,"frame.height",frame_height->value()}});
+        context.composition,context.artboard,"frame.height",numeric_value(frame_height)}});
     else if(selected_field=="layout.margin")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
         context.composition,context.artboard,"layout.margin",std::optional<Margin>{Margin{
-            margin_left->value(),margin_top->value(),margin_right->value(),margin_bottom->value()}}}});
+            numeric_value(margin_left),numeric_value(margin_top),numeric_value(margin_right),numeric_value(margin_bottom)}}}});
     else if(selected_field=="layout.margin.absent")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
         context.composition,context.artboard,"layout.margin",std::optional<Margin>{}}});
     else if(selected_field=="layout.grid.absent")apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{
         context.composition,context.artboard,"layout.grid",std::optional<Grid>{}}});
     else {
-        grid.bounds={grid_x->value(),grid_y->value(),grid_width->value(),grid_height->value()};
+        grid.bounds={numeric_value(grid_x),numeric_value(grid_y),numeric_value(grid_width),numeric_value(grid_height)};
         grid.columns=static_cast<std::size_t>(grid_columns->value());grid.rows=static_cast<std::size_t>(grid_rows->value());
-        grid.column_gutter=grid_column_gutter->value();grid.row_gutter=grid_row_gutter->value();
+        grid.column_gutter=numeric_value(grid_column_gutter);grid.row_gutter=numeric_value(grid_row_gutter);
         apply_artboard_template_command(context,ArtboardTemplateCommand{SetArtboardTemplateOverride{context.composition,context.artboard,
             "layout.grid",std::optional<Grid>{grid}}});
     }
