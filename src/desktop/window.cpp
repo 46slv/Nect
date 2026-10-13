@@ -1111,13 +1111,14 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     control->setProperty("nect-mixed",mixed);
     if(targets.size()>1)control->setToolTip(control->toolTip()+"\nAdjusts each selected value by the same delta; keeps their differences.");
     const auto committed_text=mixed?QString{}:QString::number(initial.front(),'g',17);
-    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;QString last_text;};
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;QString last_text;std::shared_ptr<const std::uint8_t> identity;};
     auto state=std::make_shared<Interaction>();state->last_text=committed_text;
     QPointer<SemanticScrub> safe_scrub=scrub;QPointer<SemanticSlider> safe_slider=slider;QPointer<QLineEdit> safe_input=input;
     const auto disarm=[safe_scrub,safe_slider] {if(safe_scrub)safe_scrub->disarm();if(safe_slider)safe_slider->disarm();};
     const auto owns=[this,state,identity,revision,document] {
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
-            host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
+            host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation&&
+            host.session.gesture_identity()==state->identity;
     };
     const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_scalar_scrub,authored_path_scalars,path_source_lineage,object_kinds,object_text_sources] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
@@ -1224,7 +1225,8 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             validate();
             if(born_preview)throw Error("GESTURE_ACTIVE","Refresh the Inspector before using a control created during a preview");
             host.session.begin_gesture(host.session.revision());
-            state->generation=host.session.gesture_generation();state->owned=true;state->last_text=committed_text;return true;
+            state->generation=host.session.gesture_generation();state->identity=host.session.gesture_identity();
+            state->owned=true;state->last_text=committed_text;return true;
         } catch(const std::exception& exception){report(exception);return false;}
     };
     auto preview_interaction=[this,state,owns,validate,cancel,report,safe_input,targets,initial,mixed,macro,step=descriptor.step.value_or(1)](double delta) {
