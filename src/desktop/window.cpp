@@ -189,12 +189,13 @@ bool is_authored_point_scrub_ref(const Document& document,const Ref& ref) {
 bool is_affine_matrix_field(const std::string& field) {
     return field=="transform.a"||field=="transform.b"||field=="transform.c"||field=="transform.d";
 }
-bool is_authored_path_scalar_scrub_ref(const Document& document,const Ref& ref) {
+bool is_object_scalar_scrub_ref(const Document& document,const Ref& ref) {
     if(!ref.point.empty()||(ref.field!="composite.opacity"&&!is_affine_matrix_field(ref.field)&&ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
     const auto found=document.objects.find(ref.object);
-    return found!=document.objects.end()&&found->second.kind==Kind::path&&!found->second.text&&
-        (!found->second.source||found->second.source->type=="nect.shape.rectangle"||
-         found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.ellipse");
+    return found!=document.objects.end()&&!found->second.text&&
+        ((found->second.kind==Kind::group&&!found->second.source)||
+         (found->second.kind==Kind::path&&(!found->second.source||found->second.source->type=="nect.shape.rectangle"||
+          found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.ellipse")));
 }
 bool is_primitive_source_scrub_ref(const Document& document,const Ref& ref) {
     if(!ref.point.empty())return false;
@@ -1038,7 +1039,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return is_authored_point_scrub_ref(host.session.document(),target);
     });
     const bool path_scalar_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-        return is_authored_path_scalar_scrub_ref(host.session.document(),target);
+        return is_object_scalar_scrub_ref(host.session.document(),target);
     });
     const bool primitive_scalar_scrub=!macro&&!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_primitive_source_scrub_ref(host.session.document(),target);
@@ -1052,9 +1053,11 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     std::vector<Scalar> point_scalars;
     if(point_coordinate_scrub)for(const auto& target:targets)point_scalars.push_back(nect::property(host.session.document(),target));
     std::vector<Scalar> authored_path_scalars;
+    std::vector<Kind> object_kinds;
     std::vector<std::optional<std::pair<Id,std::string>>> path_source_lineage;
     if(path_scalar_scrub)for(const auto& target:targets) {
         authored_path_scalars.push_back(nect::property(host.session.document(),target));
+        object_kinds.push_back(host.session.document().objects.at(target.object).kind);
         const auto& source=host.session.document().objects.at(target.object).source;
         path_source_lineage.emplace_back();
         if(source)path_source_lineage.back()=std::make_pair(source->id,source->type);
@@ -1112,7 +1115,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_scalar_scrub,authored_path_scalars,path_source_lineage] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_scalar_scrub,authored_path_scalars,path_source_lineage,object_kinds] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
@@ -1135,16 +1138,20 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             }
             if(path_scalar_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
+                const auto born_kind=object_kinds.at(path_scalar_index);
+                const std::string owner_name=born_kind==Kind::group?"Group":"Path";
+                if(found!=host.session.document().objects.end()&&found->second.kind!=born_kind)
+                    throw Error("PROPERTY_CONFLICT","The retained "+owner_name+" kind changed; reopen this Inspector");
                 if(found!=host.session.document().objects.end()&&found->second.kind==Kind::path&&!found->second.text) {
                     const auto& source=found->second.source;const auto& lineage=path_source_lineage.at(path_scalar_index);
                     if(source.has_value()!=lineage.has_value()||(source&&(source->id!=lineage->first||source->type!=lineage->second)))
                         throw Error("PROPERTY_CONFLICT","The retained Path source changed; reopen this Inspector");
                 }
-                if(!is_authored_path_scalar_scrub_ref(host.session.document(),target)||
+                if(!is_object_scalar_scrub_ref(host.session.document(),target)||
                    nect::property(host.session.document(),target)!=authored_path_scalars.at(path_scalar_index))
-                    throw Error("PROPERTY_CONFLICT",target.field=="composite.opacity"?"The retained Path opacity changed; reopen this Inspector":target.field.starts_with("transform.anchor_")?
-                        "The retained Path anchor changed; reopen this Inspector":is_affine_matrix_field(target.field)?
-                        "The retained Path matrix changed; reopen this Inspector":"The retained Path translation changed; reopen this Inspector");
+                    throw Error("PROPERTY_CONFLICT","The retained "+owner_name+(target.field=="composite.opacity"?" opacity changed; reopen this Inspector":target.field.starts_with("transform.anchor_")?
+                        " anchor changed; reopen this Inspector":is_affine_matrix_field(target.field)?
+                        " matrix changed; reopen this Inspector":" translation changed; reopen this Inspector"));
                 ++path_scalar_index;
             }
             if(point_coordinate_scrub) {
@@ -12620,7 +12627,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         return is_authored_point_scrub_ref(d,target);
     });
     const bool input_authored_path_scalar=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
-        return is_authored_path_scalar_scrub_ref(d,target);
+        return is_object_scalar_scrub_ref(d,target);
     });
     const bool input_primitive_scalar=std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
         return is_primitive_source_scrub_ref(d,target);
