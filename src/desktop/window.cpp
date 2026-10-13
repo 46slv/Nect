@@ -6123,9 +6123,15 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         clear_follow->setEnabled(existing.has_value());follow_button_layout->addWidget(clear_follow);
         follow_form->addRow(follow_buttons);
         const auto session_id=host.session_id;
+        const auto verify_follow_context=[this,session_id,document=d.id,revision=host.session.revision()] {
+            if(host.session_id!=session_id||host.session.document().id!=document)
+                throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+            if(host.session.revision()!=revision)
+                throw Error("REVISION_CONFLICT","Group Path Follow changed; refresh the current Group");
+        };
         connect(apply_follow,&QPushButton::clicked,this,[this,path_picker,contour_picker,start_mode,start,relation_offset,reversed,follow_mode,deform_axis,
-            id=o.id,session_id,existing,displayed_start,displayed_offset] {perform([&] {
-            if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+            id=o.id,verify_follow_context,existing,displayed_start,displayed_offset] {perform([&] {
+            verify_follow_context();
             GroupPathFollow relation=existing.value_or(GroupPathFollow{});
             if(!existing)relation.id=new_id();
             relation.path=path_picker->currentData().toString().toStdString();
@@ -6141,8 +6147,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             else host.session.apply({GroupPathFollowCommand{AttachGroupPathFollow{id,relation}}},host.session.revision());
             host.edited();
         });});
-        connect(clear_follow,&QPushButton::clicked,this,[this,id=o.id,session_id]{perform([&] {
-            if(host.session_id!=session_id)throw Error("SESSION_CONFLICT","Group Path Follow belongs to another document");
+        connect(clear_follow,&QPushButton::clicked,this,[this,id=o.id,verify_follow_context]{perform([&] {
+            verify_follow_context();
             canvas->cancel_interaction();host.session.apply({GroupPathFollowCommand{ClearGroupPathFollow{id}}},host.session.revision());host.edited();
         });});
         if(existing) {
