@@ -6854,6 +6854,7 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
 void Window::choose_transform_parent() {
     const auto id=canvas->selected_object;if(id.empty())throw Error("NO_SELECTION","Select an object to choose its Transform Parent");
     const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto& document=host.session.document();
+    const auto document_identity=document.id;
     QDialog dialog(this);dialog.setWindowTitle("Transform Parent");dialog.setObjectName("transform-parent-dialog");dialog.resize(430,460);
     auto* layout=new QVBoxLayout(&dialog);auto* note=new QLabel("Choose what this object follows. Structure, paint order and group membership stay the same.");note->setWordWrap(true);layout->addWidget(note);
     auto* search=new QLineEdit;search->setPlaceholderText("Find object…");search->setObjectName("transform-parent-search");layout->addWidget(search);
@@ -6869,7 +6870,7 @@ void Window::choose_transform_parent() {
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
-    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while choosing Transform Parent");
+    if(host.session_id!=frozen_session||host.session.document().id!=document_identity)throw Error("SESSION_CONFLICT","Document changed while choosing Transform Parent");
     const auto* selected=list->currentItem();if(!selected||selected->isHidden())throw Error("NO_SELECTION","Choose a visible transform parent");
     const auto target=selected->data(Qt::UserRole).toString().toStdString();canvas->cancel_interaction();
     host.session.apply({SetTransformParent{id,target.empty()?std::optional<Id>{}:std::optional<Id>{target},preserve->isChecked()}},revision);host.edited();
