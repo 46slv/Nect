@@ -12623,7 +12623,8 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
     const auto& ref=targets.front();
     const auto& d=host.session.document();
     std::map<Id,Id> input_text_sources;std::map<Ref,Scalar> input_text_properties;
-    for(const auto& target:targets)if(target.point.empty()&&target.field.starts_with("text.")) {
+    for(const auto& target:targets)if(target.point.empty()&&
+       (target.field.starts_with("text.")||is_object_scalar_scrub_ref(d,target))) {
         const auto found=d.objects.find(target.object);
         if(found!=d.objects.end()&&found->second.kind==Kind::text&&found->second.text) {
             input_text_sources.emplace(target.object,found->second.text->id);
