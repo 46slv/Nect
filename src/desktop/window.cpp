@@ -14139,10 +14139,11 @@ void Window::move_selection_to_folder() {
     }
     if(destinations.empty())throw Error("FOLDER_TRANSFER_ORDER","No sibling Folder is reachable without crossing painted content; keep paint order or choose a separate stacking operation");
     const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto document_identity=document.id;
     bool accepted=false;
     const auto choice=QInputDialog::getItem(this,"Move selected to Folder","Destination Folder · paint order preserved",labels,0,false,&accepted);
     if(!accepted)return;
-    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The Folder choice belongs to another document");
+    if(host.session_id!=frozen_session||host.session.document().id!=document_identity)throw Error("SESSION_CONFLICT","The Folder choice belongs to another document");
     if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while choosing a Folder");
     const auto chosen=labels.indexOf(choice);
     if(chosen<0)throw Error("FOLDER_TRANSFER_SELECTION","Choose a listed destination Folder");
