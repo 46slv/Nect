@@ -58,6 +58,7 @@ private:
     QListWidget* history_states_=nullptr;
     QLabel* history_status_=nullptr;
     QString history_session_;
+    Id history_document_;
     std::uint64_t history_revision_=0;
     void show_history();
     void refresh_history();

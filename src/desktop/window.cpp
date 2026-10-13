@@ -2720,7 +2720,7 @@ void Window::sync_tree_selection() {
 
 void Window::show_history() {
     if(history_dialog_) {history_dialog_->show();history_dialog_->raise();history_dialog_->activateWindow();refresh_history();return;}
-    history_session_.clear();
+    history_session_.clear();history_document_.clear();
     auto* dialog=new QDialog(this);history_dialog_=dialog;dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setObjectName("history-dialog");dialog->setWindowTitle("History");dialog->resize(560,580);
     auto* layout=new QVBoxLayout(dialog);
@@ -2730,7 +2730,7 @@ void Window::show_history() {
     history_status_=new QLabel;history_status_->setObjectName("history-status");history_status_->setWordWrap(true);layout->addWidget(history_status_);
     auto* restore=new QPushButton("Return to selected state");restore->setObjectName("history-restore");layout->addWidget(restore);
     connect(restore,&QPushButton::clicked,this,[this]{perform([this]{
-        if(history_session_!=host.session_id)throw Error("SESSION_CONFLICT","This History list belongs to another document session");
+        if(history_session_!=host.session_id||history_document_!=host.session.document().id)throw Error("SESSION_CONFLICT","This History list belongs to another document session");
         if(!history_states_->currentItem())throw Error("NO_HISTORY_SELECTION","Select a retained operation");
         const auto id=history_states_->currentItem()->data(Qt::UserRole).toULongLong();
         canvas->cancel_interaction();const auto before=host.session.revision();
@@ -2746,11 +2746,11 @@ void Window::show_history() {
 void Window::refresh_history() {
     if(!history_dialog_)return;
     const auto info=host.session.history();
-    const bool new_session=history_session_!=host.session_id;
-    const auto selected=history_session_==host.session_id&&history_states_->currentItem()?
+    const bool new_session=history_session_!=host.session_id||history_document_!=host.session.document().id;
+    const auto selected=!new_session&&history_states_->currentItem()?
         history_states_->currentItem()->data(Qt::UserRole).toULongLong():info.current_id;
     const auto scroll=history_states_->verticalScrollBar()->value();const QSignalBlocker blocker(history_states_);
-    history_session_=host.session_id;history_revision_=host.session.revision();history_states_->clear();
+    history_session_=host.session_id;history_document_=host.session.document().id;history_revision_=host.session.revision();history_states_->clear();
     QListWidgetItem* current=nullptr;
     for(const auto& state:info.states) {
         const auto is_current=state.id==info.current_id;
