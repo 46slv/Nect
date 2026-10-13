@@ -13702,6 +13702,7 @@ void Window::import_svg() {
 void Window::export_png() {
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     const auto revision=host.session.revision();const auto identity=host.session_id;
+    const auto document_identity=host.session.document().id;
     if(host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before exporting");
     const auto& compositions=host.session.document().compositions;
     const auto comp=std::find_if(compositions.begin(),compositions.end(),[&](const auto& c){return c.id==composition;});
@@ -13737,7 +13738,7 @@ void Window::export_png() {
     if(dialog.exec()!=QDialog::Accepted)return;
     auto output=path->text().trimmed();if(QFileInfo(output).suffix().isEmpty())output+=".png";
     if(QFileInfo::exists(output)&&QMessageBox::question(this,"Replace PNG?","Replace the existing output file?",QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes)return;
-    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while export settings were open");
+    if(identity!=host.session_id||document_identity!=host.session.document().id)throw Error("SESSION_CONFLICT","Document changed while export settings were open");
     const auto result=host.export_png(output,composition,artboard,scale->value(),background->currentIndex()==1,revision);
     png_scale_=scale->value();png_white_=background->currentIndex()==1;png_path_=output;
     statusBar()->showMessage(QString("PNG exported: %1 × %2 px, sRGB, %3 background").arg(result["width"].toInt()).arg(result["height"].toInt()).arg(png_white_?"white":"transparent"),10000);
