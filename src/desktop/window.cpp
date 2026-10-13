@@ -7288,8 +7288,9 @@ void Window::show_folder_library() {
         };
         for(int index=0;index<tree->topLevelItemCount();++index)filter(tree->topLevelItem(index));
     };
+    const Id placement_document=host.session.document().id;
     auto place_ref=[&](const LibraryItemRefV1& ref,const QString& mode,QString frozen_session,std::uint64_t& expected_revision) {
-        if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
+        if(host.session_id!=frozen_session||host.session.document().id!=placement_document)throw Error("SESSION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
         if(host.session.revision()!=expected_revision)throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current target");
         const auto resolved=library.resolve(ref);
         if(resolved.ref.kind!="raster")throw Error("UNSUPPORTED_LIBRARY_ITEM","Choose a PNG or JPEG file to place");
