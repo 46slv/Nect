@@ -13579,7 +13579,10 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
 
 void Window::pick_source(std::vector<Ref> targets,bool relative,std::function<void()> verify_context,bool track_view) {
     const auto target=targets.front();const auto selection=canvas->selections();const auto expected_revision=host.session.revision();
-    const auto target_property=track_view&&!relative&&targets.size()==1&&target.point.empty()&&target.field.starts_with("text.")?std::optional<Scalar>{nect::property(host.session.document(),target)}:std::nullopt;
+    const auto target_property=!relative&&targets.size()==1&&target.point.empty()&&
+        ((track_view&&target.field.starts_with("text."))||(verify_context&&is_object_scalar_scrub_ref(host.session.document(),target)&&
+          host.session.document().objects.at(target.object).kind==Kind::text))?
+        std::optional<Scalar>{nect::property(host.session.document(),target)}:std::nullopt;
     const auto composition=canvas->active_composition(),artboard=canvas->active_artboard();
     auto* dialog=new QDialog(this);dialog->setObjectName("property-source-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);dialog->resize(720,480);
     dialog->setWindowTitle(relative?"Pick Relative Link source":"Pick property source");
