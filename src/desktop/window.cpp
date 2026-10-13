@@ -192,10 +192,11 @@ bool is_affine_matrix_field(const std::string& field) {
 bool is_object_scalar_scrub_ref(const Document& document,const Ref& ref) {
     if(!ref.point.empty()||(ref.field!="composite.opacity"&&!is_affine_matrix_field(ref.field)&&ref.field!="transform.tx"&&ref.field!="transform.ty"&&ref.field!="transform.anchor_x"&&ref.field!="transform.anchor_y"))return false;
     const auto found=document.objects.find(ref.object);
-    return found!=document.objects.end()&&!found->second.text&&
-        ((found->second.kind==Kind::group&&!found->second.source)||
-         (found->second.kind==Kind::path&&(!found->second.source||found->second.source->type=="nect.shape.rectangle"||
-          found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.ellipse")));
+    return found!=document.objects.end()&&
+        ((found->second.kind==Kind::text&&found->second.text&&!found->second.source)||
+         (!found->second.text&&((found->second.kind==Kind::group&&!found->second.source)||
+          (found->second.kind==Kind::path&&(!found->second.source||found->second.source->type=="nect.shape.rectangle"||
+           found->second.source->type=="nect.shape.circle"||found->second.source->type=="nect.shape.ellipse")))));
 }
 bool is_primitive_source_scrub_ref(const Document& document,const Ref& ref) {
     if(!ref.point.empty())return false;
@@ -1054,10 +1055,13 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
     if(point_coordinate_scrub)for(const auto& target:targets)point_scalars.push_back(nect::property(host.session.document(),target));
     std::vector<Scalar> authored_path_scalars;
     std::vector<Kind> object_kinds;
+    std::vector<std::optional<Id>> object_text_sources;
     std::vector<std::optional<std::pair<Id,std::string>>> path_source_lineage;
     if(path_scalar_scrub)for(const auto& target:targets) {
         authored_path_scalars.push_back(nect::property(host.session.document(),target));
         object_kinds.push_back(host.session.document().objects.at(target.object).kind);
+        const auto& text=host.session.document().objects.at(target.object).text;
+        object_text_sources.push_back(text?std::optional<Id>(text->id):std::nullopt);
         const auto& source=host.session.document().objects.at(target.object).source;
         path_source_lineage.emplace_back();
         if(source)path_source_lineage.back()=std::make_pair(source->id,source->type);
@@ -1115,7 +1119,7 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&host.session.gesture_generation()==state->generation;
     };
-    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_scalar_scrub,authored_path_scalars,path_source_lineage,object_kinds] {
+    const auto validate=[this,state,identity,revision,document,targets,descriptor,macro,text_scalar_scrub,text_sources,text_scalars,point_coordinate_scrub,point_scalars,primitive_scalar_scrub,primitive_sources,primitive_types,primitive_scalars,path_scalar_scrub,authored_path_scalars,path_source_lineage,object_kinds,object_text_sources] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
             throw Error("SESSION_CONFLICT","Semantic control belongs to another document");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Control changed; reopen the Inspector");
@@ -1139,9 +1143,12 @@ void Window::add_semantic_scrub(QHBoxLayout* layout,QLineEdit* input,const std::
             if(path_scalar_scrub) {
                 const auto found=host.session.document().objects.find(target.object);
                 const auto born_kind=object_kinds.at(path_scalar_index);
-                const std::string owner_name=born_kind==Kind::group?"Group":"Path";
+                const std::string owner_name=born_kind==Kind::text?"Text":born_kind==Kind::group?"Group":"Path";
                 if(found!=host.session.document().objects.end()&&found->second.kind!=born_kind)
                     throw Error("PROPERTY_CONFLICT","The retained "+owner_name+" kind changed; reopen this Inspector");
+                if(born_kind==Kind::text&&(found==host.session.document().objects.end()||!found->second.text||
+                   found->second.text->id!=object_text_sources.at(path_scalar_index)))
+                    throw Error("PROPERTY_CONFLICT","The retained Text source changed; reopen this Inspector");
                 if(found!=host.session.document().objects.end()&&found->second.kind==Kind::path&&!found->second.text) {
                     const auto& source=found->second.source;const auto& lineage=path_source_lineage.at(path_scalar_index);
                     if(source.has_value()!=lineage.has_value()||(source&&(source->id!=lineage->first||source->type!=lineage->second)))
@@ -12701,7 +12708,7 @@ void Window::add_properties(QFormLayout* layout,const std::vector<Ref>& targets,
         path_parameter.minimum=ref.field=="composite.opacity"?0:-1000000000;path_parameter.maximum=ref.field=="composite.opacity"?1:1000000000;
         path_parameter.help=ref.field=="composite.opacity"?"Adjust the object's opacity. Escape cancels the preview.":ref.field.starts_with("transform.anchor_")?"Adjust the local pivot. Artwork stays in place; Escape cancels the preview.":
             is_affine_matrix_field(ref.field)?"Adjust the local affine component. Escape cancels the preview.":
-            "Adjust the authored Path's local translation. Escape cancels the preview.";
+            "Adjust the object's local translation. Escape cancels the preview.";
         add_semantic_scrub(box,input,targets,path_parameter);
     }else if(!targets.empty()&&std::all_of(targets.begin(),targets.end(),[&](const Ref& target) {
             return is_authored_point_scrub_ref(d,target);
