@@ -14593,14 +14593,14 @@ void Window::detach_instance() {
 void Window::delete_definition() {
     const auto& document=host.session.document();
     if(document.definitions.empty())throw Error("MISSING_DEFINITION","There are no Definitions to delete");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto document_id=host.session.document().id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     QStringList labels;std::vector<Id> ids;
     for(const auto& [id,definition]:document.definitions){ids.push_back(id);labels.push_back(qs(definition.name)+" · "+qs(id));}
     bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Delete Definition","Definition:",labels,0,false,&accepted);
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
     host.session.apply({DefinitionCommand{DeleteDefinition{ids.at(static_cast<std::size_t>(index))}}},revision);
     host.edited();statusBar()->showMessage("Definition deleted; Undo restores the named source",6000);
@@ -14680,9 +14680,9 @@ void Window::remove_selection_from_collection() {
 }
 void Window::delete_collection() {
     const auto collections=host.session.document().collections;
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto document_id=host.session.document().id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();
     const auto chosen=choose_collection("Delete Collection",collections);if(!chosen)return;
-    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision)
         throw Error("REVISION_CONFLICT","Document changed while deleting the Collection");
     host.session.apply({CollectionCommand{DeleteCollection{*chosen}}},revision);
     host.edited();statusBar()->showMessage("Collection deleted; member Objects remain in place",6000);
