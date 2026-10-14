@@ -7518,7 +7518,7 @@ void Window::show_folder_library() {
     });
     connect(publish_macro,&QPushButton::clicked,&dialog,[&,this] {
         perform([&]{
-            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+            if(host.session_id!=frozen_effect_session||host.session.document().id!=placement_document||host.session.revision()!=frozen_effect_revision||
                 effects_generation_!=frozen_effect_generation)
                 throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to publish a current Macro");
             const auto source_id=source_macros->currentData().toString().toStdString();
