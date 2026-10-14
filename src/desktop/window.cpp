@@ -14432,12 +14432,12 @@ void Window::create_definition_from_selection() {
     if(selected.size()!=1||!canvas->selected_point.empty())throw Error("INVALID_DEFINITION","Select one whole Group to create a Definition");
     const auto& document=host.session.document();const auto& source=document.objects.at(selected.front());
     if(source.kind!=Kind::group)throw Error("INVALID_DEFINITION","A Definition must use an existing Group as its source root");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto document_id=document.id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     bool accepted=false;const auto name=QInputDialog::getText(this,"Create Definition","Definition name:",
         QLineEdit::Normal,qs(source.name),&accepted).trimmed();
     if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
-    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Selection belongs to another document");
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Selection belongs to another document");
     if(host.session.revision()!=revision||effects_generation_!=generation||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Selection or document changed while naming the Definition");
     const auto id=new_id();
@@ -14475,7 +14475,7 @@ void Window::place_definition_instance() {
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=ids.size())throw Error("MISSING_DEFINITION","Choose a Definition");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
+    if(host.session_id!=frozen_session||host.session.document().id!=document.id||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while choosing a Definition");
     const auto definition_id=ids.at(static_cast<std::size_t>(index));
     const auto instance_id=new_id();
