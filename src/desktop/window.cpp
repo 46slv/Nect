@@ -1488,7 +1488,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         }
     });
     const auto preset_context_current=[this](std::uint64_t generation,const QString& session,const Id& target,std::uint64_t revision) {
-        if(host.session_id!=session)throw Error("SESSION_CONFLICT","Preset selection belongs to another document");
+        if(host.session_id!=session||host.session.document().id!=effects_document_)throw Error("SESSION_CONFLICT","Preset selection belongs to another document");
         if(generation!=effects_generation_)throw Error("REVISION_CONFLICT","Preset browser changed; refresh the target before editing");
         if(canvas->selected_object!=target)throw Error("TARGET_CONFLICT","Preset target changed; choose the current target");
         if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Preset document changed elsewhere; refresh the browser before editing");
@@ -2398,7 +2398,7 @@ void Window::refresh(bool project_canvas) {
 void Window::rebuild_effects_panel() {
     if(!effects_catalog_||!effects_status_||!effects_operations_layout_||!presets_catalog_||!presets_status_)return;
     ++effects_generation_;
-    effects_session_=host.session_id;
+    effects_session_=host.session_id;effects_document_=host.session.document().id;
     effects_target_id_=canvas->selected_object;
     effects_revision_=host.session.revision();
     const auto& document=host.session.document();

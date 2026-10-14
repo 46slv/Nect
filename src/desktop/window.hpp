@@ -87,6 +87,7 @@ private:
     QPushButton* presets_delete_=nullptr;
     QTabWidget* effects_tabs_=nullptr;
     QString effects_session_;
+    Id effects_document_;
     Id effects_target_id_;
     std::uint64_t effects_revision_=0;
     std::uint64_t effects_generation_=0;
