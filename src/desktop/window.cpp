@@ -6808,11 +6808,11 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     note->setWordWrap(true);note->setStyleSheet("color:#9ea7b4;");mask_form->addRow(note);
 }
 void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) {
-    const auto id=object.id;const auto frozen_session=host.session_id;
+    const auto id=object.id;const auto frozen_session=host.session_id;const auto frozen_document=host.session.document().id;
     auto* box=new QGroupBox("Transform && Anchor");auto* form=new QFormLayout(box);
     form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
-    auto apply=[this,id,frozen_session](const Command& command){
-        if(host.session_id!=frozen_session||!host.session.document().objects.contains(id))throw Error("SESSION_CONFLICT","Transform belongs to another document");
+    auto apply=[this,id,frozen_session,frozen_document](const Command& command){
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document||!host.session.document().objects.contains(id))throw Error("SESSION_CONFLICT","Transform belongs to another document");
         canvas->cancel_interaction();host.session.apply({command},host.session.revision());host.edited();
     };
     const auto position=map_point(canvas->evaluated_transforms().at(id).local,
