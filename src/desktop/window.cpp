@@ -7336,7 +7336,7 @@ void Window::show_folder_library() {
         return overrides;
     };
     auto apply_macro_asset=[&](const MacroAssetRefV1& ref,std::optional<std::uint64_t> requested_pin) {
-        if(host.session_id!=frozen_effect_session)
+        if(host.session_id!=frozen_effect_session||host.session.document().id!=placement_document)
             throw Error("SESSION_CONFLICT","Macro Favorite belongs to another document");
         if(frozen_effect_generation!=effects_generation_)
             throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
@@ -7431,7 +7431,7 @@ void Window::show_folder_library() {
         const auto& preset=std::get<PresetAssetRefV1>(favorite.target);
         const auto label=display_target(favorite.target);
         try {
-            if(host.session_id!=frozen_effect_session)
+            if(host.session_id!=frozen_effect_session||host.session.document().id!=placement_document)
                 throw Error("SESSION_CONFLICT","Preset Favorite belongs to another document");
             if(frozen_effect_generation!=effects_generation_)
                 throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
