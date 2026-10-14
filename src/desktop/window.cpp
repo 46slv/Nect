@@ -6430,13 +6430,17 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         }
         if(o.point_edit) {
             auto* reset=new QPushButton("Reset point edits…");reset->setObjectName("point-edit-reset");correction->addRow(reset);
-            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,point_edit_document,point_edit_ref,field_count]{perform([&]{
+            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,point_edit_document,point_edit_ref]{perform([&]{
                 if(host.session_id!=frozen_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 (void)point_edit_enabled_state(host.session.document(),point_edit_ref);
+                std::size_t review_field_count=0;
+                for(const auto& [point,fields]:host.session.document().objects.at(id).point_edit->overrides) {
+                    (void)point;review_field_count+=fields.size();
+                }
                 const auto before=host.session.revision();
                 const auto document=host.session.document().id;
                 const auto generation=host.session.gesture_generation();
-                const auto choice=QMessageBox::question(this,"Reset point edits",QString("Remove all %1 point/handle overrides and their bindings? The generator and appearance stay editable. This is one undoable edit.").arg(field_count),QMessageBox::Reset|QMessageBox::Cancel,QMessageBox::Cancel);
+                const auto choice=QMessageBox::question(this,"Reset point edits",QString("Remove all %1 point/handle overrides and their bindings? The generator and appearance stay editable. This is one undoable edit.").arg(review_field_count),QMessageBox::Reset|QMessageBox::Cancel,QMessageBox::Cancel);
                 if(choice!=QMessageBox::Reset)return;
                 if(host.session_id!=frozen_session||host.session.document().id!=document)
                     throw Error("SESSION_CONFLICT","Document changed while reviewing Point Edit reset");
