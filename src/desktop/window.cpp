@@ -6352,24 +6352,25 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         link_enabled->setEnabled(o.point_edit.has_value()&&!point_edit_sources.empty());
         enabled_driver->setEnabled(o.point_edit.has_value());
         const auto point_edit_session=host.session_id;
+        const auto point_edit_document=host.session.document().id;
         const auto point_edit_revision=host.session.revision();
-        connect(link_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,
+        connect(link_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,point_edit_document,
             point_edit_revision,point_edit_sources,point_edit_source_labels,
             replace=point_edit_driven]( ) {
             choose_boolean_source(this,"point-edit-enabled-source-dialog",
                 replace?"Replace Point Edit enabled link":"Link Point Edit enabled",
                 qs(point_edit_ref.object)+" / "+qs(point_edit_ref.field),point_edit_sources,point_edit_source_labels,
-                [this,point_edit_ref,point_edit_session,point_edit_revision,replace](const Ref& source) {
-                if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                [this,point_edit_ref,point_edit_session,point_edit_document,point_edit_revision,replace](const Ref& source) {
+                if(host.session_id!=point_edit_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 if(host.session.revision()!=point_edit_revision)throw Error("REVISION_CONFLICT","Point Edit enabled state changed while the source chooser was open");
                 host.session.apply({LinkPointEditEnabled{point_edit_ref,source,replace}},point_edit_revision);
                 host.edited();
             });
         });
-        connect(expression_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,
+        connect(expression_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,point_edit_document,
             point_edit_revision,initial=point_edit_state?point_edit_state->expression:std::optional<Expression>{},
             replace_available=point_edit_driven] {
-            if(host.session_id!=point_edit_session) {
+            if(host.session_id!=point_edit_session||host.session.document().id!=point_edit_document) {
                 statusBar()->showMessage("SESSION_CONFLICT: Point Edit belongs to another document",12000);return;
             }
             QDialog dialog(this);dialog.setObjectName("point-edit-enabled-expression-dialog");
@@ -6389,9 +6390,9 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);draft_layout->addWidget(buttons);
             connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
             connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,
-                [this,&dialog,point_edit_ref,point_edit_session,point_edit_revision,source,replace,status] {
+                [this,&dialog,point_edit_ref,point_edit_session,point_edit_document,point_edit_revision,source,replace,status] {
                     try {
-                        if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                        if(host.session_id!=point_edit_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                         if(host.session.revision()!=point_edit_revision)
                             throw Error("REVISION_CONFLICT","Point Edit enabled state changed while its expression draft was open");
                         host.session.apply({SetPointEditEnabledExpression{point_edit_ref,
@@ -6403,8 +6404,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
                 });
             dialog.exec();
         });
-        connect(unlink_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,point_edit_revision]{perform([&]{
-            if(host.session_id!=point_edit_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+        connect(unlink_enabled,&QAction::triggered,this,[this,point_edit_ref,point_edit_session,point_edit_document,point_edit_revision]{perform([&]{
+            if(host.session_id!=point_edit_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
             if(host.session.revision()!=point_edit_revision)throw Error("REVISION_CONFLICT","Point Edit enabled state changed before unlinking");
             host.session.apply({UnlinkPointEditEnabled{point_edit_ref}},point_edit_revision);host.edited();
         });});
@@ -6429,8 +6430,8 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         }
         if(o.point_edit) {
             auto* reset=new QPushButton("Reset point edits…");reset->setObjectName("point-edit-reset");correction->addRow(reset);
-            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,field_count]{perform([&]{
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,point_edit_document,field_count]{perform([&]{
+                if(host.session_id!=frozen_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 const auto before=host.session.revision();
                 const auto document=host.session.document().id;
                 const auto generation=host.session.gesture_generation();
@@ -6444,10 +6445,10 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             });});
         }
         const auto frozen_session=host.session_id;
-        connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session](bool checked) {
+        connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session,point_edit_document](bool checked) {
             bool applied=false;
             perform([&] {
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                if(host.session_id!=frozen_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
                 host.session.apply({EnablePointEdit{id,checked}},host.session.revision());
                 applied=true;host.edited();
             });
