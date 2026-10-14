@@ -6483,11 +6483,11 @@ void Window::rebuild_inspector(bool use_canvas_values) {
 }
 void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object) {
     auto* box=new QGroupBox("Compositing");auto* form=new QFormLayout(box);form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(box);
-    const auto id=object.id;const auto session=host.session_id;
-    auto apply=[this,session](Command command){if(host.session_id!=session)throw Error("SESSION_CONFLICT","Compositing belongs to another document");canvas->cancel_interaction();host.session.apply({std::move(command)},host.session.revision());host.edited();};
+    const auto id=object.id;const auto session=host.session_id;const auto document_id=host.session.document().id;
+    auto apply=[this,session,document_id](Command command){if(host.session_id!=session||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Compositing belongs to another document");canvas->cancel_interaction();host.session.apply({std::move(command)},host.session.revision());host.edited();};
     const auto visibility_revision=host.session.revision();
-    auto apply_visibility=[this,session,visibility_revision](Command command) {
-        if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
+    auto apply_visibility=[this,session,document_id,visibility_revision](Command command) {
+        if(host.session_id!=session||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
         canvas->cancel_interaction();host.session.apply({std::move(command)},visibility_revision);host.edited();
     };
     auto add_visibility_control=[this,session,visibility_revision,apply_visibility](QWidget* parent,QFormLayout* target_form,const Id& target,const QString& title,const QString& prefix) {
