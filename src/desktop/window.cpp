@@ -6960,8 +6960,11 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
     });});
     if(asset.mode=="linked") {
         auto* check=new QPushButton("Check link");check->setObjectName("image-check-link");form->addRow(check);
-        connect(check,&QPushButton::clicked,this,[this,identity,id]{perform([&]{
-            if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+        connect(check,&QPushButton::clicked,this,[this,identity,id,object_id=object.id,document_id=host.session.document().id]{perform([&]{
+            if(host.session_id!=identity||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Image belongs to another document");
+            const auto& objects=host.session.document().objects;const auto target=objects.find(object_id);
+            if(target==objects.end()||!target->second.image||target->second.image->asset!=id)
+                throw Error("PROPERTY_CONFLICT","Image source changed; reopen its Properties");
             host.check_asset(id);
             // Ordinary property blur may already have rebuilt this form. Show
             // the observation in the current form, never a retired label.
