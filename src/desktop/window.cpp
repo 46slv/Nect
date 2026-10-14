@@ -6490,15 +6490,19 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         if(host.session_id!=session||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
         canvas->cancel_interaction();host.session.apply({std::move(command)},visibility_revision);host.edited();
     };
-    auto add_visibility_control=[this,session,visibility_revision,apply_visibility](QWidget* parent,QFormLayout* target_form,const Id& target,const QString& title,const QString& prefix) {
+    auto add_visibility_control=[this,session,visibility_revision,apply_visibility](QWidget* parent,QFormLayout* target_form,const Id& target,const QString& title,const QString& prefix,std::function<void()> verify_context={}) {
+        auto apply_target_visibility=[apply_visibility,verify_context](Command command) {
+            if(verify_context)verify_context();
+            apply_visibility(std::move(command));
+        };
         const Ref ref{target,"","object.visible"};const auto state=object_visibility_state(host.session.document(),ref);
         auto* row=new QWidget(parent);auto* row_layout=new QHBoxLayout(row);row_layout->setContentsMargins(0,0,0,0);
         const bool driven=state.driver.has_value()||state.expression.has_value();
         auto* toggle=new QCheckBox(title,row);toggle->setObjectName(prefix);toggle->setChecked(state.literal);toggle->setEnabled(!driven);row_layout->addWidget(toggle);
         auto* driver=new QToolButton(row);driver->setObjectName(prefix+"-driver");driver->setText(driven?"Source…":"Link…");driver->setPopupMode(QToolButton::InstantPopup);
         auto* menu=new QMenu(driver);driver->setMenu(menu);row_layout->addWidget(driver);target_form->addRow(row);
-        connect(toggle,&QCheckBox::toggled,this,[this,toggle,target,apply_visibility](bool enabled){
-            bool ok=false;perform([&]{apply_visibility(SetVisibility{target,enabled});ok=true;});
+        connect(toggle,&QCheckBox::toggled,this,[this,toggle,target,apply_target_visibility](bool enabled){
+            bool ok=false;perform([&]{apply_target_visibility(SetVisibility{target,enabled});ok=true;});
             if(!ok){QSignalBlocker blocker(toggle);toggle->setChecked(!enabled);}
         });
         auto* link=menu->addAction(driven?"Replace visibility source with link…":"Link visibility…");
@@ -6514,18 +6518,18 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         for(const auto& root:composition.roots)append(root);
         link->setEnabled(!source_refs.empty());
         connect(link,&QAction::triggered,this,[this,target,session,visibility_revision,source_refs,source_labels,
-            replace=driven,apply_visibility]{
+            replace=driven,apply_target_visibility]{
             choose_boolean_source(this,"object-visible-source-dialog",
                 replace?"Replace Object visibility source with link":"Link Object visibility",
                 qs(target)+" / object.visible",source_refs,source_labels,
-                [this,target,session,visibility_revision,replace,apply_visibility](const Ref& source) {
+                [this,target,session,visibility_revision,replace,apply_target_visibility](const Ref& source) {
                 if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
                 if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed while the source chooser was open");
-                apply_visibility(LinkObjectVisibility{{target,"","object.visible"},source,replace});
+                apply_target_visibility(LinkObjectVisibility{{target,"","object.visible"},source,replace});
             });
         });
         connect(expression,&QAction::triggered,this,[this,target,session,visibility_revision,replace=driven,
-            initial=state.expression,apply_visibility]{
+            initial=state.expression,apply_target_visibility]{
             if(host.session_id!=session) {statusBar()->showMessage("SESSION_CONFLICT: Object visibility belongs to another document",12000);return;}
             QDialog dialog(this);dialog.setObjectName("object-visible-expression-dialog");
             dialog.setWindowTitle(replace?"Replace Object visibility source with expression":"Set Object visibility expression");
@@ -6540,20 +6544,20 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
             auto* buttons=new QDialogButtonBox(QDialogButtonBox::Apply|QDialogButtonBox::Cancel,&dialog);
             buttons->button(QDialogButtonBox::Apply)->setText("Apply");layout->addWidget(buttons);
             connect(buttons->button(QDialogButtonBox::Cancel),&QPushButton::clicked,&dialog,&QDialog::reject);
-            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,source,status,target,session,visibility_revision,replace,apply_visibility]{
+            connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,[this,&dialog,source,status,target,session,visibility_revision,replace,apply_target_visibility]{
                 try {
                     if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
                     if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed while the expression draft was open");
-                    apply_visibility(SetObjectVisibilityExpression{{target,"","object.visible"},
+                    apply_target_visibility(SetObjectVisibilityExpression{{target,"","object.visible"},
                         {source->toPlainText().toStdString(),1},replace});dialog.accept();
                 } catch(const Error& error) {status->setText(QString::fromLatin1(error.code.c_str())+": "+QString::fromUtf8(error.what()));}
             });
             dialog.exec();
         });
-        connect(unlink,&QAction::triggered,this,[this,target,session,visibility_revision,apply_visibility]{perform([&]{
+        connect(unlink,&QAction::triggered,this,[this,target,session,visibility_revision,apply_target_visibility]{perform([&]{
             if(host.session_id!=session)throw Error("SESSION_CONFLICT","Object visibility belongs to another document");
             if(host.session.revision()!=visibility_revision)throw Error("REVISION_CONFLICT","Object visibility changed before unlinking");
-            apply_visibility(UnlinkObjectVisibility{{target,"","object.visible"}});
+            apply_target_visibility(UnlinkObjectVisibility{{target,"","object.visible"}});
         });});
         auto* status=new QLabel(parent);status->setObjectName(prefix+"-status");status->setWordWrap(true);
         auto describe=[&](bool value){return value?QString("true"):QString("false");};
@@ -6667,6 +6671,11 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
         if(host.session_id!=session||host.session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","The mask belongs to another document");
         (void)geometry_mask_enabled_state(host.session.document(),mask_ref);
+    };
+    auto verify_mask_source=[this,id,source=mask.source,verify_mask] {
+        verify_mask();
+        if(host.session.document().objects.at(id).compositing.mask->source!=source)
+            throw Error("PROPERTY_CONFLICT","The mask source changed; reopen its source controls");
     };
     auto* mask_box=new QGroupBox("Mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
     auto* mode=new QComboBox(mask_box);mode->setObjectName("mask-mode");
@@ -6782,13 +6791,13 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     auto* edit=new QPushButton("Edit source");edit->setObjectName("mask-edit-source");
     edit->setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Fixed);
     edit->setToolTip("Edit source: "+mask_source_name+" ("+qs(mask.source)+"). Select the retained source to edit its points and parameters. Its normal visibility stays unchanged.");mask_form->addRow(edit);
-    connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
+    connect(edit,&QPushButton::clicked,this,[this,source=mask.source,verify_mask_source]{perform([&]{verify_mask_source();canvas->set_selection(source);});});
     auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");
     rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);rule->setEnabled(mask.mode=="geometry");mask_form->addRow("Fill rule",rule);
     connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,id,apply,verify_mask](int){perform([&]{verify_mask();auto mask=*host.session.document().objects.at(id).compositing.mask;mask.fill_rule=rule->currentData().toString().toStdString();apply(SetMask{id,mask});});});
     auto* outline=new QCheckBox("Show mask outline");outline->setObjectName("mask-show-outline");outline->setChecked(canvas->show_mask_outline());mask_form->addRow(outline);
     connect(outline,&QCheckBox::toggled,canvas,&Canvas::set_show_mask_outline);
-    add_visibility_control(mask_box,mask_form,mask.source,"Show source artwork","mask-source-visible");
+    add_visibility_control(mask_box,mask_form,mask.source,"Show source artwork","mask-source-visible",verify_mask_source);
     auto* remove=new QPushButton("Remove mask");remove->setObjectName("mask-remove");remove->setToolTip("Remove clipping; keep source object and its current visibility. Undo restores the mask.");mask_form->addRow(remove);
     connect(remove,&QPushButton::clicked,this,[this,id,apply,verify_mask]{perform([&]{verify_mask();apply(SetMask{id,{}});});});
     auto* note=new QLabel(mask.mode=="alpha"
