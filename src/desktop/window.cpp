@@ -14548,7 +14548,7 @@ void Window::set_instance_override() {
     QObject::connect(buttons->button(QDialogButtonBox::Apply),&QPushButton::clicked,&dialog,&QDialog::accept);
     QObject::connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation||
+    if(host.session_id!=frozen_session||host.session.document().id!=document.id||host.session.revision()!=revision||effects_generation_!=generation||
        canvas->selected_objects()!=selected||canvas->selected_point.size()!=0)
         throw Error("REVISION_CONFLICT","Instance selection or document changed while setting an override");
     const auto source_id=source->currentData().toString().toStdString();
@@ -14563,18 +14563,19 @@ void Window::reset_instance_override() {
     if(found==document.objects.end()||found->second.kind!=Kind::instance||!found->second.instance)
         throw Error("TYPE_MISMATCH","Reset override requires a Definition Instance");
     if(found->second.instance->overrides.empty())throw Error("MISSING_OVERRIDE","The selected Instance has no local overrides");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
+    const auto document_id=document.id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();const auto generation=effects_generation_;
     std::vector<Ref> refs;QStringList labels;
     for(const auto& [ref,value]:found->second.instance->overrides) {
         (void)value;refs.push_back(ref);
         const auto source=document.objects.find(ref.object);
-        labels.push_back((source==document.objects.end()?qs(ref.object):qs(source->second.name))+" · "+qs(ref.field));
+        labels.push_back((source==document.objects.end()?qs(ref.object):qs(source->second.name))+" · "+qs(ref.object)+
+            (ref.point.empty()?QString{}:" / "+qs(ref.point))+" · "+qs(ref.field));
     }
     bool accepted=false;const auto chosen=QInputDialog::getItem(this,"Reset Instance override","Override:",labels,0,false,&accepted);
     if(!accepted)return;
     const auto index=labels.indexOf(chosen);
     if(index<0||static_cast<std::size_t>(index)>=refs.size())throw Error("MISSING_OVERRIDE","Choose an override");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision||effects_generation_!=generation||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Instance selection or document changed while choosing an override");
     host.session.apply({DefinitionCommand{ResetInstanceOverride{selected.front(),refs.at(static_cast<std::size_t>(index))}}},revision);
     host.edited();statusBar()->showMessage("Local override reset to the current Definition source value",6000);
