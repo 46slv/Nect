@@ -14459,7 +14459,7 @@ void Window::rename_definition() {
     const auto name=QInputDialog::getText(this,"Rename Definition","New name:",QLineEdit::Normal,qs(previous),&accepted).trimmed();
     if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_DEFINITION","Enter a Definition name");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||effects_generation_!=generation)
+    if(host.session_id!=frozen_session||host.session.document().id!=document.id||host.session.revision()!=revision||effects_generation_!=generation)
         throw Error("REVISION_CONFLICT","Document changed while renaming the Definition");
     host.session.apply({DefinitionCommand{RenameDefinition{id,name.toStdString()}}},revision);
     host.edited();statusBar()->showMessage("Definition renamed; its stable ID and placed Instances are unchanged",6000);
@@ -14627,11 +14627,11 @@ void Window::browse_collections() {
 void Window::create_collection_from_selection() {
     const auto selected=canvas->selected_objects();
     if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to create a Collection");
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto document_id=host.session.document().id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();
     bool accepted=false;const auto name=QInputDialog::getText(this,"Create Collection","Collection name:",
         QLineEdit::Normal,{},&accepted).trimmed();if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_COLLECTION","Enter a Collection name");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Selection or document changed while creating the Collection");
     host.session.apply({CollectionCommand{CreateCollection{{new_id(),name.toStdString(),selected}}}},revision);
     host.edited();statusBar()->showMessage("Collection created; selected Objects remain in place",6000);
