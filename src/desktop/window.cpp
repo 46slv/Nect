@@ -6662,6 +6662,12 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     auto* scope=new QLabel("Opacity, masks and blending apply to the composed result. Neutral Groups pass through.");scope->setWordWrap(true);scope->setStyleSheet("color:#9ea7b4;");form->addRow(scope);
     if(!object.compositing.mask)return;
     const auto mask=*object.compositing.mask;
+    const auto mask_ref=geometry_mask_enabled_ref(id,mask.id);
+    auto verify_mask=[this,session,document_id,mask_ref] {
+        if(host.session_id!=session||host.session.document().id!=document_id)
+            throw Error("SESSION_CONFLICT","The mask belongs to another document");
+        (void)geometry_mask_enabled_state(host.session.document(),mask_ref);
+    };
     auto* mask_box=new QGroupBox("Mask");auto* mask_form=new QFormLayout(mask_box);mask_form->setRowWrapPolicy(QFormLayout::WrapLongRows);layout->addWidget(mask_box);
     auto* mode=new QComboBox(mask_box);mode->setObjectName("mask-mode");
     mode->addItem("Geometry","geometry");mode->addItem("Alpha","alpha");mode->addItem("Luma","luma");
@@ -6670,21 +6676,22 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     profile->setObjectName("mask-color-space");mask_form->addRow("Color profile",profile);
     auto* invert=new QCheckBox("Invert mask",mask_box);invert->setObjectName("mask-invert");invert->setChecked(mask.invert);
     invert->setEnabled(mask.mode=="alpha"||mask.mode=="luma");mask_form->addRow(invert);
-      connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,invert,id,apply](int) {
+      connect(mode,&QComboBox::currentIndexChanged,this,[this,mode,invert,id,apply,verify_mask,initial_mode=mask.mode](int) {
           const auto requested=mode->currentData().toString().toStdString();
           invert->setEnabled(requested=="alpha"||requested=="luma");bool ok=false;
-          perform([&]{auto current=*host.session.document().objects.at(id).compositing.mask;current.mode=requested;
+          perform([&]{verify_mask();auto current=*host.session.document().objects.at(id).compositing.mask;current.mode=requested;
               if(requested=="geometry")current.invert=false;apply(SetMask{id,current});ok=true;});
         if(!ok) {
-            const auto current=host.session.document().objects.at(id).compositing.mask->mode;
+            const auto found=host.session.document().objects.find(id);
+            const auto current=found!=host.session.document().objects.end()&&found->second.compositing.mask
+                ?found->second.compositing.mask->mode:initial_mode;
             QSignalBlocker blocker(mode);mode->setCurrentIndex(current=="alpha"?1:current=="luma"?2:0);
             invert->setEnabled(current=="alpha"||current=="luma");
         }
     });
-    connect(invert,&QCheckBox::toggled,this,[this,invert,id,apply](bool value){bool ok=false;perform([&]{
-        auto current=*host.session.document().objects.at(id).compositing.mask;current.invert=value;apply(SetMask{id,current});ok=true;
+    connect(invert,&QCheckBox::toggled,this,[this,invert,id,apply,verify_mask](bool value){bool ok=false;perform([&]{
+        verify_mask();auto current=*host.session.document().objects.at(id).compositing.mask;current.invert=value;apply(SetMask{id,current});ok=true;
     });if(!ok){QSignalBlocker blocker(invert);invert->setChecked(!value);}});
-    const auto mask_ref=geometry_mask_enabled_ref(id,mask.id);
     const auto mask_state=geometry_mask_enabled_state(host.session.document(),mask_ref);
     const bool mask_enabled_driven=mask_state.driver.has_value()||mask_state.expression.has_value();
     auto* enabled_row=new QWidget(mask_box);auto* enabled_layout=new QHBoxLayout(enabled_row);enabled_layout->setContentsMargins(0,0,0,0);
@@ -6694,7 +6701,7 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     driver_button->setText(mask_state.driver?"Driver…":mask_state.expression?"Expression…":"Link…");driver_button->setPopupMode(QToolButton::InstantPopup);
     auto* driver_menu=new QMenu(driver_button);driver_button->setMenu(driver_menu);enabled_layout->addWidget(driver_button);enabled_layout->addStretch();
     mask_form->addRow(enabled_row);
-    connect(enabled,&QCheckBox::toggled,this,[this,enabled,id,apply](bool value){bool ok=false;perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.enabled=value;apply(SetMask{id,mask});ok=true;});if(!ok){QSignalBlocker b(enabled);enabled->setChecked(!value);}});
+    connect(enabled,&QCheckBox::toggled,this,[this,enabled,id,apply,verify_mask](bool value){bool ok=false;perform([&]{verify_mask();auto mask=*host.session.document().objects.at(id).compositing.mask;mask.enabled=value;apply(SetMask{id,mask});ok=true;});if(!ok){QSignalBlocker b(enabled);enabled->setChecked(!value);}});
     auto* link_mask=driver_menu->addAction(mask_enabled_driven?"Replace enabled source with link…":"Link enabled source…");
     auto* expression_mask=driver_menu->addAction(mask_enabled_driven?"Replace enabled source with expression…":"Set enabled expression…");
     auto* unlink_mask=driver_menu->addAction("Unlink and freeze evaluated value");unlink_mask->setEnabled(mask_enabled_driven);
@@ -6778,12 +6785,12 @@ void Window::add_compositing_properties(QVBoxLayout* layout,const Object& object
     connect(edit,&QPushButton::clicked,this,[this,source=mask.source]{canvas->set_selection(source);});
     auto* rule=new QComboBox;rule->setObjectName("mask-fill-rule");rule->addItem("Nonzero","nonzero");rule->addItem("Even–odd","evenodd");
     rule->setCurrentIndex(mask.fill_rule=="evenodd"?1:0);rule->setEnabled(mask.mode=="geometry");mask_form->addRow("Fill rule",rule);
-    connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,id,apply](int){perform([&]{auto mask=*host.session.document().objects.at(id).compositing.mask;mask.fill_rule=rule->currentData().toString().toStdString();apply(SetMask{id,mask});});});
+    connect(rule,&QComboBox::currentIndexChanged,this,[this,rule,id,apply,verify_mask](int){perform([&]{verify_mask();auto mask=*host.session.document().objects.at(id).compositing.mask;mask.fill_rule=rule->currentData().toString().toStdString();apply(SetMask{id,mask});});});
     auto* outline=new QCheckBox("Show mask outline");outline->setObjectName("mask-show-outline");outline->setChecked(canvas->show_mask_outline());mask_form->addRow(outline);
     connect(outline,&QCheckBox::toggled,canvas,&Canvas::set_show_mask_outline);
     add_visibility_control(mask_box,mask_form,mask.source,"Show source artwork","mask-source-visible");
     auto* remove=new QPushButton("Remove mask");remove->setObjectName("mask-remove");remove->setToolTip("Remove clipping; keep source object and its current visibility. Undo restores the mask.");mask_form->addRow(remove);
-    connect(remove,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(SetMask{id,{}});});});
+    connect(remove,&QPushButton::clicked,this,[this,id,apply,verify_mask]{perform([&]{verify_mask();apply(SetMask{id,{}});});});
     auto* note=new QLabel(mask.mode=="alpha"
         ?"Uses the source's isolated RGBA appearance in Composition space. Source root visibility and blend are ignored; source opacity and internal Group content are included."
         :mask.mode=="luma"
