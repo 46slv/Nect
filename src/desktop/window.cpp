@@ -932,7 +932,7 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
         std::function<void()> validate_target,bool keep_last_valid_on_range,bool refuse_numeric_draft) {
     auto* knob=dynamic_cast<RotationKnob*>(control);
     if(!knob)throw std::invalid_argument("Angle adapter requires a RotationKnob");
-    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+    struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;std::shared_ptr<const std::uint8_t> interaction;};
     const auto state=std::make_shared<Interaction>();
     const auto identity=host.session_id;const auto revision=host.session.revision();
     const auto document=host.session.document().id;
@@ -941,7 +941,7 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
     auto owns=[this,state,identity,revision,document] {
         return state->owned&&host.session_id==identity&&host.session.document().id==document&&
             host.session.revision()==revision&&host.session.gesture_active()&&
-            host.session.gesture_generation()==state->generation;
+            host.session.gesture_generation()==state->generation&&host.session.gesture_identity()==state->interaction;
     };
     auto validate=[this,state,identity,revision,document,validate_target] {
         if(!state->live||host.session_id!=identity||host.session.document().id!=document)
@@ -995,7 +995,8 @@ void Window::bind_angle_adapter(QWidget* control,QLineEdit* numeric,const Ref& r
             *last_valid=initial;
             if(safe_knob)safe_knob->set_value(initial);
             if(safe_numeric){safe_numeric->setText(QString::number(initial,'g',17));safe_numeric->setModified(false);}
-            state->generation=host.session.gesture_generation();state->owned=true;return true;
+            state->generation=host.session.gesture_generation();state->interaction=host.session.gesture_identity();
+            state->owned=true;return true;
         } catch(const std::exception& exception) {
             if(safe_numeric)safe_numeric->setFocus(Qt::OtherFocusReason);report(exception);return false;
         }
