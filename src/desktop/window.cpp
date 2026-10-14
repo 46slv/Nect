@@ -6943,11 +6943,14 @@ void Window::add_image_properties(QVBoxLayout* layout,const Object& object) {
         if(ref.object==object.id&&ref.point.empty()&&(ref.field=="image.width"||ref.field=="image.height"))dimensions.push_back(input);
     }
     const auto fit_gesture=host.session.gesture_generation();const bool fit_preview=host.session.gesture_active();
-    connect(fit,&QPushButton::clicked,this,[this,identity,revision,fit_gesture,fit_preview,dimensions,object_id=object.id,id]{perform([&]{
-        if(host.session_id!=identity)throw Error("SESSION_CONFLICT","Image belongs to another document");
+    connect(fit,&QPushButton::clicked,this,[this,identity,revision,fit_gesture,fit_preview,dimensions,object_id=object.id,id,document_id=host.session.document().id]{perform([&]{
+        if(host.session_id!=identity||host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Image belongs to another document");
         if(host.session.revision()!=revision||host.session.gesture_generation()!=fit_gesture)
             throw Error("REVISION_CONFLICT","Image changed; reopen its Properties");
         if(fit_preview||host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
+        const auto& objects=host.session.document().objects;const auto target=objects.find(object_id);
+        if(target==objects.end()||!target->second.image||target->second.image->asset!=id)
+            throw Error("PROPERTY_CONFLICT","Image source changed; reopen its Properties");
         const auto& asset=host.session.document().raster_assets.at(id);const auto board=evaluate_artboard(find_composition(host.session.document(),canvas->active_composition()),canvas->active_artboard());
         // Discard only drafts which this explicit action supersedes, after its
         // canonical transaction succeeds and before Inspector focus changes.
