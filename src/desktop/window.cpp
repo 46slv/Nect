@@ -14635,13 +14635,14 @@ void Window::create_collection_from_selection() {
 }
 void Window::rename_collection() {
     const auto collections=host.session.document().collections;
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto frozen_session=host.session_id;const auto frozen_document=host.session.document().id;
+    const auto revision=host.session.revision();
     const auto chosen=choose_collection("Rename Collection",collections);if(!chosen)return;
     const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
     bool accepted=false;const auto name=QInputDialog::getText(this,"Rename Collection","New name:",
         QLineEdit::Normal,qs(found->name),&accepted).trimmed();if(!accepted)return;
     if(name.isEmpty())throw Error("INVALID_COLLECTION","Enter a Collection name");
-    if(host.session_id!=frozen_session||host.session.revision()!=revision)
+    if(host.session_id!=frozen_session||host.session.document().id!=frozen_document||host.session.revision()!=revision)
         throw Error("REVISION_CONFLICT","Document changed while renaming the Collection");
     host.session.apply({CollectionCommand{RenameCollection{*chosen,name.toStdString()}}},revision);
     host.edited();statusBar()->showMessage("Collection renamed; member IDs are unchanged",6000);
