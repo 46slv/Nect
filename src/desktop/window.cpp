@@ -6430,8 +6430,9 @@ void Window::rebuild_inspector(bool use_canvas_values) {
         }
         if(o.point_edit) {
             auto* reset=new QPushButton("Reset point edits…");reset->setObjectName("point-edit-reset");correction->addRow(reset);
-            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,point_edit_document,field_count]{perform([&]{
+            connect(reset,&QPushButton::clicked,this,[this,id=o.id,frozen_session=host.session_id,point_edit_document,point_edit_ref,field_count]{perform([&]{
                 if(host.session_id!=frozen_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                (void)point_edit_enabled_state(host.session.document(),point_edit_ref);
                 const auto before=host.session.revision();
                 const auto document=host.session.document().id;
                 const auto generation=host.session.gesture_generation();
@@ -6445,10 +6446,11 @@ void Window::rebuild_inspector(bool use_canvas_values) {
             });});
         }
         const auto frozen_session=host.session_id;
-        connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session,point_edit_document](bool checked) {
+        connect(enabled,&QCheckBox::toggled,this,[this,enabled,id=o.id,frozen_session,point_edit_document,point_edit_ref](bool checked) {
             bool applied=false;
             perform([&] {
                 if(host.session_id!=frozen_session||host.session.document().id!=point_edit_document)throw Error("SESSION_CONFLICT","Point Edit belongs to another document");
+                (void)point_edit_enabled_state(host.session.document(),point_edit_ref);
                 host.session.apply({EnablePointEdit{id,checked}},host.session.revision());
                 applied=true;host.edited();
             });
