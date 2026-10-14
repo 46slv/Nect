@@ -1454,7 +1454,7 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
         try {
             if(effect_type.startsWith("macro:")) {
                 if(frozen_generation!=effects_generation_)throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
-                if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
+                if(host.session_id!=frozen_session||host.session.document().id!=effects_document_)throw Error("SESSION_CONFLICT","Effects target belongs to another document");
                 if(canvas->selected_object!=frozen_target)throw Error("TARGET_CONFLICT","Effects target changed; choose the current target");
                 if(host.session.revision()!=frozen_revision)throw Error("REVISION_CONFLICT","Effects target changed elsewhere; refresh the panel before applying");
                 const auto definition_id=effect_type.mid(6).toStdString();
@@ -13790,7 +13790,7 @@ void Window::add_primitive(const std::string& type) {
 void Window::apply_builtin_effect_favorite(const BuiltinEffectTypeRefV1& effect,
     const QString& expected_session, const Id& expected_target, std::uint64_t expected_revision,
     std::uint64_t expected_generation) {
-    if(host.session_id!=expected_session)
+    if(host.session_id!=expected_session||host.session.document().id!=effects_document_)
         throw Error("SESSION_CONFLICT","Effects target belongs to another document");
     if(expected_generation!=effects_generation_)
         throw Error("REVISION_CONFLICT","Effects panel changed; refresh the target before applying");
