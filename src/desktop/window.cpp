@@ -3508,14 +3508,14 @@ void Window::edit_artboard(QVBoxLayout* layout) {
         scrub->setObjectName(input->objectName()+"-scrub");scrub->setAccessibleName(label+" scrub · du");
         scrub->setEnabled(!input->isReadOnly());
         if(input->isReadOnly())scrub->setToolTip("Driven "+label+": explicitly unlink before scrubbing.");
-        struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;};
+        struct Interaction {bool live=true,owned=false;std::uint64_t generation=0;std::shared_ptr<const std::uint8_t> interaction;};
         auto state=std::make_shared<Interaction>();
         const QPointer<SemanticScrub> safe_scrub=scrub;const QPointer<QLineEdit> safe_input=input;
         const auto initial_text=QString::number(initial,'g',17);
         const auto owns=[this,state,frozen_session,frozen_revision,document] {
             return state->owned&&host.session_id==frozen_session&&host.session.document().id==document&&
                 host.session.revision()==frozen_revision&&host.session.gesture_active()&&
-                host.session.gesture_generation()==state->generation;
+                host.session.gesture_generation()==state->generation&&host.session.gesture_identity()==state->interaction;
         };
         const auto validate=[this,state,frozen_session,frozen_revision,document,safe_input] {
             if(!state->live||!safe_input||host.session_id!=frozen_session||host.session.document().id!=document)
@@ -3545,6 +3545,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
                 if(safe_input->isModified()||layout_preview_active_||layout_preview_invalid_)
                     throw Error("UNCOMMITTED_INPUT","Commit or cancel the numeric draft before scrubbing");
                 host.session.begin_gesture(host.session.revision());state->generation=host.session.gesture_generation();
+                state->interaction=host.session.gesture_identity();
                 state->owned=true;return true;
             }catch(const std::exception& error){report(error);return false;}
         };
