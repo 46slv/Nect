@@ -11780,6 +11780,7 @@ void Window::transform_selection() {
         throw Error("INVALID_SELECTION","Select whole objects or Groups to rotate or scale together");
     canvas->cancel_interaction();
     const auto objects=canvas->selected_objects();const auto revision=host.session.revision();const auto identity=host.session_id;
+    const auto document=host.session.document().id;
     QDialog dialog(this);dialog.setObjectName("selection-transform-dialog");dialog.setWindowTitle("Rotate / scale selection");dialog.resize(460,380);
     auto* layout=new QVBoxLayout(&dialog);
     layout->addWidget(new QLabel(QString("Transform %1 selected object(s) together").arg(objects.size()),&dialog));
@@ -11808,7 +11809,7 @@ void Window::transform_selection() {
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);buttons->button(QDialogButtonBox::Ok)->setText("Apply");layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
-    if(identity!=host.session_id)throw Error("SESSION_CONFLICT","Document changed while selection transform was open");
+    if(identity!=host.session_id||document!=host.session.document().id)throw Error("SESSION_CONFLICT","Document changed while selection transform was open");
     if(revision!=host.session.revision())throw Error("REVISION_CONFLICT","Artwork changed while selection transform was open; reopen it");
     if(std::remainder(rotation->value(),360.0)==0&&sx->value()==100&&sy->value()==100)return;
     std::optional<std::array<double,2>> center;
