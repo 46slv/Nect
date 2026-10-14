@@ -11345,13 +11345,13 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
     note->setAccessibleName(caption_accessible_for(0));row_layout->addWidget(note,1);
     form->addRow(label+" dial",row);
 
-    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;};
+    struct Interaction {bool live=true,owned=false,has_preview=false;std::uint64_t generation=0;std::shared_ptr<const std::uint8_t> interaction;};
     const auto state=std::make_shared<Interaction>();
     QPointer<QLineEdit> safe_numeric=numeric;QPointer<RotationKnob> safe_knob=knob;QPointer<QLabel> safe_note=note;
     auto owns=[this,state,frozen_session,frozen_document,frozen_revision] {
         return state->owned&&host.session_id==frozen_session&&host.session.document().id==frozen_document&&
             host.session.revision()==frozen_revision&&host.session.gesture_active()&&
-            host.session.gesture_generation()==state->generation;
+            host.session.gesture_generation()==state->generation&&host.session.gesture_identity()==state->interaction;
     };
     const auto validate_live=[state,validate_target] {
         if(!state->live)throw Error("SESSION_CONFLICT","Angle batch control has been disposed");
@@ -11393,7 +11393,8 @@ void Window::add_multi_angle_dial(QFormLayout* form,const std::vector<Ref>& targ
                 safe_numeric->setText(common?QString::number(initial_values.front(),'g',17):QString{});
                 safe_numeric->setPlaceholderText(common?QString{}:QStringLiteral("Mixed"));safe_numeric->setModified(false);
             }
-            state->generation=host.session.gesture_generation();state->owned=true;state->has_preview=false;return true;
+            state->generation=host.session.gesture_generation();state->interaction=host.session.gesture_identity();
+            state->owned=true;state->has_preview=false;return true;
         } catch(const std::exception& exception) {report(exception);return false;}
     };
     knob->preview_value=[this,state,owns,validate_live,cancel,report,safe_knob,safe_numeric,safe_note,target_refs,
