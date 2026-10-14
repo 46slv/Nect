@@ -7474,7 +7474,7 @@ void Window::show_folder_library() {
     connect(search,&QLineEdit::textChanged,&dialog,[&](const QString& query){apply_search(query);});
     connect(update_preset,&QPushButton::clicked,&dialog,[&,this] {
         perform([&]{
-            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+            if(host.session_id!=frozen_effect_session||host.session.document().id!=placement_document||host.session.revision()!=frozen_effect_revision||
                 effects_generation_!=frozen_effect_generation)
                 throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to choose a current Preset and target");
             const auto asset_id=preset_assets->currentData().toString();
@@ -7533,7 +7533,7 @@ void Window::show_folder_library() {
     });
     connect(update_macro,&QPushButton::clicked,&dialog,[&,this] {
         perform([&]{
-            if(host.session_id!=frozen_effect_session||host.session.revision()!=frozen_effect_revision||
+            if(host.session_id!=frozen_effect_session||host.session.document().id!=placement_document||host.session.revision()!=frozen_effect_revision||
                 effects_generation_!=frozen_effect_generation)
                 throw Error("REVISION_CONFLICT","Document changed while the Folder Library was open; close and reopen it to update a current Macro");
             const auto asset_id=macro_assets->currentData().toString();
