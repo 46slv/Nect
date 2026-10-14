@@ -2230,7 +2230,8 @@ void Window::perform(const std::function<void()>& action) {
 bool Window::layout_draft_current() const {
     return layout_preview_active_&&layout_preview_session_==host.session_id&&
         layout_preview_document_==host.session.document().id&&layout_preview_revision_==host.session.revision()&&host.session.gesture_active()&&
-        layout_preview_generation_==host.session.gesture_generation();
+        layout_preview_generation_==host.session.gesture_generation()&&layout_preview_interaction_&&
+        host.session.gesture_identity()==layout_preview_interaction_;
 }
 
 bool Window::reject_stale_layout_draft() {
@@ -2253,7 +2254,7 @@ void Window::cancel_layout_draft(bool refresh_canvas) {
     if(grid_scope&&layout_preview_scope_)layout_preview_scope_->setProperty("nect-grid-draft-generation",QVariant{});
     setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
     layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
-    layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
+    layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_interaction_.reset();layout_preview_scope_.clear();
     if(refresh_canvas&&active&&owns&&canvas) {canvas->refresh();canvas->update();}
 }
 
@@ -2267,6 +2268,7 @@ bool Window::preview_layout_draft(const std::vector<Command>& commands,QWidget* 
             layout_preview_session_=host.session_id;layout_preview_document_=host.session.document().id;layout_preview_revision_=host.session.revision();
             layout_preview_scope_=scope;host.session.begin_gesture(layout_preview_revision_);layout_preview_active_=true;
             layout_preview_generation_=host.session.gesture_generation();
+            layout_preview_interaction_=host.session.gesture_identity();
             const bool grid_scope=scope->property("nect-grid-draft-session").isValid();
             for(const auto* key:{"nect-grid-draft-session","nect-grid-draft-document","nect-grid-draft-revision"})
                 setProperty(key,grid_scope?scope->property(key):QVariant{});
@@ -2298,7 +2300,7 @@ bool Window::commit_layout_draft(const std::vector<Command>& commands,QWidget* s
         if(!layout_draft_current())throw Error("REVISION_CONFLICT","Layout draft belongs to an older document session or revision");
         host.session.commit_gesture();
         layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
-        layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
+        layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_interaction_.reset();layout_preview_scope_.clear();
         setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
         host.edited();
         QTimer::singleShot(0,this,[this]{if(utility_setup_dialog_)rebuild_layout_setup();});
@@ -4965,7 +4967,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
             // or gesture remains owned by its current caller and must not cancel.
             if(local_scope) {
                 layout_preview_active_=false;layout_preview_invalid_=false;layout_preview_session_.clear();layout_preview_document_.clear();
-                layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_scope_.clear();
+                layout_preview_revision_=0;layout_preview_generation_=0;layout_preview_interaction_.reset();layout_preview_scope_.clear();
                 setProperty("nect-grid-draft-session",QVariant{});setProperty("nect-grid-draft-generation",QVariant{});
             }
             grid_generation->reset();

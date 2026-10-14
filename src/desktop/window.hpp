@@ -157,6 +157,7 @@ private:
     Id layout_preview_document_;
     std::uint64_t layout_preview_revision_=0;
     std::uint64_t layout_preview_generation_=0;
+    std::shared_ptr<const std::uint8_t> layout_preview_interaction_;
     void cancel_whip();
     void reveal_whip_source();
     bool preview_layout_draft(const std::vector<Command>& commands,QWidget* scope);
