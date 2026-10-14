@@ -14181,6 +14181,7 @@ void Window::batch_rename_selection() {
     Id parent;
     const auto ids=selected_siblings(parent,2);
     const auto frozen_session=host.session_id;
+    const auto frozen_document=host.session.document().id;
     const auto frozen_revision=host.session.revision();
     const auto selection=canvas->selections();
     const auto& document=host.session.document();
@@ -14256,7 +14257,7 @@ void Window::batch_rename_selection() {
     connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
 
-    if(host.session_id!=frozen_session)
+    if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
         throw Error("SESSION_CONFLICT","The document changed while batch rename was open; reopen the dialog");
     if(host.session.revision()!=frozen_revision)
         throw Error("REVISION_CONFLICT","The document changed while batch rename was open; reopen the dialog");
@@ -14277,6 +14278,7 @@ void Window::sort_selection_by_name_paint_order() {
     Id parent;
     const auto selected=selected_siblings(parent,2);
     const auto frozen_session=host.session_id;
+    const auto frozen_document=host.session.document().id;
     const auto frozen_revision=host.session.revision();
     const auto selection=canvas->selections();
     const auto& document=host.session.document();
@@ -14338,7 +14340,7 @@ void Window::sort_selection_by_name_paint_order() {
     connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
 
-    if(host.session_id!=frozen_session)
+    if(host.session_id!=frozen_session||host.session.document().id!=frozen_document)
         throw Error("SESSION_CONFLICT","The paint-order preview belongs to another document; reopen it");
     if(host.session.revision()!=frozen_revision)
         throw Error("REVISION_CONFLICT","The document changed while the paint-order preview was open; reopen it");
@@ -14751,7 +14753,7 @@ void Window::create_folder_from_selection() {
     });
     connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     if(dialog.exec()!=QDialog::Accepted)return;
-    if(host.session_id!=frozen_session)throw Error("SESSION_CONFLICT","The Folder preview belongs to another document");
+    if(host.session_id!=frozen_session||host.session.document().id!=document.id)throw Error("SESSION_CONFLICT","The Folder preview belongs to another document");
     if(host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while previewing the Folder");
     canvas->cancel_interaction();host.session.apply({GroupContiguous{composition,parent,members,id,name->text().trimmed().toStdString()}},revision);
     canvas->set_selection(id);host.edited();
