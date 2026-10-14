@@ -6852,7 +6852,11 @@ void Window::add_transform_properties(QVBoxLayout* layout,const Object& object) 
     center->setToolTip("Use evaluated geometry bounds, excluding stroke width. Artwork stays in place.");form->addRow(center);
     connect(center,&QPushButton::clicked,this,[this,id,apply]{perform([&]{apply(CenterAnchor{id});});});
     auto* edit_anchor=new QPushButton("Edit Anchor on Canvas · Y");edit_anchor->setObjectName("transform-edit-anchor");form->addRow(edit_anchor);
-    connect(edit_anchor,&QPushButton::clicked,this,[this]{canvas->set_anchor_edit(true);canvas->setFocus();});
+    connect(edit_anchor,&QPushButton::clicked,this,[this,id,frozen_session,frozen_document]{perform([&]{
+        if(host.session_id!=frozen_session||host.session.document().id!=frozen_document||!host.session.document().objects.contains(id))
+            throw Error("SESSION_CONFLICT","Anchor editor belongs to another document");
+        canvas->set_anchor_edit(true);canvas->setFocus();
+    });});
     auto* rotate_row=new QWidget;auto* rotate_layout=new QHBoxLayout(rotate_row);rotate_layout->setContentsMargins(0,0,0,0);
     auto* rotation=new QLineEdit("0");rotation->setObjectName("transform-rotate-by");rotation->setAccessibleName("Rotate by degrees");
     auto* rotate=new QPushButton("Apply");rotate->setObjectName("transform-rotate-apply");rotate_layout->addWidget(rotation);rotate_layout->addWidget(rotate);form->addRow("Rotate by °",rotate_row);
