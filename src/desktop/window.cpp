@@ -5293,7 +5293,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
     connect(detach,&QPushButton::clicked,this,[this,composition,id,apply]{perform([&]{apply({DetachArtboardParent{composition,id}});});});
     auto* parent_note=new QLabel("Parent size links remain separate from Template inheritance. A Template can share a source frame, layout and optional Definition content.");
     parent_note->setWordWrap(true);parent_form->addRow(parent_note);
-    const ArtboardTemplateContext template_context{host.session_id,composition,id,frozen_revision};
+    const ArtboardTemplateContext template_context{host.session_id,composition,id,frozen_revision,host.session.document().id};
     auto* template_box=new QGroupBox("Artboard Template");template_box->setObjectName("artboard-template-panel");
     auto* template_form=new QFormLayout(template_box);template_form->setRowWrapPolicy(QFormLayout::WrapLongRows);
     auto* template_status=new QLabel(template_box);template_status->setObjectName("artboard-template-state");
@@ -5459,7 +5459,7 @@ void Window::edit_artboard(QVBoxLayout* layout) {
 }
 
 void Window::verify_artboard_template_context(const ArtboardTemplateContext& context) const {
-    if(host.session_id!=context.session)
+    if(host.session_id!=context.session||host.session.document().id!=context.document)
         throw Error("SESSION_CONFLICT","Template command belongs to another document session");
     if(host.session.revision()!=context.revision)
         throw Error("REVISION_CONFLICT","Template command captured revision "+std::to_string(context.revision)+
@@ -5477,7 +5477,7 @@ void Window::apply_artboard_template_command(const ArtboardTemplateContext& cont
 }
 
 void Window::verify_artboard_guide_context(const ArtboardTemplateContext& context) const {
-    if(host.session_id!=context.session)
+    if(host.session_id!=context.session||host.session.document().id!=context.document)
         throw Error("SESSION_CONFLICT","Artboard Guide command belongs to another document session");
     if(host.session.revision()!=context.revision)
         throw Error("REVISION_CONFLICT","Artboard Guide command belongs to a stale captured revision");

@@ -128,6 +128,7 @@ private:
         QString session;
         Id composition,artboard;
         std::uint64_t revision=0;
+        Id document;
     };
     std::map<QByteArray,ExpressionDraft> expression_drafts_;
     struct LayoutExpressionDraft {
