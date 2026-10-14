@@ -14654,12 +14654,12 @@ void Window::add_selection_to_collection() {
     const auto selected=canvas->selected_objects();
     if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to add to a Collection");
     const auto collections=host.session.document().collections;
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto document_id=host.session.document().id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();
     const auto chosen=choose_collection("Add to Collection",collections);if(!chosen)return;
     const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
     auto members=found->members;
     for(const auto& id:selected)if(std::find(members.begin(),members.end(),id)==members.end())members.push_back(id);
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Selection or document changed while adding Collection members");
     host.session.apply({CollectionCommand{SetCollectionMembers{*chosen,std::move(members)}}},revision);
     host.edited();statusBar()->showMessage("Selected Objects added to Collection without moving artwork",6000);
@@ -14668,12 +14668,12 @@ void Window::remove_selection_from_collection() {
     const auto selected=canvas->selected_objects();
     if(selected.empty()||!canvas->selected_point.empty())throw Error("INVALID_SELECTION","Select whole Objects to remove from a Collection");
     const auto collections=host.session.document().collections;
-    const auto frozen_session=host.session_id;const auto revision=host.session.revision();
+    const auto document_id=host.session.document().id;const auto frozen_session=host.session_id;const auto revision=host.session.revision();
     const auto chosen=choose_collection("Remove from Collection",collections);if(!chosen)return;
     const auto found=std::find_if(collections.begin(),collections.end(),[&](const Collection& item){return item.id==*chosen;});
     auto members=found->members;
     for(const auto& id:selected)std::erase(members,id);
-    if(host.session_id!=frozen_session||host.session.revision()!=revision||canvas->selected_objects()!=selected)
+    if(host.session_id!=frozen_session||host.session.document().id!=document_id||host.session.revision()!=revision||canvas->selected_objects()!=selected)
         throw Error("REVISION_CONFLICT","Selection or document changed while removing Collection members");
     host.session.apply({CollectionCommand{SetCollectionMembers{*chosen,std::move(members)}}},revision);
     host.edited();statusBar()->showMessage("Selected Objects removed from Collection without moving artwork",6000);
