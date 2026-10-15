@@ -137,4 +137,3 @@ DPI/fonts, socket API, cold-process reopen, whole CTest and whole Mission
 acceptance remain unclaimed. Previous native evidence retains its original binding.
 Receipt: `C:/Users/shiro/.codex/scratch/01a1415d-123f-7733-b5c6-ec3414f54d0f/circle-fit-checkpoint.json`,
 SHA256 `972A1A5DA0E21E7DF8685B8AEDF6CA3EF1BBEA5DB60529EA89386F78C6812205`.
-
