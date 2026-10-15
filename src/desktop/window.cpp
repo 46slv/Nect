@@ -12092,7 +12092,12 @@ void Window::add_multi_properties(QVBoxLayout* layout) {
     }
     add_alignment_controls(layout,selected);
     auto* selection_transform=new QPushButton("Rotate / scale selection…");selection_transform->setObjectName("selection-transform-open");
-    layout->addWidget(selection_transform);connect(selection_transform,&QPushButton::clicked,this,[this]{perform([&]{transform_selection();});});
+    layout->addWidget(selection_transform);
+    connect(selection_transform,&QPushButton::clicked,this,[this,identity=host.session_id,document=d.id]{perform([&]{
+        if(host.session_id!=identity||host.session.document().id!=document)
+            throw Error("SESSION_CONFLICT","Selection transform belongs to another document");
+        transform_selection();
+    });});
     auto* transform=section("Transform · each object");
     common(transform,"composite.opacity","Object opacity");
     common(transform,"transform.tx","Translation X");common(transform,"transform.ty","Translation Y");

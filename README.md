@@ -737,6 +737,11 @@ key spacing against independent native/API/History oracles, actual Undo/Redo,
 and exact saved bytes.
 
 
+The retained multi-selection Inspector transform opener also checks its original
+Document and Host before opening the dialog. Its focused Windows Qt contract is
+`inspector_transform_entry_ui_contract`; stale entry preserves the incoming
+caller, including an active preview, while current Apply and Cancel remain usable.
+
 ## Rotate, scale and reflect a selection
 
 Select whole objects or Groups, then **Ctrl+Shift+T**, Edit → **Rotate / scale
