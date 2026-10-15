@@ -426,3 +426,44 @@ REQ-32/33/Mission closure is claimed. Earlier proof keeps its original binding.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141d1-cb77-7fa1-a01d-be5349915c3d/body-snap-checkpoint.json`,
 SHA256 `F71E2C05656A0EAFD719D926C994897BFEA30A1D5CD25079B3AAF941D2D434D4`.
+
+## 2026-10-16 native Direct Selection on a retained Rectangle generator
+
+The original production code at `ac74200` (metadata-only delta from production
+source `4879d02`) passed an external Direct Selection anchor edit without a
+product RED or repair. REQ-197 remains Confirmed and partially open. Before
+Window construction, a hand-constructed full Point Edit document and a normal
+typed Set gesture independently agreed on the complete expected native state
+and History. Original/expected/foreign native round-trips were valid; the
+initial Session had both Undo and Redo at revision 3.
+
+Actual Canvas selection and the actual Direct Selection Rail control in
+Windows/Qt 6.5.3 PID 40708 / HWND 50401848 exposed the stable generated
+`moving-source-top-left` anchor. External 2400-ms, 40-step input moved it by
+world (+20,+40). Under `world=(200-local_y,240+2*local_x)`, the independent
+local result is (-40,-30) to (-20,-50). At revision 4, the complete authored
+Document, preview and typed History matched the oracle: the original
+Rectangle generator, width 80, height 60 and Object transform remained intact,
+with exactly two absolute local overrides in the canonical Point Edit.
+The actual Inspector showed the source, enabled Point Edit, two overrides on
+one point and x=-20/y=-50. All 42 active-preview samples retained the original
+committed Document/History/revision and generator.
+
+Actual Toolbar Undo removed the correction and restored the full original
+Document at revision 5; Redo restored the complete expected state at revision
+6. Exact Host Save bytes and distinct same-process Host readback matched.
+Selection, active composition/Artboard, zoom 1, Host identity, foreign oracle,
+unrelated source and owned workspace setting remained intact. The owned
+process exited, Cua session ended and the exact mutex was free/non-abandoned.
+
+The driver reports unknown/global_input/unverifiable; semantic native records
+and screenshots establish this result. It covers one transformed Rectangle
+anchor only. Bypass/reset, source parameter changes, topology changes, other
+shapes/handles, cancellation, multi-selection, stale/foreign active producers,
+pivot, cold-process, physical/subjective, external-process API, full CTest and
+combined REQ-197/Mission acceptance remain separate. Earlier native evidence
+retains its original source binding; this proof is not promoted to a later
+metadata checkpoint.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141d1-cb77-7fa1-a01d-be5349915c3d/direct-point-checkpoint.json`,
+SHA256 `A095921077BE6192FBAB9005439094A5D429FA127CA36A168CA5E3DD66B87066`.
