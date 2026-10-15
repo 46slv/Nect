@@ -274,3 +274,42 @@ processes closed, Cua sessions ended and the exact mutex was free/non-abandoned.
 
 Repair receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d/pan-fit-checkpoint.json`,
 SHA256 `B15D130FB110E9AE7B7EFF81820C5916879F372A574699C1DC807947E8B74F71`.
+
+## 2026-10-16 Utility Zoom reads back the accepted view
+
+The unchanged Window at `6d29fd6`, PID 78016 / HWND 39067606, reproduced a
+readout mismatch during an external native marquee drag. After three native
+moves the observer changed the actual `canvas-zoom-percent` QDoubleSpinBox to
+200, using its existing valueChanged consumer. Canvas correctly retained zoom
+1, but the input field displayed 200% while the actual Canvas readout showed
+100%. This persisted after release until the next host refresh; Save already
+restored the field to 100% in the original. No Fit action, socket or direct
+Canvas zoom call was used by this producer. Original, expected and foreign
+native documents and typed History/selection/view oracles were fixed before
+Window construction. The native circle remained correctly selected and all
+authored state was unchanged.
+
+The Window input callback now reads back Canvas's accepted zoom under the
+existing QSignalBlocker after requesting a change. The same frozen probe and
+2400 ms / 40-step Windows drag in PID 86020 / HWND 32309858 immediately displayed
+100% and retained zoom 1, the expected Circle selection, full committed/preview
+Document, revision 0, empty History, Host and independent foreign document.
+Exact saved bytes and a distinct Host in the same process matched the full
+expected native document. No Canvas policy or authored command changed.
+
+The original focused check failed at the marquee readback assertion. Release
+Desktop/tests/probe builds, 14 focused Window checks and registered
+`canvas_zoom_readback_contract` 1/1 passed. Focused checks include repeated
+refusals, full authored body preview preservation, cancel with existing Undo
+and Redo, and accepted ordinary Zoom afterward. Native evidence covers the
+marquee and observer-produced actual control signal; it is not physical typing
+or native authored-body proof. Driver delivery remains
+unknown/global_input/unverifiable; native records and screenshots establish
+the outcome. Wheel, DPI/fonts, cold-process reopen, full CTest and whole
+Requirement/Mission closure are not claimed. Owned processes closed, Cua
+sessions ended and the exact mutex was free/non-abandoned.
+
+RED receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d/zoom-readback-red.json`,
+SHA256 `092FF85918CDD7B4863CBDFA7969AA6FC44B346F6A53B26EE5176AB54292D776`.
+Repair receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d/zoom-readback-checkpoint.json`,
+SHA256 `B7517BE8275B1D10D4C3FBD915C8D2AD9CF872F563E653D5D0928153A8E81624`.

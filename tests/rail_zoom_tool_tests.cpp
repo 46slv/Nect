@@ -107,10 +107,45 @@ void pan(Window& w,Qt::MouseButton button,QPoint delta){
     check(w.canvas->zoom()==zoom&&snapshot(w.host.session)==authored&&w.canvas->selections()==selection,
         "Temporary pan preserves zoom and complete authored/selection state");
 }
+void zoom_input_reads_back_accepted_view(){
+    QTemporaryDir scratch;check(scratch.isValid(),"Zoom readback owns its scratch");
+    QSettings settings(scratch.filePath("settings.ini"),QSettings::IniFormat);
+    Window w(scratch.filePath("recovery"),std::make_unique<FolderLibrary>(settings),&settings);show(w);
+    auto& s=w.host.session;s=Session(fixture());
+    s.apply({Set{{"zoom-object",{},"transform.tx"},328}},s.revision());
+    s.apply({Set{{"zoom-object",{},"transform.tx"},336}},s.revision());s.undo(s.revision());
+    w.host.edited();events();w.canvas->set_selection({});w.canvas->fit_artboard();w.canvas->set_zoom(1);events();
+    const auto original=snapshot(s);const auto host=w.host.session_id;
+    check(s.can_undo()&&s.can_redo(),"Readback fixture protects both History directions");
+    auto* zoom=w.findChild<QDoubleSpinBox*>("canvas-zoom-percent");check(zoom&&zoom->value()==100,"Actual Utility starts at the accepted view scale");
+    const QPoint start(20,100),end(40,120);
+    QTest::mousePress(w.canvas,Qt::LeftButton,Qt::NoModifier,start);QTest::mouseMove(w.canvas,end);events();
+    zoom->setValue(200);events();
+    check(w.canvas->zoom()==1,"Marquee refuses a view scale change");
+    check(zoom->value()==100,"Utility reads back accepted Canvas zoom after marquee refusal");
+    zoom->setValue(300);events();
+    check(zoom->value()==100&&w.canvas->zoom()==1,"A repeated refused request still reads back actual zoom");
+    QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,end);events();
+    check(snapshot(s)==original&&!s.gesture_active()&&w.canvas->selections().empty(),"Zoom readback preserves marquee, full native Document and History");
+    w.canvas->set_selection("zoom-object");const auto center=ink(*w.canvas).center.toPoint();
+    QTest::mousePress(w.canvas,Qt::LeftButton,Qt::NoModifier,center);QTest::mouseMove(w.canvas,center+QPoint(12,4));events();
+    check(s.gesture_active(),"Authored body preview is active before Zoom input");const auto preview=s.preview_document();
+    zoom->setValue(250);events();
+    check(zoom->value()==100&&w.canvas->zoom()==1,"Utility reads back accepted zoom during an authored drag");
+    check(s.preview_document()==preview&&snapshot(s)==original&&s.gesture_active(),"Readback preserves full authored preview and committed History");
+    w.canvas->cancel_interaction();QTest::mouseRelease(w.canvas,Qt::LeftButton,Qt::NoModifier,center+QPoint(12,4));events();
+    check(snapshot(s)==original&&!s.gesture_active()&&s.can_undo()&&s.can_redo()&&w.host.session_id==host,"Cancel preserves native, both History directions and Host identity");
+    zoom->setValue(200);events();
+    check(zoom->value()==200&&w.canvas->zoom()==2,"Ordinary Utility zoom remains usable after the interaction");
+    check(snapshot(s)==original&&!s.gesture_active(),"Accepted view zoom remains authored-state neutral");
+}
 }
 int main(int argc,char** argv){
     QApplication app(argc,argv);app.setStyle("Fusion");app.setStyleSheet(application_style_sheet());
     try {
+        if(app.arguments().contains("--zoom-readback-only")){
+            zoom_input_reads_back_accepted_view();std::cout<<"zoom_readback: "<<checks<<" checks passed\n";return 0;
+        }
         QTemporaryDir scratch;check(scratch.isValid(),"Owned scratch exists");
         QSettings preferences(scratch.filePath("settings.ini"),QSettings::IniFormat);
         preferences.setValue("unrelated","preserve");preferences.setValue("workspace/tools/textCreationDirection","vertical");

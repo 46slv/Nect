@@ -1923,7 +1923,11 @@ Window::Window(QString recovery_directory, std::unique_ptr<FolderLibrary> folder
     utility_zoom_->setRange(2,6400);utility_zoom_->setDecimals(0);utility_zoom_->setSingleStep(10);utility_zoom_->setSuffix("%");
     utility_zoom_->setKeyboardTracking(false);utility_zoom_->setFixedWidth(VisualMetrics::utility_zoom_width);utility_zoom_->setToolTip("Canvas view zoom · 2% to 6400%. This does not change the document.");
     new HoverFeedback(utility_zoom_);
-    utility_layout_->addWidget(utility_zoom_);connect(utility_zoom_,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double percent){canvas->set_zoom(percent/100.0);});
+    utility_layout_->addWidget(utility_zoom_);connect(utility_zoom_,qOverload<double>(&QDoubleSpinBox::valueChanged),this,[this](double percent){
+        canvas->set_zoom(percent/100.0);
+        // An active interaction may refuse the requested view change.
+        const QSignalBlocker blocker(utility_zoom_);utility_zoom_->setValue(canvas->zoom()*100.0);
+    });
     utility_artboard_=new QLabel(utility_contents);utility_artboard_->setObjectName("canvas-output-readback");
     utility_artboard_->setAccessibleName("Active Artboard and output dimensions");utility_artboard_->setMinimumWidth(VisualMetrics::utility_readback_min_width);utility_artboard_->setMaximumWidth(VisualMetrics::utility_readback_max_width);
     utility_artboard_->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Preferred);
