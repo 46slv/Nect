@@ -2054,6 +2054,10 @@ QPointF Canvas::snap_delta(QPointF delta) {
     std::set<Id> excluded_x,excluded_y;
     double adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),delta.y(),excluded_x,snap_x_match_);
     double adjusted_y=choose(snap_y_sources_,snap_y_targets_,source_offset(false),adjusted_x,excluded_y,snap_y_match_);
+    // A Y correction can bring a point or bounds back onto a clipped Guide/Grid
+    // segment. Admit X candidates against that final Y before rejecting misses.
+    if(adjusted_y!=delta.y())
+        adjusted_x=choose(snap_x_sources_,snap_x_targets_,source_offset(true),adjusted_y,excluded_x,snap_x_match_);
     const auto segment_misses=[&](const SnapMatch& match,double orthogonal_delta) {
         if(!match.target.segment_limited)return false;
         if(!match.source.segment_limited)return true;

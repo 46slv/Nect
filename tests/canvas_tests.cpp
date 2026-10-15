@@ -776,6 +776,54 @@ void snap_tolerance_zoom_and_exact_edits() {
     }
 }
 
+void scoped_guide_snap_reentry_uses_corrected_other_axis() {
+    for(const bool y_axis:{false,true})for(const bool outside:{false,true}) {
+        auto document=artboard_guide_point_snap_document(false);
+        auto& composition=document.compositions.front();auto& board=composition.artboards.front();
+        board.local_guides={{y_axis?"local-y":"local-x","Local guide",y_axis?"y":"x",50,true}};
+        composition.guides={{y_axis?"global-x":"global-y","Global guide",y_axis?"x":"y",
+                             y_axis?(outside?647.0:640.0):(outside?407.0:400.0)}};
+        auto& anchor=document.objects.at("guide-point-path").contours.front().points.front();
+        anchor.x.literal=y_axis?590:38;anchor.y.literal=y_axis?138:350;
+        const double raw_x=y_axis?645:49,raw_y=y_axis?149:405;
+        const double expected_x=y_axis?(outside?647:640):(outside?49:50);
+        const double expected_y=y_axis?(outside?149:150):(outside?407:400);
+        // Independent typed/native oracles precede the Canvas producer.
+        Session oracle(document);const auto original=encode(document);
+        oracle.apply({Set{{"guide-point-path","anchor","x"},expected_x},
+                      Set{{"guide-point-path","anchor","y"},expected_y}},0);
+        const auto expected=oracle.document();const auto history=oracle.history();
+        check(decode(encode(expected))==expected,"Joint-axis Guide expected native is valid before Canvas");
+        Fixture f(document);f.canvas.set_selection("guide-point-path","anchor");
+        const auto start=f.screen(anchor.x.literal,anchor.y.literal),end=f.screen(raw_x,raw_y);
+        f.press(start);f.move(end);
+        check(f.session.preview_document()==expected,"Guide point preview equals full corrected-axis native oracle");
+        const auto local_id=QString::fromLatin1(y_axis?"Guide local-y":"Guide local-x");
+        check(f.canvas.last_snap_feedback().contains(local_id)!=outside,
+              "Guide occurrence is eligible exactly when the corrected point is on its segment");
+        check(f.canvas.last_snap_feedback().contains(y_axis?"Guide → global-x":"Guide → global-y"),
+              "Orthogonal global Guide keeps its original stable feedback identity");
+        check(encode(f.session.document())==original&&f.session.revision()==0,
+              "Guide preview preserves the authored native and revision");
+        f.release(end);
+        check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==1,
+              "Guide reentry commits the complete independent Document and History in one edit");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        check(encode(f.session.document())==original&&!f.session.can_undo(),
+              "One Undo restores every native field and leaves no extra history entry");
+        f.session.redo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==expected&&f.session.history()==history,
+              "One Redo restores the full Guide reentry oracle");
+        const auto before_cancel=f.session.history();const auto revision=f.session.revision();
+        f.press(f.screen(expected_x,expected_y));f.move(f.screen(expected_x+20,expected_y-20));
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.document()==expected&&f.session.history()==before_cancel&&
+              f.session.revision()==revision&&!f.session.gesture_active(),
+              "Cancelled subsequent point drag preserves Document and typed History");
+        f.no_error();
+    }
+}
+
 void snap_guide_grid_priority_visibility_and_controls() {
     {
         auto document=grid_guide_snap_document(500);
@@ -2850,6 +2898,11 @@ int main(int argc, char** argv) {
             std::cout << "Canvas linked Margin contract: " << checks << " checks passed\n";
             return 0;
         }
+        if(application.arguments().contains("--guide-segment-reentry-only")) {
+            scoped_guide_snap_reentry_uses_corrected_other_axis();
+            artboard_guide_snap_segments_and_overlay_clipping();
+            std::cout<<"canvas_guide_segment_reentry: "<<checks<<" checks passed\n";return 0;
+        }
         if(application.arguments().contains("--text-baseline-only")) {
             snap_text_baseline_and_unsupported_axis_omission();
             std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
@@ -2870,6 +2923,7 @@ int main(int argc, char** argv) {
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();
         artboard_guide_snap_segments_and_overlay_clipping();
+        scoped_guide_snap_reentry_uses_corrected_other_axis();
         grid_rows_snap_uses_evaluated_source();
         snap_two_sided_equal_gap_and_point_world_correction();
         snap_repeated_gap_fixed_oracles_and_eligibility();

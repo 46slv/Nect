@@ -60,3 +60,42 @@ Receipt: `C:/Users/shiro/.codex/scratch/01a1413d-d9e8-7c22-b8f0-df9aa1b56bed/r03
 SHA256 `AE67D6011D799CF65A97A7B4343200FBB7AC44A6F4B5A3B1722B91AD68E6FC1E`.
 The receipt binds the probe source, binary, original production libraries,
 63 artifacts, live gesture records and both native feedback screenshots.
+
+## 2026-10-16 scoped Guide point reentry repair
+
+An original native Window then exposed an uncovered REQ-32 precision-placement
+failure. Its Artboard spans Y=100..400, local X Guide is 50 and global Y Guide
+is 400. A raw point drag from `(38,350)` to `(49,405)` should finish at
+`(50,400)`: the Y correction puts the point back on the local Guide's segment.
+Before repair, PID 29308 committed `(49,400)` and dropped the X feedback.
+Full native-valid expected/original/foreign oracles existed before Window
+construction; the full committed native differed from that expected oracle.
+The frozen original RED receipt is `point-segment-red.json`, SHA256
+`DE0B64DFABFEA24A1CEF32603508322BB8D39AAB6C0E72193FA73D5A498C1BC9`,
+under the same owner scratch directory as above.
+
+Four added lines in `Canvas::snap_delta` re-evaluate X candidates using the Y
+correction before the existing segment-rejection loop. Threshold, tie priority,
+frozen geometry, core commands and authored format are unchanged. The exact
+same external driver/probe and native oracle, relinked to the repaired Canvas,
+committed `(50,400)` in PID 90644 and displayed both Guide identities. The full
+native Document and typed History matched; actual Toolbar Undo/Redo restored
+the complete originals/expected result, and exact saved bytes plus fresh
+same-process Host readback matched. Both owned processes closed normally.
+
+Focused Canvas checks passed 60 checks: both axis orders, both corrected
+outside-segment cases, complete native/History, one Undo/Redo, cancellation and
+the existing clipping cases. The affected baseline regression passed 110
+checks. Registered CTest `canvas_guide_segment_reentry` passed 1/1. Release
+Canvas tests/Desktop and the unchanged native probe relink passed. Initial
+test startup `C0000135` was an existing Qt6Test.dll PATH issue; using the
+existing Qt runtime resolved it, and the new CTest carries that runtime PATH.
+No dependency or user-setting change was made.
+
+Repair receipt: `point-segment-checkpoint.json`, SHA256
+`1F225569F839479E93FA37B4B9232BED52AE9A74A9B0C357F3A8687B240FE1B2`.
+The external native repair proof is the positive X case; symmetric, outside
+and cancellation checks are focused Canvas tests. Cold-process/API-socket,
+foreign/stale producer, physical/subjective and full Mission acceptance remain
+unclaimed. The preceding baseline native receipt remains original at its
+`8443e69` source binding.

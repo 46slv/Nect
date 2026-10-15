@@ -1521,6 +1521,10 @@ if(BUILD_TESTING)
     add_executable(canvas_tests tests/canvas_tests.cpp)
     target_link_libraries(canvas_tests PRIVATE nect_desktop_client Qt6::Test)
     add_test(NAME canvas_interaction COMMAND canvas_tests)
+    add_test(NAME canvas_guide_segment_reentry COMMAND canvas_tests --guide-segment-reentry-only)
+    set_tests_properties(canvas_guide_segment_reentry PROPERTIES TIMEOUT 60
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")
     add_test(NAME canvas_text_baseline_contract COMMAND canvas_tests --text-baseline-only)
     add_test(NAME canvas_linked_margin_contract COMMAND canvas_tests --linked-margin-only)
     add_test(NAME canvas_grid_row_gutter_contract COMMAND canvas_tests --grid-row-gutter-only)
