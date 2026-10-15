@@ -348,3 +348,42 @@ Host platform, Requirement and Mission closure remain unclaimed.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141bb-1775-7862-925c-35d72a7e2bcf/gradient-native-checkpoint.json`.
 SHA256 `D4236C4ACB5B460B44125818078D670D4B07E899C6C994917BC90B91DEABF0F9`.
+
+## 2026-10-16 native primary Gradient Inspector editing
+
+At `86d7849` (metadata-only delta from production source `4879d02`), native
+Windows Qt 6.5.3 PID 73424 / HWND 19210040 passed the primary paired End XY
+Inspector route without a product repair. Before Window construction, the
+probe fixed complete native-valid original/expected/foreign documents and
+typed Session/History oracles with both Undo/Redo at revision 3. The expected
+transaction was independently fixed as End `(40,-20)` to `(60,-10)`.
+
+Actual Canvas selection and two native scrollbar page clicks exposed the
+current Inspector button. The actual paired dialog opened at its exact
+unmodified baseline. An unfinished draft was cancelled through the actual
+Cancel button, preserving the complete original Session and both Undo/Redo.
+After reopening, exact draft `(60,-10)` still preserved the entire original
+Document/preview/History until actual Apply committed one revision. Full
+expected Document/preview/typed History at revision 4 matched. Actual Toolbar
+Undo/Redo matched independent full Sessions at revisions 5/6. Exact Host Save
+bytes and a distinct same-process Host reopen matched the full expected source.
+Foreign Session, Host, stable source identities, selection and zoom 1 remained
+intact. Owned process closed, Cua session ended and exact mutex was free/non-abandoned.
+
+Input delivery was explicitly reconciled before Apply. Background wheel was
+refused; a foreground wheel report did not scroll. Actual scrollbar page clicks
+worked. UIA text insertion appended and background Ctrl+A did not select;
+foreground input also left an incorrect Y draft. No incorrect draft was applied.
+Unmodified background Home/Delete cleared Y, and UIA insertion into the empty
+field yielded exact `-10`, independently read back with X=`60` before Apply.
+These are input-route observations, not a product RED or physical typing proof.
+Probe build and diff check passed; unchanged product tests were not replayed.
+
+This proves only the current linear Gradient paired End edit and unfinished-draft
+Cancel. Native stale foreign producer, driven/start/radial/input-validation,
+physical/subjective/DPI/fonts/chooser/cold-process/fullCTest, Host platform,
+Requirement and Mission closure are unclaimed. The preceding endpoint-drag
+receipt retains its original `4879d02` binding.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141bb-1775-7862-925c-35d72a7e2bcf/gradient-parameter-checkpoint.json`.
+SHA256 `D13B964DC95487CA6F75577D272286597EAA7556A561AA2B94CA71CB9E8064D2`.
