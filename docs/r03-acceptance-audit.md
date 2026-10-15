@@ -506,3 +506,42 @@ retain their original bindings; none is promoted to this metadata checkpoint.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141e6-f117-78e2-aecb-f0243d09bcc4/rect-lifecycle-checkpoint.json`,
 SHA256 `0A00A815E0EFCC93E083DFC8F2C068075F2886E924C240D8B1CAECB51DE9A347`.
+
+## 2026-10-16 native Star angular topology and refusal
+
+Original production source `4879d02` passed the accepted REQ-197 topology
+correspondence path without product RED or repair. Actual native HEAD `8da2e2d`
+had only the next-obligation Brief dirty. Before Window construction, full
+independent original/expanded/foreign documents passed native round-trips and
+agreed with typed Session/History. The initial revision 3 had both Undo/Redo.
+An independent Points 6 command rejected atomically with UNRESOLVED_POINT_EDIT.
+
+Windows/Qt 6.5.3 PID 96180 / HWND 68099100 used actual Canvas selection and the
+visible original Star Points field. A verified native text draft 6 and Return
+produced QStatusBar currentMessage `UNRESOLVED_POINT_EDIT: moving-source-outer-1-5`.
+The complete original Document, native bytes, preview, typed History, revision 3,
+both Undo/Redo and view remained intact. The refused draft still displayed 6,
+while authored Points remained 10. It was cleared before a verified draft 20.
+The later refusal screenshot missed the transient status message; it is not
+claimed as visual notification proof. The native observer's actual QStatusBar
+record establishes the notification without replaying the valid refusal.
+
+Points 20 committed at revision 4, increasing generated vertices 20 to 40.
+The rational angular role `moving-source-outer-1-5` stayed at phase 1/5:
+absolute x=245 and generator y=180+60*sin(2*pi/5)=237.06339097770922 persisted.
+The external Object's width link to that exact point remained 24.5. Full native
+Document/preview/History matched the manual and typed oracles. Actual Toolbar
+Undo/Redo matched the complete expected Sessions at revisions 5/6. Exact Host
+Save bytes and a distinct same-process Host reopen agreed. Host/view/foreign/
+workspace/transform stayed intact; owned process/Cua session ended and exact
+mutex was free/non-abandoned.
+
+Driver background accessibility/synthetic-events calls report unverifiable
+effects; native records and screenshots establish the reported outcomes.
+Linked-only disappearing roles, bypassed topology, conversion, other shapes,
+driven point counts, cancel/stale producers, cold-process, physical/subjective,
+full CTest and whole REQ-197/Mission closure remain separate. Earlier proofs
+keep their original HEAD/owner bindings.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141e6-f117-78e2-aecb-f0243d09bcc4/star-topology-checkpoint.json`,
+SHA256 `7662E7E6B2CE84380602ED26DF3064C6F798A3C7FF51795D11376C1A9F47C73E`.
