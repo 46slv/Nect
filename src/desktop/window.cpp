@@ -11870,6 +11870,12 @@ void Window::align_selection(const std::string& axis,const std::string& alignmen
 
 void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas::Selection>& selected) {
     const auto& d=host.session.document();
+    const auto alignment_document=d.id;
+    const auto alignment_session=host.session_id;
+    const auto verify_alignment=[this,alignment_document,alignment_session] {
+        if(host.session_id!=alignment_session||host.session.document().id!=alignment_document)
+            throw Error("SESSION_CONFLICT","Alignment belongs to another document");
+    };
     auto* alignment_box=new QGroupBox("Align · geometric bounds");auto* alignment_layout=new QVBoxLayout(alignment_box);
     auto* alignment_target=new QComboBox;alignment_target->setObjectName("alignment-target");
     alignment_target->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
@@ -11961,10 +11967,10 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
             const auto label=std::string(axis)=="x"?(index==0?"Left":index==1?"H center":"Right"):(index==0?"Top":index==1?"V center":"Bottom");
             auto* button=new QPushButton(label);button->setObjectName(QString("quick-align-%1-%2").arg(axis,qs(mode)));
             button->setToolTip("Align evaluated geometric bounds in Composition du; excludes stroke width.");row->addWidget(button);
-            connect(button,&QPushButton::clicked,this,[this,axis,mode,alignment_target]{
+            connect(button,&QPushButton::clicked,this,[this,axis,mode,alignment_target,verify_alignment]{
                 const auto reference=alignment_target->currentData().toString().toStdString();
                 const auto scope=alignment_target->currentData(Qt::UserRole+1).toString();
-                perform([&]{align_selection(axis,mode,reference,
+                perform([&]{verify_alignment();align_selection(axis,mode,reference,
                     scope.isEmpty()?std::optional<Id>{}:std::optional<Id>{scope.toStdString()});});
             });
         }
@@ -11972,23 +11978,24 @@ void Window::add_alignment_controls(QVBoxLayout* layout,const std::vector<Canvas
     auto* baseline_button=new QPushButton("Align first-line baseline");
     baseline_button->setObjectName("quick-align-y-baseline");
     baseline_button->setToolTip("Align actual first-line baselines for horizontal, axis-aligned Text. Selection keeps the source with minimum Composition y fixed; a key-object reference keeps that Text fixed.");
-    connect(baseline_button,&QPushButton::clicked,this,[this,alignment_target]{
+    connect(baseline_button,&QPushButton::clicked,this,[this,alignment_target,verify_alignment]{
         const auto reference=alignment_target->currentData().toString().toStdString();
-        perform([&]{align_selection("y","baseline",reference);});
+        perform([&]{verify_alignment();align_selection("y","baseline",reference);});
     });alignment_layout->addWidget(baseline_button);
     auto* column_baseline_button=new QPushButton("Align first-column baseline");
     column_baseline_button->setObjectName("quick-align-x-baseline");
     column_baseline_button->setToolTip("Align measured first-column baselines for vertical, axis-aligned Text. Selection keeps the source with minimum Composition x fixed; a key-object reference keeps that Text fixed.");
-    connect(column_baseline_button,&QPushButton::clicked,this,[this,alignment_target]{
+    connect(column_baseline_button,&QPushButton::clicked,this,[this,alignment_target,verify_alignment]{
         const auto reference=alignment_target->currentData().toString().toStdString();
-        perform([&]{align_selection("x","baseline",reference);});
+        perform([&]{verify_alignment();align_selection("x","baseline",reference);});
     });alignment_layout->addWidget(column_baseline_button);
     auto* distribute_row=new QHBoxLayout;alignment_layout->addLayout(distribute_row);
     for(const auto axis:{"x","y"}) {
         auto* button=new QPushButton(std::string(axis)=="x"?"Distribute H":"Distribute V");button->setObjectName(QString("quick-distribute-%1").arg(axis));
         button->setToolTip("Apply equal gaps for the selected reference. Key-object distribution requires explicit nonnegative spacing; Guide distribution is unsupported.");distribute_row->addWidget(button);
-        connect(button,&QPushButton::clicked,this,[this,axis,alignment_target,spacing_input]{
+        connect(button,&QPushButton::clicked,this,[this,axis,alignment_target,spacing_input,verify_alignment]{
             perform([&]{
+                verify_alignment();
                 const auto reference=alignment_target->currentData().toString().toStdString();std::optional<double> spacing;
                 if(reference.starts_with("key_object:")) {
                     bool ok=false;const auto value=spacing_input->text().trimmed().toDouble(&ok);

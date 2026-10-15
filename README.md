@@ -729,6 +729,13 @@ independent of selection order; the outer two stay fixed. This ignores the
 alignment-target chooser. Overlap on the chosen axis rejects explicitly. API/MCP
 command: `{"type":"distribute_objects","objects":["a","b","c"],"axis":"x"}`.
 
+Retained Inspector Align/Distribute controls refuse a replaced Document or Host
+before applying an action. Ordinary same-Document edits remain usable, including
+an unrelated concurrent edit. The focused Windows Qt contract
+`alignment_document_context_ui_contract` checks geometric alignment and explicit
+key spacing against independent native/API/History oracles, actual Undo/Redo,
+and exact saved bytes.
+
 
 ## Rotate, scale and reflect a selection
 
