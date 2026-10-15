@@ -543,6 +543,9 @@ void Canvas::fit_all_artboards() {
 }
 
 void Canvas::fit_bounds(QRectF bounds) {
+    // Match interactive Zoom/selection framing: authored drags keep their view.
+    // Guide drags deliberately support fitting through a frozen inverse view.
+    if(gesture_owned_&&drag_!=Drag::guide)return;
     if(drag_==Drag::marquee)cancel_interaction();
     if (bounds.isEmpty()) {
         for (const auto& item : geometry_) {

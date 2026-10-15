@@ -1522,6 +1522,10 @@ if(BUILD_TESTING)
     target_link_libraries(canvas_tests PRIVATE nect_desktop_client Qt6::Test)
     add_test(NAME canvas_interaction COMMAND canvas_tests)
     add_test(NAME canvas_guide_segment_reentry COMMAND canvas_tests --guide-segment-reentry-only)
+    add_test(NAME canvas_fit_gesture COMMAND canvas_tests --fit-gesture-only)
+    set_tests_properties(canvas_fit_gesture PROPERTIES TIMEOUT 60
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")
     set_tests_properties(canvas_guide_segment_reentry PROPERTIES TIMEOUT 60
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")

@@ -245,6 +245,57 @@ void circle_source_handles_use_local_session_properties() {
         " revision="+std::to_string(session.revision())+" error="+last_error.toStdString());
 }
 
+void view_fit_preserves_active_circle_gesture() {
+    for(const bool all_boards:{false,true})for(const bool radius:{false,true}) {
+        auto document=empty_document("circle-fit-document","test-composition","test-artboard");
+        auto& composition=document.compositions.front();
+        composition.artboards.front().width=640;composition.artboards.front().height=480;
+        composition.artboards.push_back({"distant-board","Distant board",1000,1000,640,480});
+        Object circle;circle.id="circle";circle.source=default_primitive("circle-source","nect.shape.circle");
+        circle.source->parameters.at("center_x").literal=100;
+        circle.source->parameters.at("center_y").literal=120;
+        circle.source->parameters.at("radius").literal=40;
+        circle.stack.push_back(default_operation("circle-stroke","nect.paint.stroke"));
+        document.objects.emplace(circle.id,circle);composition.roots.push_back(circle.id);
+        const Ref target{"circle",{},radius?"generator.radius":"generator.center_x"};
+        Session oracle(document);const auto initial_history=oracle.history();
+        oracle.apply({Set{target,radius?60.0:120.0}},0);
+        const auto expected=oracle.document();const auto expected_history=oracle.history();
+        check(decode(encode(document))==document&&decode(encode(expected))==expected,
+              "Complete original and typed expected native exist before the Circle producer");
+        Fixture f(document);f.canvas.resize(1000,800);QApplication::processEvents();
+        f.canvas.fit_artboard();f.canvas.set_zoom(1);
+        f.canvas.set_selection("circle");f.canvas.set_circle_source_edit(true);
+        const auto start=f.screen(radius?140:100,120),finish=start+QPoint(20,0);
+        f.press(start);f.move(start+QPoint(12,0));
+        check(f.session.gesture_active()&&f.session.document()==document&&f.session.history()==initial_history,
+              "Circle drag has a live preview with original authored state/history");
+        const auto preview=f.session.preview_document();
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        near(f.canvas.zoom(),1,"Fit keeps the active authored drag's starting zoom");
+        check(f.session.gesture_active()&&f.session.preview_document()==preview,
+              "Fit neither replaces nor cancels the Circle preview");
+        f.move(finish);f.release(finish);
+        check(f.session.document()==expected&&f.session.history()==expected_history&&f.session.revision()==1,
+              "Original pointer delta commits the complete typed Circle oracle once after Fit");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==document&&!f.session.can_undo(),"One Undo restores the full Circle original");
+        f.session.redo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==expected&&f.session.history()==expected_history,"Redo restores full expected Circle/history");
+        const auto history=f.session.history();const auto revision=f.session.revision();
+        const auto again=f.screen(radius?160:120,120);
+        f.press(again);f.move(again+QPoint(12,0));
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(again+QPoint(12,0));
+        check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==revision&&
+              !f.session.gesture_active(),"Escape after Fit preserves native state and history");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        check(std::abs(f.canvas.zoom()-1)>0.01&&f.session.document()==expected&&f.session.history()==history,
+              "The same Fit works outside the gesture without authored changes");
+        f.no_error();
+    }
+}
+
 void circle_source_handle_context_and_driver_failures_are_atomic() {
     auto document=circle_source_handle_document();Session session(document);Canvas canvas(session);
     canvas.resize(740,580);canvas.show();QApplication::processEvents();canvas.fit_artboard();canvas.set_selection("circle");
@@ -2903,6 +2954,11 @@ int main(int argc, char** argv) {
             artboard_guide_snap_segments_and_overlay_clipping();
             std::cout<<"canvas_guide_segment_reentry: "<<checks<<" checks passed\n";return 0;
         }
+        if(application.arguments().contains("--fit-gesture-only")) {
+            view_fit_preserves_active_circle_gesture();
+            guide_drag_uses_stable_identity_and_one_session_undo();
+            std::cout<<"canvas_fit_gesture: "<<checks<<" checks passed\n";return 0;
+        }
         if(application.arguments().contains("--text-baseline-only")) {
             snap_text_baseline_and_unsupported_axis_omission();
             std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
@@ -2913,6 +2969,7 @@ int main(int argc, char** argv) {
         contextual_selection_and_framing();
         detailed_canvas_timing_is_opt_in_with_shared_observer();
         circle_source_handles_use_local_session_properties();
+        view_fit_preserves_active_circle_gesture();
         circle_source_handle_context_and_driver_failures_are_atomic();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();

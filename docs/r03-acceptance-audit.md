@@ -99,3 +99,42 @@ and cancellation checks are focused Canvas tests. Cold-process/API-socket,
 foreign/stale producer, physical/subjective and full Mission acceptance remain
 unclaimed. The preceding baseline native receipt remains original at its
 `8443e69` source binding.
++
+## 2026-10-16 view Fit during an authored Circle drag
+
+The original Windows/Qt 6.5.3 Window accepted a 20-pixel external radius drag
+from radius 40 while its production Fit Artboard QAction was invoked after
+the first preview. Fit changed zoom from 1 to 1.2703125; the committed radius
+was 55.74415744157437 instead of the independently authored 60. Full native-valid
+original, expected and foreign oracles plus typed Session/History were formed
+before Window construction. Original RED: owner scratch `circle-fit-red.json`,
+SHA256 `93F3891719FC82485C4878F675C67E0E3F7C3F6872C2B43EC70B0EC8F35213E2`.
+
+Three lines in `Canvas::fit_bounds` retain the starting view while an owned
+non-Guide gesture is active, matching interactive Zoom and Fit Selection.
+Guide drag retains its existing frozen-inverse-view behavior. Ordinary Fit
+outside a gesture still works. There is no command, source model or format change.
+
+The same unchanged external probe and native oracles, relinked to the repaired
+library, committed radius 60 in PID 49428 / HWND 20258674. Full native and typed
+History matched. Actual Toolbar Undo restored the entire original with no
+further Undo; Redo restored the full expected document and History. Saved
+native bytes matched exactly and a separate Host in the same process reopened
+the full expected document. The owned processes exited and the mutex was free.
+
+Focused Canvas checks passed 61 checks, covering Center/Radius with Fit
+Artboard/Fit All, full native/History, Undo/Redo/Escape, ordinary Fit outside the
+gesture and the existing Guide frozen-view contract. Registered CTest
+`canvas_fit_gesture` passed 1/1; Release Desktop/tests and probe relink passed.
+An initial test fixture failed to center after resizing; its setup was corrected
+to Fit then zoom 1, matching the original Window. Native RED probe/oracles did
+not change.
+
+The Fit QAction was triggered by the owned probe during the external Windows
+drag; this is not physical keyboard evidence. Center, Fit All and cancellation
+are focused Canvas evidence. Native gradient/pivot/body/point drags, different
+DPI/fonts, socket API, cold-process reopen, whole CTest and whole Mission
+acceptance remain unclaimed. Previous native evidence retains its original binding.
+Receipt: `C:/Users/shiro/.codex/scratch/01a1415d-123f-7733-b5c6-ec3414f54d0f/circle-fit-checkpoint.json`,
+SHA256 `972A1A5DA0E21E7DF8685B8AEDF6CA3EF1BBEA5DB60529EA89386F78C6812205`.
+
