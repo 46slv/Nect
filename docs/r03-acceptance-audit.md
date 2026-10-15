@@ -467,3 +467,42 @@ metadata checkpoint.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141d1-cb77-7fa1-a01d-be5349915c3d/direct-point-checkpoint.json`,
 SHA256 `A095921077BE6192FBAB9005439094A5D429FA127CA36A168CA5E3DD66B87066`.
+
+## 2026-10-16 native retained Rectangle correction lifecycle
+
+The original production source `4879d02` passed the accepted REQ-197 Rectangle
+source/correction lifecycle without a product RED or repair. The actual native
+run used HEAD `5b3432c` with only the ownership/plan Brief dirty. Before Window
+construction, independently hand-constructed original/Width/bypass/reset/foreign
+documents passed full native round-trips and agreed with typed Session commands.
+The initial Session had both Undo and Redo at revision 3.
+
+Windows/Qt 6.5.3 PID 87200 / HWND 25040534 used actual Canvas selection, the
+visible Width field and Return, visible Point Edit enabled controls, a native
+scrollbar page click and the actual Reset confirmation. Width 80 to 120 kept
+the saved absolute local correction (-20,-50), full generator/height/transform
+and unrelated authored state. Bypass kept both overrides while displaying the
+new source corner (-60,-30); re-enable restored (-20,-50). Reset reviewed two
+overrides, removed the correction and retained Width 120. Full Document,
+preview, native bytes and typed History matched at revisions 4/5/6/7. Actual
+Toolbar Undo/Redo matched complete expected Sessions at revisions 8/9.
+Selection, composition/Artboard, zoom 1, Host identity, foreign oracle and owned
+workspace setting remained intact. Exact Host Save bytes and a distinct
+same-process Host reopen matched; the owned process exited, Cua session ended
+and the exact mutex was free/non-abandoned.
+
+UIA SetValue initially changed only the Width text, leaving Qt isModified false
+and the complete original Session intact. Return did not commit. Background
+Home/Delete cleared that draft; ordinary WM_CHAR input produced text 120 and
+isModified true, verified before Return. This is an input-route observation,
+not a product RED. Driver accessibility/synthetic-events calls report
+unverifiable effects; native records and actual screenshots establish outcomes.
+
+This covers one Rectangle with two absolute x/y overrides. Source editing while
+bypassed, topology, conversion, other shapes/handles, linked correction,
+cancel/stale active producers, cold-process, physical/subjective, full CTest and
+whole REQ-197/Mission closure remain separate. Earlier Direct/native proofs
+retain their original bindings; none is promoted to this metadata checkpoint.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141e6-f117-78e2-aecb-f0243d09bcc4/rect-lifecycle-checkpoint.json`,
+SHA256 `0A00A815E0EFCC93E083DFC8F2C068075F2886E924C240D8B1CAECB51DE9A347`.
