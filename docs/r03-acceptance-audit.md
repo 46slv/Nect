@@ -181,3 +181,58 @@ Different DPI/fonts, cold-process reopen, socket API, full CTest and combined
 R03/Requirement/Mission closure remain unclaimed.
 Receipt: `C:/Users/shiro/.codex/scratch/01a14170-4371-7870-ad99-6e1c4a8cb2b3/marquee-fit-checkpoint.json`,
 SHA256 `1F55A485DEEE6C3CD5A9C000964F18DC49C6269DA9D0C7C8A45A7ECABECDF88A`.
+
+## 2026-10-16 marquee across a Session API Open
+
+The production local Session API exposed a separate selection-context failure.
+During an external Windows marquee drag, an owned QLocalSocket client requested
+`open` through the real Host server after three native moves. The loaded file
+retained the Document, Artboard and Circle IDs but changed the Circle name and
+created a new Host identity. Open succeeded and initially left selection empty;
+the old drag's release then selected the replacement Circle in PID 93336.
+The ordinary Window menu cancellation remains valid; this is a different,
+previously untested production socket consumer, not a direct Host-call bypass.
+
+Before constructing the Window, the probe formed full native-valid original,
+replacement and expected Documents plus independent Session/History and view
+oracles. Expected selection after replacement is empty; the rectangle's fixed
+world bounds enclose the colliding Circle. Original RED receipt: owner01a14186
+scratch `api-marquee-red.json`, SHA256
+`65067502285E893A76862F1A94957313D2479C83DDE1905220B290EA18D6112A`.
+The original probe executable is independently preserved under that owner's
+`api-marquee/original-probe.exe` with its sealed RED hash.
+
+Canvas now captures the marquee's Document and Host at press. Refresh cancels
+a stale marquee before projecting the replacement; move and release refuse
+the expired context. This view-only cancellation preserves another authored
+gesture. A same-Document edit remains compatible: revision alone does not
+retire a marquee. No Session command, API protocol or native format changed.
+
+The identical sealed probe, full oracles and external 2400-ms / 40-step drag,
+relinked to the repaired production library, passed in PID 85388. The actual
+socket Open changed Host identity, and release preserved empty selection,
+the complete replacement native Document, History, revision 0, empty Undo/Redo,
+foreign oracle and zoom 1. Saved bytes and a distinct same-process Host reopen
+matched the complete expected native. Both owned native processes exited;
+Cua sessions ended and the exact mutex was free and non-abandoned.
+
+Registered CTest `canvas_marquee_context` passed 1/1 with 153 checks: Object
+and Direct selection, Document and Host replacements, refresh and no-refresh
+release paths, foreign authored preview/History preservation, same-Document
+edit compatibility and affected current marquee/Fit/cancellation behavior.
+The original focused assertion failed after two checks. Release Desktop/tests
+and the unchanged probe relink passed. No valid older suite was replayed.
+
+Native positive evidence covers Object marquee and same-Document/new-Host
+socket Open. Different Document, Direct and foreign-gesture cases are focused
+Canvas checks. The socket client lives in the owned probe process and uses
+QLocalSocket; no separate external-process client is claimed. The inherited
+probe field `fit_invoked` means the socket request was scheduled; no Fit action
+executes in this probe. Selection creates no authored edit or undo entry.
+Driver delivery remains unknown/global_input/unverifiable; native semantic
+records and screenshots establish the result. Physical input, subjective
+acceptance, DPI/fonts, cold-process reopen, full CTest and Requirement/Mission
+closure remain unqualified.
+
+Repair receipt: `C:/Users/shiro/.codex/scratch/01a14186-3867-7170-860b-5036a5957614/api-marquee-checkpoint.json`,
+SHA256 `4C04CEEC3083A645C0A797C0EED61468816AF455F6E3EA9A97FA8A088D3B8575`.

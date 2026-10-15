@@ -1523,6 +1523,10 @@ if(BUILD_TESTING)
     add_test(NAME canvas_interaction COMMAND canvas_tests)
     add_test(NAME canvas_guide_segment_reentry COMMAND canvas_tests --guide-segment-reentry-only)
     add_test(NAME canvas_fit_gesture COMMAND canvas_tests --fit-gesture-only)
+    add_test(NAME canvas_marquee_context COMMAND canvas_tests --marquee-context-only)
+    set_tests_properties(canvas_marquee_context PROPERTIES TIMEOUT 60
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")
     set_tests_properties(canvas_fit_gesture PROPERTIES TIMEOUT 60
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Test>")

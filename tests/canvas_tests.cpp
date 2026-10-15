@@ -296,6 +296,69 @@ void view_fit_preserves_active_circle_gesture() {
     }
 }
 
+void marquee_refuses_replacement_document_or_host() {
+    for(const bool direct:{false,true})for(const bool new_host:{false,true})
+    for(const bool refresh:{false,true})for(const bool foreign_gesture:{false,true}) {
+        auto original=empty_document("marquee-context-document","test-composition","test-artboard");
+        original.compositions.front().artboards.front().width=640;
+        original.compositions.front().artboards.front().height=480;
+        Object circle;circle.id="circle";circle.name="Original";
+        circle.source=default_primitive("circle-source","nect.shape.circle");
+        circle.source->parameters.at("center_x").literal=100;
+        circle.source->parameters.at("center_y").literal=120;
+        circle.source->parameters.at("radius").literal=10;
+        original.objects.emplace(circle.id,circle);original.compositions.front().roots.push_back(circle.id);
+        auto replacement=original;if(!new_host)replacement.id+="-replacement";
+        replacement.objects.at("circle").name="Replacement";
+        Session oracle(replacement);const auto history=oracle.history();
+        if(foreign_gesture) {
+            oracle.begin_gesture(0);
+            oracle.update_gesture({Set{{"circle",{},"generator.radius"},12}});
+        }
+        const auto expected_preview=oracle.preview_document();
+        check(decode(encode(original))==original&&decode(encode(replacement))==replacement&&
+              decode(encode(expected_preview))==expected_preview,
+              "Independent full native original/replacement/preview oracles precede marquee producer");
+        Fixture f(original);QString host="original-host";
+        f.canvas.set_session_identity_provider([&]{return host;});
+        f.canvas.set_selection({});f.canvas.set_direct_selection_mode(direct);
+        const auto start=f.screen(70,90),end=f.screen(130,150);
+        f.press(start);f.move(f.screen(85,105));
+        f.session=Session(replacement);if(new_host)host="replacement-host";
+        if(foreign_gesture) {
+            f.session.begin_gesture(0);
+            f.session.update_gesture({Set{{"circle",{},"generator.radius"},12}});
+        }
+        const auto foreign_identity=f.session.gesture_identity();
+        if(refresh)f.canvas.refresh();
+        f.release(end);
+        check(f.canvas.selections().empty(),
+              "Old marquee must not select colliding object/point IDs in replacement Document or Host");
+        check(f.session.document()==replacement&&f.session.preview_document()==expected_preview&&
+              f.session.history()==history&&f.session.revision()==0&&!f.session.can_undo()&&!f.session.can_redo(),
+              "Refusing stale marquee preserves complete caller native/preview/History/revision/UndoRedo");
+        check(f.session.gesture_active()==foreign_gesture&&f.session.gesture_identity()==foreign_identity,
+              "Stale view-only marquee cannot cancel or replace a foreign authored gesture");
+        near(f.canvas.zoom(),1,"Stale marquee preserves caller view scale");
+        if(foreign_gesture)f.session.cancel_gesture();
+        f.no_error();
+    }
+    // Same-Document edits are compatible; revision alone must not retire selection.
+    auto original=fixture_document();Session oracle(original);
+    oracle.apply({Set{{"path","p1","x"},125}},0);
+    const auto expected=oracle.document();const auto history=oracle.history();
+    check(decode(encode(expected))==expected,"Compatible edit oracle precedes Canvas producer");
+    Fixture f(original);f.canvas.set_selection({});
+    const auto start=f.screen(70,90),end=f.screen(400,280);
+    f.press(start);f.move(f.screen(85,105));
+    f.session.apply({Set{{"path","p1","x"},125}},0);f.canvas.refresh();f.release(end);
+    check(f.canvas.selections()==std::vector<Canvas::Selection>{{"path",{}}},
+          "Current Document marquee remains usable after an unrelated same-Host edit");
+    check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==1,
+          "Compatible view selection preserves the complete independent authored edit and History");
+    f.no_error();
+}
+
 void view_fit_preserves_marquee_selection() {
     for(const bool all_boards:{false,true})for(const bool direct:{false,true}) {
         auto document=empty_document("marquee-fit-document","test-composition","test-artboard");
@@ -2994,6 +3057,11 @@ int main(int argc, char** argv) {
             artboard_guide_snap_segments_and_overlay_clipping();
             std::cout<<"canvas_guide_segment_reentry: "<<checks<<" checks passed\n";return 0;
         }
+        if(application.arguments().contains("--marquee-context-only")) {
+            marquee_refuses_replacement_document_or_host();
+            view_fit_preserves_marquee_selection();
+            std::cout<<"canvas_marquee_context: "<<checks<<" checks passed\n";return 0;
+        }
         if(application.arguments().contains("--fit-gesture-only")) {
             view_fit_preserves_active_circle_gesture();
             view_fit_preserves_marquee_selection();
@@ -3005,6 +3073,7 @@ int main(int argc, char** argv) {
             std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
             return 0;
         }
+        marquee_refuses_replacement_document_or_host();
         rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();

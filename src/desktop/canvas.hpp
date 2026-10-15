@@ -261,6 +261,8 @@ private:
     QPointF press_position_;
     QPointF marquee_position_;
     std::vector<Selection> marquee_start_;
+    Id marquee_document_;
+    QString marquee_session_;
     bool marquee_extend_=false;
     QPointF press_pan_;
     QPointF start_anchor_;
@@ -354,6 +356,7 @@ private:
     void update_drag(QPointF screen);
     void finish_drag();
     void finish_marquee();
+    bool verify_marquee_context();
     void append_draw_point(QPointF screen);
     void finish_draw_path();
     void report_error(const std::exception&);

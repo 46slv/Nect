@@ -186,6 +186,7 @@ bool Canvas::circle_drag_context_current() const {
 void Canvas::refresh() {
     projection_error_ = {};
     if(!verify_owned_gesture())return;
+    verify_marquee_context();
     if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
         if(owns_live_gesture())session_.cancel_gesture();
         gesture_owned_=false;owned_gesture_.reset();drag_=Drag::none;drag_moved_=false;
@@ -2184,7 +2185,7 @@ void Canvas::begin_drag(Drag kind, QPointF screen) {
 
 void Canvas::update_drag(QPointF screen) {
     if (drag_ == Drag::none) return;
-    if(!verify_owned_gesture())return;
+    if(!verify_owned_gesture()||!verify_marquee_context())return;
     if((drag_==Drag::circle_center||drag_==Drag::circle_radius)&&!circle_drag_context_current()) {
         cancel_interaction();report_error(Error("REVISION_CONFLICT","Circle source-handle drag belongs to an older Session, source, selection, or revision"));return;
     }
@@ -2305,6 +2306,12 @@ void Canvas::update_drag(QPointF screen) {
     }
 }
 
+bool Canvas::verify_marquee_context() {
+    if(drag_!=Drag::marquee||(marquee_document_==session_.document().id&&
+       (!session_identity_provider_||marquee_session_==session_identity_provider_())))return true;
+    cancel_interaction();return false;
+}
+
 void Canvas::finish_marquee() {
     const auto rectangle=QRectF(press_position_,marquee_position_).normalized();
     auto selected=marquee_extend_?marquee_start_:std::vector<Selection>{};
@@ -2331,11 +2338,12 @@ void Canvas::finish_marquee() {
             }
         }
     }
-    drag_=Drag::none;marquee_start_.clear();select_many(std::move(selected));update();update_cursor();
+    drag_=Drag::none;marquee_start_.clear();marquee_document_.clear();marquee_session_.clear();
+    select_many(std::move(selected));update();update_cursor();
 }
 
 void Canvas::finish_drag() {
-    if(!verify_owned_gesture())return;
+    if(!verify_owned_gesture()||!verify_marquee_context())return;
     if(drag_==Drag::marquee) {
         try {finish_marquee();}catch(const std::exception& exception){cancel_interaction();report_error(exception);}
         return;
@@ -2399,7 +2407,7 @@ void Canvas::cancel_interaction() {
     snap_x_sources_.clear();snap_y_sources_.clear();snap_x_targets_.clear();snap_y_targets_.clear();
     snap_x_match_.reset();snap_y_match_.reset();publish_snap_feedback({});
     if (owns_live_gesture()) session_.cancel_gesture();
-    const bool had_marquee=drag_==Drag::marquee;marquee_start_.clear();
+    const bool had_marquee=drag_==Drag::marquee;marquee_start_.clear();marquee_document_.clear();marquee_session_.clear();
     const bool had_preview = gesture_owned_;
     gesture_owned_ = false;owned_gesture_.reset();
     drag_ = Drag::none;
@@ -2550,6 +2558,8 @@ void Canvas::mousePressEvent(QMouseEvent* event) {
         else {
             drag_=Drag::marquee;press_position_=marquee_position_=event->position();
             marquee_start_=selections_;marquee_extend_=extend;drag_moved_=false;
+            marquee_document_=session_.document().id;
+            marquee_session_=session_identity_provider_?session_identity_provider_():QString{};
             if (timing_observation_enabled()) ++input_sequence_;
             update_cursor();
         }
