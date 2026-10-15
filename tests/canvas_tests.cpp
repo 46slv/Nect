@@ -296,6 +296,46 @@ void view_fit_preserves_active_circle_gesture() {
     }
 }
 
+void view_fit_preserves_marquee_selection() {
+    for(const bool all_boards:{false,true})for(const bool direct:{false,true}) {
+        auto document=empty_document("marquee-fit-document","test-composition","test-artboard");
+        auto& composition=document.compositions.front();
+        composition.artboards.front().width=640;composition.artboards.front().height=480;
+        composition.artboards.push_back({"distant-board","Distant board",1000,1000,640,480});
+        Object path;path.id="path";
+        Point first;first.id="p1";first.x.literal=100;first.y.literal=120;
+        Point second;second.id="p2";second.x.literal=110;second.y.literal=130;
+        path.contours={{"contour",false,{first,second}}};
+        document.objects.emplace(path.id,path);composition.roots.push_back(path.id);
+        Session oracle(document);const auto history=oracle.history();
+        const std::vector<Canvas::Selection> expected=direct
+            ?std::vector<Canvas::Selection>{{"path","p1"},{"path","p2"}}
+            :std::vector<Canvas::Selection>{{"path",{}}};
+        check(decode(encode(document))==document,"Full native marquee oracle exists before Canvas input");
+        Fixture f(document);f.canvas.resize(1000,800);QApplication::processEvents();
+        f.canvas.fit_artboard();f.canvas.set_zoom(1);f.canvas.set_selection({});
+        f.canvas.set_direct_selection_mode(direct);
+        const auto start=f.screen(70,90),finish=f.screen(130,150);
+        f.press(start);f.move(start+QPoint(12,12));
+        check(!f.session.gesture_active(),"Marquee owns view selection without an authored Session gesture");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        near(f.canvas.zoom(),1,"Fit preserves marquee's starting view");
+        f.move(finish);f.release(finish);
+        check(f.canvas.selections()==expected,"Object or Direct marquee selects the independent stable target IDs after Fit");
+        check(f.session.document()==document&&f.session.preview_document()==document&&
+              f.session.history()==history&&f.session.revision()==0&&!f.session.can_undo()&&f.commits==0,
+              "Marquee and Fit preserve full native state and History without a save notification");
+        f.press(start);f.move(start+QPoint(12,12));
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(finish);
+        check(f.canvas.selections()==expected&&f.session.document()==document&&f.session.history()==history,
+              "Escape after Fit cancels the rectangle and retains its original selection/native/History");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        check(std::abs(f.canvas.zoom()-1)>1e-3,"Fit remains available after marquee release/cancel");
+        f.no_error();
+    }
+}
+
 void circle_source_handle_context_and_driver_failures_are_atomic() {
     auto document=circle_source_handle_document();Session session(document);Canvas canvas(session);
     canvas.resize(740,580);canvas.show();QApplication::processEvents();canvas.fit_artboard();canvas.set_selection("circle");
@@ -2956,6 +2996,7 @@ int main(int argc, char** argv) {
         }
         if(application.arguments().contains("--fit-gesture-only")) {
             view_fit_preserves_active_circle_gesture();
+            view_fit_preserves_marquee_selection();
             guide_drag_uses_stable_identity_and_one_session_undo();
             std::cout<<"canvas_fit_gesture: "<<checks<<" checks passed\n";return 0;
         }
@@ -2970,6 +3011,7 @@ int main(int argc, char** argv) {
         detailed_canvas_timing_is_opt_in_with_shared_observer();
         circle_source_handles_use_local_session_properties();
         view_fit_preserves_active_circle_gesture();
+        view_fit_preserves_marquee_selection();
         circle_source_handle_context_and_driver_failures_are_atomic();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();

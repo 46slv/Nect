@@ -137,3 +137,47 @@ DPI/fonts, socket API, cold-process reopen, whole CTest and whole Mission
 acceptance remain unclaimed. Previous native evidence retains its original binding.
 Receipt: `C:/Users/shiro/.codex/scratch/01a1415d-123f-7733-b5c6-ec3414f54d0f/circle-fit-checkpoint.json`,
 SHA256 `972A1A5DA0E21E7DF8685B8AEDF6CA3EF1BBEA5DB60529EA89386F78C6812205`.
+
+## 2026-10-16 Fit preserves an active marquee
+
+An independent native Windows producer at `63b9856` confirmed a separate
+selection failure. Before constructing the Window, the probe validated full
+original/expected/foreign native documents and the exact view-only selection
+oracle: rectangle `(70,90)` to `(130,150)` encloses Circle bounds `(90,110)` to
+`(110,130)`. The expected authored document and Session History stay unchanged.
+External Cua Driver input at zoom 1 dragged `(468,336)` to `(528,396)` over
+2400 ms / 40 steps. After three native moves, the probe triggered the actual
+production Window Fit Artboard QAction. In the original PID 41676 / HWND
+21241854, Fit canceled the marquee and changed zoom to 1.2703125; release left
+the selection empty. RED was sealed before the product repair in
+`C:/Users/shiro/.codex/scratch/01a14170-4371-7870-ad99-6e1c4a8cb2b3/marquee-fit-red.json`,
+SHA256 `C3B832B974FAB8FEA881034FAEE75570AE6187834A50EE8E815F6AE1367328FA`.
+
+`Canvas::fit_bounds` now leaves an active marquee and its view intact, matching
+the existing interactive Zoom/wheel guard. The former marquee-cancel branch is
+removed. Authored drag protection and the Guide frozen-inverse-view exception
+remain. The identical sealed probe/oracles and identical external input on the
+relinked production library, PID 49352 / HWND 20520674, kept zoom 1 and selected
+the stable Circle object. Full Document, preview, History, revision 0, empty
+Undo/Redo, Host identity and the foreign oracle were preserved. Saved bytes
+equaled the complete expected native bytes, and a distinct Host in the same
+process reopened that same document. Both owned processes exited; the exact
+mutex was free, non-abandoned, released and disposed; the Cua session ended.
+
+Focused Canvas checks cover Object/Direct point marquee, Fit Artboard/All,
+Escape, complete native/History preservation and normal Fit after release.
+The affected combined Circle/Guide/marquee suite passed 97 checks and the
+registered `canvas_fit_gesture` CTest passed 1/1. Release Desktop/tests and probe
+relink passed. The first direct test launch lacked Qt6Test on its process PATH
+and did not execute; using the existing Qt bin produced the genuine pre-fix
+assertion RED (`expected zoom 1, got 1.40625`). No dependency changed.
+
+Native positive evidence is Object marquee/Fit Artboard; Direct, Fit All and
+Escape are Canvas checks. Fit is a probe-triggered production QAction during
+external input, not a physical hotkey. Selection is view state and creates no
+authored edit or undo entry. The driver reports unknown delivery/global input/
+unverifiable effect; native records and screenshots establish the result.
+Different DPI/fonts, cold-process reopen, socket API, full CTest and combined
+R03/Requirement/Mission closure remain unclaimed.
+Receipt: `C:/Users/shiro/.codex/scratch/01a14170-4371-7870-ad99-6e1c4a8cb2b3/marquee-fit-checkpoint.json`,
+SHA256 `1F55A485DEEE6C3CD5A9C000964F18DC49C6269DA9D0C7C8A45A7ECABECDF88A`.
