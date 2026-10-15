@@ -236,3 +236,41 @@ closure remain unqualified.
 
 Repair receipt: `C:/Users/shiro/.codex/scratch/01a14186-3867-7170-860b-5036a5957614/api-marquee-checkpoint.json`,
 SHA256 `4C04CEEC3083A645C0A797C0EED61468816AF455F6E3EA9A97FA8A088D3B8575`.
+
+## 2026-10-16 Fit preserves an active Hand pan
+
+The unchanged production Window at `d1376c0` reproduced a view-mapping defect:
+an external Windows Hand drag moved 80 by 40 pixels while the owned observer
+triggered the actual Fit Artboard QAction after three native moves. Fit changed
+zoom from 1 to 1.2703125; later pan moves reused the original press position,
+leaving a clipped 695 by 600 Artboard interior instead of the independently
+expected 637 by 478 interior at the original scale. Full native-valid original,
+current, expected and foreign documents and typed History were fixed before
+Window construction; the view translation oracle was saved before external
+input. The original executable is preserved. RED receipt `pan-fit-red.json`
+SHA256 `9BFE5A7313F0889D78F19F44E627D4D614BD1AACE4B1B0027A148D40A9E0A37F`
+is in the current owner's scratch below.
+
+Canvas `fit_bounds` now leaves an active pan's view unchanged. The same frozen
+probe and identical 2400 ms / 40-step drag in PID 93256 / HWND 16457528 retained
+zoom 1 and the expected full 80 by 40 translation. Committed and preview native
+documents, revision 3, complete existing History with both Undo and Redo,
+selection, Host and the independent foreign oracle remained unchanged. Save
+bytes and a distinct Host in the same process matched the complete expected
+document. A subsequent external accessibility invocation of the Toolbar Fit
+changed zoom to 1.2703125 normally after release.
+
+The original focused check failed at active pan scale after four checks.
+Release Desktop/tests/probe builds, 199 focused Canvas checks and registered
+`canvas_small_fit_contract` 1/1 passed. Canvas checks cover Hand/left and middle
+pan with Fit Artboard and Fit All, continued movement, existing History and
+normal Fit after release. Native evidence covers Hand/left with the actual
+Window Fit Artboard action; that action is observer-triggered, not a physical
+hotkey. Driver delivery is unknown/global_input/unverifiable; native semantic
+records and screenshots establish the result. Wheel/explicit Zoom during pan,
+native Space/middle, physical/subjective input, DPI/fonts, cold-process reopen,
+full CTest and Requirement/Mission closure remain outside this slice. Owned
+processes closed, Cua sessions ended and the exact mutex was free/non-abandoned.
+
+Repair receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d/pan-fit-checkpoint.json`,
+SHA256 `B15D130FB110E9AE7B7EFF81820C5916879F372A574699C1DC807947E8B74F71`.
