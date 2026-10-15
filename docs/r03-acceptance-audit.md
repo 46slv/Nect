@@ -313,3 +313,38 @@ RED receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d
 SHA256 `092FF85918CDD7B4863CBDFA7969AA6FC44B346F6A53B26EE5176AB54292D776`.
 Repair receipt: `C:/Users/shiro/.codex/scratch/01a141a1-dccb-7023-be1a-c40d6d01e11d/zoom-readback-checkpoint.json`,
 SHA256 `B7517BE8275B1D10D4C3FBD915C8D2AD9CF872F563E653D5D0928153A8E81624`.
+
+## 2026-10-16 native Gradient endpoint on a transformed Object
+
+The unchanged production source at `4879d02` passed an independent native
+Gradient endpoint operation; this was acceptance evidence, with no runtime
+RED or repair. Before Window construction, the probe fixed complete native-valid
+original, expected and foreign documents plus typed Session/History oracles.
+The original Session had both Undo and Redo at revision 3. The Object transform
+was independently fixed as `world=(320-local_y,240+2*local_x)`.
+
+In native Windows Qt 6.5.3 PID 80192 / HWND 22814544, external Canvas input
+selected the Object and actual Tool Rail activation exposed its Gradient.
+A 2400 ms / 40-step external drag moved the end handle by screen `(-10,+40)`.
+The local endpoint changed exactly from `(40,-20)` to `(60,-10)`, matching the
+complete expected committed/preview Document and typed History at revision 4.
+During 42 sampled active previews the committed original stayed unchanged.
+The stable Object/primitive/operation/Gradient/stop identities, unrelated source,
+Host, independent foreign Session, selection, active Rail and zoom 1 were preserved.
+
+Actual Toolbar Undo matched the complete independent undo Session at revision 5;
+Redo matched the complete redo Session at revision 6. Exact Host Save bytes and a
+distinct Host reopened in the same process matched the full expected document.
+The initial Structure UIA Invoke was verified ineffective and earns no selection
+credit; actual Canvas input performed selection. Driver delivery remains
+unknown/global_input/unverifiable; native records and screenshots prove the
+semantic outcome. Owned process closed, Cua session ended, exact mutex free and
+not abandoned. Probe build passed; unchanged source checks were not replayed.
+
+This closes only the positive transformed linear Gradient end-handle operation.
+Native start/radial/driven/cancellation, foreign active authored replacement,
+physical/subjective input, DPI/fonts, chooser, cold-process reopen, full CTest,
+Host platform, Requirement and Mission closure remain unclaimed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141bb-1775-7862-925c-35d72a7e2bcf/gradient-native-checkpoint.json`.
+SHA256 `D4236C4ACB5B460B44125818078D670D4B07E899C6C994917BC90B91DEABF0F9`.
