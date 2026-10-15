@@ -387,3 +387,42 @@ receipt retains its original `4879d02` binding.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141bb-1775-7862-925c-35d72a7e2bcf/gradient-parameter-checkpoint.json`.
 SHA256 `D13B964DC95487CA6F75577D272286597EAA7556A561AA2B94CA71CB9E8064D2`.
+## 2026-10-16 native transformed Object body Smart Snap
+
+The original production code at `e49762d` (production source `4879d02`, with
+metadata changes only) passed an external Windows/Qt 6.5.3 Object body drag.
+No product RED or source repair was found. Before Window construction, the
+probe fixed complete native-valid original, expected and foreign documents,
+plus independent typed Session/History with both Undo and Redo initially
+available at revision 3.
+
+The moving rectangle uses `world=(200-local_y,240+2*local_x)` and bounds
+X=170..230, Y=160..320. The stationary target has bounds X=280..340,
+Y=140..340. Actual Canvas selection followed by a 2400-ms, 40-step external
+49-pixel horizontal body drag in PID 85176 / HWND 2950026 snapped by exactly
+50 du: `transform.tx` changed from 200 to 250, with `ty=240` unchanged.
+The full native Document, pure preview and typed History matched the
+independent expected Session at revision 4. All 42 active-preview samples
+preserved the committed original and its History; five matched the complete
+expected preview. The native screenshot showed both guide lines and
+`X: max Object edge → target min · Y: center Artboard → artboard center`.
+
+Actual Toolbar Undo/Redo matched the independent full Sessions at revisions
+5/6. Exact Host Save bytes and a distinct Host in the same process matched the
+complete expected native Document. Selection, active composition/Artboard,
+zoom 1, Host identity, unrelated authored state and owned workspace setting
+were preserved. The owned process exited, the Cua session ended and the exact
+mutex was free, non-abandoned, released and disposed.
+
+The first probe attempt referenced a nonexistent `tool-object` observer
+control and exited before input. Correcting that scratch observer to the real
+`tool-selection` control allowed the run above; this was not a product defect.
+Driver delivery remains unknown/global_input/unverifiable; native semantic
+records and screenshots establish the result. Incidental intermediate
+equal-gap feedback is not separate acceptance. No native cancellation,
+multi-selection, Direct/pivot, stale/foreign active producer, cold-process,
+external-process socket client, physical/subjective, full CTest or combined
+REQ-32/33/Mission closure is claimed. Earlier proof keeps its original binding.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141d1-cb77-7fa1-a01d-be5349915c3d/body-snap-checkpoint.json`,
+SHA256 `F71E2C05656A0EAFD719D926C994897BFEA30A1D5CD25079B3AAF941D2D434D4`.
