@@ -1214,3 +1214,39 @@ Requirement/Mission closure remain unclaimed. Valid product tests were not repla
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a142d2-df6b-7d61-a48a-5745f209af28/pen-checkpoint.json`,
 SHA256 `8036129694321A4C0302A826953F637EF4F56811EBD378A9987460C74906705B`.
+
+## 2026-10-16 native numeric rotation about an authored noncentral Anchor
+
+Original native `f76ef797a80a28b21d9b27fe3c8b04f31bcdab63`, unchanged production
+`4879d02`, passed this distinct R03 / REQ-42 numeric one-shot transform. Only
+Brief metadata was dirty. Windows Qt6.5.3 PID56460/HWND16455710; source A5045BB1,
+executable 4F42B4C3. No product RED, repair or replay of Pen creation.
+
+The fixture reused the exact prior native Pen save as input, retaining actual
+Object/contour/point IDs, source, paint and unrelated Paths. Before Window, full
+original/manual expected/foreign Documents round-tripped and full typed Session
+History and pixel oracles were fixed. The first-point Anchor (170,130) is outside
+the triangle's center; the independently specified +90 degree matrix is
+`[0,1,-1,0,300,-40]`. Initial revision3 retained both Undo and Redo.
+
+Native Canvas stroke selection retained revision3. External UIA text appended
+90 to the initial zero, visibly producing `090` (numeric90); this remained a
+draft with the entire original Session/History. Native Apply committed exactly
+one TransformAroundAnchor at revision4 and reset its one-shot field to zero.
+Actual Toolbar Undo5/Redo6 matched the full pre-fixed native/typed History/pixels,
+preserving Anchor position, all stable IDs and unrelated Paths. All9 idle records
+matched; all8 post-ready idle records retained zoom1. One active selection record
+is retained outside idle acceptance, with no active-purity claim. Selection
+generation was checked separately as zero before selection and one afterwards.
+
+Exact saved bytes matched the full expected native Document. Distinct
+same-process Host reopen preserved the entire Document and artwork pixels;
+live History, Host, independent foreign Session/History and owned workspace stayed
+intact. Process closed, Cua ended, exact mutex free/non-abandoned/released/disposed.
+Background accessibility/synthetic input and grounded screenshots establish the
+outcome, not physical input. Scale, invalid input, stale/foreign producers,
+held-pointer cancellation, cold/external process, full transport/CTest and whole
+R03/REQ-42/Mission closure remain unclaimed; unchanged tests were not replayed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a142d2-df6b-7d61-a48a-5745f209af28/rotation-checkpoint.json`,
+SHA256 `C9354213C1DCFDE91469DA20EC975297D7B54DC701F9228CD009931B63B9886A`.
