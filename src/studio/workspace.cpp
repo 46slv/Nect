@@ -19,6 +19,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QPainter>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSignalBlocker>
@@ -32,6 +33,20 @@
 
 namespace nect::studio {
 namespace {
+class StatusHint final : public QLabel {
+  public:
+    StatusHint() {
+        setObjectName("canvas-status");
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    }
+  protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(QPalette::WindowText));
+        painter.drawText(contentsRect(), Qt::AlignVCenter,
+                         fontMetrics().elidedText(text(), Qt::ElideRight, contentsRect().width()));
+    }
+};
 QWidget *panel() {
     auto *w = new QWidget;
     w->setObjectName("panel");
@@ -186,11 +201,11 @@ Workspace::Workspace(const QString &recovery, QWidget *parent)
     redo_button->setAccessibleName("Redo");
     top_layout->addWidget(redo_button);
     top_layout->addStretch();
-    objects_toggle_ = button("Objects");
+    objects_toggle_ = button("Objects", {}, "toggle-objects");
     objects_toggle_->setCheckable(true);
     objects_toggle_->setChecked(true);
     top_layout->addWidget(objects_toggle_);
-    inspector_toggle_ = button("Inspector");
+    inspector_toggle_ = button("Inspector", {}, "toggle-inspector");
     inspector_toggle_->setCheckable(true);
     inspector_toggle_->setChecked(true);
     top_layout->addWidget(inspector_toggle_);
@@ -247,6 +262,8 @@ Workspace::Workspace(const QString &recovery, QWidget *parent)
     canvas = new desktop::Canvas(host.session);
     canvas->setObjectName("canvas");
     canvas->set_view_colors(QColor("#191b1e"), QColor("#78a8ff"));
+    canvas->set_view_footer_visible(false);
+    canvas->set_fit_on_resize(true);
     canvas->installEventFilter(this);
     canvas->set_session_identity_provider([this] { return host.session_id; });
     vertical_->addWidget(canvas);
@@ -352,7 +369,7 @@ Workspace::Workspace(const QString &recovery, QWidget *parent)
     pl->addLayout(fill_row);
     auto *colors = new QHBoxLayout;
     colors->setContentsMargins(12, 0, 12, 8);
-    colors->setSpacing(6);
+    colors->setSpacing(4);
     for (const auto *color :
          {"#e3e6ea", "#28303a", "#7098b6", "#7fa28d", "#c99469", "#b7797b", "#9c8bb4"}) {
         auto *chip = button("", {}, "color-chip");
@@ -378,7 +395,7 @@ Workspace::Workspace(const QString &recovery, QWidget *parent)
     horizontal_->setSizes({208, 942, 280});
     statusBar()->setFixedHeight(22);
     statusBar()->setSizeGripEnabled(false);
-    selection_ = new QLabel;
+    selection_ = new StatusHint;
     statusBar()->addWidget(selection_, 1);
     persistence_ = new QLabel;
     persistence_->setObjectName("persistence");
@@ -679,10 +696,10 @@ void Workspace::refresh() {
     nodes_->set_object(selection_id_);
     undo_->setEnabled(host.session.can_undo());
     redo_->setEnabled(host.session.can_redo());
-    selection_->setText(selected.empty()
-                            ? "Rectangle: drag to create   |   Wheel: zoom   |   Middle drag: pan"
-                            : QString::number(selected.size()) +
-                                  " selected   |   Drag to move   |   Arrow keys: nudge");
+    const auto hint = (selected.empty() ? QString() : QString::number(selected.size()) + " selected | ") +
+                      "Empty-drag: select | Shift: extend | Wheel: zoom | Space: pan | F: fit";
+    selection_->setText(hint);
+    selection_->setToolTip(hint);
     const auto title =
         host.file_path.isEmpty() ? QString("Untitled") : QFileInfo(host.file_path).fileName();
     document_label_->setText((host.dirty() ? "●  " : "") + title);
@@ -826,6 +843,15 @@ bool Workspace::nodes_visible() const {
 void Workspace::update_panels() {
     object_panel_->setVisible(objects_toggle_->isChecked());
     inspector_->setVisible(inspector_toggle_->isChecked());
+    const auto minimum = width() < 800 ? 240 : 260;
+    if (inspector_->minimumWidth() != minimum) {
+        inspector_->setMinimumWidth(minimum);
+        auto sizes = horizontal_->sizes();
+        const auto target = width() < 800 ? 240 : 280;
+        sizes[1] = std::max(220, sizes[1] + sizes[2] - target);
+        sizes[2] = target;
+        horizontal_->setSizes(sizes);
+    }
 }
 void Workspace::resizeEvent(QResizeEvent *event) {
     QMainWindow::resizeEvent(event);

@@ -10,7 +10,9 @@ Use the standard Windows titlebar. Menu 24 DIP, command/header 32, status 22. Ob
 
 The parent UI brief uses Blender's restrained headers, aligned numeric columns and wide workspace, and Resolve's stable panel locations. It specifies 4/8/12/16 spacing, 28 DIP controls, 13 DIP Windows UI type, 12 DIP secondary text, thin boundaries and one blue selection/focus accent. Widgets use a shared palette/style, vector stroke icons and consistent focus. Artwork color remains independent of UI accent. Qt owns DPI scaling.
 
-Below 1200 logical pixels Objects collapses. Below 800, opening either sidebar closes the other. Secondary command buttons recede; the Add menu keeps the same action available. The Inspector scrolls vertically. Font size stays fixed.
+Below 1200 logical pixels Objects collapses. Below 800, opening either sidebar closes the other and Inspector starts at 240 DIP; wider windows retain 280 DIP. Numeric fields keep two columns, 28 DIP height and 13 DIP type. Secondary command buttons recede; the Add menu keeps the same action available. The Inspector scrolls vertically. Font size stays fixed.
+
+Canvas interaction hints live in the fixed 22 DIP status bar, outside the artwork. Long hints elide with the full text available as a tooltip. The header owns the zoom readout. Fit follows the actual viewport when Nodes opens/closes or a panel changes size; manual zoom/pan keeps its mapping until Fit is explicitly requested again. These are presentation states only, with no History or save-format changes. Legacy Canvas presentation defaults remain unchanged.
 
 ## Data flow
 

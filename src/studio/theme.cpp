@@ -68,6 +68,7 @@ QMenu::item { padding:6px 25px 6px 16px; }
 QMenu::separator { height:1px; background:#4b4f56; margin:4px; }
 QStatusBar { background:#25272b; border-top:1px solid #404349; font-size:12px; }
 QStatusBar::item { border:0; }
+QLabel#canvas-status { color:#b0b6bf; font-size:12px; }
 QToolTip { background:#202226; color:#e2e6e9; border:1px solid #5b626b; padding:5px; }
 )"));
 }

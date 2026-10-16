@@ -92,6 +92,9 @@ public:
     // command ownership stay in the shared Session.
     QPointF document_position(QPointF viewport_position) const;
     void set_view_colors(QColor surround,QColor selection) { surround_color_=surround;selection_color_=selection;update(); }
+    // Alternate shells can own the footer and keep an explicitly fitted view on resize.
+    void set_view_footer_visible(bool visible) { view_footer_visible_=visible;update(); }
+    void set_fit_on_resize(bool enabled) { fit_on_resize_=enabled; }
     void set_snap_enabled(bool enabled);
     bool snap_enabled() const { return snap_enabled_; }
     void set_snap_guides_enabled(bool enabled);
@@ -142,6 +145,7 @@ protected:
     void keyReleaseEvent(QKeyEvent*) override;
     void focusOutEvent(QFocusEvent*) override;
     void showEvent(QShowEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
 
 private:
     enum class SnapKind { guide, grid, artboard, text_baseline, object_edge, object_center, equal_gap };
@@ -259,6 +263,7 @@ private:
     Id drawing_document_;
     QString drawing_session_;
     bool initial_fit_ = true;
+    bool view_footer_visible_ = true, fit_on_resize_ = false, artboard_fit_ = false;
     double zoom_ = 1;
     QPointF pan_{40, 40};
     bool space_down_ = false;
@@ -377,7 +382,7 @@ private:
     bool owns_live_gesture() const;
     bool owned_gesture_context_current() const;
     bool verify_owned_gesture();
-    void fit_bounds(QRectF bounds);
+    void fit_bounds(QRectF bounds, bool artboard_fit = false);
 };
 
 } // namespace nect::desktop
