@@ -276,7 +276,11 @@ import {
   textEditGeometry,
   nearestTextCaret,
   resolveNodeOutputTargets,
-  isTransform, transformExtensions, transformParameter, pointControlTargets, hitPointControl,
+  isTransform,
+  transformExtensions,
+  transformParameter,
+  pointControlTargets,
+  hitPointControl,
   inverseCharacterDelta,
   characterBoxPoints,
   hitCharacter,
@@ -684,7 +688,8 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
-  pointFocus = null; pointHover = null;
+  pointFocus = null;
+  pointHover = null;
   for (const { face } of editorFonts.values()) document.fonts?.delete(face);
   editorFonts.clear();
   textPreview = null;
@@ -752,46 +757,87 @@ function numericLimits(n, key) {
 }
 function numericAttributes(n, key) {
   const [min, max] = numericLimits(n, key);
-  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale','scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
 }
 function numericControlTarget(input) {
-  const d = input.dataset, payload = {layerId: current().id};
+  const d = input.dataset,
+    payload = { layerId: current().id };
   let command;
-  if (d.dimension) { command = 'set-document-settings'; payload.key = d.dimension; }
-  else if (d.guidePosition) { command = 'set-guide'; Object.assign(payload,{guideId:d.guidePosition,key:'position'}); }
-  else if (d.guideSetting === 'gridSize') { command = 'set-guide-setting'; payload.key = 'gridSize'; }
-  else if (d.remap) { command = 'edit-remap'; Object.assign(payload,{nodeId:d.node,action:'set',pointId:d.remap,component:d.component,axis:Number(d.axis)}); }
-  else if (d.textPathStart) { command = 'set-text-settings'; payload.nodeId = d.textPathStart; }
-  else if (d.layoutField || d.batchAxis !== undefined || d.alignSpacing !== undefined) return {localNumeric:true};
-  return command ? {commandTarget:{kind:'numeric-command',command,payload,initial:Number(input.value)}} : null;
+  if (d.dimension) {
+    command = 'set-document-settings';
+    payload.key = d.dimension;
+  } else if (d.guidePosition) {
+    command = 'set-guide';
+    Object.assign(payload, { guideId: d.guidePosition, key: 'position' });
+  } else if (d.guideSetting === 'gridSize') {
+    command = 'set-guide-setting';
+    payload.key = 'gridSize';
+  } else if (d.remap) {
+    command = 'edit-remap';
+    Object.assign(payload, {
+      nodeId: d.node,
+      action: 'set',
+      pointId: d.remap,
+      component: d.component,
+      axis: Number(d.axis),
+    });
+  } else if (d.textPathStart) {
+    command = 'set-text-settings';
+    payload.nodeId = d.textPathStart;
+  } else if (d.layoutField || d.batchAxis !== undefined || d.alignSpacing !== undefined)
+    return { localNumeric: true };
+  return command
+    ? { commandTarget: { kind: 'numeric-command', command, payload, initial: Number(input.value) } }
+    : null;
 }
 function setLocalNumeric(input, value) {
   const d = input.dataset;
-  if (d.layoutField) { layoutDraft = {...layoutConfig(),[d.layoutField]:value}; updateCanvas(); }
-  else if (d.batchAxis !== undefined) remapBatch(d.node).delta[Number(d.batchAxis)] = value;
+  if (d.layoutField) {
+    layoutDraft = { ...layoutConfig(), [d.layoutField]: value };
+    updateCanvas();
+  } else if (d.batchAxis !== undefined) remapBatch(d.node).delta[Number(d.batchAxis)] = value;
   else if (d.alignSpacing !== undefined) editAlignmentSpacing(input);
 }
-function moveOtherNumeric(d,e,dx) {
+function moveOtherNumeric(d, e, dx) {
   if (!d.started) {
+    if (d.commandTarget && d.capture.value !== d.capture.defaultValue)
+      d.capture.dispatchEvent(new window.Event('change', { bubbles: true }));
     d.originalInput = d.capture.value;
     d.original = Number(d.capture.value || 0);
     if (!Number.isFinite(d.original)) return;
     if (d.commandTarget) {
-      d.gesture = beginGraphGesture({...d.commandTarget,initial:d.original});
+      d.gesture = beginGraphGesture({ ...d.commandTarget, initial: d.original });
       if (!d.gesture) return;
     }
-    d.started = true; d.capture.setPointerCapture?.(e.pointerId); d.capture.classList.add('scrubbing');
+    d.started = true;
+    d.capture.setPointerCapture?.(e.pointerId);
+    d.capture.classList.add('scrubbing');
   }
   e.preventDefault();
-  const value = scrubNumericValues([d.original], Math.sign(dx)*Math.max(0,Math.abs(dx)-4),Number(d.capture.dataset.scrubStep),Number(d.capture.min || -Number.MAX_VALUE),Number(d.capture.max || Number.MAX_VALUE))[0];
+  const value = scrubNumericValues(
+    [d.original],
+    dx,
+    Number(d.capture.dataset.scrubStep),
+    Number(d.capture.min || -Number.MAX_VALUE),
+    Number(d.capture.max || Number.MAX_VALUE),
+  )[0];
   d.capture.value = String(value);
-  if (d.localNumeric) { setLocalNumeric(d.capture,value); return; }
+  if (d.localNumeric) {
+    setLocalNumeric(d.capture, value);
+    return;
+  }
   try {
-    d.gesture = session.dispatch({...session.state,type:'update-gesture',payload:{...d.gesture,update:{value}}});
+    d.gesture = session.dispatch({
+      ...session.state,
+      type: 'update-gesture',
+      payload: { ...d.gesture, update: { value } },
+    });
     d.preview = session.previewSnapshot(d.gesture.gestureId).document;
     if (d.commandTarget.command === 'set-document-settings') fitCanvas();
     updateCanvas();
-  } catch(error) { notify(error.message,true); }
+  } catch (error) {
+    notify(error.message, true);
+  }
 }
 // Character and layout controls are source edits, not graph parameter fields.
 // Resolve their real targets explicitly; the floating palette has no .field wrapper.
@@ -952,22 +998,55 @@ function mixedNumericDisplay(values) {
 }
 function editorParameters(n) {
   if (!isTransform(n)) return activeParameters(n);
-  const keys = [n.type === 'Transform' ? 'path' : 'vector', 'anchor', 'position', 'uniformScale', 'scale', 'scaleWidth', 'skew', 'skewAxis', 'rotation', 'offset'];
-  return keys.map(key => [key, parameter(n, key)]);
+  const keys = [
+    n.type === 'Transform' ? 'path' : 'vector',
+    'anchor',
+    'position',
+    'uniformScale',
+    'scale',
+    'scaleWidth',
+    'skew',
+    'skewAxis',
+    'rotation',
+    'offset',
+  ];
+  return keys.map((key) => [key, parameter(n, key)]);
 }
 function field(n, key, q) {
   let source = current().nodes.find((x) => x.id === q.source),
-    locked = q.locked || !!q.source || (isTransform(n) && key === 'scaleWidth' && (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+    locked =
+      q.locked ||
+      !!q.source ||
+      (isTransform(n) &&
+        key === 'scaleWidth' &&
+        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name =
-    isTransform(n) ? ({anchor:'Anchor Point', position:'Position', uniformScale:'Uniform Scale', scale:'Scale Height (%)', scaleWidth:'Scale Width (%)', skew:'Skew', skewAxis:'Skew Axis', rotation:'Rotation', offset:'Legacy Offset'}[key] || key) :
-    key === 'center' && ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star'].includes(n.type)
+  const name = isTransform(n)
+    ? {
+        anchor: 'Anchor Point',
+        position: 'Position',
+        uniformScale: 'Uniform Scale',
+        scale: 'Scale Height (%)',
+        scaleWidth: 'Scale Width (%)',
+        skew: 'Skew',
+        skewAxis: 'Skew Axis',
+        rotation: 'Rotation',
+        offset: 'Legacy Offset',
+      }[key] || key
+    : key === 'center' && ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star'].includes(n.type)
       ? 'Position'
       : key.includes('.')
         ? key.split('.').at(-1)
         : key;
   let control;
   let displayed = q.value;
+  if (
+    isTransform(n) &&
+    !n.params[key] &&
+    ['position', 'scaleWidth'].includes(key) &&
+    renderEvaluation
+  )
+    displayed = renderEvaluation.transformValues(n.id)[key];
   if (source && renderEvaluation) {
     try {
       displayed = renderEvaluation.run(source.id, q.sourcePort);
@@ -1329,7 +1408,8 @@ function render(resetView = false, artworkResolution = null) {
         )
           .filter(
             ([k, q]) =>
-              (isTransform(n) || Object.hasOwn(n.params, k)) && !['Path', 'PaintedPath', 'Image'].includes(q.type),
+              (isTransform(n) || Object.hasOwn(n.params, k)) &&
+              !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
           .map(([k, q]) => field(n, k, q))
           .join('')}`
@@ -1347,7 +1427,8 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   for (const input of app.querySelectorAll('input[type="number"]')) {
-    if (!input.dataset.scrubStep) input.dataset.scrubStep = input.step && input.step !== 'any' ? input.step : '1';
+    if (!input.dataset.scrubStep)
+      input.dataset.scrubStep = input.step && input.step !== 'any' ? input.step : '1';
     input.title ||= 'Drag horizontally to adjust; click to type';
   }
   // Keep controls and actionable states visible; put reference prose in
@@ -1527,7 +1608,9 @@ function guidesOverlay() {
       .join('')
   );
 }
-function transformControls(n) { return ''; }
+function transformControls(n) {
+  return '';
+}
 
 function positionControllerControls(n) {
   if (n.type === 'Vector')
@@ -1682,7 +1765,7 @@ function characterFields(context, floating = false) {
     .map(([key, label, min, max, fallback]) => {
       const values = context.selected.map((g) => g[key]),
         mixed = values.some((v) => v !== values[0]);
-      return `<label>${label}<input type="number" step="${key === 'scale' ? '0.01' : '1'}" min="${min}" max="${max}" data-scrub-step="${['scale','scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type" data-character-transform="${key}" aria-label="${floating ? 'Floating ' : ''}Character ${key}" placeholder="${mixed ? 'Mixed' : fallback}" value="${mixed ? '' : (values[0] ?? fallback)}" ${disabled ? 'disabled' : ''}></label>`;
+      return `<label>${label}<input type="number" step="${key === 'scale' ? '0.01' : '1'}" min="${min}" max="${max}" data-scrub-step="${key === 'scale' ? 0.01 : 1}" title="Drag horizontally to adjust; click to type" data-character-transform="${key}" aria-label="${floating ? 'Floating ' : ''}Character ${key}" placeholder="${mixed ? 'Mixed' : fallback}" value="${mixed ? '' : (values[0] ?? fallback)}" ${disabled ? 'disabled' : ''}></label>`;
     })
     .join(
       '',
@@ -1963,7 +2046,12 @@ function transformOverlay(n, result) {
   ]
     .map((key) => {
       const q = n.params[key],
-        readonly = current().locked || q.locked || q.source || q.expression || (key === 'scale' && !context.state.uniformScale);
+        readonly =
+          current().locked ||
+          q.locked ||
+          q.source ||
+          q.expression ||
+          (key === 'scale' && !context.state.uniformScale);
       return `<g class="transform-control ${readonly ? 'readonly' : ''}" data-transform-handle="${key}" data-transform-node="${n.id}" transform="translate(${g[key].join(' ')})" aria-label="${esc(n.name)} ${key}${readonly ? ' (read-only)' : ''}"><title>${key === 'scale' ? 'Uniform scale · drag along pivot ray' : 'Rotation · Shift snaps to 15°'}${readonly ? ' · Locked or driven by an input' : ''}</title><g class="transform-marker-size" transform="scale(${size})">${key === 'scale' ? '<rect x="-6" y="-6" width="12" height="12"/>' : '<circle r="7"/>'}<text x="11" y="4">${key === 'scale' ? 'Scale' : 'Rotate'}</text></g></g>`;
     })
     .join('')}</g>`;
@@ -2013,12 +2101,15 @@ function canvasOverlay(n, result) {
     `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
     nodeStageMoveMarker(n, path);
   if (['Curve', 'Path Remap'].includes(n.type)) {
-    const scale = canvasScale(), focused = [pointFocus, pointHover].filter(t => t?.nodeId === n.id).map(t => t.pointId);
+    const scale = canvasScale(),
+      focused = [pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId);
     for (const target of pointControlTargets(path, scale, focused)) {
-      const [x, y] = target.position, key = target.key, selected = focused.includes(target.pointId);
+      const [x, y] = target.position,
+        key = target.key,
+        selected = focused.includes(target.pointId);
       const attrs = `data-point="${target.pointId}"${key === 'position' ? '' : ` data-handle="${key}"`}`;
       if (key !== 'position') {
-        const p = path.contours.flatMap(c => c.points).find(p => p.id === target.pointId);
+        const p = path.contours.flatMap((c) => c.points).find((p) => p.id === target.pointId);
         out += `<line class="guide" x1="${p.position[0]}" y1="${p.position[1]}" x2="${x}" y2="${y}"/>`;
       }
       out += `<circle class="point-hit" ${attrs} cx="${x}" cy="${y}" r="${target.radius / scale}"/><circle class="${key === 'position' ? 'vertex' : 'handle'} point-marker ${selected ? 'active' : ''}" ${attrs} cx="${x}" cy="${y}" r="${(key === 'position' ? 3 : 2.5) / scale}"><title>${key === 'position' ? 'Point' : key} · ${target.pointId}</title></circle>`;
@@ -2051,7 +2142,8 @@ function nodeStageMoveMarker(n, path) {
   if (![x, y].every(Number.isFinite)) return '';
   return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move selected node before downstream nodes"><title>Move selected node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
 }
-let pointFocus = null, pointHover = null;
+let pointFocus = null,
+  pointHover = null;
 let canvasFrame = null;
 function updateCanvas(immediate = false) {
   if (immediate) {
@@ -4452,7 +4544,10 @@ app.addEventListener('change', async (e) => {
             value.alpha = Number(el.value);
           } else value.hex = el.value;
         } else {
-          value = q.type === 'Boolean' ? el.checked : Number(el.value) / Number(el.dataset.valueFactor || 1);
+          value =
+            q.type === 'Boolean'
+              ? el.checked
+              : Number(el.value) / Number(el.dataset.valueFactor || 1);
           if (
             q.type !== 'Boolean' &&
             !el.value.trim() &&
@@ -4817,7 +4912,10 @@ function cancelInteraction() {
       type: 'cancel-gesture',
       payload: { gestureId: old.gesture.gestureId },
     });
-  if (old?.localNumeric && old.started) { old.capture.value = old.originalInput; setLocalNumeric(old.capture, Number(old.originalInput || 0)); }
+  if (old?.localNumeric && old.started) {
+    old.capture.value = old.originalInput;
+    setLocalNumeric(old.capture, Number(old.originalInput || 0));
+  }
   // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
   if (old?.type === 'numeric' && old.started)
     old.capture.value = old.originalInput ?? String(old.original);
@@ -4934,13 +5032,14 @@ app.addEventListener('pointerdown', (e) => {
     ) {
       drag = {
         type: 'numeric',
-        ...(textTarget || otherTarget || {
-          nodeId: n.id,
-          key: field.dataset.key,
-          axis: Number(numeric.dataset.axis || 0),
-          alpha: numeric.dataset.color === 'alpha',
-          factor: Number(numeric.dataset.valueFactor || 1),
-        }),
+        ...(textTarget ||
+          otherTarget || {
+            nodeId: n.id,
+            key: field.dataset.key,
+            axis: Number(numeric.dataset.axis || 0),
+            alpha: numeric.dataset.color === 'alpha',
+            factor: Number(numeric.dataset.valueFactor || 1),
+          }),
         layerId: current().id,
         startX: e.clientX,
         pointerId: e.pointerId,
@@ -5496,13 +5595,26 @@ app.addEventListener('pointerdown', (e) => {
   }
   stage.focus({ preventScroll: true });
   n = selectedNode();
-  let pointTarget = e.target.dataset.point ? { pointId: e.target.dataset.point, key: e.target.dataset.handle || 'position' } : null;
-  if (['Curve', 'Path Remap'].includes(n?.type) && document.querySelector('.artboard')?.getScreenCTM) {
+  let pointTarget = e.target.dataset.point
+    ? { pointId: e.target.dataset.point, key: e.target.dataset.handle || 'position' }
+    : null;
+  if (
+    ['Curve', 'Path Remap'].includes(n?.type) &&
+    document.querySelector('.artboard')?.getScreenCTM
+  ) {
     const path = evaluate(current(), fonts, history.doc.imageAssets).run(n.id);
-    pointTarget = hitPointControl(path, pos, canvasScale(), [pointFocus, pointHover].filter(t => t?.nodeId === n.id).map(t => t.pointId));
-    if (pointTarget?.ambiguous) { notify('Overlapping points: choose a point in the graph.', true); return; }
+    pointTarget = hitPointControl(
+      path,
+      pos,
+      canvasScale(),
+      [pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId),
+    );
+    if (pointTarget?.ambiguous) {
+      notify('Overlapping points: choose a point in the graph.', true);
+      return;
+    }
   }
-  if (pointTarget) pointFocus = {nodeId: n.id, pointId: pointTarget.pointId};
+  if (pointTarget) pointFocus = { nodeId: n.id, pointId: pointTarget.pointId };
   if (pointTarget && n?.type === 'Path Remap') {
     const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
       pointId = pointTarget.pointId,
@@ -5642,11 +5754,25 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select generators, or one Transform to move its whole group');
 });
 function movePointer(e) {
-  if (!drag && !wiring && ['Curve', 'Path Remap'].includes(selectedNode()?.type) && e.target.closest?.('.canvas-stage')) {
-    const n = selectedNode(), path = renderEvaluation?.run(n.id);
-    const hit = hitPointControl(path, canvasPoint(e), canvasScale(), [pointFocus, pointHover].filter(t => t?.nodeId === n.id).map(t => t.pointId));
-    const next = hit && !hit.ambiguous ? {nodeId:n.id, pointId:hit.pointId} : null;
-    if (pointHover?.nodeId !== next?.nodeId || pointHover?.pointId !== next?.pointId) { pointHover = next; updateCanvas(); }
+  if (
+    !drag &&
+    !wiring &&
+    ['Curve', 'Path Remap'].includes(selectedNode()?.type) &&
+    e.target.closest?.('.canvas-stage')
+  ) {
+    const n = selectedNode(),
+      path = renderEvaluation?.run(n.id);
+    const hit = hitPointControl(
+      path,
+      canvasPoint(e),
+      canvasScale(),
+      [pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId),
+    );
+    const next = hit && !hit.ambiguous ? { nodeId: n.id, pointId: hit.pointId } : null;
+    if (pointHover?.nodeId !== next?.nodeId || pointHover?.pointId !== next?.pointId) {
+      pointHover = next;
+      updateCanvas();
+    }
   }
   if (characterEdit && !drag && !wiring) {
     const target = e.target.closest?.('[data-character]');
@@ -5865,7 +5991,10 @@ function movePointer(e) {
       cancelInteraction();
       return;
     }
-    if (d.commandTarget || d.localNumeric) { moveOtherNumeric(d,e,dx); return; }
+    if (d.commandTarget || d.localNumeric) {
+      moveOtherNumeric(d, e, dx);
+      return;
+    }
     if (d.textKind) {
       moveTextNumeric(d, e, dx);
       return;
@@ -5873,7 +6002,7 @@ function movePointer(e) {
     // Finish any typed draft before taking the drag snapshot. It remains its own edit.
     if (!d.started && d.capture.value !== d.capture.defaultValue) {
       const text = d.capture.value,
-        expected = Number(text);
+        expected = Number(text) / (d.factor || 1);
       d.capture.dispatchEvent(new window.Event('change', { bubbles: true }));
       const node = current().nodes.find((n) => n.id === d.nodeId),
         q = parameter(node, d.key),
@@ -5891,6 +6020,10 @@ function movePointer(e) {
     }
     if (!d.started) {
       d.original = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
+      if (isTransform(n) && !n.params[d.key] && ['position', 'scaleWidth'].includes(d.key)) {
+        const evaluated = renderEvaluation.transformValues(n.id)[d.key];
+        d.original = q.type === 'Vector2' ? evaluated[d.axis] : evaluated;
+      }
       d.gesture = beginGraphGesture({
         kind: 'parameter',
         layerId: d.layerId,
@@ -5918,7 +6051,12 @@ function movePointer(e) {
           ? d.original
           : Math.max(
               min,
-              Math.min(max, Number((d.original + Math.trunc(distance) * step / (d.factor || 1)).toPrecision(15))),
+              Math.min(
+                max,
+                Number(
+                  (d.original + (Math.trunc(distance) * step) / (d.factor || 1)).toPrecision(15),
+                ),
+              ),
             );
     if (!Number.isFinite(value)) return;
     try {
@@ -6076,7 +6214,11 @@ document.addEventListener('pointerup', (e) => {
       !drag.capture.isConnected ||
       drag.capture.disabled ||
       drag.capture.readOnly ||
-      (drag.textKind ? !textNumericState(drag) : !q || q.locked || q.source || q.expression)
+      (drag.commandTarget || drag.localNumeric
+        ? false
+        : drag.textKind
+          ? !textNumericState(drag)
+          : !q || q.locked || q.source || q.expression)
     ) {
       cancelInteraction();
       return;
@@ -6211,6 +6353,10 @@ document.addEventListener('pointerup', (e) => {
   }
 });
 app.addEventListener('contextmenu', (e) => {
+  // Keep native text editing menus, but never expose browser navigation/save
+  // commands over the editor's graph or artwork surfaces.
+  if (e.target.closest('input,textarea,[contenteditable="true"]')) return;
+  if (e.target.closest('.graph-scroll,.canvas-stage')) e.preventDefault();
   let input = e.target.closest('.input');
   if (input) {
     e.preventDefault();

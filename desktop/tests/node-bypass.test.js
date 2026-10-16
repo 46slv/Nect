@@ -29,21 +29,30 @@ const fonts = {
 function fixture(type, painted = false) {
   const doc = document(),
     l = doc.layers[0],
-    source = node(type === 'Math' ? 'Value' : type === 'Vector Math' ? 'Vector' : 'Rectangle'),
+    source = node(
+      type === 'Math'
+        ? 'Value'
+        : ['Vector Math', 'Vector Transform'].includes(type)
+          ? 'Vector'
+          : 'Rectangle',
+    ),
     effect = node(type),
     fill = node('Fill'),
     out = node('Output');
   fill.params.path.source = source.id;
   l.nodes = [source, fill, effect, out];
-  if (['Math', 'Vector Math'].includes(type)) {
+  if (['Math', 'Vector Math', 'Vector Transform'].includes(type)) {
     const shape = node('Rectangle');
     l.nodes.push(shape);
     fill.params.path.source = shape.id;
   }
+  if (type === 'Vector Transform') doc.schemaVersion = 11;
   l.output = out.id;
   const input = bypassContract(effect).input;
   effect.params[input].source = painted ? fill.id : source.id;
-  out.params.path.source = ['Math', 'Vector Math'].includes(type) ? fill.id : effect.id;
+  out.params.path.source = ['Math', 'Vector Math', 'Vector Transform'].includes(type)
+    ? fill.id
+    : effect.id;
   return { doc, l, source, effect, fill, out };
 }
 const supported = [
@@ -51,6 +60,7 @@ const supported = [
   'Join Geometry',
   'Math',
   'Vector Math',
+  'Vector Transform',
   'Transform',
   'Path Remap',
   'Closed Path Offset',

@@ -65,7 +65,13 @@ import {
   characterIdsInRange,
 } from './character-identity.js';
 import { TextDraft } from './text-draft.js';
-import { isTransform, transformExtensions, transformParameter, transformValues, transformVector } from './transform-affine.js';
+import {
+  isTransform,
+  transformExtensions,
+  transformParameter,
+  transformValues,
+  transformVector,
+} from './transform-affine.js';
 export { isTransform, transformExtensions, transformParameter } from './transform-affine.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
 export * from './character-identity.js';
@@ -144,7 +150,11 @@ export const definitions = {
     rotation: p('Scalar', 0),
   },
   'Vector Transform': {
-    vector: p('Vector2', [0, 0]), anchor: p('Vector2', [0, 0]), offset: p('Vector2', [0, 0]), scale: p('Scalar', 1), rotation: p('Scalar', 0),
+    vector: p('Vector2', [0, 0]),
+    anchor: p('Vector2', [0, 0]),
+    offset: p('Vector2', [0, 0]),
+    scale: p('Scalar', 1),
+    rotation: p('Scalar', 0),
   },
   'Geometry Repeater': {
     path: p('Path', null),
@@ -696,7 +706,14 @@ export function activeParameters(n) {
           : ['a', 'b'];
     return entries.filter(([key]) => keys.includes(key));
   }
-  if (isTransform(n) && (!n.params.uniformScale || (n.params.uniformScale.value === true && !n.params.uniformScale.source && !n.params.uniformScale.expression))) return entries.filter(([key]) => key !== 'scaleWidth');
+  if (
+    isTransform(n) &&
+    (!n.params.uniformScale ||
+      (n.params.uniformScale.value === true &&
+        !n.params.uniformScale.source &&
+        !n.params.uniformScale.expression))
+  )
+    return entries.filter(([key]) => key !== 'scaleWidth');
   if (n.type !== 'Math') return entries;
   const keys =
     n.operation === 'abs' ? ['a'] : n.operation === 'clamp' ? ['a', 'min', 'max'] : ['a', 'b'];
@@ -1075,6 +1092,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
   function readParameter(n, key) {
+    if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
+    if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
     let q = parameter(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
     if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
@@ -1210,7 +1229,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       } else if (positionOutput || n.type === 'Null') result = read('position');
       else if (['Value', 'Vector', 'Expression', 'Toggle', 'Color'].includes(n.type))
         result = read('value');
-      else if (n.type === 'Vector Transform') result = transformVector(transformValues(n, read), read('vector'));
+      else if (n.type === 'Vector Transform')
+        result = transformVector(transformValues(n, read), read('vector'));
       else if (n.type === 'Vector Math') {
         result = vectorMathValue(n.operation, read);
         assertValue(outputType(n), result);
@@ -1573,11 +1593,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
-          transformed.characterOccurrences = routeCharacters(
-            result,
-            n.id,
-            state.matrix,
-          );
+          transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
           transformed.unstable = result.unstable;
           transformed.remapSuspended = result.remapSuspended;
           transformed.fingerprint = result.fingerprint;
@@ -1668,7 +1684,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     transformValues(id) {
       const n = byId.get(id);
       if (!isTransform(n)) throw Error('Select a Transform');
-      return transformValues(n, key => readParameter(n, key));
+      return transformValues(n, (key) => readParameter(n, key));
     },
     transformState(id) {
       const n = byId.get(id);
@@ -1676,7 +1692,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       if (n.bypassed) throw Error('Restore the Transform before editing its canvas handles');
       run(id);
       return {
-        ...transformValues(n, key => readParameter(n, key)),
+        ...transformValues(n, (key) => readParameter(n, key)),
         input: readParameter(n, 'path'),
       };
     },
@@ -2048,11 +2064,19 @@ export function validate(doc) {
         for (const key of ['miterLimit', 'dashOffset'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Stroke[key]);
       }
-      const extraTransform = isTransform(n) ? Object.keys(n.params).filter(key => Object.hasOwn(transformExtensions, key)) : [];
-      if ((extraTransform.length || n.type === 'Vector Transform') && doc.schemaVersion < 11) throw Error('Extended Transform requires schemaVersion 11');
-      if (Object.keys(n.params).length !== Object.keys(definitions[n.type]).length + extraTransform.length) throw Error('Unexpected parameter');
+      const extraTransform = isTransform(n)
+        ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
+        : [];
+      if ((extraTransform.length || n.type === 'Vector Transform') && doc.schemaVersion < 11)
+        throw Error('Extended Transform requires schemaVersion 11');
+      if (
+        Object.keys(n.params).length !==
+        Object.keys(definitions[n.type]).length + extraTransform.length
+      )
+        throw Error('Unexpected parameter');
       for (const key of extraTransform) param(n.params[key], transformExtensions[key].type);
-      if (n.params.skew && Math.abs(n.params.skew.value) >= 89.9) throw Error('Skew must be between -89.9 and 89.9 degrees');
+      if (n.params.skew && Math.abs(n.params.skew.value) >= 89.9)
+        throw Error('Skew must be between -89.9 and 89.9 degrees');
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
@@ -2562,7 +2586,9 @@ export class CommandSession {
             write(
               node.params[
                 isTransform(node)
-                  ? (node.params.position ? 'position' : 'offset')
+                  ? node.params.position
+                    ? 'position'
+                    : 'offset'
                   : node.type === 'Vector'
                     ? 'value'
                     : ['Text', 'Image', 'Null'].includes(node.type)
@@ -2723,13 +2749,24 @@ export class CommandSession {
       return candidate;
     }
     if (target.kind === 'numeric-command') {
-      if (!['set-document-settings','set-guide-setting','set-guide','edit-remap','set-text-settings'].includes(target.command)) throw Error('Unsupported numeric control');
+      if (
+        ![
+          'set-document-settings',
+          'set-guide-setting',
+          'set-guide',
+          'edit-remap',
+          'set-text-settings',
+        ].includes(target.command)
+      )
+        throw Error('Unsupported numeric control');
       assertValue('Scalar', update.value);
       const payload = clone(target.payload);
       if (target.command === 'set-text-settings') {
-        const n = base.layers.find(l=>l.id===payload.layerId)?.nodes.find(n=>n.id===payload.nodeId);
+        const n = base.layers
+          .find((l) => l.id === payload.layerId)
+          ?.nodes.find((n) => n.id === payload.nodeId);
         if (!n?.pathAttachment) throw Error('Select a path contour first');
-        payload.settings = {pathAttachment: {...clone(n.pathAttachment), start: update.value}};
+        payload.settings = { pathAttachment: { ...clone(n.pathAttachment), start: update.value } };
       } else payload.value = update.value;
       return this.#commandCandidate(target.command, payload, base).candidate;
     }
@@ -2911,15 +2948,17 @@ export class CommandSession {
               ? { delta: [0, 0] }
               : target?.kind === 'guide-position'
                 ? { value: base.editor?.guides?.find((g) => g.id === target.guideId)?.position }
-                : target?.kind === 'numeric-command' ? {value: target.initial} : target?.kind === 'parameter'
-                  ? {
-                      value: target.alpha
-                        ? q?.value?.alpha
-                        : target.axis !== undefined
-                          ? q?.value?.[target.axis]
-                          : q?.value,
-                    }
-                  : { width: node?.width ?? 264 };
+                : target?.kind === 'numeric-command'
+                  ? { value: target.initial }
+                  : target?.kind === 'parameter'
+                    ? {
+                        value: target.alpha
+                          ? q?.value?.alpha
+                          : target.axis !== undefined
+                            ? q?.value?.[target.axis]
+                            : q?.value,
+                      }
+                    : { width: node?.width ?? 264 };
       this.#gestureCandidate(base, target, initial);
       this.#gesture = {
         id: uid('gesture'),
@@ -3036,13 +3075,43 @@ export class CommandSession {
   }
   #commandCandidate(type, payload, before) {
     if (type === 'set-transform-control') {
-      const base = cloneDocument(before), layer = base.layers.find(l => l.id === payload.layerId), n = layer?.nodes.find(n => n.id === payload.nodeId);
-      if (!isTransform(n) || !['anchor','position','offset','scale','scaleWidth','uniformScale','skew','skewAxis','rotation'].includes(payload.key)) throw Error('Select a Transform control');
+      const base = cloneDocument(before),
+        layer = base.layers.find((l) => l.id === payload.layerId),
+        n = layer?.nodes.find((n) => n.id === payload.nodeId);
+      if (
+        !isTransform(n) ||
+        ![
+          'anchor',
+          'position',
+          'offset',
+          'scale',
+          'scaleWidth',
+          'uniformScale',
+          'skew',
+          'skewAxis',
+          'rotation',
+        ].includes(payload.key)
+      )
+        throw Error('Select a Transform control');
       const q = parameter(n, payload.key);
-      const unchanged = !q.source && !q.expression && JSON.stringify(payload.axis === undefined ? q.value : q.value[payload.axis]) === JSON.stringify(payload.value);
+      if (!n.params[payload.key] && ['position', 'scaleWidth'].includes(payload.key))
+        q.value = evaluate(
+          layer,
+          resolveFonts(base, this.#fonts()),
+          base.imageAssets,
+        ).transformValues(n.id)[payload.key];
+      const unchanged =
+        !q.source &&
+        !q.expression &&
+        JSON.stringify(payload.axis === undefined ? q.value : q.value[payload.axis]) ===
+          JSON.stringify(payload.value);
       if (unchanged) return { candidate: base, result: {} };
       if (payload.key === 'anchor' && !n.params.position) {
-        const anchor = evaluate(layer, resolveFonts(base, this.#fonts()), base.imageAssets).transformValues(n.id).anchor;
+        const anchor = evaluate(
+          layer,
+          resolveFonts(base, this.#fonts()),
+          base.imageAssets,
+        ).transformValues(n.id).anchor;
         n.params.position = { ...clone(transformExtensions.position), value: clone(anchor) };
         base.schemaVersion = Math.max(base.schemaVersion, 11);
       }
@@ -3290,10 +3359,27 @@ export class CommandSession {
     );
     if (!target) throw Error('Missing composition');
     if (target.locked) throw Error('Composition is locked');
-    const transformNode = target.nodes.find(n => n.id === payload.nodeId);
-    if (isTransform(transformNode) && Object.hasOwn(transformExtensions, payload.key) && !transformNode.params[payload.key]) {
+    const transformNode = target.nodes.find((n) => n.id === payload.nodeId);
+    if (
+      isTransform(transformNode) &&
+      Object.hasOwn(transformExtensions, payload.key) &&
+      !transformNode.params[payload.key]
+    ) {
       const virtual = transformParameter(transformNode, payload.key);
-      if ((type === 'set-parameter-lock' && payload.locked === virtual.locked) || (type === 'set-parameter-expression' && payload.expression === virtual.expression) || (type === 'disconnect' && !virtual.source)) return { candidate, result: {} };
+      if (['position', 'scaleWidth'].includes(payload.key))
+        virtual.value = clone(
+          evaluate(
+            target,
+            resolveFonts(candidate, this.#fonts()),
+            candidate.imageAssets,
+          ).transformValues(transformNode.id)[payload.key],
+        );
+      if (
+        (type === 'set-parameter-lock' && payload.locked === virtual.locked) ||
+        (type === 'set-parameter-expression' && payload.expression === virtual.expression) ||
+        (type === 'disconnect' && !virtual.source)
+      )
+        return { candidate, result: {} };
       transformNode.params[payload.key] = clone(virtual);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
     }
@@ -3311,7 +3397,8 @@ export class CommandSession {
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
       target.nodes.push(created);
-      if (created.type === 'Vector Transform') candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
+      if (created.type === 'Vector Transform')
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
       result = { nodeId: created.id };
     } else if (type === 'duplicate-nodes') {
       if (
@@ -3675,7 +3762,12 @@ export class CommandSession {
       }
     }
     validate(candidate);
-    if (isTransform(transformNode)) evaluate(target, resolveFonts(candidate, this.#fonts()), candidate.imageAssets).transformValues(transformNode.id);
+    if (isTransform(transformNode))
+      evaluate(
+        target,
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      ).transformValues(transformNode.id);
     assertClosedOffsetChange(
       target,
       before.layers.find((layer) => layer.id === target.id),

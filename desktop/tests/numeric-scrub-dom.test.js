@@ -232,5 +232,51 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
   undo();
   assert.equal(val(id, 'value'), 100);
   undoEmpty();
+  // Display percent is converted once, including a typed value before drag.
+  id = load('Transform');
+  el = input(id, 'scale');
+  assert.equal(Number(el.value), 100);
+  el.value = '150';
+  scrub(el, 14);
+  assert.equal(val(id, 'scale'), 1.6);
+  undo();
+  assert.equal(val(id, 'scale'), 1.5);
+  undo();
+  assert.equal(val(id, 'scale'), 1);
+  undoEmpty();
+  // Editor surfaces suppress WebView browser menus; text fields retain editing.
+  for (const selector of ['.graph-scroll', '.canvas-stage']) {
+    const event = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    document.querySelector(selector).dispatchEvent(event);
+    assert.equal(event.defaultPrevented, true);
+  }
+  const context = new win.MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+  input(id, 'scale').dispatchEvent(context);
+  assert.equal(context.defaultPrevented, false);
+  // Document settings use the same transactional drag contract.
+  const widthBefore = win.nect.document.width;
+  el = document.querySelector('[data-dimension="width"]');
+  assert.ok(el.dataset.scrubStep);
+  scrub(el, 24);
+  assert.equal(
+    win.nect.document.width,
+    widthBefore + 20,
+    document.querySelector('.toast')?.textContent || document.body.textContent.slice(-700),
+  );
+  undo();
+  assert.equal(win.nect.document.width, widthBefore);
+  undoEmpty();
+  el = document.querySelector('[data-dimension="width"]');
+  scrub(el, 24, 'pointercancel');
+  assert.equal(win.nect.document.width, widthBefore);
+  undoEmpty();
+  el = document.querySelector('[data-dimension="width"]');
+  el.value = String(widthBefore + 100);
+  scrub(el, 24);
+  assert.equal(win.nect.document.width, widthBefore + 120);
+  undo();
+  assert.equal(win.nect.document.width, widthBefore + 100);
+  undo();
+  assert.equal(win.nect.document.width, widthBefore);
   win.happyDOM.abort();
 });

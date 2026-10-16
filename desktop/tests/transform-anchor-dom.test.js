@@ -121,14 +121,18 @@ test('Transform pivot controls, parameter lock, group drag, history and legacy d
   };
   const children = JSON.stringify(win.nect.document.layers[0].nodes.slice(0, 2));
   await drag();
-  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.offset.value, [30, 15]);
+  // Explicit Anchor editing has opted into absolute Position. Stage movement
+  // changes that Position, never the retained legacy Offset or child geometry.
+  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.position.value, [30, 15]);
+  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.offset.value, [0, 0]);
   assert.equal(JSON.stringify(win.nect.document.layers[0].nodes.slice(0, 2)), children);
   document.querySelector('[data-action="undo"]').click();
   await tick();
-  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.offset.value, [0, 0]);
-  f('offset').querySelector('[data-lock]').click();
+  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.position.value, [0, 0]);
+  f('position').querySelector('[data-lock]').click();
   await tick();
   await drag();
   assert.deepEqual(win.nect.document.layers[0].nodes[3].params.offset.value, [0, 0]);
+  assert.deepEqual(win.nect.document.layers[0].nodes[3].params.position.value, [0, 0]);
   win.happyDOM.abort();
 });

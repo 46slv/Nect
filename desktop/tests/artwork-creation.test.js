@@ -290,7 +290,7 @@ test('unsupported tools, invalid positions/names and malformed existing document
     (d) => (d.layers[0].output = 'missing-output'),
     (d) => (d.layers[0].nodes[0].id = d.layers[0].nodes[1].id),
     (d) => (d.layers[0].nodes[4].params.path.source = 'missing-source'),
-    (d) => (d.schemaVersion = 11),
+    (d) => (d.schemaVersion = 12),
     (d) => (d.layers = []),
   ]) {
     const doc = oldArtwork();
