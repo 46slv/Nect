@@ -165,7 +165,7 @@ try {
   await page.locator('[data-action="fit"]').click();
   // Numeric draft commits before the snapshot; a handle drag becomes a second undo step.
   const field = page.locator('.inspector-body .field[data-key="scale"] [data-value]');
-  await field.fill('0.95');
+  await field.fill('95'); // Inspector display is percent; authored scale remains 0.95.
   g = await start('scale');
   await move(g.scale.map((v, i) => v - g.axis[i] * g.radius * 0.1));
   await page.mouse.up();

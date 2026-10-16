@@ -97,9 +97,17 @@ try {
   await page.mouse.move(...sourceStart);
   await page.mouse.down();
   await page.mouse.move(sourceStart[0] + 30, sourceStart[1] + 20, { steps: 4 });
-  assert.notEqual(
+  assert.equal(
     await page.evaluate(() => JSON.stringify(window.nect.document)),
     beforeInterruptedDrag,
+    'Active gesture keeps committed history unchanged',
+  );
+  assert.notEqual(
+    await page.evaluate(() =>
+      JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+    ),
+    beforeInterruptedDrag,
+    'Active gesture changes the preview candidate',
   );
   await page.evaluate(() => {
     const pointerId = window.interruptedPointerId;
