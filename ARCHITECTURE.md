@@ -8,6 +8,8 @@ Status: M0 engineering baseline. Notion owns product requirements/decisions; thi
 
 The separate Desktop Mission lives under `desktop/`, with its adopted Brief in this worktree's CURRENT_GOAL.md. It uses Tauri/WebView2 and the imported Nect-SVG typed graph. Its common editing Session is JavaScript, independent of the DOM; Rust owns filesystem bindings and staged writes only. Supported GUI/headless/API adapters must share that Session's commands and history. Legacy C++/Qt and native formats remain preserved, separate implementations; no format/command equivalence is claimed. The imported callback History and UI direct edits are an explicit migration obligation, not a completed command architecture. DocumentLifecycle coordinates file lifetime and is not itself the editing Session.
 
+For migrated Text editing, CommandSession also owns temporary text drafts, stable character reconciliation and bounded native-input Undo snapshots. The UI captures observed text/selection/composition intent and renders provisional input; it cannot install authored character maps. Text/font commits validate private candidates and share the Session History. See `desktop/docs/nect-integration.md` for the remaining direct-edit migration debt.
+
 The baseline owners below continue to describe the legacy implementation.
 
 | Owner | Responsibility | Must not own |

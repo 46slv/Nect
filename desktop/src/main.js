@@ -40,13 +40,7 @@ import {
   readSystemFont,
   DocumentLifecycle,
 } from './storage.js';
-import {
-  parseFont,
-  makeFontAsset,
-  resolveFonts,
-  MAX_FONT_BYTES,
-  MAX_PROJECT_BYTES,
-} from './fonts.js';
+import { parseFont, resolveFonts, MAX_FONT_BYTES, MAX_PROJECT_BYTES } from './fonts.js';
 import {
   document as newDocument,
   blankDocument,
@@ -72,7 +66,6 @@ import {
   radialGradientSettings,
   closedOffsetSettings,
   assertClosedOffsetChange,
-  setTextPathAttachment,
   setTextWrap,
   textPathTargets,
   parameter,
@@ -124,7 +117,6 @@ import {
   setCharacterTransforms,
   resetCharacterTransforms,
   resetCharacterAdjustments,
-  reconcileCharacterEdit,
   objectResizeHandles,
   resizedObjectValue,
   transformHandleGeometry,
@@ -136,7 +128,10 @@ import {
 const app = document.querySelector('#app');
 const sessionOptions = {
   fonts: () => (bundledFont ? { default: bundledFont } : {}),
-  busy: () => !!(penDraft || drag || wiring || composing),
+  // A numeric pointer reservation first commits any typed value, before it
+  // captures a gesture snapshot. Only its started phase owns an authored edit.
+  busy: () =>
+    !!(penDraft || (drag && (drag.type !== 'numeric' || drag.started)) || wiring || composing),
 };
 let session = new CommandSession(newDocument(), sessionOptions);
 let history = session.legacyHistory,
@@ -173,7 +168,7 @@ const documents = new DocumentLifecycle({
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,
-  hasDraft: () => !!(penDraft || drag || wiring || composing),
+  hasDraft: () => !!(penDraft || drag || wiring || composing || session.hasTextComposition),
 });
 let openRequest = 0,
   imageRequest = 0,
@@ -201,10 +196,14 @@ function selectionSnapshot(withEditSelection = false) {
   };
 }
 function stepHistory(redo = false) {
+  if (session.hasTextComposition) {
+    notify('Finish or cancel text composition before Undo/Redo', true);
+    return;
+  }
   const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
-  redo ? history.redo() : history.undo();
+  session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
   const state = selectionHistory.get(history.doc);
   if (state) {
     ({ activeLayer, selected, artworkTarget } = state);
@@ -415,6 +414,12 @@ function resetTransient() {
   snapMatches = [];
   remapBatches.clear();
   characterEdit = null;
+  for (const draft of textDrafts.values())
+    session.dispatch({
+      ...session.state,
+      type: 'cancel-text-draft',
+      payload: { draftId: draft.state.draftId },
+    });
   textDrafts.clear();
   textRanges.clear();
   closeEditorDialog(document.querySelector('.character-choice'));
@@ -1480,22 +1485,6 @@ function typographyControls(context) {
       )}</div><button data-character-style-reset ${disabled ? 'disabled' : ''}>Reset selected typography</button>
     <p class="font-note">Width and vertical scale affect screen X and Y independently; the inline scale also reflows advances. Tracking adds px after each selected character except the last in its line; it does not replace pair kerning. Positive baseline shift moves up in horizontal text or right in vertical text, before rotation/shape scale/XY. Auto leading follows the adjusted metrics.</p></section>`;
 }
-function updateTypography(target, ids, patch, doc = history.doc, layer = current()) {
-  target.characterPositions = setCharacterStyles(
-    target.text,
-    target.characterPositions,
-    Object.fromEntries(ids.map((id) => [id, patch])),
-  );
-  doc.schemaVersion = Math.max(doc.schemaVersion, target.characterPositions?.version >= 4 ? 6 : 5);
-  validate(doc);
-  const check = evaluate(
-    { ...layer, output: target.id },
-    resolveFonts(doc, bundledFont ? { default: bundledFont } : {}),
-  );
-  if (check.error) throw Error(check.error);
-  const layout = check.textLayout(target.id);
-  if (layout.reason) throw Error(layout.reason);
-}
 function characterControls(n) {
   if (n.type !== 'Text') return '';
   const context = characterContext();
@@ -2370,7 +2359,7 @@ app.addEventListener('click', async (e) => {
       return;
     }
     const draft = textDrafts.get(id);
-    if (el.value !== sourceNode.text || (draft && draft.record !== sourceNode.characterPositions))
+    if (el.value !== sourceNode.text || draft?.state.changed)
       el.dispatchEvent(new Event('change', { bubbles: true }));
     try {
       const target = current().nodes.find((node) => node.id === id);
@@ -2423,8 +2412,9 @@ app.addEventListener('click', async (e) => {
     const patch = d.characterStyleInherit
       ? { [d.characterStyleInherit]: null }
       : Object.fromEntries(CHARACTER_STYLE_KEYS.map((key) => [key, null]));
-    change(
-      () => updateTypography(selectedNode(), [...characterEdit.selected], patch),
+    commandChange(
+      'set-character-style',
+      { nodeId: selectedNode().id, characterIds: [...characterEdit.selected], patch },
       'Selected typography reset',
     );
     return;
@@ -2781,6 +2771,7 @@ app.addEventListener('click', async (e) => {
       node: d.loadFont || d.loadCharacterFont,
       ...(d.loadCharacterFont ? { characters: [...(characterEdit?.selected || [])] } : {}),
       before: serialize(history.doc),
+      commandState: session.state,
     };
     const input = document.querySelector('#font-file');
     input.dataset.fontRequest = String(fontRequest.id);
@@ -2993,38 +2984,19 @@ function commitFont(bytes, name, request) {
       request.characters.join(',') !== [...(characterEdit?.selected || [])].join(','))
   )
     throw Error('Character selection changed while reading; load the font again');
-  const prepared = makeFontAsset(bytes, name, history.doc.fontAssets);
-  // Preflight lazy outlines and glyph coverage before touching the active document.
-  const candidate = cloneDocument(history.doc);
-  candidate.fontAssets = { ...candidate.fontAssets, [prepared.id]: prepared.asset };
-  const candidateLayer = candidate.layers.find((l) => l.id === request.layer);
-  const candidateText = candidateLayer.nodes.find(
-    (n) => n.id === request.node && n.type === 'Text',
-  );
-  if (!candidateText) throw Error('Text node no longer exists');
-  if (request.characters)
-    updateTypography(
-      candidateText,
-      request.characters,
-      { font: prepared.id },
-      candidate,
-      candidateLayer,
-    );
-  else candidateText.font = prepared.id;
-  const preflight = evaluate(
-    { ...candidateLayer, output: candidateText.id },
-    resolveFonts(candidate, bundledFont ? { default: bundledFont } : {}),
-  );
-  if (preflight.error) throw Error(preflight.error);
-  change(() => {
-    const target = current().nodes.find((n) => n.id === request.node && n.type === 'Text');
-    if (!target) throw Error('Text node no longer exists');
-    history.doc.fontAssets ||= {};
-    history.doc.fontAssets[prepared.id] = prepared.asset;
-    if (request.characters) updateTypography(target, request.characters, { font: prepared.id });
-    else target.font = prepared.id;
-    serialize(history.doc); // Enforce the whole-document bound before committing.
-  }, `Loaded ${prepared.asset.name} · saved JSON will include this font`);
+  const result = session.dispatch({
+    ...request.commandState,
+    type: 'adopt-font',
+    payload: {
+      layerId: request.layer,
+      nodeId: request.node,
+      bytes,
+      fileName: name,
+      ...(request.characters ? { characterIds: request.characters } : {}),
+    },
+  });
+  notify(`Loaded ${result.fontName} · saved JSON will include this font`);
+  render();
 }
 async function loadInstalledFont(id, nodeId, characters) {
   if (!id) return;
@@ -3043,6 +3015,7 @@ async function loadInstalledFont(id, nodeId, characters) {
     node: nodeId,
     ...(characters ? { characters } : {}),
     before: serialize(history.doc),
+    commandState: session.state,
   });
   notify(`Loading ${entry[1]}…`);
   render();
@@ -3073,58 +3046,64 @@ function textDraft(el) {
   const n = current().nodes.find((n) => n.id === el.dataset.text);
   if (!n) return null;
   let draft = textDrafts.get(n.id);
-  if (!draft || draft.saved !== n.text || draft.baseRecord !== n.characterPositions) {
-    draft = {
-      saved: n.text,
-      baseRecord: n.characterPositions,
-      raw: n.text,
-      record: n.characterPositions,
-      snapshots: [{ raw: n.text, record: n.characterPositions }],
-      cursor: 0,
-      capture: null,
-      composition: null,
-    };
+  if (
+    draft &&
+    draft.envelope.expectedRevision !== session.state.expectedRevision &&
+    el.value === n.text &&
+    !draft.composition
+  ) {
+    session.dispatch({
+      ...session.state,
+      type: 'cancel-text-draft',
+      payload: { draftId: draft.state.draftId },
+    });
+    textDrafts.delete(n.id);
+    draft = null;
+  }
+  if (!draft) {
+    const envelope = session.state;
+    try {
+      draft = {
+        saved: n.text,
+        envelope,
+        state: session.dispatch({
+          ...envelope,
+          type: 'begin-text-draft',
+          payload: { layerId: current().id, nodeId: n.id },
+        }),
+        capture: null,
+        composition: null,
+      };
+    } catch (error) {
+      notify(error.message, true);
+      return null;
+    }
     textDrafts.set(n.id, draft);
   }
   return draft;
 }
 function stageTextInput(el, transaction) {
   const draft = textDraft(el);
-  if (!draft) return;
-  const type = transaction?.inputType;
-  if (['historyUndo', 'historyRedo'].includes(type)) {
-    const index = draft.cursor + (type === 'historyUndo' ? -1 : 1),
-      snapshot = draft.snapshots[index];
-    if (snapshot?.raw === el.value) {
-      draft.cursor = index;
-      draft.raw = snapshot.raw;
-      draft.record = snapshot.record;
-      return;
-    }
-  }
-  if (
-    draft.raw === el.value &&
-    !(
-      transaction?.selectionEnd > transaction?.selectionStart &&
-      /^(insertText|insertFromPaste|insertFromDrop|insertReplacementText)$/.test(
-        transaction?.inputType || '',
-      )
-    )
-  )
-    return;
-  const updated = reconcileCharacterEdit(draft.record, {
-    previousRaw: draft.raw,
-    nextRaw: el.value,
-    ...transaction,
-  });
-  draft.raw = el.value;
-  draft.record = updated.record;
-  draft.snapshots = draft.snapshots.slice(0, draft.cursor + 1);
-  draft.snapshots.push({ raw: draft.raw, record: draft.record });
-  draft.cursor++;
-  if (draft.snapshots.length > 100) {
-    draft.snapshots.shift();
-    draft.cursor--;
+  if (!draft) return false;
+  try {
+    draft.state = session.dispatch({
+      ...draft.envelope,
+      type: 'stage-text-draft',
+      payload: {
+        draftId: draft.state.draftId,
+        expectedDraftRevision: draft.state.draftRevision,
+        action: transaction?.composition ? 'composition-end' : 'edit',
+        previousRaw: transaction?.previousRaw ?? draft.state.text,
+        nextRaw: el.value,
+        selectionStart: transaction?.selectionStart,
+        selectionEnd: transaction?.selectionEnd,
+        inputType: transaction?.inputType,
+      },
+    });
+    return true;
+  } catch (error) {
+    notify(error.message, true);
+    return false;
   }
 }
 app.addEventListener(
@@ -3197,6 +3176,20 @@ app.addEventListener('compositionstart', (e) => {
     selectionStart: el.selectionStart,
     selectionEnd: el.selectionEnd,
   };
+  try {
+    draft.state = session.dispatch({
+      ...draft.envelope,
+      type: 'stage-text-draft',
+      payload: {
+        draftId: draft.state.draftId,
+        expectedDraftRevision: draft.state.draftRevision,
+        action: 'composition-start',
+        ...draft.composition,
+      },
+    });
+  } catch (error) {
+    notify(error.message, true);
+  }
 });
 app.addEventListener('compositionend', (e) => {
   if (e.target.matches('[data-rename-name]')) {
@@ -3288,8 +3281,13 @@ app.addEventListener('change', async (e) => {
       notify('Enter a value or choose Inherit', true);
       return;
     }
-    change(
-      () => updateTypography(selectedNode(), [...characterEdit.selected], { [property]: value }),
+    commandChange(
+      'set-character-style',
+      {
+        nodeId: selectedNode().id,
+        characterIds: [...characterEdit.selected],
+        patch: { [property]: value },
+      },
       'Selected typography updated',
       true,
     );
@@ -3530,6 +3528,122 @@ app.addEventListener('change', async (e) => {
     });
     return;
   }
+  if (d.text) {
+    const draft = textDrafts.get(d.text);
+    try {
+      if (draft) {
+        if (draft.state.text !== el.value && !stageTextInput(el, draft.capture)) return;
+        session.dispatch({
+          ...draft.envelope,
+          type: 'commit-text-draft',
+          payload: {
+            draftId: draft.state.draftId,
+            expectedDraftRevision: draft.state.draftRevision,
+          },
+        });
+      } else
+        session.dispatch({
+          ...session.state,
+          type: 'set-text-content',
+          payload: {
+            layerId: current().id,
+            nodeId: d.text,
+            text: el.value,
+          },
+        });
+      textDrafts.delete(d.text);
+      notify('Updated');
+    } catch (error) {
+      notify(error.message, true);
+    }
+    scheduleRender();
+    return;
+  }
+  const settingEntry = [
+    ['font', 'font'],
+    ['referenceBounds', 'referenceBounds'],
+    ['crossAlignment', 'crossAlignment'],
+    ['textAlignment', 'alignment'],
+    ['textKerning', 'kerning'],
+    ['writingMode', 'writingMode'],
+  ].find(([key]) => d[key]);
+  const textSettingId =
+    d.textPath ||
+    d.textPathMode ||
+    d.textPathStart ||
+    d.textPathReversed ||
+    d.textWrap ||
+    d.textWrapWidth ||
+    d.textLeading ||
+    d.textLeadingValue ||
+    (settingEntry && d[settingEntry[0]]);
+  if (textSettingId) {
+    try {
+      const n = current().nodes.find((n) => n.id === textSettingId && n.type === 'Text');
+      if (!n) throw Error('Select a Text node');
+      let settings;
+      if (d.textPath || d.textPathMode || d.textPathStart || d.textPathReversed) {
+        let attachment = n.pathAttachment ? { ...n.pathAttachment } : null;
+        if (d.textPath) {
+          if (!el.value) attachment = null;
+          else {
+            const [nodeId, contourId] = JSON.parse(el.value);
+            attachment = {
+              nodeId,
+              contourId,
+              startMode: 'normalized',
+              start: { start: 0, center: 0.5, end: 1 }[n.alignment || 'start'],
+              reversed: false,
+            };
+          }
+        } else {
+          if (!attachment) throw Error('Select a path contour first');
+          if (d.textPathMode) {
+            const length = evaluate(current(), fonts, history.doc.imageAssets).textLayout(n.id)
+              .attachment.length;
+            attachment.start *= el.value === 'normalized' ? 1 / length : length;
+            attachment.startMode = el.value;
+          }
+          if (d.textPathStart) {
+            if (!el.value.trim()) throw Error('Enter a finite start anchor');
+            attachment.start = Number(el.value);
+          }
+          if (d.textPathReversed) attachment.reversed = el.checked;
+        }
+        settings = { pathAttachment: attachment };
+      } else if (d.textWrap || d.textWrapWidth) {
+        let wrap = null;
+        if (d.textWrap) {
+          if (!['off', 'width'].includes(el.value)) throw Error('Invalid wrap mode');
+          if (el.value === 'width') wrap = { width: 320 };
+        } else {
+          if (!el.value.trim()) throw Error('Enter a finite wrap width');
+          wrap = { width: Number(el.value) };
+        }
+        settings = { textWrap: wrap };
+      } else if (d.textLeading || d.textLeadingValue) {
+        let leading;
+        if (d.textLeading) {
+          if (el.value === 'legacy') leading = null;
+          else if (el.value === 'auto') leading = { mode: 'auto' };
+          else if (el.value === 'manual')
+            leading = { mode: 'manual', value: initialManualLeading(n) };
+          else throw Error('Invalid leading mode');
+        } else {
+          if (n.leading?.mode !== 'manual' || !el.value.trim())
+            throw Error('Enter a manual leading distance');
+          leading = { mode: 'manual', value: Number(el.value) };
+        }
+        settings = { leading };
+      } else
+        settings = { [settingEntry[1]]: settingEntry[1] === 'kerning' ? el.checked : el.value };
+      commandChange('set-text-settings', { nodeId: n.id, settings }, undefined, true);
+    } catch (error) {
+      notify(error.message, true);
+      scheduleRender();
+    }
+    return;
+  }
   if (d.value !== undefined || d.expression !== undefined || d.color !== undefined) {
     const field = el.closest('.field'),
       n = current().nodes.find((node) => node.id === field?.dataset.node),
@@ -3602,100 +3716,8 @@ app.addEventListener('change', async (e) => {
         else if (d.strokeJoin) n.strokeJoin = el.value;
         else n.strokeDash = parseStrokeDash(el.value);
         validateStrokeStyle(n);
-      } else if (d.text) {
-        const n = current().nodes.find((n) => n.id === d.text),
-          draft = textDrafts.get(n.id);
-        const record =
-          draft &&
-          draft.saved === n.text &&
-          draft.baseRecord === n.characterPositions &&
-          draft.raw === el.value
-            ? draft.record
-            : reconcileCharacterEdit(n.characterPositions, {
-                previousRaw: n.text,
-                nextRaw: el.value,
-              }).record;
-        n.text = el.value;
-        if (record) n.characterPositions = record;
-        else delete n.characterPositions;
-        textDrafts.delete(n.id);
-      } else if (d.textPath || d.textPathMode || d.textPathStart || d.textPathReversed) {
-        const id = d.textPath || d.textPathMode || d.textPathStart || d.textPathReversed,
-          n = current().nodes.find((n) => n.id === id);
-        let attachment = n.pathAttachment ? { ...n.pathAttachment } : null;
-        if (d.textPath) {
-          if (!el.value) attachment = null;
-          else {
-            const [nodeId, contourId] = JSON.parse(el.value);
-            attachment = {
-              nodeId,
-              contourId,
-              startMode: 'normalized',
-              start: { start: 0, center: 0.5, end: 1 }[n.alignment || 'start'],
-              reversed: false,
-            };
-          }
-        } else {
-          if (!attachment) throw Error('Select a path contour first');
-          if (d.textPathMode) {
-            const length = evaluate(current(), fonts, history.doc.imageAssets).textLayout(id)
-              .attachment.length;
-            attachment.start *= el.value === 'normalized' ? 1 / length : length;
-            attachment.startMode = el.value;
-          }
-          if (d.textPathStart) {
-            if (!el.value.trim()) throw Error('Enter a finite start anchor');
-            attachment.start = Number(el.value);
-          }
-          if (d.textPathReversed) attachment.reversed = el.checked;
-        }
-        setTextPathAttachment(current(), id, attachment, fonts, history.doc.imageAssets);
-        if (attachment) history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 7);
-      } else if (d.textWrap || d.textWrapWidth) {
-        const id = d.textWrap || d.textWrapWidth;
-        let wrap = null;
-        if (d.textWrap) {
-          if (!['off', 'width'].includes(el.value)) throw Error('Invalid wrap mode');
-          if (el.value === 'width') wrap = { width: 320 };
-        } else {
-          if (!el.value.trim()) throw Error('Enter a finite wrap width');
-          wrap = { width: Number(el.value) };
-        }
-        setTextWrap(current(), id, wrap, fonts, history.doc.imageAssets);
-        if (wrap) history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 8);
-        validate(history.doc);
-      } else if (d.textLeading || d.textLeadingValue) {
-        const n = current().nodes.find((n) => n.id === (d.textLeading || d.textLeadingValue));
-        if (d.textLeading) {
-          if (el.value === 'legacy') delete n.leading;
-          else if (el.value === 'auto') n.leading = { mode: 'auto' };
-          else if (el.value === 'manual')
-            n.leading = {
-              mode: 'manual',
-              value: initialManualLeading(n),
-            };
-          else throw Error('Invalid leading mode');
-        } else {
-          if (n.leading?.mode !== 'manual' || !el.value.trim())
-            throw Error('Enter a manual leading distance');
-          n.leading = { mode: 'manual', value: Number(el.value) };
-        }
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 6);
-        validate(history.doc);
-      } else if (d.font) current().nodes.find((n) => n.id === d.font).font = el.value;
-      else if (d.positionReference)
+      } else if (d.positionReference)
         current().nodes.find((n) => n.id === d.positionReference).positionReference = el.value;
-      else if (d.referenceBounds)
-        current().nodes.find((n) => n.id === d.referenceBounds).referenceBounds = el.value;
-      else if (d.crossAlignment)
-        current().nodes.find((n) => n.id === d.crossAlignment).crossAlignment = el.value;
-      else if (d.textAlignment) {
-        if (!['start', 'center', 'end'].includes(el.value)) throw Error('Invalid text alignment');
-        current().nodes.find((n) => n.id === d.textAlignment).alignment = el.value;
-      } else if (d.textKerning)
-        current().nodes.find((n) => n.id === d.textKerning).kerning = el.checked;
-      else if (d.writingMode)
-        current().nodes.find((n) => n.id === d.writingMode).writingMode = el.value;
       else if (d.layerName !== undefined) current().name = el.value;
       else if (d.dimension) {
         let v = Number(el.value);
@@ -5496,7 +5518,8 @@ window.nect = {
   },
   dispatch(command) {
     const result = session.dispatch(command);
-    render();
+    if (!['begin-text-draft', 'stage-text-draft', 'cancel-text-draft'].includes(command.type))
+      render();
     return result;
   },
   snapshot: () => session.snapshot(),

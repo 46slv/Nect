@@ -17,14 +17,27 @@ export {
 // The full build initializes PaperScript with new Function, which native CSP blocks.
 // Geometry needs only the core build; keep script-src free of unsafe-eval.
 import paper from 'paper/dist/paper-core.js';
-import { validateFontAssets, resolveFonts, MAX_PROJECT_BYTES, utf8ByteLength } from './fonts.js';
+import {
+  validateFontAssets,
+  resolveFonts,
+  makeFontAsset,
+  MAX_FONT_BYTES,
+  MAX_PROJECT_BYTES,
+  utf8ByteLength,
+} from './fonts.js';
 import { layoutText, validateLeading } from './text-layout.js';
 import { validateTextWrap } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
 import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
 import { fingerprint } from './fingerprint.js';
-import { validateCharacterPositions } from './character-identity.js';
+import {
+  validateCharacterPositions,
+  reconcileCharacterEdit,
+  normalizeCharacterText,
+  setCharacterStyles,
+} from './character-identity.js';
+import { TextDraft } from './text-draft.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
@@ -2210,10 +2223,27 @@ export class History {
 // Shared command entry for the staged Desktop migration. All migrated commands
 // commit to the same History the legacy UI still uses; there is no shadow graph.
 // legacyHistory is a temporary GUI integration bridge, not a public command API.
+export function updateTextTypography(target, ids, patch, doc, layer, fonts = {}) {
+  if (!Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string'))
+    throw Error('Select character IDs');
+  target.characterPositions = setCharacterStyles(
+    target.text,
+    target.characterPositions,
+    Object.fromEntries(ids.map((id) => [id, patch])),
+  );
+  doc.schemaVersion = Math.max(doc.schemaVersion, target.characterPositions?.version >= 4 ? 6 : 5);
+  validate(doc);
+  const check = evaluate({ ...layer, output: target.id }, resolveFonts(doc, fonts));
+  if (check.error) throw Error(check.error);
+  const layout = check.textLayout(target.id);
+  if (layout.reason) throw Error(layout.reason);
+}
+
 export class CommandSession {
   #history;
   #fonts;
   #busy;
+  #textDrafts = new Map();
   constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
     validate(doc);
     this.#history = new History(cloneDocument(doc));
@@ -2227,6 +2257,11 @@ export class CommandSession {
   get state() {
     return { sessionId: this.id, expectedRevision: this.#history.revision };
   }
+  get hasTextComposition() {
+    return [...this.#textDrafts.values()].some(
+      (draft) => draft.composition && draft.revision === this.#history.revision,
+    );
+  }
   snapshot() {
     return cloneDocument(this.#history.doc);
   }
@@ -2234,13 +2269,53 @@ export class CommandSession {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
     if (expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
-    if (this.#busy()) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      throw Error('Invalid command payload');
+    if (type === 'cancel-text-draft') {
+      this.#textDrafts.delete(payload.draftId);
+      return this.state;
+    }
+    if (type === 'begin-text-draft' || type === 'stage-text-draft') {
+      let draft,
+        draftId = payload.draftId;
+      if (type === 'begin-text-draft') {
+        const layer = this.#history.doc.layers.find((layer) => layer.id === payload.layerId),
+          node = layer?.nodes.find((node) => node.id === payload.nodeId && node.type === 'Text');
+        if (!node) throw Error('Select a Text node');
+        if (layer.locked) throw Error('Composition is locked');
+        for (const [id, pending] of this.#textDrafts) {
+          if (pending.layerId === layer.id && pending.nodeId === node.id) {
+            if (pending.composition && pending.revision === this.#history.revision)
+              throw Error('Finish or cancel text composition first');
+            this.#textDrafts.delete(id);
+          }
+        }
+        draftId = uid('text-draft');
+        draft = new TextDraft({
+          layerId: layer.id,
+          nodeId: node.id,
+          revision: this.#history.revision,
+          text: node.text,
+          record: node.characterPositions,
+        });
+        this.#textDrafts.set(draftId, draft);
+      } else {
+        draft = this.#textDrafts.get(draftId);
+        if (!draft) throw Error('STALE_TEXT_DRAFT: unknown draft');
+        const layer = this.#history.doc.layers.find((layer) => layer.id === draft.layerId),
+          node = layer?.nodes.find((node) => node.id === draft.nodeId);
+        if (layer?.locked) throw Error('Composition is locked');
+        draft.assertCurrent(node, this.#history.revision);
+        draft.stage(payload);
+      }
+      return { ...this.state, draftId, ...draft.state };
+    }
+    if (this.#busy() || this.hasTextComposition)
+      throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (type === 'undo' || type === 'redo') {
       this.#history[type]();
       return this.state;
     }
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
-      throw Error('Invalid command payload');
     if (
       ![
         'connect',
@@ -2249,12 +2324,24 @@ export class CommandSession {
         'set-parameter',
         'set-parameter-expression',
         'set-parameter-lock',
+        'set-text-content',
+        'commit-text-draft',
+        'set-text-settings',
+        'set-character-style',
+        'adopt-font',
       ].includes(type)
     )
       throw Error('Unsupported command');
+    let result = {};
+    const committingDraft =
+      type === 'commit-text-draft' ? this.#textDrafts.get(payload.draftId) : null;
+    if (type === 'commit-text-draft' && !committingDraft)
+      throw Error('STALE_TEXT_DRAFT: unknown draft');
     const before = this.#history.doc,
       candidate = cloneDocument(before);
-    const target = candidate.layers.find((layer) => layer.id === payload.layerId);
+    const target = candidate.layers.find(
+      (layer) => layer.id === (committingDraft?.layerId ?? payload.layerId),
+    );
     if (!target) throw Error('Missing composition');
     if (target.locked) throw Error('Composition is locked');
     if (type === 'connect')
@@ -2264,7 +2351,121 @@ export class CommandSession {
       if (!node) throw Error('Missing node');
       disconnect(node, payload.key);
     } else if (type === 'set-operation') setOperation(target, payload.nodeId, payload.operation);
-    else {
+    else if (type === 'set-text-content' || type === 'commit-text-draft') {
+      const node = target.nodes.find(
+        (node) => node.id === (committingDraft?.nodeId ?? payload.nodeId) && node.type === 'Text',
+      );
+      if (!node) throw Error('Select a Text node');
+      let text, record;
+      if (committingDraft) {
+        if (payload.expectedDraftRevision !== committingDraft.version)
+          throw Error('STALE_TEXT_DRAFT: input changed');
+        committingDraft.assertCurrent(node, this.#history.revision, payload.expectedDraftRevision);
+        text = committingDraft.raw;
+        record = clone(committingDraft.record);
+      } else {
+        text = payload.text;
+        normalizeCharacterText(text);
+        record = reconcileCharacterEdit(node.characterPositions, {
+          previousRaw: node.text,
+          nextRaw: text,
+          selectionStart: payload.selectionStart,
+          selectionEnd: payload.selectionEnd,
+          inputType: payload.inputType,
+          forceReplacement: payload.forceReplacement,
+        }).record;
+      }
+      node.text = text;
+      if (record) node.characterPositions = record;
+      else delete node.characterPositions;
+    } else if (['set-text-settings', 'set-character-style', 'adopt-font'].includes(type)) {
+      const node = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Text');
+      if (!node) throw Error('Select a Text node');
+      const baseFonts = this.#fonts();
+      if (type === 'set-text-settings') {
+        const settings = payload.settings;
+        if (
+          !settings ||
+          typeof settings !== 'object' ||
+          Array.isArray(settings) ||
+          Object.keys(settings).some(
+            (key) =>
+              ![
+                'font',
+                'leading',
+                'pathAttachment',
+                'textWrap',
+                'referenceBounds',
+                'crossAlignment',
+                'alignment',
+                'kerning',
+                'writingMode',
+              ].includes(key),
+          )
+        )
+          throw Error('Invalid Text settings');
+        for (const [key, value] of Object.entries(settings)) {
+          if (['leading', 'pathAttachment', 'textWrap'].includes(key) && value === null)
+            delete node[key];
+          else node[key] = clone(value);
+        }
+        if (Object.hasOwn(settings, 'leading'))
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, 6);
+        if (node.pathAttachment) candidate.schemaVersion = Math.max(candidate.schemaVersion, 7);
+        if (node.textWrap) candidate.schemaVersion = Math.max(candidate.schemaVersion, 8);
+        if (Object.hasOwn(settings, 'pathAttachment'))
+          setTextPathAttachment(
+            target,
+            node.id,
+            settings.pathAttachment,
+            resolveFonts(candidate, baseFonts),
+            candidate.imageAssets,
+          );
+        if (Object.hasOwn(settings, 'textWrap'))
+          setTextWrap(
+            target,
+            node.id,
+            settings.textWrap,
+            resolveFonts(candidate, baseFonts),
+            candidate.imageAssets,
+          );
+      } else if (type === 'set-character-style') {
+        updateTextTypography(
+          node,
+          payload.characterIds,
+          payload.patch,
+          candidate,
+          target,
+          baseFonts,
+        );
+      } else {
+        if (!(payload.bytes instanceof ArrayBuffer) || payload.bytes.byteLength > MAX_FONT_BYTES)
+          throw Error('Font bytes require an ArrayBuffer up to 20 MB');
+        const prepared = makeFontAsset(
+          payload.bytes.slice(0),
+          payload.fileName,
+          candidate.fontAssets,
+        );
+        candidate.fontAssets = { ...candidate.fontAssets, [prepared.id]: prepared.asset };
+        if (payload.characterIds !== undefined)
+          updateTextTypography(
+            node,
+            payload.characterIds,
+            { font: prepared.id },
+            candidate,
+            target,
+            baseFonts,
+          );
+        else node.font = prepared.id;
+        const preflight = evaluate(
+          { ...target, output: node.id },
+          resolveFonts(candidate, baseFonts),
+        );
+        if (preflight.error) throw Error(preflight.error);
+        serialize(candidate);
+        result = { fontId: prepared.id, fontName: prepared.asset.name };
+      }
+    } else {
       const node = target.nodes.find((node) => node.id === payload.nodeId),
         q = node && parameter(node, payload.key);
       if (!q) throw Error('Missing parameter');
@@ -2312,6 +2513,7 @@ export class CommandSession {
     this.#history.apply(() => {
       this.#history.doc = candidate;
     });
-    return this.state;
+    if (committingDraft) this.#textDrafts.delete(payload.draftId);
+    return { ...this.state, ...result };
   }
 }

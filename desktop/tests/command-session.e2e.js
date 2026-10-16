@@ -91,9 +91,77 @@ try {
   assert.equal(await field().locator('[data-expression]').isDisabled(), true);
   await clickUndo();
   assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), expressed);
+  await page.locator('[data-tool="Text"]').click();
+  await page
+    .locator('.graph .node')
+    .filter({ has: page.locator('[data-text]') })
+    .locator('.node-head strong')
+    .click();
+  const textSetup = await page.evaluate(async () => {
+    const { CommandSession } = await import('/src/core.js');
+    const before = window.nect.snapshot(),
+      layer = before.layers.at(-1),
+      text = layer.nodes.find((n) => n.type === 'Text');
+    const headless = new CommandSession(before);
+    headless.dispatch({
+      ...headless.state,
+      type: 'set-text-content',
+      payload: { layerId: layer.id, nodeId: text.id, text: '日本語 ABC' },
+    });
+    return {
+      before,
+      expected: headless.snapshot(),
+      revision: window.nect.commandState.expectedRevision,
+    };
+  });
+  const textInput = page.locator('.inspector-body textarea[data-text]');
+  await textInput.fill('日本語 ABC');
+  await textInput.dispatchEvent('change');
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), textSetup.expected);
+  const composingDraft = await page.evaluate(() => {
+    const snapshot = window.nect.snapshot(),
+      layer = snapshot.layers.at(-1),
+      text = layer.nodes.find((n) => n.type === 'Text');
+    const draft = window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'begin-text-draft',
+      payload: { layerId: layer.id, nodeId: text.id },
+    });
+    return window.nect.dispatch({
+      ...window.nect.commandState,
+      type: 'stage-text-draft',
+      payload: {
+        draftId: draft.draftId,
+        expectedDraftRevision: draft.draftRevision,
+        action: 'composition-start',
+        previousRaw: draft.text,
+        selectionStart: 0,
+        selectionEnd: 1,
+      },
+    });
+  });
+  await clickUndo();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), textSetup.expected);
+  await page.evaluate(
+    (draftId) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'cancel-text-draft',
+        payload: { draftId },
+      }),
+    composingDraft.draftId,
+  );
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    textSetup.revision + 1,
+  );
+  await clickUndo();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), textSetup.before);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), textSetup.expected);
   assert.deepEqual(errors, []);
   console.log(
-    'PASS GUI operation/property controls equal headless commands; shared one-step Undo/API Redo, monotonic revision, stale refusal, expression validation and locks.',
+    'PASS GUI operation/property/Text controls equal headless commands; shared one-step Undo/API Redo, monotonic revision, stale refusal, expression validation and locks.',
   );
 } finally {
   await browser.close();

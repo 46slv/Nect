@@ -76,6 +76,7 @@ try {
   // Reload via the real file chooser, with an empty in-memory font cache.
   const opening = page.waitForEvent('filechooser');
   await page.locator('[data-action="open"]').click();
+  await page.locator('dialog button[value="discard"]').click();
   await (await opening).setFiles('test-results/japanese-vertical-project.json');
   await page.waitForTimeout(150);
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
