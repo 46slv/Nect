@@ -891,3 +891,49 @@ path is closed. Linked-only disappearing roles, other source inputs/shapes,
 conversion, active cancellation, stale/foreign producers, cold-process/socket,
 full CTest, physical/subjective and Requirement/Mission closure remain unclaimed.
 Earlier native proofs retain their original owner/source bindings.
+
+## 2026-10-16 native linked-only angular role and source editing
+
+An independent original Star fixture had no Point Edit at all. An unrelated
+Rectangle width referenced `moving-source-outer-1-5/x`, so only an external Ref
+protected that rational angular role. REQ-197's topology correspondence boundary
+was exercised separately from the corrected/dormant-override guard above.
+
+Complete manual native-valid original, expanded, radius-edited and foreign
+documents, typed Session/History, trigonometric coordinates, external Ref values,
+full raster oracles and fixed pixel samples existed before Window construction.
+Native actual HEAD was `71de640407cd27605d21293a126366ee343c188a`, unchanged
+production `4879d02f1849bba810d1870736ea055693db923b`, with only CURRENT_GOAL.md
+dirty. The original Session at revision 3 had both Undo and Redo.
+
+PID 93144 / HWND 17113286, Windows/Qt 6.5.3, accepted actual Canvas selection
+and real Properties key submissions. Points=6 displayed
+`MISSING_REFERENCE: moving/moving-source-outer-1-5/x` and preserved the complete
+native/preview/History/pixels/revision 3 and points=10. Points=20 committed
+revision 4 with 40 vertices, retaining the same role and binding; linked width
+remained 19.854101966249686. Outer radius 60 to 90 then committed revision 5,
+moving that point X to 207.81152949374527 and linked width to
+20.78115294937453. No Point Edit was created.
+
+Actual Toolbar Undo twice and Redo twice matched complete expected Sessions and
+pixels at revisions 6 through 9. All 16 idle native records matched all seven
+expected stages, with source IDs, external binding, transforms, selection, zoom,
+foreign Session, Host and workspace marker preserved. Exact saved bytes and a
+distinct Host in the same process reopened the full expected document and pixels
+while retaining the live final History. The owned process closed, Cua ended,
+and the exact mutex was free/non-abandoned/released/disposed.
+
+Receipt:
+`C:/Users/shiro/.codex/scratch/01a1425b-3073-7e93-9a03-00d30eb4f768/linked-checkpoint.json`,
+SHA256 `163BE914AABDE3177118668AFF411629983B3197035246CA68EA2ECBD64A7A87`,
+binds 51 artifacts, including pre-native source identity and full independent
+oracles. Probe AA8920D2 / binary 1D52AF0C. A final-stage pixel-map label in the
+owned observer was corrected before Window construction; product code was not
+changed. Driver delivery remained synthetic/accessibility/global input and
+unverifiable; native records and grounded screenshots establish the outcomes.
+
+This exact linked-only Star role/refusal/accepted topology/radius path passed
+without product RED or repair. Other shapes/expressions, conversion, stale plans,
+native active cancellation, foreign active producers, cold-process/socket/full
+CTest/Host-platform and Requirement/Mission completion remain unclaimed.
+All earlier proofs retain their original source and owner identities.
