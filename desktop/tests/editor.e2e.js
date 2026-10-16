@@ -196,8 +196,8 @@ try {
   assert.notEqual(await page.locator('.shape').getAttribute('d'), initial);
   for (const action of ['Open JSON', 'Import SVG', 'New document']) {
     const beforeCancel = await page.evaluate(() => JSON.stringify(window.nect.document));
-    page.once('dialog', (dialog) => dialog.dismiss());
     await page.getByRole('button', { name: action, exact: true }).click();
+    await page.locator('dialog[open] button[value="cancel"]').click();
     assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeCancel);
   }
   await page.getByLabel('Add node', { exact: true }).selectOption('Value');
@@ -483,9 +483,9 @@ try {
   await page.screenshot({ path: 'test-results/editor-curve-scroll.png', fullPage: true });
   // Practical editable fixture, with browser file input and a source-node edit at 1920×1080.
   await page.setViewportSize({ width: 1920, height: 1080 });
-  page.once('dialog', (dialog) => dialog.accept());
   const choosing = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: 'Open JSON', exact: true }).click();
+  await page.locator('dialog[open] button[value="discard"]').click();
   await (await choosing).setFiles('examples/vr-converters.json');
   await page.waitForFunction(() => window.nect.document.name.includes('V/R Converters'));
   assert.equal(await page.locator('.shape').count(), 4);
