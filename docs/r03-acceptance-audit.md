@@ -891,4 +891,3 @@ path is closed. Linked-only disappearing roles, other source inputs/shapes,
 conversion, active cancellation, stale/foreign producers, cold-process/socket,
 full CTest, physical/subjective and Requirement/Mission closure remain unclaimed.
 Earlier native proofs retain their original owner/source bindings.
-
