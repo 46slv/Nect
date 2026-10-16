@@ -632,3 +632,42 @@ not physical input. Correction reuse, incoming/linked handles, cancellation,
 stale/foreign active producers, other shapes, cold-process reopen, full CTest,
 physical/subjective/platform and whole Requirement/Mission acceptance remain
 separate. Earlier proofs keep their original source/owner bindings.
+## 2026-10-16 native incoming handle reuses existing Point Edit and Ref
+
+At actual native HEAD `7fd1fad254b3891ffb00abf9f158c6b1096a65c5`, original
+production `4879d02` passed another accepted REQ-197 obligation without repair.
+Only CURRENT_GOAL metadata was dirty. Receipt:
+`C:/Users/shiro/.codex/scratch/01a14216-6573-7e30-b8d3-bf7e8bb33821/handle-reuse-checkpoint.json`
+SHA256 `60D4A298D65D6DDF6B8C6750F54B01F0CDDBE714347F1E1BC63848518C98BBB6`.
+
+Full manual native-valid original/expected/foreign Documents and separate typed
+Session/History were fixed before Window creation. The original Circle has
+radius 50, transform `world=(200-local_y,240+2*local_x)`, existing east outgoing
+angle 15/length 35 overrides, and a second Object's generator.width linked to
+the east incoming handle length. Initial revision 3 has both Undo and Redo.
+
+Actual Windows Qt6.5.3 PID90880/HWND3414666 Canvas/Direct Rail/east-anchor
+selection and external 2400ms/40-step incoming-handle drag by world `(+10,-60)`
+(local `(-30,-10)`) matched full expected Document/preview/native bytes/typed
+History at revision 4. The same Point Edit ID `moving-source-point-edit` now
+contains four overrides: existing outgoing angle/length remain exactly 15/35;
+incoming angle/length become -128.57482372332157/48.11268920014708. The stable
+incoming-length Ref stays authored, and its external width evaluates to the
+same new length. Source, anchor `(50,0)`, other points/objects and transform
+remain as manually specified. Inspector shows four overrides on one point.
+
+All 40 observed active samples (39 during handle drag, one selection press)
+preserve committed original Document/History/revision 3, source, foreign
+Session, workspace and zoom 1. Actual Toolbar Undo/Redo match full typed
+Sessions at revisions 5/6, including external width restoration. Exact Host
+Save/distinct same-process Host matches full expected native bytes and leaves
+the live Redo Session intact. Owned process closed, Cua session ended and exact
+mutex was free, nonabandoned, released and disposed.
+
+Probe `0059D0B53E79BA83FE7B1D8780980EED1C6AA78D420BFA149BC845ED09FFEDD1`,
+binary `51F654BA8837C7D2AB96A20ADCA1BB4C88FF455D6BF1A80066AC1138911F1B0E`.
+Driver accessibility/synthetic_events/global_input reports are unverifiable;
+native records and grounded screenshots prove outcomes, not physical input.
+Driven edited fields, cancel/stale/foreign active producers, other shapes,
+cold-process reopen, full CTest and whole Requirement/Mission remain separate.
+Previous proof keeps its original HEAD, not this later documentation checkpoint.
