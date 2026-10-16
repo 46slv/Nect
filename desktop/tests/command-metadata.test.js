@@ -140,3 +140,64 @@ test('locked layer permits visibility and unlock, but refuses graph, rename and 
     /STALE_REVISION/,
   );
 });
+
+test('guide commands retain manual identities through layout replacement, locks and failed edits', () => {
+  const { session: s, dispatch } = fixture();
+  const { guideId } = dispatch('create-guide', { axis: 'x' });
+  dispatch('set-layout-grid', {
+    config: { columns: 2, rows: 2, marginX: 20, marginY: 20, gutterX: 10, gutterY: 10 },
+  });
+  dispatch('set-guide', { guideId, key: 'locked', value: true });
+  const before = s.snapshot(),
+    state = s.state;
+  for (const [type, payload] of [
+    ['delete-guide', { guideId }],
+    ['set-guide', { guideId, key: 'position', value: 42 }],
+    ['set-guide-setting', { key: 'guides', value: [] }],
+    ['set-guide-setting', { key: 'snap', value: 'yes' }],
+  ]) {
+    assert.throws(() => dispatch(type, payload));
+    assert.deepEqual(s.snapshot(), before);
+    assert.deepEqual(s.state, state);
+  }
+  dispatch('set-layout-grid', { config: null });
+  assert.deepEqual(s.snapshot().editor.guides, [
+    before.editor.guides.find((g) => g.id === guideId),
+  ]);
+  dispatch('undo');
+  assert.deepEqual(s.snapshot(), before);
+});
+
+test('point and Remap commands retain stable point IDs and roll back failed late targets', () => {
+  const { session: s, dispatch } = fixture();
+  const { nodeId: curveId } = dispatch('create-node', { nodeType: 'Curve' });
+  const { nodeId: remapId } = dispatch('create-node', { nodeType: 'Path Remap' });
+  dispatch('connect', { sourceId: curveId, nodeId: remapId, key: 'path' });
+  const points = s.snapshot().layers[0].nodes.find((n) => n.id === curveId).points;
+  dispatch('set-point-mode', { nodeId: curveId, pointId: points[0].id, mode: 'symmetric' });
+  dispatch('edit-remap', {
+    nodeId: remapId,
+    action: 'translate',
+    pointIds: [points[0].id],
+    delta: [5, 6],
+  });
+  const before = s.snapshot(),
+    state = s.state;
+  assert.throws(() =>
+    dispatch('edit-remap', {
+      nodeId: remapId,
+      action: 'translate',
+      pointIds: [points[0].id, 'foreign'],
+      delta: [7, 8],
+    }),
+  );
+  assert.deepEqual(s.snapshot(), before);
+  assert.deepEqual(s.state, state);
+  dispatch('delete-point', { nodeId: curveId, pointId: points[1].id });
+  assert.equal(
+    s.snapshot().layers[0].nodes.find((n) => n.id === curveId).points[1].id,
+    points[2].id,
+  );
+  dispatch('undo');
+  assert.deepEqual(s.snapshot(), before);
+});

@@ -35,6 +35,64 @@ function fixture() {
   return { session, send, text, begin, stage, commit, current };
 }
 
+test('character commands preserve mixed transforms and maps, reject partial IDs and share reset/Undo/Redo', () => {
+  const f = fixture(),
+    before = f.session.snapshot();
+  f.send('set-character-transforms', { characterIds: ['c1'], patch: { rotation: 35 } });
+  f.send('set-character-transforms', { characterIds: ['c2'], patch: { rotation: -12, scale: 2 } });
+  f.send('set-character-transforms', { characterIds: ['c1', 'c2'], patch: { scale: 3 } });
+  assert.deepEqual(f.current().characterPositions.transforms, {
+    c1: { rotation: 35, scale: 3 },
+    c2: { rotation: -12, scale: 3 },
+  });
+  const moved = f.current().characterPositions.offsets.c2;
+  assert.deepEqual(moved, [12, -7]);
+  f.send('reset-character-adjustments', { mode: 'transforms', characterIds: ['c1'] });
+  const preserved = f.session.snapshot(),
+    state = f.session.state;
+  for (const [type, payload] of [
+    ['set-character-offsets', { changes: { c1: [4, 5], foreign: [6, 7] } }],
+    ['set-character-transforms', { characterIds: ['c1', 'foreign'], patch: { scale: 4 } }],
+    ['set-character-transforms', { characterIds: ['c1'], patch: { scale: 0 } }],
+    ['set-character-transforms', { characterIds: ['c1'], patch: { text: 'injected' } }],
+    ['reset-character-adjustments', { mode: 'foreign' }],
+  ]) {
+    assert.throws(() => f.send(type, payload));
+    assert.deepEqual(f.session.snapshot(), preserved);
+    assert.deepEqual(f.session.state, state);
+  }
+  f.send('reset-character-adjustments', { mode: 'all' });
+  const reset = f.session.snapshot();
+  f.send('undo');
+  assert.deepEqual(f.session.snapshot(), preserved);
+  const revision = f.session.state.expectedRevision;
+  f.send('set-character-offsets', { changes: { c2: moved } });
+  assert.equal(f.session.state.expectedRevision, revision);
+  f.send('redo');
+  assert.deepEqual(f.session.snapshot(), reset);
+  assert.equal(f.current().text, before.layers[0].nodes.at(-1).text);
+});
+
+test('pair commands validate layout and stable ordered pairs before committing', () => {
+  const f = fixture(),
+    data = fs.readFileSync(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url));
+  f.send('adopt-font', {
+    bytes: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+    fileName: 'Fixture',
+  });
+  f.send('set-character-kerning', { changes: { 'c1:c2': -55 } });
+  assert.equal(f.current().characterPositions.kerningPairs['c1:c2'], -55);
+  const before = f.session.snapshot(),
+    state = f.session.state;
+  assert.throws(() => f.send('set-character-kerning', { changes: { 'c1:c2': 20, 'c1:c3': 25 } }));
+  assert.deepEqual(f.session.snapshot(), before);
+  assert.deepEqual(f.session.state, state);
+  f.send('set-character-kerning', { changes: { 'c1:c2': null } });
+  assert.deepEqual(f.current().characterPositions.kerningPairs, {});
+  f.send('undo');
+  assert.deepEqual(f.session.snapshot(), before);
+});
+
 test('Session draft owns repeated-character replacements and native Undo/Redo; commit is one document edit', () => {
   const f = fixture(),
     before = serialize(f.session.snapshot()),

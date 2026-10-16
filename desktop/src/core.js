@@ -14,7 +14,7 @@ import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
-import { validateGuides } from './guides.js';
+import { validateGuides, guideDefaults, setLayoutGrid } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
 export {
@@ -48,6 +48,12 @@ import {
   reconcileCharacterEdit,
   normalizeCharacterText,
   setCharacterStyles,
+  setCharacterOffsets,
+  setCharacterTransforms,
+  resetCharacterOffsets,
+  resetCharacterTransforms,
+  resetCharacterAdjustments,
+  setCharacterKerningPairs,
 } from './character-identity.js';
 import { TextDraft } from './text-draft.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
@@ -2436,8 +2442,19 @@ export class CommandSession {
       });
       return { ...this.state, ...result, changed: revision !== this.#history.revision };
     }
-    if (['set-layer-state', 'set-document-settings'].includes(type)) {
+    if (
+      [
+        'set-layer-state',
+        'set-document-settings',
+        'set-guide-setting',
+        'create-guide',
+        'set-guide',
+        'delete-guide',
+        'set-layout-grid',
+      ].includes(type)
+    ) {
       const candidate = cloneDocument(this.#history.doc);
+      let result = {};
       if (type === 'set-layer-state') {
         const layer = candidate.layers.find((layer) => layer.id === payload.layerId);
         if (!layer) throw Error('Missing composition');
@@ -2448,15 +2465,47 @@ export class CommandSession {
           throw Error('Invalid layer state');
         if (layer.locked && payload.key === 'guide') throw Error('Composition is locked');
         layer[payload.key] = payload.value;
-      } else {
+      } else if (type === 'set-document-settings') {
         if (!['width', 'height'].includes(payload.key)) throw Error('Invalid document setting');
         candidate[payload.key] = payload.value;
+      } else {
+        const aids = (candidate.editor ||= guideDefaults());
+        if (type === 'set-guide-setting') {
+          if (!Object.hasOwn(guideDefaults(), payload.key) || payload.key === 'guides')
+            throw Error('Invalid guide setting');
+          aids[payload.key] = clone(payload.value);
+        } else if (type === 'set-layout-grid')
+          setLayoutGrid(candidate, clone(payload.config), () => uid('guide'));
+        else {
+          if (aids.locked) throw Error('Guides are locked');
+          if (type === 'create-guide') {
+            const guide = {
+              id: uid('guide'),
+              axis: payload.axis,
+              position: candidate[payload.axis === 'x' ? 'width' : 'height'] / 2,
+              locked: false,
+            };
+            aids.guides.push(guide);
+            result = { guideId: guide.id };
+          } else {
+            const guide = aids.guides.find((g) => g.id === payload.guideId);
+            if (!guide) throw Error('Missing guide');
+            if (type === 'delete-guide') {
+              if (guide.locked) throw Error('Guide is locked');
+              aids.guides = aids.guides.filter((g) => g !== guide);
+            } else {
+              if (!['locked', 'position'].includes(payload.key)) throw Error('Invalid guide field');
+              if (payload.key === 'position' && guide.locked) throw Error('Guide is locked');
+              guide[payload.key] = clone(payload.value);
+            }
+          }
+        }
       }
       validate(candidate);
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
-      return this.state;
+      return { ...this.state, ...result };
     }
     if (
       ![
@@ -2470,6 +2519,10 @@ export class CommandSession {
         'commit-text-draft',
         'set-text-settings',
         'set-character-style',
+        'set-character-offsets',
+        'set-character-transforms',
+        'set-character-kerning',
+        'reset-character-adjustments',
         'adopt-font',
         'rename',
         'create-node',
@@ -2479,6 +2532,10 @@ export class CommandSession {
         'set-node-bypassed',
         'set-reference',
         'set-node-settings',
+        'create-point',
+        'delete-point',
+        'set-point-mode',
+        'edit-remap',
       ].includes(type)
     )
       throw Error('Unsupported command');
@@ -2542,6 +2599,72 @@ export class CommandSession {
         connect(target, source.id, paint.id, 'path');
         connect(target, paint.id, target.output, 'path');
       } else connect(target, source.id, target.output, 'path');
+    } else if (['create-point', 'delete-point', 'set-point-mode'].includes(type)) {
+      const item = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Curve');
+      if (!item) throw Error('Select a Curve node');
+      if (type === 'create-point') {
+        const created = point(...(payload.position ?? [400, 300]));
+        item.points.push(created);
+        result = { pointId: created.id };
+      } else {
+        const pt = item.points.find((pt) => pt.id === payload.pointId);
+        if (!pt) throw Error('Missing point');
+        if (type === 'delete-point') item.points = item.points.filter((p) => p !== pt);
+        else {
+          if (!['corner', 'smooth', 'symmetric'].includes(payload.mode))
+            throw Error('Invalid handle type');
+          if (
+            payload.mode !== 'corner' &&
+            (pt.handleA.locked || pt.handleA.source || pt.handleA.expression)
+          )
+            throw Error('Handle A is locked or driven; unlock before changing coupled handle mode');
+          pt.handleType = payload.mode;
+          if (payload.mode === 'symmetric') pt.handleA.value = pt.handleB.value.map((v) => -v);
+          else if (payload.mode === 'smooth') {
+            const length = Math.hypot(...pt.handleA.value),
+              mag = Math.hypot(...pt.handleB.value);
+            if (mag) pt.handleA.value = pt.handleB.value.map((v) => (-v / mag) * length);
+          }
+        }
+      }
+    } else if (type === 'edit-remap') {
+      const item = target.nodes.find(
+        (node) => node.id === payload.nodeId && node.type === 'Path Remap',
+      );
+      if (!item) throw Error('Select a Path Remap node');
+      if (payload.action === 'clear') item.edits = [];
+      else {
+        const input = evaluate(
+          target,
+          resolveFonts(candidate, this.#fonts()),
+          candidate.imageAssets,
+        ).run(item.params.path.source);
+        if (payload.action === 'translate')
+          translateRemapPoints(item, input, payload.pointIds, payload.delta);
+        else if (payload.action === 'enable') enableRemapPoint(item, input, payload.pointId);
+        else if (payload.action === 'rebind') rebindRemapPoint(item, input, payload.pointId);
+        else if (payload.action === 'set') {
+          if (
+            !['position', 'handleA', 'handleB'].includes(payload.component) ||
+            ![0, 1].includes(payload.axis)
+          )
+            throw Error('Invalid remap field');
+          assertValue('Scalar', payload.value);
+          if (!input.contours.some((c) => c.points.some((p) => p.id === payload.pointId)))
+            throw Error('Missing remap target');
+          let edit = item.edits.find((e) => e.pointId === payload.pointId);
+          if (edit?.params) throw Error('Use the parameter command for enabled remap values');
+          if (!edit) {
+            edit = {
+              pointId: payload.pointId,
+              ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
+            };
+            item.edits.push(edit);
+          }
+          edit[payload.component] ||= [0, 0];
+          edit[payload.component][payload.axis] = payload.value;
+        } else throw Error('Invalid remap action');
+      }
     } else if (type === 'set-node-bypassed') {
       setNodeBypassed(target, payload.nodeId, payload.bypassed);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 10);
@@ -2605,6 +2728,81 @@ export class CommandSession {
       node.text = text;
       if (record) node.characterPositions = record;
       else delete node.characterPositions;
+    } else if (
+      [
+        'set-character-offsets',
+        'set-character-transforms',
+        'set-character-kerning',
+        'reset-character-adjustments',
+      ].includes(type)
+    ) {
+      const node = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Text');
+      if (!node) throw Error('Select a Text node');
+      let next;
+      if (type === 'set-character-offsets')
+        next = setCharacterOffsets(node.text, node.characterPositions, payload.changes);
+      else if (type === 'set-character-kerning')
+        next = setCharacterKerningPairs(node.text, node.characterPositions, payload.changes);
+      else if (type === 'set-character-transforms') {
+        if (
+          !Array.isArray(payload.characterIds) ||
+          !payload.characterIds.length ||
+          new Set(payload.characterIds).size !== payload.characterIds.length ||
+          !payload.patch ||
+          typeof payload.patch !== 'object' ||
+          Array.isArray(payload.patch) ||
+          Object.keys(payload.patch).some((key) => !['rotation', 'scale'].includes(key))
+        )
+          throw Error('Invalid character transform selection or patch');
+        next = setCharacterTransforms(
+          node.text,
+          node.characterPositions,
+          Object.fromEntries(
+            payload.characterIds.map((id) => [
+              id,
+              {
+                rotation: 0,
+                scale: 1,
+                ...node.characterPositions?.transforms?.[id],
+                ...payload.patch,
+              },
+            ]),
+          ),
+        );
+      } else {
+        if (!['all', 'offsets', 'transforms'].includes(payload.mode))
+          throw Error('Invalid character reset mode');
+        next =
+          payload.mode === 'all'
+            ? resetCharacterAdjustments(node.text, node.characterPositions)
+            : payload.mode === 'offsets'
+              ? resetCharacterOffsets(node.text, node.characterPositions, payload.characterIds)
+              : resetCharacterTransforms(node.text, node.characterPositions, payload.characterIds);
+      }
+      if (next) {
+        node.characterPositions = next;
+        candidate.schemaVersion = Math.max(
+          candidate.schemaVersion,
+          next.version >= 5
+            ? 9
+            : next.version >= 4
+              ? 6
+              : next.version >= 3
+                ? 5
+                : next.version >= 2
+                  ? 4
+                  : 3,
+        );
+      }
+      if (type === 'set-character-kerning') {
+        const check = evaluate(
+          { ...target, output: node.id },
+          resolveFonts(candidate, this.#fonts()),
+          candidate.imageAssets,
+        );
+        if (check.error) throw Error(check.error);
+        if (check.textLayout(node.id).reason) throw Error(check.textLayout(node.id).reason);
+      }
     } else if (['set-text-settings', 'set-character-style', 'adopt-font'].includes(type)) {
       const node = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Text');
       if (!node) throw Error('Select a Text node');

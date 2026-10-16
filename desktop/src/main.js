@@ -68,8 +68,6 @@ import {
   socketCompatible,
   evaluate,
   enableRemapPoint,
-  rebindRemapPoint,
-  translateRemapPoints,
   pathData,
   signature,
   connect,
@@ -90,7 +88,6 @@ import {
   pathBounds,
   layoutGridDefaults,
   layoutGridLines,
-  setLayoutGrid,
   characterOccurrences,
   inverseCharacterDelta,
   characterBoxPoints,
@@ -103,10 +100,7 @@ import {
   CHARACTER_STYLE_KEYS,
   characterIdsInRange,
   createCharacterPositions,
-  resetCharacterOffsets,
   setCharacterTransforms,
-  resetCharacterTransforms,
-  resetCharacterAdjustments,
   objectResizeHandles,
   resizedObjectValue,
   transformHandleGeometry,
@@ -337,47 +331,6 @@ function scheduleRender() {
       pendingRender = null;
       if (!pointerActive) render();
     }, 0);
-}
-function change(fn, text, deferRender = false) {
-  if (penDraft) {
-    notify('Finish or cancel the draft path before editing properties', true);
-    return;
-  }
-  const previousUI = {
-    selected,
-    activeLayer,
-    artworkTarget,
-    artworkSelection: new Set(artworkSelection),
-    selection: new Set(selection),
-    penId,
-  };
-  try {
-    if (current().locked) throw Error('Composition is locked');
-    const previous = current().nodes.some(
-      (n) => n.type === 'Closed Path Offset' || n.pathAttachment || n.textWrap,
-    )
-      ? clone(current())
-      : null;
-    const previousFonts = resolveFonts(history.doc, bundledFont ? { default: bundledFont } : {});
-    history.apply((doc) => {
-      fn(doc);
-      assertClosedOffsetChange(
-        current(),
-        previous,
-        resolveFonts(history.doc, bundledFont ? { default: bundledFont } : {}),
-        history.doc.imageAssets,
-        previousFonts,
-      );
-    });
-    notify(text || 'Updated');
-    if (deferRender) scheduleRender();
-    else render();
-  } catch (e) {
-    ({ selected, activeLayer, artworkTarget, artworkSelection, selection, penId } = previousUI);
-    notify(e.message, true);
-    if (deferRender) scheduleRender();
-    else render();
-  }
 }
 function commandChange(type, payload, text, deferRender = false) {
   let result = null;
@@ -1089,18 +1042,9 @@ function render(resetView = false, artworkResolution = null) {
     drawWires();
   });
 }
-function editGuides(fn) {
-  try {
-    history.apply((doc) => {
-      doc.editor ||= guideDefaults();
-      fn(doc.editor);
-    });
-    snapMatches = [];
-    notify('Editing aids updated');
-  } catch (err) {
-    notify(err.message, true);
-  }
-  render();
+function editGuides(type, payload) {
+  snapMatches = [];
+  return commandChange(type, payload, 'Editing aids updated');
 }
 function layerShown(l) {
   return l.visible && (!l.guide || guideSettings(history.doc).visible);
@@ -1441,17 +1385,6 @@ function pairKerningControls(context) {
     ? pair.rows.map((g) => (g.whitespace ? '[space]' : esc(g.text))).join(' | ')
     : 'Select exactly two adjacent characters';
   return `<section class="pair-kerning" aria-label="Pair kerning"><h4>Pair kerning</h4><p>${shown}${pair ? ` · source ${pair.rows.map((g) => g.sourceIndex + 1).join(', ')} · ${pair.manual ? 'Manual' : 'Inherited'}` : ''}</p><label>Pair kerning (1/1000 em)<input type="number" min="-100000" max="100000" step="any" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-kerning="${pair?.key || ''}" data-kerning-node="${esc(context.n.id)}" data-kerning-text="${esc(JSON.stringify(context.n.text))}" aria-label="Pair kerning (1/1000 em)" placeholder="${pair && !pair.manual ? `Inherited (${pair.value})` : ''}" value="${pair?.manual ? pair.value : ''}" ${disabled ? 'disabled' : ''}></label><button data-character-kerning-inherit ${disabled || !pair?.manual ? 'disabled' : ''}>Inherit pair</button>${pair?.dormant ? '<p class="font-note">At a wrap break; applies when these characters share a line.</p>' : ''}<p class="font-note">${pair ? `${Number(pair.value.toFixed(5))} units / ${Number(pair.pixels.toFixed(5))} px. ` : ''}Manual values replace this pair’s font kerning; 0 explicitly removes it. Tracking remains additive. The left character’s font size and inline scale determine the em distance. Use Kerning at cursor above or select exactly two adjacent characters.</p></section>`;
-}
-function updatePairKerning(target, key, value) {
-  const next = setCharacterKerningPairs(target.text, target.characterPositions, { [key]: value });
-  if (next !== target.characterPositions) {
-    target.characterPositions = next;
-    history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 9);
-  }
-  validate(history.doc);
-  const check = evaluate({ ...current(), output: target.id }, fonts, history.doc.imageAssets);
-  if (check.error) throw Error(check.error);
-  if (check.textLayout(target.id).reason) throw Error(check.textLayout(target.id).reason);
 }
 function typographyControls(context) {
   const disabled =
@@ -2406,7 +2339,12 @@ app.addEventListener('click', async (e) => {
   if (d.characterKerningInherit !== undefined) {
     const context = characterContext(),
       pair = pairContext(context);
-    if (pair) change(() => updatePairKerning(context.n, pair.key, null), 'Pair kerning inherited');
+    if (pair)
+      commandChange(
+        'set-character-kerning',
+        { nodeId: context.n.id, changes: { [pair.key]: null } },
+        'Pair kerning inherited',
+      );
     return;
   }
   if (d.characterStyleReset !== undefined || d.characterStyleInherit !== undefined) {
@@ -2458,32 +2396,20 @@ app.addEventListener('click', async (e) => {
   if (d.characterShapeReset !== undefined) {
     const context = characterContext();
     if (!context?.selected.length || context.layout.reason) return;
-    change(() => {
-      const target = selectedNode();
-      if (target.characterPositions)
-        target.characterPositions = resetCharacterTransforms(
-          target.text,
-          target.characterPositions,
-          [...characterEdit.selected],
-        );
-    }, 'Character shapes reset');
+    commandChange(
+      'reset-character-adjustments',
+      { nodeId: context.n.id, mode: 'transforms', characterIds: [...characterEdit.selected] },
+      'Character shapes reset',
+    );
     return;
   }
   if (d.characterReset) {
-    change(
-      () => {
-        const target = selectedNode();
-        if (!target || target.type !== 'Text' || !target.characterPositions) return;
-        const next =
-          d.characterReset === 'all'
-            ? resetCharacterAdjustments(target.text, target.characterPositions)
-            : resetCharacterOffsets(target.text, target.characterPositions, [
-                ...characterEdit.selected,
-              ]);
-        if (next) {
-          target.characterPositions = next;
-          history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
-        }
+    commandChange(
+      'reset-character-adjustments',
+      {
+        nodeId: selectedNode()?.id,
+        mode: d.characterReset === 'all' ? 'all' : 'offsets',
+        ...(d.characterReset === 'all' ? {} : { characterIds: [...characterEdit.selected] }),
       },
       d.characterReset === 'all' ? 'All character adjustments reset' : 'Character XY offsets reset',
     );
@@ -2497,11 +2423,11 @@ app.addEventListener('click', async (e) => {
   }
   if (d.layoutApply !== undefined || d.layoutRemove !== undefined) {
     try {
-      history.apply((doc) =>
-        setLayoutGrid(doc, d.layoutRemove !== undefined ? null : layoutConfig(), () =>
-          uid('guide'),
-        ),
-      );
+      session.dispatch({
+        ...session.state,
+        type: 'set-layout-grid',
+        payload: { config: d.layoutRemove !== undefined ? null : layoutConfig() },
+      });
       layoutDraft = null;
       layoutPreview = false;
       selectedGuide = null;
@@ -2527,18 +2453,11 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.addGuide) {
-    editGuides((a) => {
-      if (a.locked) throw Error('Guides are locked');
-      if (a.guides.length >= 200) throw Error('Maximum 200 guides');
-      const g = {
-        id: uid('guide'),
-        axis: d.addGuide,
-        position: history.doc[d.addGuide === 'x' ? 'width' : 'height'] / 2,
-        locked: false,
-      };
-      a.guides.push(g);
-      selectedGuide = g.id;
-    });
+    const result = editGuides('create-guide', { axis: d.addGuide });
+    if (result) {
+      selectedGuide = result.guideId;
+      render();
+    }
     return;
   }
   if (d.selectGuide) {
@@ -2547,15 +2466,15 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.lockGuide || d.deleteGuide) {
-    editGuides((a) => {
-      const g = a.guides.find((g) => g.id === (d.lockGuide || d.deleteGuide));
-      if (a.locked || (d.deleteGuide && g.locked)) throw Error('Guide is locked');
-      if (d.lockGuide) g.locked = !g.locked;
-      else {
-        a.guides = a.guides.filter((x) => x !== g);
-        if (selectedGuide === g.id) selectedGuide = null;
-      }
-    });
+    const guideId = d.lockGuide || d.deleteGuide,
+      guide = guideSettings(history.doc).guides.find((g) => g.id === guideId);
+    const result = d.lockGuide
+      ? editGuides('set-guide', { guideId, key: 'locked', value: !guide?.locked })
+      : editGuides('delete-guide', { guideId });
+    if (result && d.deleteGuide && selectedGuide === guideId) {
+      selectedGuide = null;
+      render();
+    }
     return;
   }
   if (d.action) {
@@ -2696,7 +2615,7 @@ app.addEventListener('click', async (e) => {
             );
           break;
         case 'snap':
-          editGuides((aids) => (aids.snap = !aids.snap));
+          editGuides('set-guide-setting', { key: 'snap', value: !guideSettings(history.doc).snap });
           break;
         case 'guides-panel':
           guidesOpen = !guidesOpen;
@@ -2926,51 +2845,38 @@ app.addEventListener('click', async (e) => {
       render();
     }
   }
-  if (d.addPoint)
-    change(
-      () =>
-        current()
-          .nodes.find((x) => x.id === d.addPoint)
-          .points.push(point(400, 300)),
-      'Point added',
-    );
+  if (d.addPoint) commandChange('create-point', { nodeId: d.addPoint }, 'Point added');
   if (d.deletePoint)
-    change(() => {
-      let nn = current().nodes.find((x) => x.id === d.node);
-      nn.points = nn.points.filter((x) => x.id !== d.deletePoint);
-    }, 'Point removed');
+    commandChange('delete-point', { nodeId: d.node, pointId: d.deletePoint }, 'Point removed');
   if (d.clearBatch) {
     remapBatch(d.clearBatch).selected.clear();
     render();
   }
   if (d.applyBatch)
-    change(() => {
-      const nn = current().nodes.find((n) => n.id === d.applyBatch),
-        batch = remapBatch(nn.id);
-      translateRemapPoints(
-        nn,
-        evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source),
-        [...batch.selected],
-        batch.delta,
-      );
-    }, 'Selected points moved as one edit');
-  if (d.rebindRemap)
-    change(() => {
-      const nn = current().nodes.find((n) => n.id === d.node),
-        input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
-      rebindRemapPoint(nn, input, d.rebindRemap);
-    }, 'Retained edit explicitly rebound to the current point');
-  if (d.enableRemap)
-    change(() => {
-      const nn = current().nodes.find((n) => n.id === d.node),
-        input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
-      enableRemapPoint(nn, input, d.enableRemap);
-    }, 'Point Value / Expression / Node Input controls enabled');
-  if (d.clearEdits)
-    change(
-      () => (current().nodes.find((x) => x.id === d.clearEdits).edits = []),
-      'Vertex edits cleared',
+    commandChange(
+      'edit-remap',
+      {
+        nodeId: d.applyBatch,
+        action: 'translate',
+        pointIds: [...remapBatch(d.applyBatch).selected],
+        delta: remapBatch(d.applyBatch).delta,
+      },
+      'Selected points moved as one edit',
     );
+  if (d.rebindRemap)
+    commandChange(
+      'edit-remap',
+      { nodeId: d.node, action: 'rebind', pointId: d.rebindRemap },
+      'Retained edit explicitly rebound to the current point',
+    );
+  if (d.enableRemap)
+    commandChange(
+      'edit-remap',
+      { nodeId: d.node, action: 'enable', pointId: d.enableRemap },
+      'Point Value / Expression / Node Input controls enabled',
+    );
+  if (d.clearEdits)
+    commandChange('edit-remap', { nodeId: d.clearEdits, action: 'clear' }, 'Vertex edits cleared');
 });
 function commitFont(bytes, name, request) {
   if (fontRequest?.id !== request.id) return;
@@ -3247,8 +3153,9 @@ app.addEventListener('change', async (e) => {
       notify('Enter a value or choose Inherit pair', true);
       return;
     }
-    change(
-      () => updatePairKerning(context.n, pair.key, Number(el.value)),
+    commandChange(
+      'set-character-kerning',
+      { nodeId: context.n.id, changes: { [pair.key]: Number(el.value) } },
       'Pair kerning updated',
       true,
     );
@@ -3305,23 +3212,12 @@ app.addEventListener('change', async (e) => {
       return;
     }
     if (context?.selected.length && !context.layout.reason)
-      change(
-        () => {
-          const next = setCharacterTransforms(
-            context.n.text,
-            context.n.characterPositions,
-            Object.fromEntries(
-              context.selected.map((g) => [
-                g.id,
-                { rotation: g.rotation, scale: g.scale, [property]: value },
-              ]),
-            ),
-          );
-          if (next) {
-            context.n.characterPositions = next;
-            if (next.version === 2)
-              history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 4);
-          }
+      commandChange(
+        'set-character-transforms',
+        {
+          nodeId: context.n.id,
+          characterIds: context.selected.map((g) => g.id),
+          patch: { [property]: value },
         },
         'Character shapes updated',
         true,
@@ -3337,13 +3233,14 @@ app.addEventListener('change', async (e) => {
       return;
     }
     if (context?.selected.length)
-      change(
-        () =>
-          writeCharacterChanges(
-            Object.fromEntries(
-              context.selected.map((g) => [g.id, g.offset.map((v, i) => (i === axis ? value : v))]),
-            ),
+      commandChange(
+        'set-character-offsets',
+        {
+          nodeId: context.n.id,
+          changes: Object.fromEntries(
+            context.selected.map((g) => [g.id, g.offset.map((v, i) => (i === axis ? value : v))]),
           ),
+        },
         'Character positions updated',
         true,
       );
@@ -3475,23 +3372,18 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (d.guideSetting || d.guidePosition) {
-    editGuides((a) => {
-      if (d.guideSetting) {
-        if (d.guideSetting === 'gridSize') {
-          const value = Number(el.value);
-          if (!el.value.trim() || !Number.isFinite(value) || value < 1 || value > 10000)
-            throw Error('Grid spacing must be between 1 and 10000');
-          a.gridSize = value;
-        } else a[d.guideSetting] = el.checked;
-      } else {
-        const g = a.guides.find((g) => g.id === d.guidePosition),
-          value = Number(el.value);
-        if (a.locked || g.locked) throw Error('Guide is locked');
-        if (!el.value.trim() || !Number.isFinite(value) || Math.abs(value) > 100000)
-          throw Error('Guide position must be between -100000 and 100000');
-        g.position = value;
-      }
-    });
+    if (d.guideSetting)
+      editGuides('set-guide-setting', {
+        key: d.guideSetting,
+        value:
+          d.guideSetting === 'gridSize' ? (el.value.trim() ? Number(el.value) : NaN) : el.checked,
+      });
+    else
+      editGuides('set-guide', {
+        guideId: d.guidePosition,
+        key: 'position',
+        value: el.value.trim() ? Number(el.value) : NaN,
+      });
     return;
   }
   if (el.id === 'add-node') {
@@ -3738,42 +3630,27 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
-  change(
-    () => {
-      if (d.handleType) {
-        let pt = current()
-          .nodes.find((n) => n.id === d.node)
-          .points.find((p) => p.id === d.handleType);
-        if (
-          el.value !== 'corner' &&
-          (pt.handleA.locked || pt.handleA.source || pt.handleA.expression)
-        )
-          throw Error('Handle A is locked or driven; unlock before changing coupled handle mode');
-        pt.handleType = el.value;
-        if (el.value === 'symmetric') pt.handleA.value = pt.handleB.value.map((v) => -v);
-        else if (el.value === 'smooth') {
-          const length = Math.hypot(...pt.handleA.value),
-            mag = Math.hypot(...pt.handleB.value);
-          if (mag) pt.handleA.value = pt.handleB.value.map((v) => (-v / mag) * length);
-        }
-      } else if (d.remap) {
-        let nn = current().nodes.find((n) => n.id === d.node),
-          input = evaluate(current(), fonts, history.doc.imageAssets).run(nn.params.path.source);
-        let edit = nn.edits.find((x) => x.pointId === d.remap);
-        if (!edit) {
-          edit = {
-            pointId: d.remap,
-            ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
-          };
-          nn.edits.push(edit);
-        }
-        if (!edit[d.component]) edit[d.component] = [0, 0];
-        edit[d.component][Number(d.axis)] = Number(el.value);
-      }
-    },
-    undefined,
-    true,
-  );
+  if (d.handleType)
+    commandChange(
+      'set-point-mode',
+      { nodeId: d.node, pointId: d.handleType, mode: el.value },
+      undefined,
+      true,
+    );
+  else if (d.remap)
+    commandChange(
+      'edit-remap',
+      {
+        nodeId: d.node,
+        action: 'set',
+        pointId: d.remap,
+        component: d.component,
+        axis: Number(d.axis),
+        value: Number(el.value),
+      },
+      undefined,
+      true,
+    );
 });
 function canvasPoint(event) {
   let svg = document.querySelector('.artboard'),
@@ -5340,13 +5217,14 @@ document.addEventListener('keydown', (e) => {
           e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
           e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
         ]);
-      change(
-        () =>
-          writeCharacterChanges(
-            Object.fromEntries(
-              context.selected.map((g) => [g.id, g.offset.map((v, i) => v + delta[i])]),
-            ),
+      commandChange(
+        'set-character-offsets',
+        {
+          nodeId: context.n.id,
+          changes: Object.fromEntries(
+            context.selected.map((g) => [g.id, g.offset.map((v, i) => v + delta[i])]),
           ),
+        },
         'Character positions updated',
       );
       document.querySelector('.canvas-stage').focus({ preventScroll: true });
@@ -5419,13 +5297,11 @@ document.addEventListener('keydown', (e) => {
     render();
   }
   if (e.key === 'Delete' && selectedGuide) {
-    editGuides((a) => {
-      const guide = a.guides.find((g) => g.id === selectedGuide);
-      if (!guide) return;
-      if (a.locked || guide.locked) throw Error('Guide is locked');
-      a.guides = a.guides.filter((g) => g.id !== selectedGuide);
+    const result = editGuides('delete-guide', { guideId: selectedGuide });
+    if (result) {
       selectedGuide = null;
-    });
+      render();
+    }
     return;
   }
   if (e.key === 'Delete' && artworkTarget) {
