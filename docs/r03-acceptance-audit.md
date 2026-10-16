@@ -1460,3 +1460,33 @@ It binds137 artifacts, the two pre-native freezes and diagnoses, original failur
 logs, native/offscreen results and final focused/full test logs. Native product
 source is7db6fb869332ffea73f1f6bc43a43244caf10513; final test candidate blob
 6298b8a9fab5fe9d92c5421606c43599e3002ae5. No product repair was made.
+
+## One artwork from blank through save and reuse — 2026-10-16
+
+The latest human steering replaced unbounded native-input variant collection with
+one finite A/B/C production flow. No product implementation gap blocked that flow,
+so product source was not changed and valid suites were not replayed.
+
+The same960x640 artwork was authored through normal production Window UI using an
+owned INI/FolderLibrary/recovery launcher linked to unchanged01ee913 libraries:
+Margin48, Grid3x2 with gutters24/16, Guide240, retained Rectangle, Japanese Text,
+embedded existing JPEG and a three-point Pen Path; point handle, placement, color,
+alignment and Group edits; one Width expression edited960-112 to960-96 and Toolbar
+Undo/Redo. Native Save As, normal exit and a new process/Session reopen preserved
+full native bytes exactly. A Group-name-only re-edit and normal save then passed.
+SVG and960x640 PNG were exported through UI; these precede only that nonvisual rename.
+
+Receipt: C:/Users/shiro/.codex/scratch/01a14350-86f7-77e2-acf7-62bff0f0e907/artwork-checkpoint.json
+SHA2567FD83E787E768EBE431F76499D91FDA75F7815E66B02F5DDE23D70AED0F4EA97.
+Artifacts: the same OWN/artwork/one-artwork.nect, one-artwork.svg, one-artwork.png
+and reopened-window.png. Normal-close processes98004/98560 exited; Cua session ended.
+
+A first synchronous Cua UIA menu invocation into the native image chooser timed
+out300s. Bytes were preserved before stopping owned94168. A later keyboard/menu
+route completed the chooser; no shared-service/settings restart or product repair.
+Some Qt background key and Unicode SendInput routes failed; actual field/native
+readback established the successful route. This is external-input/production-Window
+integration, not physical, subjective, packaged-main/global-settings, whole L1/R03
+or Mission acceptance. Original proof bindings remain historical; no new variants
+were added to Done. Recovery uses the existing integrated evidence and the observed
+owned previous-file backup; no new power-loss durability qualification is claimed.
