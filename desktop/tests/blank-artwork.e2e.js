@@ -13,7 +13,11 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => (accept ? d.accept() : d.dismiss()));
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const load = (s) => page.evaluate((s) => window.nect.load(s), s);
-const click = (action) => page.locator(`[data-action="${action}"]`).click();
+const click = async (action) => {
+  await page.locator(`[data-action="${action}"]`).click();
+  if (action === 'new' && (await page.locator('dialog[open] button[value="discard"]').count()))
+    await page.locator(`dialog[open] button[value="${accept ? 'discard' : 'cancel'}"]`).click();
+};
 const xy = (p) =>
   page.locator('.artboard').evaluate((svg, p) => {
     const q = new DOMPoint(...p).matrixTransform(svg.getScreenCTM());
@@ -67,10 +71,11 @@ try {
   await point([300, 260]);
   await page.locator('.canvas-stage').press('ArrowRight');
   assert.equal(await snapshot(), blank);
-  await click('undo');
-  assert.equal(await snapshot(), demo);
-  assert.equal(await page.locator('.node.selected').count(), 1);
-  await click('redo');
+  assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+  await page.keyboard.press('Control+z');
+  assert.equal(await snapshot(), blank);
+  assert.equal(await page.locator('.node.selected').count(), 0);
+  await page.keyboard.press('Control+Shift+z');
   assert.equal(await snapshot(), blank);
   assert.equal(await page.locator('.shape').count(), 0);
   const saved = await download('save', 'json'),
@@ -148,12 +153,16 @@ try {
   await point([200, 100]);
   await point([360, 180]);
   await click('new');
+  assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+  await page.locator('.canvas-stage').press('Enter');
+  assert.equal(JSON.parse(await snapshot()).layers.length, 2);
+  await click('new');
   assert.equal(JSON.parse(await snapshot()).layers[0].nodes.length, 1);
   assert.equal(await page.locator('[data-pen-draft]').count(), 0);
-  await click('undo');
-  assert.equal(JSON.parse(await snapshot()).layers.length, 2);
-  assert.equal(await page.locator('.inspector-body h3').innerText(), 'Artwork · Curve');
-  await click('redo');
+  await page.keyboard.press('Control+z');
+  assert.equal(JSON.parse(await snapshot()).layers.length, 1);
+  assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+  await page.keyboard.press('Control+Shift+z');
   assert.equal(await page.locator('.shape').count(), 0);
   // +Blank appends from hidden/locked old work; +Demo remains an explicit separate action.
   await load(demo);

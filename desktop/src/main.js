@@ -96,6 +96,7 @@ import {
   exportSVG,
   renderElement,
   History,
+  CommandSession,
   constrainAxisDrag,
   scrubNumericValues,
   guideDefaults,
@@ -132,7 +133,12 @@ import {
   rotationFromHandle,
 } from './core.js';
 const app = document.querySelector('#app');
-let history = new History(newDocument()),
+const sessionOptions = {
+  fonts: () => (bundledFont ? { default: bundledFont } : {}),
+  busy: () => !!(penDraft || drag || wiring || composing),
+};
+let session = new CommandSession(newDocument(), sessionOptions);
+let history = session.legacyHistory,
   activeLayer = history.doc.layers[0].id,
   selected = history.doc.layers[0].nodes[0].id,
   artworkTarget = null,
@@ -381,6 +387,15 @@ function change(fn, text, deferRender = false) {
     if (deferRender) scheduleRender();
     else render();
   }
+}
+function commandChange(type, payload, text) {
+  try {
+    session.dispatch({ ...session.state, type, payload: { layerId: current().id, ...payload } });
+    notify(text || 'Updated');
+  } catch (error) {
+    notify(error.message, true);
+  }
+  render();
 }
 function resetTransient() {
   discardPenDraft();
@@ -2260,7 +2275,8 @@ function updateDocumentStatus() {
 }
 function replaceDocument(next, { binding = null, saved = false } = {}) {
   resetTransient();
-  history = new History(next);
+  session = new CommandSession(next, sessionOptions);
+  history = session.legacyHistory;
   documents.replace({ binding, saved });
   activeLayer = next.layers[0].id;
   selected = current().nodes[0]?.id;
@@ -2827,11 +2843,9 @@ app.addEventListener('click', async (e) => {
       const [sourceId, sourcePort] = source.startsWith('[')
         ? JSON.parse(source)
         : [source, undefined];
-      change(
-        () =>
-          source
-            ? connect(current(), sourceId, nn.id, f.dataset.key, false, sourcePort)
-            : disconnect(nn, f.dataset.key),
+      commandChange(
+        source ? 'connect' : 'disconnect',
+        { sourceId, sourcePort, nodeId: nn.id, key: f.dataset.key },
         'Connection updated',
       );
       closeEditorDialog(dialog);
@@ -3491,6 +3505,19 @@ app.addEventListener('change', async (e) => {
     if (el.value) addNode(el.value);
     return;
   }
+  if (d.operation) {
+    commandChange('set-operation', { nodeId: d.operation, operation: el.value });
+    return;
+  }
+  if (d.pathSource !== undefined) {
+    const field = el.closest('.field');
+    commandChange(el.value ? 'connect' : 'disconnect', {
+      sourceId: el.value,
+      nodeId: field.dataset.node,
+      key: field.dataset.key,
+    });
+    return;
+  }
   change(
     () => {
       if (d.referenceTarget) {
@@ -3504,8 +3531,7 @@ app.addEventListener('change', async (e) => {
         const n = current().nodes.find((n) => n.id === d.vectorPositionHandle);
         if (n?.type !== 'Vector') throw Error('Canvas position handle needs a Vector');
         n.canvasPositionHandle = el.checked;
-      } else if (d.operation) setOperation(current(), d.operation, el.value);
-      else if (d.strokeCap || d.strokeJoin || d.strokeDash) {
+      } else if (d.strokeCap || d.strokeJoin || d.strokeDash) {
         const n = current().nodes.find(
           (n) => n.id === (d.strokeCap || d.strokeJoin || d.strokeDash),
         );
@@ -3647,10 +3673,7 @@ app.addEventListener('change', async (e) => {
         let nn = current().nodes.find((n) => n.id === f.dataset.node),
           q = parameter(nn, f.dataset.key);
         if (q.locked) throw Error('Parameter is locked');
-        if (d.pathSource !== undefined) {
-          if (el.value) connect(current(), el.value, nn.id, f.dataset.key);
-          else disconnect(nn, f.dataset.key);
-        } else if (d.color !== undefined) {
+        if (d.color !== undefined) {
           if (q.source) throw Error('Disconnect input before editing its fallback');
           const color = { ...(q.value || { hex: current().fill, alpha: 1 }) };
           if (d.color === 'alpha') {
@@ -5005,17 +5028,15 @@ document.addEventListener('pointerup', (e) => {
     let f = e.target.closest('.graph .field');
     if (w.disconnect) {
       if (!f)
-        change(
-          () =>
-            disconnect(
-              current().nodes.find((n) => n.id === w.node),
-              w.key,
-            ),
+        commandChange(
+          'disconnect',
+          { nodeId: w.node, key: w.key },
           'Disconnected; fallback restored',
         );
     } else if (f)
-      change(
-        () => connect(current(), w.source, f.dataset.node, f.dataset.key, false, w.port),
+      commandChange(
+        'connect',
+        { sourceId: w.source, sourcePort: w.port, nodeId: f.dataset.node, key: f.dataset.key },
         'Connected',
       );
     return;
@@ -5085,14 +5106,7 @@ app.addEventListener('contextmenu', (e) => {
   if (input) {
     e.preventDefault();
     let f = input.closest('.field');
-    change(
-      () =>
-        disconnect(
-          current().nodes.find((n) => n.id === f.dataset.node),
-          f.dataset.key,
-        ),
-      'Disconnected',
-    );
+    commandChange('disconnect', { nodeId: f.dataset.node, key: f.dataset.key }, 'Disconnected');
   }
 });
 app.addEventListener(
@@ -5474,6 +5488,15 @@ document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
+  get commandState() {
+    return session.state;
+  },
+  dispatch(command) {
+    const result = session.dispatch(command);
+    render();
+    return result;
+  },
+  snapshot: () => session.snapshot(),
   get document() {
     // Legacy debug adapter; migrate with the editing command Session as one unit.
     return history.doc;

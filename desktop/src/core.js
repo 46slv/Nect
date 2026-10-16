@@ -2161,6 +2161,7 @@ export class History {
     this.past = [];
     this.future = [];
     this.doc = doc;
+    this.revision = 0;
   }
   apply(fn) {
     let before = cloneDocument(this.doc);
@@ -2174,6 +2175,7 @@ export class History {
     this.record(before);
   }
   record(before) {
+    this.revision++;
     this.past.push(before);
     this.future = [];
     const retainedFontBytes = () => {
@@ -2191,14 +2193,79 @@ export class History {
   }
   undo() {
     if (this.past.length) {
+      this.revision++;
       this.future.push(this.doc);
       this.doc = this.past.pop();
     }
   }
   redo() {
     if (this.future.length) {
+      this.revision++;
       this.past.push(this.doc);
       this.doc = this.future.pop();
     }
+  }
+}
+
+// Shared command entry for the staged Desktop migration. All migrated commands
+// commit to the same History the legacy UI still uses; there is no shadow graph.
+// legacyHistory is a temporary GUI integration bridge, not a public command API.
+export class CommandSession {
+  #history;
+  #fonts;
+  #busy;
+  constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
+    validate(doc);
+    this.#history = new History(cloneDocument(doc));
+    this.#fonts = fonts;
+    this.#busy = busy;
+    this.id = uid('session');
+  }
+  get legacyHistory() {
+    return this.#history;
+  }
+  get state() {
+    return { sessionId: this.id, expectedRevision: this.#history.revision };
+  }
+  snapshot() {
+    return cloneDocument(this.#history.doc);
+  }
+  dispatch({ sessionId, expectedRevision, type, payload = {} }) {
+    if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
+    if (expectedRevision !== this.#history.revision)
+      throw Error('STALE_REVISION: document changed');
+    if (this.#busy()) throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    if (type === 'undo' || type === 'redo') {
+      this.#history[type]();
+      return this.state;
+    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload))
+      throw Error('Invalid command payload');
+    if (!['connect', 'disconnect', 'set-operation'].includes(type))
+      throw Error('Unsupported command');
+    const before = this.#history.doc,
+      candidate = cloneDocument(before);
+    const target = candidate.layers.find((layer) => layer.id === payload.layerId);
+    if (!target) throw Error('Missing composition');
+    if (target.locked) throw Error('Composition is locked');
+    if (type === 'connect')
+      connect(target, payload.sourceId, payload.nodeId, payload.key, false, payload.sourcePort);
+    else if (type === 'disconnect') {
+      const node = target.nodes.find((node) => node.id === payload.nodeId);
+      if (!node) throw Error('Missing node');
+      disconnect(node, payload.key);
+    } else setOperation(target, payload.nodeId, payload.operation);
+    validate(candidate);
+    assertClosedOffsetChange(
+      target,
+      before.layers.find((layer) => layer.id === target.id),
+      resolveFonts(candidate, this.#fonts()),
+      candidate.imageAssets,
+      resolveFonts(before, this.#fonts()),
+    );
+    this.#history.apply(() => {
+      this.#history.doc = candidate;
+    });
+    return this.state;
   }
 }
