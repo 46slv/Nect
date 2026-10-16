@@ -1102,3 +1102,42 @@ closure remain unclaimed. The preceding eight-digit proof keeps actual6773088b.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a14293-714a-7700-9bf9-16788e7ec439/gradient-alpha-checkpoint.json`,
 SHA256 `83597933D2F4858DCF86A49F4953F34B4737CDF317424C6E5F83ADFDDB2EB0EF`.
+
+## 2026-10-16 native Object opacity expression entry
+
+Original native HEAD `71ed02a800d060c6721ac4f6fd6087a2e1c5d3fa`, production
+`4879d02`, passed this R02/R03 / Confirmed REQ-42 subset without product RED or
+repair. Only Brief metadata was dirty during production input. Windows Qt6.5.3,
+PID95244/HWND22088434; source B972D7B8, executable 0AB66B5A.
+
+Before Window construction, independent complete original/expected/foreign native
+documents round-tripped, manual intended Document matched a typed Session command,
+and complete History and artwork-pixel stages were fixed. Initial revision3 had
+both Undo and Redo. Actual Canvas selection and Inspector Object opacity draft
+followed by native Return applied `ref("source","","composite.opacity") * 0.5`
+at revision4. Evaluation became .35 and a stable Ref consumer became .275, while
+the authored literal .812345678901234 and every unrelated field stayed intact.
+Actual Toolbar Undo5 and Redo6 matched the full typed History/native/pixel oracles.
+All13 authored records matched;12 post-ready records retained zoom1. The first
+pre-ready zoom.02 record also matched the original full authored state and is
+excluded only from the post-ready view claim. The selection generation was
+independently fixed before Window:0 before selection and1 afterwards.
+
+Preparation run01 closed with the original intact before Return: Cua type_text
+had appended to existing numeric text. Final run02 used UIA SetValue, then native
+End/Left/Delete to remove one trailing space and establish a modified draft.
+The entire original Session remained intact until Return. Expected Document and
+History were never adjusted after production input. A preliminary summary query
+over-applied settled zoom1 to startup; its correction classified that startup
+record without changing source/oracles or replaying actions.
+
+Exact Host Save bytes and distinct same-process Host reopen matched, including
+full artwork pixels. Host identity, foreign Session/History and owned workspace
+persisted. Process closed normally, Cua ended, exact mutex free/non-abandoned.
+Background accessibility/synthetic events and grounded screenshots establish
+outcomes; physical input, invalid expressions, stale/foreign incoming producers,
+active gestures, transport parity, cold/external process and whole Requirement
+or Mission closure remain unclaimed. Unchanged product tests were not replayed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a142b4-81a8-7970-8054-6b128ade5c1c/opacity-expression-checkpoint.json`,
+SHA256 `A00B2E3FFABC77BB83A82A32D7A7EC55A9484A13687A65F04B07DB0C74E8AC06`.
