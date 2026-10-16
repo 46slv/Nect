@@ -185,6 +185,12 @@ try {
       await begin();
       await point([300, 350]);
       if (count === 2) await point([440, 400], [470, 420]);
+      if (action === 'save') {
+        await page.locator('[data-action="save"]').click();
+        assert.match(await page.locator('.message').textContent(), /Finish or cancel/);
+        assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+        await page.locator('[data-pen-finish]').click();
+      }
       const bytes = await download(action, ext, `workflow-pen-finish-${action}-${count}`),
         current = JSON.parse(await snapshot());
       assert.equal(await page.locator('[data-pen-draft]').count(), 0);
@@ -559,7 +565,13 @@ try {
       await page.keyboard.down('Alt');
       await hitCurve(id);
       await page.mouse.move(...(await xy([445, 230])), { steps: 3 });
-      assert.notEqual(await snapshot(), beforeJSON);
+      assert.equal(await snapshot(), beforeJSON);
+      assert.notEqual(
+        await page.evaluate(() =>
+          JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+        ),
+        beforeJSON,
+      );
       if (interrupt === 'Escape') await page.keyboard.press('Escape');
       else if (interrupt === 'out-and-back')
         await page.mouse.move(...(await xy([420, 210])), { steps: 3 });
@@ -586,12 +598,13 @@ try {
     await hitCurve(id);
     await page.mouse.move(...(await xy([435, 220])), { steps: 3 });
     await page.evaluate(() => window.nect.document.layers.at(-1).nodes[0].points.reverse());
+    const foreign = await snapshot();
     await page.mouse.up();
     await page.keyboard.up('Alt');
     assert.equal(
       await snapshot(),
-      beforeJSON,
-      'ordered anchor identity is rechecked before commit',
+      foreign,
+      'ordered anchor identity is rechecked and newer state survives cancellation',
     );
     await load(movedJSON);
     await page.locator(`[data-select-layer="${id}"]`).click();

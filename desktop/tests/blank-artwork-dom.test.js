@@ -66,6 +66,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   flush();
   const $ = (s) => document.querySelector(s),
@@ -321,7 +322,10 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
         if (kind === 'wire') fire($(`[data-source="${source.id}"]`), 'pointerdown', [100, 100]);
         if (kind === 'pan') fire(stage(), 'pointerdown', [100, 100], { button: 1 });
         fire(document, 'pointermove', [140, 125]);
-        if (kind === 'source') assert.notEqual(saved(), before);
+        if (kind === 'source') {
+          assert.equal(saved(), before);
+          assert.notDeepEqual(win.canvasPreview(), JSON.parse(before));
+        }
         if (kind === 'node') {
           assert.equal(saved(), before, 'graph preview keeps the committed document');
           assert.notDeepEqual(

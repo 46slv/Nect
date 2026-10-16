@@ -110,7 +110,10 @@ const setup = async (type, transformed = false) => {
 };
 const position = (ids) =>
   page.evaluate(({ id, key, type }) => {
-    const n = window.nect.document.layers[0].nodes.find((n) => n.id === id);
+    const doc = window.nect.gestureState
+      ? window.nect.previewSnapshot(window.nect.gestureState.gestureId).document
+      : window.nect.snapshot();
+    const n = doc.layers[0].nodes.find((n) => n.id === id);
     if (type === 'Curve') return n.points[0].position.value;
     if (type === 'Path Remap') return n.edits[0]?.params.position.value || [0, 0];
     return n.params[key].value;
@@ -129,6 +132,8 @@ try {
     await page.keyboard.down('Shift');
     await start(p);
     await move([p[0] + 29, p[1] + 4]);
+    assert.equal(await saved(), before, 'real pointer preview preserves committed document');
+    assert.ok(await page.locator('.artboard .shape, .artboard .position-marker').count());
     assert.equal((await position(ids))[1], origin[1], type);
     if (['Null', 'Vector'].includes(type))
       assert.equal((await position(ids))[0], 280, 'allowed axis still snaps');

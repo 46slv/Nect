@@ -88,7 +88,13 @@ try {
       await move(
         key === 'scale' ? g.scale.map((v, i) => v - g.axis[i] * 40) : rotate(g, g.rotation, -20),
       );
-      assert.notEqual(await saved(), before);
+      assert.equal(await saved(), before);
+      assert.notEqual(
+        await page.evaluate(() =>
+          JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+        ),
+        before,
+      );
       if (end === 'escape') await page.keyboard.press('Escape');
       else
         await page.evaluate((end) => {

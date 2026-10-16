@@ -2,8 +2,6 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
 import {
-  createPenArtworkDraft,
-  appendPenArtwork,
   resolveArtworkDuplicateTarget,
   resolveArtworkDuplicateSelection,
 } from './artwork-creation.js';
@@ -21,7 +19,7 @@ import {
   anchoredScroll,
   wheelPixels,
 } from './layout.js';
-import { importSVG } from './svg-import.js';
+import { readSVGSource } from './svg-import.js';
 import {
   desktop,
   saveFile,
@@ -107,7 +105,12 @@ const sessionOptions = {
   // A numeric pointer reservation first commits any typed value, before it
   // captures a gesture snapshot. Only its started phase owns an authored edit.
   busy: () =>
-    !!(penDraft || (drag && (drag.type !== 'numeric' || drag.started)) || wiring || composing),
+    !!(
+      penDraft ||
+      (drag && !drag.reservingGesture && (drag.type !== 'numeric' || drag.started)) ||
+      wiring ||
+      composing
+    ),
 };
 let session = new CommandSession(newDocument(), sessionOptions);
 let history = session.legacyHistory,
@@ -266,9 +269,6 @@ function sameArtworkMove(target, expected) {
     JSON.stringify(target.route) === JSON.stringify(expected.route)
   );
 }
-function writeArtworkMove(target, delta) {
-  translateArtworkTargets(history.doc, target, delta);
-}
 function artworkAlignmentControls(move) {
   const eligible = artworkSelection.size > 1 && move.supported;
   const reason = artworkSelection.size < 2 ? 'Select at least two artwork layers.' : move.reason;
@@ -332,11 +332,11 @@ function scheduleRender() {
       if (!pointerActive) render();
     }, 0);
 }
-function commandChange(type, payload, text, deferRender = false) {
+function commandChange(type, payload, text, deferRender = false, envelope = session.state) {
   let result = null;
   try {
     result = session.dispatch({
-      ...session.state,
+      ...envelope,
       type,
       payload: { layerId: current().id, ...payload },
     });
@@ -364,7 +364,6 @@ function resetTransient() {
       type: 'cancel-gesture',
       payload: { gestureId: drag.gesture.gestureId },
     });
-  else if (drag?.before) history.doc = drag.before;
   selectedGuide = null;
   snapMatches = [];
   remapBatches.clear();
@@ -1077,7 +1076,7 @@ function guideLine(axis, position, attributes) {
   return `<line ${axis === 'x' ? `x1="${position}" x2="${position}" y1="0" y2="${history.doc.height}"` : `y1="${position}" y2="${position}" x1="0" x2="${history.doc.width}"`} ${attributes}/>`;
 }
 function guidesOverlay() {
-  const a = guideSettings(history.doc);
+  const a = guideSettings(displayDocument());
   return (
     (a.visible
       ? a.guides
@@ -1471,15 +1470,6 @@ function characterOverlay(result) {
           .join('')}</g>`,
     )
     .join('');
-}
-function writeCharacterChanges(changes) {
-  const n = selectedNode();
-  if (!n || n.type !== 'Text') throw Error('Select a Text node');
-  const next = setCharacterOffsets(n.text, n.characterPositions, changes);
-  if (next) {
-    n.characterPositions = next;
-    history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
-  }
 }
 function chooseCharacter(hit, additive = false) {
   characterEdit.route = hit.occurrence.route;
@@ -2104,9 +2094,28 @@ function discardPenDraft() {
   if (!penDraft) return;
   releasePenPointer();
   const prior = penDraft.priorUI;
+  session.dispatch({
+    ...session.state,
+    type: 'cancel-gesture',
+    payload: { gestureId: penDraft.token.gestureId },
+  });
   penDraft = null;
   penId = null;
   restorePenSelection(prior);
+}
+function penCommand(type, payload = {}) {
+  const result = session.dispatch({
+    ...session.state,
+    type,
+    payload: { ...penDraft.token, ...payload },
+  });
+  if (!result.discarded && session.hasGesture) {
+    penDraft.token = result;
+    penDraft.layer = session
+      .previewSnapshot(result.gestureId)
+      .document.layers.find((l) => l.id === result.layerId);
+  }
+  return result;
 }
 function finishPenDraft(closed = false, redraw = true) {
   // A key or tool change during a pressed point never commits its partial handles.
@@ -2119,12 +2128,8 @@ function finishPenDraft(closed = false, redraw = true) {
     tool = 'select';
     notify('One-point draft discarded; a path needs two points');
   } else {
-    curve.params.closed.value = closed;
     try {
-      let created;
-      history.apply((doc) => {
-        created = appendPenArtwork(doc, draft.layer);
-      });
+      const created = penCommand('commit-pen', { closed });
       penDraft = null;
       penId = null;
       tool = 'select';
@@ -2133,7 +2138,6 @@ function finishPenDraft(closed = false, redraw = true) {
       selectionHistory.set(history.doc, selectionSnapshot());
       notify(`Added independent ${closed ? 'closed' : 'open'} Curve artwork`);
     } catch (error) {
-      curve.params.closed.value = false;
       notify(error.message, true);
       if (redraw) render();
       return false;
@@ -3286,12 +3290,14 @@ app.addEventListener('change', async (e) => {
     try {
       const request = ++openRequest,
         before = serialize(history.doc),
-        generation = documents.generation;
+        generation = documents.generation,
+        envelope = session.state;
       if (file.size > (el.id === 'open-file' ? MAX_PROJECT_BYTES : 10_000_000))
         throw Error('File exceeds the supported size limit');
-      let text = await file.text(),
-        next = el.id === 'import-svg-file' ? importSVG(text) : deserialize(text);
-      await preflightImages(next);
+      const text = await file.text(),
+        source = el.id === 'import-svg-file' ? readSVGSource(text) : null,
+        next = source ? null : deserialize(text);
+      if (next) await preflightImages(next);
       if (request !== openRequest || generation !== documents.generation) return;
       if (documents.hasDraft() || serialize(history.doc) !== before)
         throw Error('Document changed while reading; open the file again');
@@ -3299,12 +3305,10 @@ app.addEventListener('change', async (e) => {
       else {
         // Import is an undoable authored replacement; it has no source-file binding.
         resetTransient();
-        history.apply(() => {
-          history.doc = next;
-        });
+        const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
         documents.replace();
-        activeLayer = next.layers[0].id;
-        selected = current().nodes[0]?.id;
+        activeLayer = result.layerId;
+        selected = result.nodeId;
         artworkTarget = null;
         artworkSelection = new Set();
       }
@@ -3679,14 +3683,25 @@ function updateGraphGesture(update) {
       type: 'update-gesture',
       payload: { ...drag.gesture, update },
     });
-    return session
-      .previewSnapshot(drag.gesture.gestureId)
-      .document.layers.find((layer) => layer.id === current().id);
+    drag.preview = session.previewSnapshot(drag.gesture.gestureId).document;
+    return drag.preview.layers.find((layer) => layer.id === current().id);
   } catch (error) {
     notify(error.message, true);
     cancelInteraction();
     return null;
   }
+}
+function updateCanvasGesture(target, update) {
+  if (!drag.gesture) {
+    drag.reservingGesture = true;
+    drag.gesture = beginGraphGesture(target);
+    delete drag.reservingGesture;
+    if (!drag.gesture) {
+      cancelInteraction();
+      return false;
+    }
+  }
+  return !!updateGraphGesture(update);
 }
 function moveGraphNodes() {
   if (drag?.type !== 'node' || current().locked) return;
@@ -3739,9 +3754,23 @@ function graphAutoPan(time) {
 }
 function cancelInteraction() {
   if (drag?.type === 'pen') {
-    penDraft.layer.nodes[0].points.pop();
+    let discarded;
+    try {
+      discarded = penCommand('cancel-pen-point').discarded;
+    } catch (error) {
+      // A stale baseline can always release its exact token without restoring over new work.
+      discardPenDraft();
+      notify(error.message, true);
+      render();
+      return;
+    }
     releasePenPointer();
-    if (!penDraft.layer.nodes[0].points.length) discardPenDraft();
+    if (discarded) {
+      const prior = penDraft.priorUI;
+      penDraft = null;
+      penId = null;
+      restorePenSelection(prior);
+    }
     notify(
       penDraft
         ? 'Point cancelled; draft retained. Finish or Cancel path.'
@@ -3752,7 +3781,6 @@ function cancelInteraction() {
     return;
   }
   if (!drag && !wiring) return;
-  const before = drag?.before;
   const old = drag;
   drag = null;
   if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
@@ -3765,7 +3793,6 @@ function cancelInteraction() {
       type: 'cancel-gesture',
       payload: { gestureId: old.gesture.gestureId },
     });
-  else if (before) history.doc = before;
   // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
   if (old?.type === 'numeric' && old.started)
     old.capture.value = old.originalInput ?? String(old.original);
@@ -4013,7 +4040,14 @@ app.addEventListener('pointerdown', (e) => {
       port = socket.dataset.sourcePort;
     if (current().locked) return;
     document.querySelector('.graph-scroll').focus({ preventScroll: true });
-    wiring = { source: id, port, pointer: [e.clientX, e.clientY], pointerId: e.pointerId };
+    wiring = {
+      source: id,
+      port,
+      pointer: [e.clientX, e.clientY],
+      pointerId: e.pointerId,
+      envelope: session.state,
+      layerId: current().id,
+    };
     let type = outputType(
       current().nodes.find((n) => n.id === id),
       port,
@@ -4044,6 +4078,8 @@ app.addEventListener('pointerdown', (e) => {
     document.querySelector('.graph-scroll').focus({ preventScroll: true });
     wiring = {
       disconnect: true,
+      envelope: session.state,
+      layerId: current().id,
       node: f.dataset.node,
       key: f.dataset.key,
       pointer: [e.clientX, e.clientY],
@@ -4234,25 +4270,35 @@ app.addEventListener('pointerdown', (e) => {
       return;
     }
     try {
-      let pt;
+      let token;
       if (!penDraft) {
         const priorUI = selectionSnapshot(),
-          layer = createPenArtworkDraft(history.doc, pos);
-        penDraft = { layer, priorUI };
+          result = session.dispatch({
+            ...session.state,
+            type: 'begin-gesture',
+            payload: { target: { kind: 'pen' }, position: pos },
+          }),
+          layer = session
+            .previewSnapshot(result.gestureId)
+            .document.layers.find((l) => l.id === result.layerId);
+        penDraft = { layer, priorUI, token: result };
+        token = result;
         penId = layer.nodes[0].id;
         activeLayer = layer.id;
         artworkTarget = null;
         artworkSelection = new Set();
         selected = penId;
         selection = new Set([selected]);
-        pt = layer.nodes[0].points[0];
       } else {
-        const curve = penDraft.layer.nodes[0];
-        if (curve.points.length >= 10000) throw Error('Pen paths are limited to 10000 points');
-        pt = point(...pos);
-        curve.points.push(pt);
+        token = penCommand('append-pen-point', { position: pos });
       }
-      drag = { type: 'pen', pointId: pt.id, nodeId: penId, start: pos, pointerId: e.pointerId };
+      drag = {
+        type: 'pen',
+        pointId: token.pointId,
+        nodeId: penId,
+        start: pos,
+        pointerId: e.pointerId,
+      };
       render();
       const capture = document.querySelector('.canvas-stage');
       drag.capture = capture;
@@ -4398,15 +4444,14 @@ app.addEventListener('pointerdown', (e) => {
       notify(`${key} is locked or driven`, true);
       return;
     }
-    const before = cloneDocument(history.doc),
-      edit = enableRemapPoint(n, input, pointId);
+    const before = cloneDocument(history.doc);
     drag = {
       type: 'remap',
       nodeId: n.id,
       pointId,
       key,
       start: pos,
-      original: clone(edit.params[key].value),
+      original: clone(existing?.params?.[key]?.value ?? existing?.[key] ?? [0, 0]),
       anchor: (() => {
         const p = evaluate(current(), fonts, history.doc.imageAssets)
           .run(n.id)
@@ -4561,7 +4606,13 @@ function movePointer(e) {
       );
     if (!delta.every(Number.isFinite)) return;
     try {
-      writeArtworkMove(drag.target, delta);
+      if (
+        !updateCanvasGesture(
+          { kind: 'artwork-translate', layerIds: [...artworkSelection] },
+          { delta },
+        )
+      )
+        return;
     } catch (error) {
       cancelInteraction();
       notify(error.message, true);
@@ -4616,7 +4667,13 @@ function movePointer(e) {
       next = rotationFromHandle(drag.original, drag.angleDelta, e.shiftKey);
     }
     if (!(Array.isArray(next) ? next.every(Number.isFinite) : Number.isFinite(next))) return;
-    q.value = next;
+    if (
+      !updateCanvasGesture(
+        { kind: 'parameter', layerId: current().id, nodeId: drag.nodeId, key: drag.key },
+        { value: next },
+      )
+    )
+      return;
     drag.started = true;
     updateCanvas();
     return;
@@ -4650,7 +4707,13 @@ function movePointer(e) {
       ),
       next = drag.original.map((v, i) => v + delta[i]);
     if (!next.every(Number.isFinite)) return;
-    q.value = next;
+    if (
+      !updateCanvasGesture(
+        { kind: 'parameter', layerId: current().id, nodeId: drag.nodeId, key: drag.key },
+        { value: next },
+      )
+    )
+      return;
     drag.started = true;
     updateCanvas();
     return;
@@ -4678,9 +4741,18 @@ function movePointer(e) {
           e,
         ),
         local = inverseCharacterDelta(drag.matrix, displayed);
-      writeCharacterChanges(
-        Object.fromEntries(drag.originals.map((g) => [g.id, g.offset.map((v, i) => v + local[i])])),
-      );
+      if (
+        !updateCanvasGesture(
+          {
+            kind: 'character-translate',
+            layerId: current().id,
+            nodeId: drag.nodeId,
+            ids: drag.originals.map((g) => g.id),
+          },
+          { delta: local },
+        )
+      )
+        return;
       drag.started = true;
       updateCanvas();
     } catch (error) {
@@ -4827,10 +4899,8 @@ function movePointer(e) {
     const sources = [[], []];
     sources[drag.axis] = [drag.original];
     delta = snapped(sources, delta, e, drag.id);
-    history.doc.editor.guides.find((g) => g.id === drag.id).position = Math.max(
-      -100000,
-      Math.min(100000, drag.original + delta[drag.axis]),
-    );
+    const value = Math.max(-100000, Math.min(100000, drag.original + delta[drag.axis]));
+    if (!updateCanvasGesture({ kind: 'guide-position', guideId: drag.id }, { value })) return;
     updateCanvas();
     return;
   }
@@ -4852,6 +4922,7 @@ function movePointer(e) {
         !node.pathAttachment &&
         target.keys.every((key) => {
           const q = parameter(node, key);
+          if (drag.type === 'remap' && !q) return true;
           return q && !q.locked && !q.source && !q.expression;
         })
       );
@@ -4870,34 +4941,27 @@ function movePointer(e) {
     drag.started = true;
     drag.lastDelta = delta;
   } else delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
-  if (drag.type === 'remap') {
-    n.edits.find((e) => e.pointId === drag.pointId).params[drag.key].value = drag.original.map(
-      (v, i) => v + delta[i],
-    );
-  } else if (drag.type === 'shape')
-    drag.targets.forEach((t) => {
-      const target = current().nodes.find((n) => n.id === t.nodeId);
-      t.keys.forEach(
-        (k, idx) => (parameter(target, k).value = t.original[idx].map((v, i) => v + delta[i])),
-      );
-    });
-  else {
-    let pt = n.points.find((x) => x.id === drag.pointId);
-    if (drag.type === 'pen') {
-      pt.handleB.value = delta;
-      pt.handleA.value = delta.map((v) => -v);
-      pt.handleType = 'symmetric';
-    } else {
-      pt[drag.key].value = drag.original.map((v, i) => v + delta[i]);
-      if (drag.key !== 'position' && pt.handleType !== 'corner') {
-        let other = drag.key === 'handleA' ? 'handleB' : 'handleA';
-        if (!pt[other].locked && !pt[other].source && !pt[other].expression) {
-          let v = pt[drag.key].value,
-            len = pt.handleType === 'symmetric' ? Math.hypot(...v) : Math.hypot(...pt[other].value),
-            mag = Math.hypot(...v) || 1;
-          pt[other].value = v.map((x) => (-x / mag) * len);
-        }
-      }
+  if (['remap', 'shape', 'point'].includes(drag.type)) {
+    const target =
+      drag.type === 'shape'
+        ? {
+            kind: 'nodes-translate',
+            layerId: current().id,
+            nodeIds: drag.targets.map((t) => t.nodeId),
+          }
+        : {
+            kind: drag.type === 'remap' ? 'remap-point' : 'curve-point',
+            layerId: current().id,
+            nodeId: drag.nodeId,
+            pointId: drag.pointId,
+            key: drag.key,
+          };
+    if (!updateCanvasGesture(target, { delta })) return;
+  } else if (drag.type === 'pen') {
+    try {
+      penCommand('update-pen-point', { delta });
+    } catch (error) {
+      notify(error.message, true);
     }
   }
   updateCanvas();
@@ -4947,14 +5011,24 @@ document.addEventListener('pointerup', (e) => {
       if (!f)
         commandChange(
           'disconnect',
-          { nodeId: w.node, key: w.key },
+          { layerId: w.layerId, nodeId: w.node, key: w.key },
           'Disconnected; fallback restored',
+          false,
+          w.envelope,
         );
     } else if (f)
       commandChange(
         'connect',
-        { sourceId: w.source, sourcePort: w.port, nodeId: f.dataset.node, key: f.dataset.key },
+        {
+          layerId: w.layerId,
+          sourceId: w.source,
+          sourcePort: w.port,
+          nodeId: f.dataset.node,
+          key: f.dataset.key,
+        },
         'Connected',
+        false,
+        w.envelope,
       );
     return;
   }
@@ -4967,7 +5041,15 @@ document.addEventListener('pointerup', (e) => {
     snapMatches = [];
     if (d.gesture) {
       try {
-        session.dispatch({ ...session.state, type: 'commit-gesture', payload: d.gesture });
+        const result = session.dispatch({
+          ...session.state,
+          type: 'commit-gesture',
+          payload: d.gesture,
+        });
+        if (result.changed && d.type === 'artwork') {
+          selectionHistory.set(history.past.at(-1), d.selectionBefore);
+          selectionHistory.set(history.doc, selectionSnapshot());
+        }
       } catch (error) {
         session.dispatch({
           ...session.state,
@@ -4983,10 +5065,25 @@ document.addEventListener('pointerup', (e) => {
         nameClicked(current().id, d.nameTarget, e)
       )
         return;
-      render();
+      if (d.type === 'character' && d.toggleOnClick && !d.started)
+        chooseCharacter(d.toggleOnClick, true);
+      if (d.type === 'artwork' && d.toggleOnClick && !d.started)
+        selectArtwork(d.toggleOnClick, { toggle: true });
+      render(
+        false,
+        d.type === 'artwork' && !(d.toggleOnClick && !d.started) ? artworkResolution : null,
+      );
       return;
     }
     if (d.type === 'pen') {
+      try {
+        penCommand('accept-pen-point');
+      } catch (error) {
+        discardPenDraft();
+        notify(error.message, true);
+        render();
+        return;
+      }
       notify('Draft path · Enter / Escape: finish · Cancel path: discard');
       render();
       document.querySelector('.canvas-stage').focus({ preventScroll: true });
@@ -4996,39 +5093,8 @@ document.addEventListener('pointerup', (e) => {
     if (d.type === 'node' && !d.started && d.nameTarget) {
       if (nameClicked(current().id, d.nameTarget, e)) return;
     }
-    if (
-      ['shape', 'point', 'remap', 'artwork'].includes(d.type) &&
-      (!d.started || d.lastDelta?.every((v) => v === 0))
-    )
-      history.doc = d.before;
-    if (d.type === 'character' && d.before) {
-      if (d.toggleOnClick && !d.started) chooseCharacter(d.toggleOnClick, true);
-      const offsets =
-        current().nodes.find((n) => n.id === d.nodeId)?.characterPositions?.offsets || {};
-      if (d.originals.every((g) => g.offset.every((v, i) => v === (offsets[g.id]?.[i] || 0))))
-        history.doc = d.before;
-    }
-    if (d.before && !sameDocument(d.before, history.doc)) {
-      try {
-        assertClosedOffsetChange(
-          current(),
-          d.before.layers.find((l) => l.id === current().id),
-          fonts,
-          history.doc.imageAssets,
-        );
-      } catch (error) {
-        history.doc = d.before;
-        notify(error.message, true);
-        render();
-        return;
-      }
-      history.record(d.before);
-      if (d.type === 'artwork') {
-        selectionHistory.set(d.before, d.selectionBefore);
-        selectionHistory.set(history.doc, selectionSnapshot());
-      }
-      notify('Updated');
-    }
+    if (d.type === 'character' && d.toggleOnClick && !d.started)
+      chooseCharacter(d.toggleOnClick, true);
     const toggledArtwork = d.type === 'artwork' && d.toggleOnClick && !d.started;
     if (toggledArtwork) selectArtwork(d.toggleOnClick, { toggle: true });
     render(false, d.type === 'artwork' && !toggledArtwork ? artworkResolution : null);
@@ -5296,7 +5362,6 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     layoutDraft = null;
     layoutPreview = false;
-    if (drag?.before) history.doc = drag.before;
     drag = null;
     snapMatches = [];
     selectedGuide = null;

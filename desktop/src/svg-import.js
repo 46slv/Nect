@@ -9,6 +9,8 @@ import {
 } from './core.js';
 import { createLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill } from './radial-gradient.js';
+import { readSVGSource, svgTreeRoot } from './svg-tree.js';
+export { readSVGSource } from './svg-tree.js';
 
 // Bound work before geometry construction; referenced and unused definitions are
 // validated alike. These limits are deliberately lower than the project format.
@@ -43,18 +45,11 @@ const solidColor = (raw) => {
 };
 /** Conservative SVG adapter. Requires a caller-supplied DOM parser; the core stays DOM-free. */
 export function importSVG(text, Parser = globalThis.DOMParser) {
-  if (typeof text !== 'string') throw Error('Invalid SVG document');
-  if (
-    text.length > SVG_IMPORT_LIMITS.bytes ||
-    new TextEncoder().encode(text).length > SVG_IMPORT_LIMITS.bytes
-  )
-    throw Error('SVG exceeds 10 MB');
-  if (/<!DOCTYPE|<!ENTITY|<\?(?!xml(?:\s|\?>))/i.test(text))
-    throw Error('SVG declarations and external styles are unsupported');
-  const xml = new Parser().parseFromString(text, 'image/svg+xml'),
-    root = xml.documentElement;
-  if (!root || root.localName !== 'svg' || xml.querySelector('parsererror'))
-    throw Error('Invalid SVG document');
+  return importSVGTree(readSVGSource(text, Parser));
+}
+export function importSVGTree(source) {
+  const root = svgTreeRoot(source);
+  if (root.localName !== 'svg') throw Error('Invalid SVG document');
   if (root.namespaceURI !== null && root.namespaceURI !== 'http://www.w3.org/2000/svg')
     throw Error('Unsupported SVG namespace');
   const allowed = new Set([

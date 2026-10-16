@@ -69,18 +69,20 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 80));
   flush();
 
   const saved = () => JSON.stringify(win.nect.document);
-  const get = (id) => win.nect.document.layers[0].nodes.find((n) => n.id === id);
+  const get = (id) => win.canvasPreview().layers[0].nodes.find((n) => n.id === id);
   const stage = () => document.querySelector('.canvas-stage');
   const xy = ([x, y]) => [
     x * matrix.a + y * matrix.c + matrix.e,
     x * matrix.b + y * matrix.d + matrix.f,
   ];
   const fire = (el, type, p = [0, 0], extra = {}) => {
+    const committedBeforePointer = JSON.stringify(win.nect.document);
     el.dispatchEvent(
       new win.PointerEvent(type, {
         bubbles: true,
@@ -93,6 +95,12 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
       }),
     );
     flush();
+    if (type === 'pointermove')
+      assert.equal(
+        JSON.stringify(win.nect.document),
+        committedBeforePointer,
+        'pointer preview preserves committed state',
+      );
   };
   const down = (
     p,

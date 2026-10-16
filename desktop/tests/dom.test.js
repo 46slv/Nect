@@ -166,6 +166,7 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 110, 120);
   pointer(document, 'pointerup', 110, 120);
+  [circle2, rectangle2] = win.nect.document.layers[1].nodes;
   assert.deepEqual(circle2.params.center.value, [centers[0] + 10, centers[1] + 20]);
   assert.deepEqual(rectangle2.params.center.value, [centers[2] + 10, centers[3] + 20]);
   rectangle2.params.center.locked = true;
@@ -233,7 +234,11 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   };
   pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 150, 170);
-  assert.notEqual(JSON.stringify(win.nect.document), serialized);
+  assert.equal(JSON.stringify(win.nect.document), serialized);
+  assert.notEqual(
+    JSON.stringify(win.nect.previewSnapshot(win.nect.gestureState.gestureId).document),
+    serialized,
+  );
   cancelAndCheck(serialized);
   assert.equal(document.querySelector('[data-action="undo"]').disabled, true);
   assert.equal(document.querySelector('[data-action="redo"]').disabled, false);
@@ -286,7 +291,11 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   const vertex = document.querySelector('.vertex');
   pointer(vertex, 'pointerdown', 200, 100);
   pointer(document, 'pointermove', 230, 140);
-  assert.notEqual(JSON.stringify(win.nect.document), firstPoint);
+  assert.equal(JSON.stringify(win.nect.document), firstPoint);
+  assert.notEqual(
+    JSON.stringify(win.nect.previewSnapshot(win.nect.gestureState.gestureId).document),
+    firstPoint,
+  );
   cancelAndCheck(firstPoint);
   document.querySelector('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), serialized);

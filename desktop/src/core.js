@@ -4,6 +4,8 @@ export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL, decodeImage, pngSize } from './images.js';
 import {
   appendArtwork,
+  createPenArtworkDraft,
+  appendPenArtwork,
   appendBlankComposition,
   duplicateArtworkLayer,
   duplicateArtworkLayers,
@@ -14,6 +16,7 @@ import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
+import { importSVGTree } from './svg-import.js';
 import { validateGuides, guideDefaults, setLayoutGrid } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
@@ -2289,7 +2292,19 @@ export class CommandSession {
   get gestureState() {
     const draft = this.#gesture;
     return draft
-      ? { gestureId: draft.id, kind: draft.target.kind, expectedPreviewRevision: draft.version }
+      ? {
+          gestureId: draft.id,
+          kind: draft.target.kind,
+          expectedPreviewRevision: draft.version,
+          ...(draft.penLayer
+            ? {
+                layerId: draft.penLayer.id,
+                nodeId: draft.penLayer.nodes[0].id,
+                pointId: draft.penLayer.nodes[0].points.at(-1)?.id,
+                pointPressed: draft.pressed,
+              }
+            : {}),
+        }
       : null;
   }
   previewSnapshot(gestureId) {
@@ -2356,6 +2371,139 @@ export class CommandSession {
   }
   #gestureCandidate(base, target, update) {
     if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'artwork-translate')
+      return this.#commandCandidate(
+        'translate-artworks',
+        {
+          layerIds: target.layerIds,
+          delta: update.delta,
+        },
+        base,
+      ).candidate;
+    if (target.kind === 'guide-position')
+      return this.#commandCandidate(
+        'set-guide',
+        {
+          guideId: target.guideId,
+          key: 'position',
+          value: update.value,
+        },
+        base,
+      ).candidate;
+    if (target.kind === 'character-translate') {
+      this.#textGestureValues(base, { ...target, textKind: 'offset', axis: 0 });
+      assertValue('Vector2', update.delta);
+      if (update.delta.every((value) => value === 0)) return cloneDocument(base);
+      const node = base.layers
+        .find((l) => l.id === target.layerId)
+        .nodes.find((n) => n.id === target.nodeId);
+      return this.#commandCandidate(
+        'set-character-offsets',
+        {
+          layerId: target.layerId,
+          nodeId: target.nodeId,
+          changes: Object.fromEntries(
+            target.ids.map((id) => [
+              id,
+              (node.characterPositions?.offsets?.[id] ?? [0, 0]).map((v, i) => v + update.delta[i]),
+            ]),
+          ),
+        },
+        base,
+      ).candidate;
+    }
+    if (['nodes-translate', 'curve-point', 'remap-point'].includes(target.kind)) {
+      assertValue('Vector2', update.delta);
+      const candidate = cloneDocument(base),
+        layer = candidate.layers.find((l) => l.id === target.layerId);
+      if (!layer) throw Error('Missing composition');
+      if (layer.locked) throw Error('Composition is locked');
+      const write = (q, original = q?.value) => {
+        if (!q || q.type !== 'Vector2') throw Error('Missing vector parameter');
+        if (q.locked || q.source || q.expression) throw Error('Parameter is locked or driven');
+        q.value = original.map((v, i) => v + update.delta[i]);
+      };
+      if (target.kind === 'nodes-translate') {
+        if (
+          !Array.isArray(target.nodeIds) ||
+          !target.nodeIds.length ||
+          new Set(target.nodeIds).size !== target.nodeIds.length
+        )
+          throw Error('Select distinct generator nodes');
+        for (const id of target.nodeIds) {
+          const node = layer.nodes.find((n) => n.id === id);
+          if (!node || node.bypassed || node.pathAttachment) throw Error('Unsupported node move');
+          if (node.type === 'Curve') {
+            for (const point of node.points) write(point.position);
+          } else {
+            if (
+              !(target.nodeIds.length === 1 && node.type === 'Transform') &&
+              !['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Text', 'Image'].includes(
+                node.type,
+              )
+            )
+              throw Error('Unsupported node move');
+            write(
+              node.params[
+                node.type === 'Transform'
+                  ? 'offset'
+                  : ['Text', 'Image'].includes(node.type)
+                    ? 'position'
+                    : 'center'
+              ],
+            );
+          }
+        }
+      } else {
+        if (!['position', 'handleA', 'handleB'].includes(target.key))
+          throw Error('Invalid point component');
+        const node = layer.nodes.find(
+          (n) =>
+            n.id === target.nodeId &&
+            n.type === (target.kind === 'curve-point' ? 'Curve' : 'Path Remap'),
+        );
+        if (!node || node.bypassed) throw Error('Missing editable point node');
+        if (target.kind === 'curve-point') {
+          const point = node.points.find((p) => p.id === target.pointId);
+          if (!point) throw Error('Missing point');
+          write(point[target.key]);
+          if (target.key !== 'position' && point.handleType !== 'corner') {
+            const other = point[target.key === 'handleA' ? 'handleB' : 'handleA'];
+            if (!other.locked && !other.source && !other.expression) {
+              const value = point[target.key].value,
+                length =
+                  point.handleType === 'symmetric'
+                    ? Math.hypot(...value)
+                    : Math.hypot(...other.value),
+                magnitude = Math.hypot(...value) || 1;
+              other.value = value.map((v) => (-v / magnitude) * length);
+            }
+          }
+        } else {
+          const input = evaluate(
+              layer,
+              resolveFonts(candidate, this.#fonts()),
+              candidate.imageAssets,
+            ).run(node.params.path.source),
+            existing = node.edits.find((e) => e.pointId === target.pointId);
+          if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
+            throw Error('Retained edit is suspended; rebind before dragging');
+          const edit = enableRemapPoint(node, input, target.pointId);
+          write(edit.params[target.key]);
+        }
+      }
+      // Returning to the origin must retain sparse Remap edits and the redo branch.
+      if (update.delta.every((value) => value === 0)) return cloneDocument(base);
+      validate(candidate);
+      assertClosedOffsetChange(
+        layer,
+        base.layers.find((l) => l.id === layer.id),
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        resolveFonts(base, this.#fonts()),
+      );
+      return candidate;
+    }
     if (target.kind === 'text-values') {
       const initial = this.#textGestureValues(base, target),
         values = update.values;
@@ -2508,6 +2656,67 @@ export class CommandSession {
     validate(candidate);
     return candidate;
   }
+  #penCommand(type, payload, draft) {
+    if (draft.target.kind !== 'pen') throw Error('Select a Pen draft');
+    if (type === 'commit-pen') {
+      if (draft.pressed) throw Error('Finish or cancel the pressed point');
+      if (typeof payload.closed !== 'boolean') throw Error('Choose open or closed path');
+      const layer = clone(draft.penLayer);
+      if (layer.nodes[0].points.length < 2) {
+        this.#gesture = null;
+        return { ...this.state, discarded: true };
+      }
+      layer.nodes[0].params.closed.value = payload.closed;
+      const candidate = cloneDocument(draft.base),
+        created = appendPenArtwork(candidate, layer);
+      this.#history.apply(() => {
+        this.#history.doc = candidate;
+      });
+      this.#gesture = null;
+      return { ...this.state, ...created, changed: true };
+    }
+    let layer = clone(draft.penLayer),
+      prior = draft.pressedBefore,
+      pressed = draft.pressed;
+    const curve = layer.nodes[0];
+    if (type === 'append-pen-point') {
+      if (pressed) throw Error('Finish or cancel the pressed point');
+      assertValue('Vector2', payload.position);
+      if (curve.points.length >= 10000) throw Error('Pen paths are limited to 10000 points');
+      prior = clone(draft.penLayer);
+      curve.points.push(point(...payload.position));
+      pressed = true;
+    } else {
+      if (!pressed) throw Error('No pressed Pen point');
+      if (type === 'update-pen-point') {
+        assertValue('Vector2', payload.delta);
+        const pt = curve.points.at(-1);
+        pt.handleB.value = clone(payload.delta);
+        pt.handleA.value = payload.delta.map((v) => -v);
+        pt.handleType = 'symmetric';
+      } else if (type === 'accept-pen-point') {
+        pressed = false;
+        prior = null;
+      } else if (type === 'cancel-pen-point') {
+        if (!prior) {
+          this.#gesture = null;
+          return { ...this.state, discarded: true };
+        }
+        layer = clone(prior);
+        prior = null;
+        pressed = false;
+      } else throw Error('Unsupported Pen command');
+    }
+    const candidate = cloneDocument(draft.base);
+    candidate.layers.push(layer);
+    validate(candidate);
+    draft.penLayer = layer;
+    draft.pressedBefore = prior;
+    draft.pressed = pressed;
+    draft.candidate = candidate;
+    draft.version++;
+    return { ...this.state, ...this.gestureState };
+  }
   snapshot() {
     return cloneDocument(this.#history.doc);
   }
@@ -2537,23 +2746,49 @@ export class CommandSession {
         throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
       const target = clone(payload.target),
         base = cloneDocument(this.#history.doc);
+      if (target?.kind === 'pen') {
+        const layer = createPenArtworkDraft(base, payload.position),
+          candidate = cloneDocument(base);
+        candidate.layers.push(layer);
+        this.#gesture = {
+          id: uid('gesture'),
+          target,
+          base,
+          candidate,
+          revision: this.#history.revision,
+          version: 0,
+          penLayer: layer,
+          pressed: true,
+          pressedBefore: null,
+        };
+        return { ...this.state, ...this.gestureState };
+      }
       const layer = base.layers.find((layer) => layer.id === target?.layerId),
         node = layer?.nodes.find((node) => node.id === target.nodeId);
       const q = node && target.kind === 'parameter' ? parameter(node, target.key) : null;
       const initial =
         target?.kind === 'text-values'
           ? { values: this.#textGestureValues(base, target) }
-          : target?.kind === 'graph-translate'
+          : [
+                'graph-translate',
+                'artwork-translate',
+                'nodes-translate',
+                'character-translate',
+                'curve-point',
+                'remap-point',
+              ].includes(target?.kind)
             ? { delta: [0, 0] }
-            : target?.kind === 'parameter'
-              ? {
-                  value: target.alpha
-                    ? q?.value?.alpha
-                    : target.axis !== undefined
-                      ? q?.value?.[target.axis]
-                      : q?.value,
-                }
-              : { width: node?.width ?? 264 };
+            : target?.kind === 'guide-position'
+              ? { value: base.editor?.guides?.find((g) => g.id === target.guideId)?.position }
+              : target?.kind === 'parameter'
+                ? {
+                    value: target.alpha
+                      ? q?.value?.alpha
+                      : target.axis !== undefined
+                        ? q?.value?.[target.axis]
+                        : q?.value,
+                  }
+                : { width: node?.width ?? 264 };
       this.#gestureCandidate(base, target, initial);
       this.#gesture = {
         id: uid('gesture'),
@@ -2565,7 +2800,17 @@ export class CommandSession {
       };
       return { ...this.state, ...this.gestureState };
     }
-    if (type === 'update-gesture' || type === 'commit-gesture') {
+    if (
+      [
+        'update-gesture',
+        'commit-gesture',
+        'append-pen-point',
+        'update-pen-point',
+        'accept-pen-point',
+        'cancel-pen-point',
+        'commit-pen',
+      ].includes(type)
+    ) {
       const draft = this.#gesture;
       if (
         !draft ||
@@ -2575,6 +2820,9 @@ export class CommandSession {
         throw Error('STALE_GESTURE: draft changed');
       if (draft.revision !== this.#history.revision || !sameDocument(draft.base, this.#history.doc))
         throw Error('STALE_GESTURE: document changed');
+      if (type.endsWith('-pen-point') || type === 'commit-pen')
+        return this.#penCommand(type, payload, draft);
+      if (draft.target.kind === 'pen') throw Error('Use Pen point and path commands');
       if (type === 'update-gesture') {
         const candidate = this.#gestureCandidate(draft.base, draft.target, payload.update);
         draft.candidate = candidate;
@@ -2654,6 +2902,14 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before) {
+    if (type === 'import-svg') {
+      const candidate = importSVGTree(payload.source);
+      serialize(candidate);
+      return {
+        candidate,
+        result: { layerId: candidate.layers[0].id, nodeId: candidate.layers[0].nodes[0]?.id },
+      };
+    }
     if (
       [
         'create-artwork',

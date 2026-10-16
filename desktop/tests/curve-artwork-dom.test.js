@@ -1,3 +1,4 @@
+import { translateArtworkTargets } from '../src/artwork-multi-move.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -71,12 +72,15 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, write: writeArtworkMove, same: sameArtworkMove };';
+    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, same: sameArtworkMove };';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  win.curveMoveProbe.write = (target, delta) =>
+    translateArtworkTargets(win.nect.document, target, delta);
   flush();
   const $ = (s) => document.querySelector(s),
     stage = () => $('.canvas-stage');
@@ -217,7 +221,8 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
         fire(shape(id), 'pointerdown', [180, 180]);
         const capture = stage();
         fire(document, 'pointermove', [205, 197], { altKey: true });
-        assert.notDeepEqual(win.nect.document, before);
+        assert.deepEqual(win.nect.document, before);
+        assert.notDeepEqual(win.canvasPreview(), before);
         if (end === 'Escape') key(stage(), 'Escape');
         else if (end === 'blur') win.dispatchEvent(new win.Event('blur'));
         else if (end === 'out-and-back')
@@ -276,9 +281,15 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
           fire(document, 'pointermove', [190, 190], { altKey: true });
           const l = win.nect.document.layers.at(-1);
           mutate(l, l.nodes[0]);
+          const foreign = structuredClone(win.nect.document);
           if (phase === 'preview') fire(document, 'pointermove', [205, 210], { altKey: true });
           else fire(document, 'pointerup');
-          assert.deepEqual(win.nect.document, before, phase);
+          assert.notDeepEqual(foreign, before);
+          assert.deepEqual(
+            win.nect.document,
+            foreign,
+            phase + ': preserve foreign edit on cancellation',
+          );
           assert.equal(ui().past, 1);
           assert.equal(ui().drag, undefined);
         }

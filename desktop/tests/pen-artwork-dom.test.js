@@ -370,46 +370,54 @@ test('Pen draft creation is independent, atomic and interruptible', async (t) =>
       assert.equal(cancelled.defaultPrevented, false);
     },
   );
-  await t.test('capacity failure, point limit and explicit graph editing are bounded', () => {
-    const d = seed();
-    while (d.layers.length < 100) appendArtwork(d, 'Circle', { at: [10, 20] });
-    load(d);
-    const before = saved(),
-      prior = ui();
-    start();
-    assert.equal(saved(), before);
-    assert.equal(ui().draft, undefined);
-    assert.equal(ui().activeLayer, prior.activeLayer);
-    assert.match($('.message').textContent, /100/);
-    load(seed());
-    start();
-    const p = curve().points[0];
-    curve().points = Array.from({ length: 10000 }, (_, i) => ({
-      ...structuredClone(p),
-      id: 'point-limit-' + i,
-    }));
-    fire($('.artboard'), 'pointerdown', [400, 300]);
-    assert.equal(curve().points.length, 10000);
-    assert.equal(ui().drag, undefined);
-    assert.match($('.message').textContent, /10000/);
-    click('[data-pen-cancel]');
-    const original = saved(),
-      output = structuredClone(win.nect.document.layers[0].nodes.at(-1));
-    const el = $('#add-node');
-    el.value = 'Curve';
-    el.dispatchEvent(new win.Event('change', { bubbles: true }));
-    flush();
-    assert.equal(win.nect.document.layers.length, 1);
-    assert.equal(ui().draft, undefined);
-    assert.deepEqual(
-      win.nect.document.layers[0].nodes.find((n) => n.id === output.id),
-      output,
-    );
-    const n = win.nect.document.layers[0].nodes.at(-1);
-    assert.equal(n.type, 'Curve');
-    click(`[data-add-point="${n.id}"]`);
-    assert.equal(win.nect.document.layers[0].nodes.at(-1).points.length, 4);
-    assert.notEqual(saved(), original);
-  });
+  await t.test(
+    'capacity refusal, detached preview ownership and explicit graph editing are bounded',
+    () => {
+      const d = seed();
+      while (d.layers.length < 100) appendArtwork(d, 'Circle', { at: [10, 20] });
+      load(d);
+      const before = saved(),
+        prior = ui();
+      start();
+      assert.equal(saved(), before);
+      assert.equal(ui().draft, undefined);
+      assert.equal(ui().activeLayer, prior.activeLayer);
+      assert.match($('.message').textContent, /100/);
+      load(seed());
+      start();
+      const p = curve().points[0];
+      curve().points = Array.from({ length: 10000 }, (_, i) => ({
+        ...structuredClone(p),
+        id: 'point-limit-' + i,
+      }));
+      fire($('.artboard'), 'pointerdown', [400, 300]);
+      assert.equal(
+        curve().points.length,
+        2,
+        'mutating the output preview cannot install point IDs in the Session',
+      );
+      assert.equal(curve().points[0].id, p.id);
+      assert.notEqual(curve().points[1].id, 'point-limit-1');
+      fire(document, 'pointerup');
+      click('[data-pen-cancel]');
+      const original = saved(),
+        output = structuredClone(win.nect.document.layers[0].nodes.at(-1));
+      const el = $('#add-node');
+      el.value = 'Curve';
+      el.dispatchEvent(new win.Event('change', { bubbles: true }));
+      flush();
+      assert.equal(win.nect.document.layers.length, 1);
+      assert.equal(ui().draft, undefined);
+      assert.deepEqual(
+        win.nect.document.layers[0].nodes.find((n) => n.id === output.id),
+        output,
+      );
+      const n = win.nect.document.layers[0].nodes.at(-1);
+      assert.equal(n.type, 'Curve');
+      click(`[data-add-point="${n.id}"]`);
+      assert.equal(win.nect.document.layers[0].nodes.at(-1).points.length, 4);
+      assert.notEqual(saved(), original);
+    },
+  );
   win.happyDOM.abort();
 });

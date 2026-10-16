@@ -51,6 +51,7 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 80));
   flush();
@@ -80,11 +81,17 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
   };
   load();
   const get = (id) => win.nect.document.layers[0].nodes.find((n) => n.id === id),
-    pos = () => win.nect.evaluate().run(a.id),
+    pos = () =>
+      marker()
+        .getAttribute('transform')
+        .match(/translate\(([^)]+)\)/)[1]
+        .split(/[ ,]+/)
+        .map(Number),
     saved = () => JSON.stringify(win.nect.document);
   const marker = () => document.querySelector('[data-null-handle]');
   const stage = () => document.querySelector('.canvas-stage');
   const fire = (el, type, x = 0, y = 0, extra = {}) => {
+    const committedBeforePointer = JSON.stringify(win.nect.document);
     el.dispatchEvent(
       new win.PointerEvent(type, {
         bubbles: true,
@@ -97,6 +104,12 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
       }),
     );
     flush();
+    if (type === 'pointermove')
+      assert.equal(
+        JSON.stringify(win.nect.document),
+        committedBeforePointer,
+        'pointer preview does not write committed state',
+      );
   };
   const xy = ([x, y]) => [x * matrix.a + matrix.e, y * matrix.a + matrix.f];
   const start = () => {
@@ -156,7 +169,8 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
     before = saved();
     p = start();
     move(p, 50, 25, { altKey: true });
-    assert.notEqual(saved(), before);
+    assert.equal(saved(), before, 'committed document stays unchanged');
+    assert.notEqual(JSON.stringify(win.canvasPreview()), before, 'display preview moved');
     if (interrupt === 'Escape')
       stage().dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else if (interrupt === 'blur') win.dispatchEvent(new win.Event('blur'));

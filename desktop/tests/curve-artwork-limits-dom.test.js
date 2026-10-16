@@ -1,3 +1,4 @@
+import { translateArtworkTargets } from '../src/artwork-multi-move.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -71,12 +72,15 @@ test('Curve movement budget and fresh synchronous resolution stay explicit', asy
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, write: writeArtworkMove, same: sameArtworkMove };';
+    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, same: sameArtworkMove };';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  win.curveMoveProbe.write = (target, delta) =>
+    translateArtworkTargets(win.nect.document, target, delta);
   flush();
   const $ = (s) => document.querySelector(s),
     stage = () => $('.canvas-stage');

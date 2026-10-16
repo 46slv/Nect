@@ -73,6 +73,7 @@ const app =`,
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 80));
   flush();
@@ -85,7 +86,7 @@ const app =`,
     flush();
   };
   const saved = () => JSON.stringify(win.nect.document);
-  const get = () => win.nect.document.layers[0].nodes[0];
+  const get = () => win.canvasPreview().layers[0].nodes[0];
   const pos = () => get().params.position.value;
   const stage = () => document.querySelector('.canvas-stage');
   const marker = () => document.querySelector('[data-position-handle]');

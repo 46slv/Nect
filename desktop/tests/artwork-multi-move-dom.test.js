@@ -64,6 +64,7 @@ test('Multiple independent artworks select and move as one transaction', async (
     );
   source +=
     '\nwindow.artworkUI = () => ({fontReady: !!bundledFont, activeLayer, selected, artworkTarget, artworkSelection: [...artworkSelection], selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, wiring: !!wiring});';
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const readyDeadline = Date.now() + 5000;
   while (!win.artworkUI().fontReady) {
@@ -86,6 +87,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   const xy = ([x, y]) => [x * 2 + 80, y * 2 + 40];
   const fire = (el, type, p = [0, 0], extra = {}) => {
     const screen = xy(p);
+    const committedBeforePointer = JSON.stringify(win.nect.document);
     el.dispatchEvent(
       new win.PointerEvent(type, {
         bubbles: true,
@@ -184,7 +186,8 @@ test('Multiple independent artworks select and move as one transaction', async (
         before = structuredClone(win.nect.document);
       fire(shape(f.ids[0]), 'pointerdown', [170, 170]);
       fire(document, 'pointermove', [195, 185], { altKey: true });
-      assert.deepEqual(win.nect.document, shifted(before, f.ids, [25, 15]));
+      assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
+      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [25, 15]));
       assert.equal(ui().artworkSelection.length, 5);
       fire(document, 'pointerup');
       assert.equal(ui().past, 1);
@@ -310,9 +313,11 @@ test('Multiple independent artworks select and move as one transaction', async (
         fire(shape(f.ids[0]), 'pointerdown', [170, 170]);
         fire(document, 'pointermove', [190, 190], { altKey: true });
         win.nect.document.layers.at(-1).locked = true;
+        const foreign = saved();
         if (phase === 'preview') fire(document, 'pointermove', [200, 200]);
         fire(document, 'pointerup');
-        assert.equal(saved(), before, phase);
+        assert.notEqual(foreign, before);
+        assert.equal(saved(), foreign, phase + ': cancellation preserves newer foreign edit');
         assert.equal(ui().past, 0);
       }
     },
@@ -332,11 +337,14 @@ test('Multiple independent artworks select and move as one transaction', async (
       const before = structuredClone(win.nect.document);
       fire(shape(f.ids[0]), 'pointerdown', [170, 170]);
       fire(document, 'pointermove', [173, 170]);
-      assert.deepEqual(win.nect.document, shifted(before, f.ids, [3, 0]));
+      assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
+      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [3, 0]));
       fire(document, 'pointermove', [190, 185], { altKey: true, shiftKey: true });
-      assert.deepEqual(win.nect.document, shifted(before, f.ids, [20, 0]));
+      assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
+      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [20, 0]));
       fire(document, 'pointermove', [190, 185], { altKey: true, shiftKey: false });
-      assert.deepEqual(win.nect.document, shifted(before, f.ids, [20, 15]));
+      assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
+      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [20, 15]));
       key(stage(), 'Escape');
       fire(document, 'pointerup');
       assert.deepEqual(win.nect.document, before);

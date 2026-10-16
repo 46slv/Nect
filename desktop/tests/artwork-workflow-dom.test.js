@@ -66,6 +66,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
     '\nconst fontTestDeadline = Date.now() + 5000; while (!bundledFont) { if (Date.now() >= fontTestDeadline) throw Error("Bundled test font did not finish loading"); await new Promise((r) => setTimeout(r, 10)); }';
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   flush();
   const $ = (s) => document.querySelector(s),
@@ -137,7 +138,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
     return { d, l, generator, ids };
   };
   const position = (ids) => {
-    const l = win.nect.document.layers.find((l) => l.id === ids.layerId);
+    const l = win.canvasPreview().layers.find((l) => l.id === ids.layerId);
     return l.nodes.find((n) => n.id === (ids.transform || ids.nodeId)).params[
       ids.transform ? 'offset' : 'center'
     ].value;
@@ -251,6 +252,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
         const before = saved();
         fire(shape(ids.layerId), 'pointerdown', [300, 200]);
         fire(document, 'pointermove', [320, 205], { shiftKey: true });
+        assert.equal(saved(), before, 'committed state stays unchanged');
         assert.deepEqual(position(ids), [320, 200]);
         if (end === 'Escape') key(stage(), 'Escape');
         else if (end === 'cancel') fire(document, 'pointercancel');

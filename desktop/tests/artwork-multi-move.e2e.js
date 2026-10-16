@@ -74,6 +74,7 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('[data-action="open"]').click();
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Independent artwork placement');
   await page.waitForFunction(() => document.querySelectorAll('.shape').length === 5);

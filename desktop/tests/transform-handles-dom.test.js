@@ -62,6 +62,7 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
       /from '(\.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source += '\nwindow.canvasPreview = () => displayDocument();';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 80));
   flush();
@@ -98,6 +99,7 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
     x * matrix.b + y * matrix.d + matrix.f,
   ];
   const fire = (el, type, p = [0, 0], extra = {}) => {
+    const committedBeforePointer = JSON.stringify(win.nect.document);
     el.dispatchEvent(
       new win.PointerEvent(type, {
         bubbles: true,
@@ -188,7 +190,8 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
       g = geometry();
       p = start(key);
       move(key === 'scale' ? p.map((v, i) => v + g.axis[i] * 40) : rotate(g, p, 45));
-      assert.notEqual(saved(), before);
+      assert.equal(saved(), before);
+      assert.notEqual(JSON.stringify(win.canvasPreview()), before, 'display preview moved');
       if (end === 'Escape')
         stage().dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       else if (end === 'blur') win.dispatchEvent(new win.Event('blur'));
