@@ -232,7 +232,7 @@ try {
   const { first } = await loadFixture('transform');
   await page.locator(`[data-select-layer="${first.layerId}"]`).click();
   await page.locator(`.node[data-id="${first.nodeId}"] .node-head strong`).click();
-  assert.match(await page.locator('.hint').innerText(), /Node .*before downstream nodes/);
+  assert.match(await page.locator('.hint').innerText(), /Node · Rectangle/);
   assert.equal(await page.locator('[data-object-resize]').count(), 2);
   assert.equal(
     await page.locator('.node-stage-hit').evaluate((el) => getComputedStyle(el).pointerEvents),

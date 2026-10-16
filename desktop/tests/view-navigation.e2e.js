@@ -264,15 +264,15 @@ try {
   await page.locator(`.node[data-id="${ids[1]}"] .node-head strong`).click();
   const textarea = page.locator('.inspector-body textarea');
   await textarea.fill('Uncommitted draft');
-  await page.locator('.right').evaluate((el) => {
+  await page.locator('.inspector').evaluate((el) => {
     el.scrollTop = 350;
   });
-  const sidebar = await page.locator('.right').evaluate((el) => el.scrollTop);
+  const sidebar = await page.locator('.inspector').evaluate((el) => el.scrollTop);
   assert.ok(sidebar > 0);
   await stage.dispatchEvent('wheel', { ctrlKey: true, deltaY: -80, clientX: 350, clientY: 200 });
   assert.equal(await textarea.inputValue(), 'Uncommitted draft');
   assert.equal(await textarea.evaluate((el) => el === document.activeElement), true);
-  assert.equal(await page.locator('.right').evaluate((el) => el.scrollTop), sidebar);
+  assert.equal(await page.locator('.inspector').evaluate((el) => el.scrollTop), sidebar);
   // IME simulation: no browser navigation on the surface, no input wheel interception.
   await textarea.dispatchEvent('compositionstart', { data: 'あ' });
   const duringIME = await scale();
@@ -283,12 +283,12 @@ try {
   await textarea.fill('View navigation');
   await textarea.press('Tab');
   await page.waitForTimeout(100);
-  await page.locator('.right').evaluate((el) => {
+  await page.locator('.inspector').evaluate((el) => {
     el.scrollTop = 350;
   });
-  const beforeRender = await page.locator('.right').evaluate((el) => el.scrollTop);
+  const beforeRender = await page.locator('.inspector').evaluate((el) => el.scrollTop);
   await click('guides-panel');
-  assert.equal(await page.locator('.right').evaluate((el) => el.scrollTop), beforeRender);
+  assert.equal(await page.locator('.inspector').evaluate((el) => el.scrollTop), beforeRender);
   // Busy wheel over an actual node field cannot native-scroll beneath a scrub.
   await click('graph-reset');
   const numeric = page

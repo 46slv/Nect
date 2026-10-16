@@ -64,9 +64,9 @@ try {
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Artwork equal gaps');
   await select();
-  assert.equal(await page.getByRole('heading', { name: '隙間を等間隔' }).count(), 1);
-  assert.equal(await page.getByRole('heading', { name: '中心を等間隔' }).count(), 1);
-  assert.equal(await page.locator('[data-distribute-artwork]').count(), 2);
+  assert.equal(await page.getByRole('group', { name: 'Distribute gaps' }).count(), 1);
+  assert.equal(await page.getByRole('group', { name: 'Distribute objects' }).count(), 1);
+  assert.equal(await page.locator('[data-distribute-artwork]').count(), 6);
   await page.screenshot({ path: 'test-results/artwork-gap-before-1600.png' });
 
   for (const [action, axis] of [
@@ -154,7 +154,7 @@ try {
     ]) {
       await page.setViewportSize({ width, height });
       await page.locator('[data-action="fit"]').click();
-      await page.locator('.artwork-gap-distribution').scrollIntoViewIfNeeded();
+      await page.locator('.alignment-panel').scrollIntoViewIfNeeded();
       assert.equal(await button.isVisible(), true);
       const rect = await button.boundingBox();
       assert.ok(
@@ -182,7 +182,9 @@ try {
     if (await page.locator('dialog[open] button[value="discard"]').count())
       await page.locator('dialog[open] button[value="discard"]').click();
     await page.locator('#open-file').setInputFiles(saveFile);
-    await page.waitForFunction(() => document.querySelector('.message').textContent.includes('Project restored'));
+    await page.waitForFunction(() =>
+      document.querySelector('.message').textContent.includes('Project restored'),
+    );
     assert.equal(await page.evaluate(() => window.nect.export()), exported);
     await select();
     await page.locator(`[data-distribute-gap="${action}"]`).click();
@@ -285,7 +287,7 @@ try {
     else l[kind] = true;
     await load(doc);
     const before = await saved();
-    assert.match(await page.locator('.artwork-gap-status').innerText(), /Transformed star:/);
+    assert.match(await page.locator('.alignment-error').innerText(), /Transformed star:/);
     for (const action of ['gap-x', 'gap-y']) {
       assert.equal(await page.locator(`[data-distribute-gap="${action}"]`).isDisabled(), true);
       await force(action);

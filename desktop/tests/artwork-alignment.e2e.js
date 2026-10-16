@@ -109,7 +109,7 @@ try {
     else l[kind] = true;
     await page.evaluate((doc) => window.nect.load(JSON.stringify(doc)), doc);
     await select();
-    assert.match(await page.locator('.artwork-align-status').innerText(), /Transformed star:/);
+    assert.match(await page.locator('.alignment-error').innerText(), /Transformed star:/);
     assert.equal(await page.locator('[data-align-artwork="left"]').isDisabled(), true);
     const before = await saved();
     await page.locator('[data-align-artwork="left"]').evaluate((b) => {

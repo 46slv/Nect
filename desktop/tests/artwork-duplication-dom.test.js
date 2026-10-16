@@ -145,14 +145,11 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
         assert.ok(duplicate());
         assert.equal(duplicate().disabled, false, type);
         assert.equal(duplicate().textContent, 'Duplicate in place');
-        assert.equal(
-          $('.artwork-duplicate-status').textContent,
-          'Each copy above its source. One Undo.',
-        );
+        assert.equal($('.artwork-duplicate-status').textContent, '');
+        assert.ok(duplicate().closest('.inspector-body'));
         assert.ok(
-          duplicate().compareDocumentPosition($('.artwork-alignment')) &
-            win.Node.DOCUMENT_POSITION_FOLLOWING,
-          'duplication is reachable before alignment controls',
+          $('.alignment-panel [data-align-artwork]'),
+          'alignment remains pinned outside the inspector',
         );
         click('[data-duplicate-artwork]');
         const after = saved(),

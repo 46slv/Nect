@@ -373,8 +373,8 @@ test('Multiple independent artworks select and move as one transaction', async (
           $('[data-zoom="canvas"]').textContent,
         ];
         const beforeView = view();
-        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 2);
-        assert.match($('.artwork-distribution').textContent, /中心を等間隔/);
+        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 6);
+        assert.ok($('[aria-label="Distribute objects"]'));
         click(`[data-distribute-artwork="${action}"]`);
         const after = saved();
         assert.notEqual(after, before);
@@ -420,7 +420,7 @@ test('Multiple independent artworks select and move as one transaction', async (
         });
         const before = saved();
         assert.equal($('[data-distribute-artwork="center-x"]').disabled, true);
-        assert.match($('.artwork-distribute-status').textContent, /Embedded swatch:/);
+        assert.match($('.alignment-error').textContent, /Embedded swatch:/);
         force();
         assert.equal(saved(), before);
         assert.equal(ui().past, 0);
@@ -469,7 +469,7 @@ test('Multiple independent artworks select and move as one transaction', async (
       row(current.ids[0]);
       row(current.ids[1], true);
       assert.equal($('[data-distribute-artwork="center-x"]').disabled, true);
-      assert.match($('.artwork-distribute-status').textContent, /three/);
+      assert.match($('[data-distribute-artwork="center-x"]').title, /three/);
       force();
       assert.equal(ui().past, 0);
       assert.deepEqual(selectedIds(), current.ids.slice(0, 2).sort());
@@ -535,8 +535,8 @@ test('Multiple independent artworks select and move as one transaction', async (
         ];
         const beforeView = view();
         assert.equal(document.querySelectorAll('[data-distribute-gap]').length, 2);
-        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 2);
-        assert.match($('.artwork-gap-distribution').textContent, /隙間を等間隔/);
+        assert.equal(document.querySelectorAll('[data-distribute-artwork]').length, 6);
+        assert.ok($('[aria-label="Distribute gaps"]'));
         click(`[data-distribute-gap="${action}"]`);
         const after = saved();
         assert.notEqual(after, before);
@@ -588,7 +588,7 @@ test('Multiple independent artworks select and move as one transaction', async (
         });
         const before = saved();
         assert.equal($('[data-distribute-gap="gap-x"]').disabled, true);
-        assert.match($('.artwork-gap-status').textContent, /Embedded swatch:/);
+        assert.match($('.alignment-error').textContent, /Embedded swatch:/);
         force();
         assert.equal(saved(), before);
         assert.equal(ui().past, 0);
@@ -660,7 +660,7 @@ test('Multiple independent artworks select and move as one transaction', async (
         });
         const before = saved();
         assert.equal($('[data-align-artwork="left"]').disabled, true);
-        assert.match($('.artwork-align-status').textContent, /Embedded swatch:/);
+        assert.match($('.alignment-error').textContent, /Embedded swatch:/);
         force();
         assert.equal(saved(), before);
         assert.equal(ui().past, 0);

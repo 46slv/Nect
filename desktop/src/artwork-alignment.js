@@ -21,7 +21,11 @@ export function artworkBoundsPrecision(members) {
 
 export function resolveArtworkAlignment(doc, layerIds, options = {}) {
   const ids = [...layerIds];
-  if (ids.length < 2 || ids.length > 100 || new Set(ids).size !== ids.length)
+  if (
+    ids.length < (options.reference === 'artboard' ? 1 : 2) ||
+    ids.length > 100 ||
+    new Set(ids).size !== ids.length
+  )
     return { supported: false, reason: 'Select 2–100 unique artwork layers to align.' };
   const members = [];
   for (const id of ids) {
@@ -34,6 +38,10 @@ export function resolveArtworkAlignment(doc, layerIds, options = {}) {
     members.push({ target: r.target, bounds: r.bounds });
   }
   const bounds = [0, 1].map((axis) => {
+    if (options.reference === 'artboard') {
+      const size = axis ? doc.height : doc.width;
+      return [0, size / 2, size];
+    }
     const min = Math.min(...members.map((m) => m.bounds[axis][0])),
       max = Math.max(...members.map((m) => m.bounds[axis][2]));
     // Halves avoid overflowing min + max for otherwise finite bounds.
@@ -55,7 +63,8 @@ export function alignArtworkSelection(doc, layerIds, action, options = {}) {
   // the first translation still uses the measured bounds without rounding.
   const precision = artworkBoundsPrecision(resolved.members);
   const edges = resolved.members.map(({ bounds }) => bounds[axis][edge]);
-  if (Math.max(...edges) - Math.min(...edges) <= precision) return false;
+  if (edges.every((value) => Math.abs(value - resolved.bounds[axis][edge]) <= precision))
+    return false;
   const moves = resolved.members.map(({ target, bounds }) => {
     const distance = resolved.bounds[axis][edge] - bounds[axis][edge];
     // Paper bounds can differ by sub-nanounit roundoff after a translation.

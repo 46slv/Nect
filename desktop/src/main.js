@@ -1,6 +1,197 @@
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
+// Shared keyboard picker. Document changes stay in the caller's typed Session.
+function openSearchPanel({
+  title,
+  items,
+  selectedId,
+  query = '',
+  action,
+  onSelect,
+  onCommit,
+  onCancel,
+  isFavorite,
+  toggleFavorite,
+}) {
+  const previousFocus = document.activeElement;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'search-panel';
+  dialog.setAttribute('aria-label', title);
+  dialog.innerHTML =
+    '<header><strong></strong><button type="button" class="picker-close" aria-label="Close">×</button></header><div class="picker-search"><input type="search" autocomplete="off" spellcheck="false"><button type="button" class="picker-favorites" aria-label="Show favorite fonts" aria-pressed="false" title="Favorites">☆</button></div><div class="picker-list" role="listbox"></div><output class="picker-status" role="status"></output><footer><button type="button" class="picker-cancel">Cancel</button><button type="button" class="picker-apply"></button></footer>';
+  dialog.querySelector('strong').textContent = title;
+  const input = dialog.querySelector('input'),
+    list = dialog.querySelector('.picker-list'),
+    status = dialog.querySelector('output'),
+    apply = dialog.querySelector('.picker-apply'),
+    favorites = dialog.querySelector('.picker-favorites');
+  const listId = `picker-${Math.random().toString(36).slice(2)}`;
+  list.id = listId;
+  list.setAttribute('aria-label', title);
+  input.setAttribute('aria-label', `${title} search`);
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-controls', listId);
+  input.setAttribute('aria-expanded', 'true');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.placeholder = `Search ${title.toLowerCase()}`;
+  input.value = query;
+  apply.textContent = action;
+  favorites.hidden = !toggleFavorite;
+  let activeId = selectedId,
+    rows = [],
+    closed = false,
+    composing = false,
+    favoriteOnly = false,
+    lastNotified;
+  const active = () => rows.find((item) => item.id === activeId && !item.disabled);
+  function highlight() {
+    for (const row of list.children)
+      row.setAttribute('aria-selected', String(row.dataset.id === activeId));
+    const index = rows.findIndex((item) => item.id === activeId);
+    if (index >= 0) {
+      input.setAttribute('aria-activedescendant', `${listId}-${index}`);
+      list.children[index]?.scrollIntoView({ block: 'nearest' });
+    } else input.removeAttribute('aria-activedescendant');
+    apply.disabled = !active();
+    if (lastNotified !== activeId) {
+      lastNotified = activeId;
+      status.textContent = '';
+      onSelect?.(active());
+    }
+  }
+  function refresh() {
+    const words = input.value.trim().normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
+    rows = items.filter(
+      (item) =>
+        (!favoriteOnly || isFavorite(item)) &&
+        words.every((word) =>
+          `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
+        ),
+    );
+    if (!rows.some((item) => item.id === activeId && !item.disabled))
+      activeId = rows.find((item) => !item.disabled)?.id;
+    list.replaceChildren();
+    rows.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'picker-option';
+      row.dataset.id = item.id;
+      row.id = `${listId}-${index}`;
+      row.setAttribute('role', 'option');
+      row.setAttribute('aria-disabled', String(!!item.disabled));
+      const name = document.createElement('span');
+      name.textContent = item.label;
+      row.append(name);
+      if (item.detail) {
+        const detail = document.createElement('small');
+        detail.textContent = item.detail;
+        row.append(detail);
+      }
+      if (toggleFavorite) {
+        const star = document.createElement('button');
+        star.type = 'button';
+        star.className = 'picker-star';
+        star.textContent = isFavorite(item) ? '★' : '☆';
+        star.setAttribute('aria-label', `Favorite ${item.label}`);
+        star.setAttribute('aria-pressed', String(isFavorite(item)));
+        star.onclick = (event) => {
+          event.stopPropagation();
+          toggleFavorite(item);
+          refresh();
+          input.focus();
+        };
+        row.append(star);
+      }
+      row.onclick = () => {
+        if (item.disabled) return;
+        activeId = item.id;
+        highlight();
+        input.focus();
+      };
+      row.ondblclick = () => {
+        if (!item.disabled) onCommit(active());
+      };
+      list.append(row);
+    });
+    highlight();
+    if (!rows.length) status.textContent = 'No matches';
+  }
+  const panel = {
+    get closed() {
+      return closed;
+    },
+    get activeId() {
+      return activeId;
+    },
+    status(text, ready = true) {
+      if (closed) return;
+      status.textContent = text;
+      apply.disabled = !ready || !active();
+    },
+    close(cancel = false) {
+      if (closed) return;
+      closed = true;
+      if (cancel) onCancel?.();
+      dialog.close();
+      dialog.remove();
+      if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    },
+  };
+  dialog.querySelector('.picker-close').onclick = () => panel.close(true);
+  dialog.querySelector('.picker-cancel').onclick = () => panel.close(true);
+  apply.onclick = () => onCommit(active());
+  favorites.onclick = () => {
+    favoriteOnly = !favoriteOnly;
+    favorites.setAttribute('aria-pressed', String(favoriteOnly));
+    refresh();
+    input.focus();
+  };
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    panel.close(true);
+  });
+  dialog.addEventListener('compositionstart', () => {
+    composing = true;
+  });
+  dialog.addEventListener('compositionend', () => {
+    composing = false;
+    refresh();
+  });
+  input.oninput = () => {
+    if (!composing) refresh();
+  };
+  dialog.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.isComposing || event.keyCode === 229 || composing) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      panel.close(true);
+    } else if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      event.preventDefault();
+      const enabled = rows.filter((item) => !item.disabled);
+      if (!enabled.length) return;
+      const index = enabled.findIndex((item) => item.id === activeId);
+      activeId =
+        enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]
+          .id;
+      highlight();
+    } else if (event.key === 'Enter') {
+      // Buttons retain their normal action (favorites/cancel), search commits.
+      if (event.target !== input) return;
+      event.preventDefault();
+      if (active()) onCommit(active());
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  input.focus();
+  // Return the handle before a preview callback can use it.
+  queueMicrotask(() => {
+    if (!closed) refresh();
+  });
+  return panel;
+}
+
 import {
   resolveArtworkDuplicateTarget,
   resolveArtworkDuplicateSelection,
@@ -100,6 +291,60 @@ import {
   rotationFromHandle,
 } from './core.js';
 const app = document.querySelector('#app');
+let editorPicker = null,
+  fontPreview = null;
+const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
+let alignmentPreferences = readAlignmentPreferences();
+function readAlignmentPreferences() {
+  try {
+    const value = JSON.parse(localStorage.getItem(ALIGN_PREFERENCES_KEY) || '{}');
+    return {
+      open: value.open !== false,
+      reference: value.reference === 'artboard' ? 'artboard' : 'selection',
+      spacing:
+        Number.isFinite(value.spacing) && Math.abs(value.spacing) <= 100000 ? value.spacing : null,
+    };
+  } catch {
+    return { open: true, reference: 'selection', spacing: null };
+  }
+}
+function saveAlignmentPreferences() {
+  try {
+    localStorage.setItem(ALIGN_PREFERENCES_KEY, JSON.stringify(alignmentPreferences));
+  } catch {
+    notify('Alignment preferences could not be saved', true);
+  }
+}
+function editAlignmentSpacing(input, commit = false) {
+  const value = input.value.trim() ? Number(input.value) : null;
+  if (
+    input.validity?.badInput ||
+    (value !== null && (!Number.isFinite(value) || Math.abs(value) > 100000))
+  ) {
+    for (const button of app.querySelectorAll('[data-distribute-gap]')) button.disabled = true;
+    if (commit) {
+      input.value = alignmentPreferences.spacing ?? '';
+      editAlignmentSpacing(input);
+      notify('Spacing must be within ±100000 px', true);
+    }
+    return;
+  }
+  alignmentPreferences.spacing = value;
+  saveAlignmentPreferences();
+  const eligible =
+    !!artworkTarget &&
+    artworkMove()?.supported &&
+    artworkSelection.size >= (value === null ? 3 : 2);
+  for (const button of app.querySelectorAll('[data-distribute-gap]')) {
+    button.dataset.distributeSpacing = String(value ?? '');
+    button.dataset.eligible = String(!!eligible);
+    button.disabled = !eligible || alignmentBusy();
+    button.title =
+      value === null
+        ? 'Equal gaps; fixed outer edges'
+        : `Fixed gap ${value} px; fixed leading edge`;
+  }
+}
 const sessionOptions = {
   fonts: () => (bundledFont ? { default: bundledFont } : {}),
   // A numeric pointer reservation first commits any typed value, before it
@@ -230,7 +475,7 @@ const current = () =>
   penDraft?.layer || history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
 // Read-only display projection. Authoring adapters continue to resolve committed
 // targets through current(); the detached preview is never installed in History.
-const displayDocument = () => drag?.preview || history.doc;
+const displayDocument = () => fontPreview || drag?.preview || history.doc;
 const displayLayer = () => {
   const doc = displayDocument();
   return penDraft?.layer || doc.layers.find((layer) => layer.id === activeLayer) || doc.layers[0];
@@ -281,20 +526,60 @@ function sameArtworkMove(target, expected) {
     JSON.stringify(target.route) === JSON.stringify(expected.route)
   );
 }
-function artworkAlignmentControls(move) {
-  const eligible = artworkSelection.size > 1 && move.supported;
-  const reason = artworkSelection.size < 2 ? 'Select at least two artwork layers.' : move.reason;
-  return `<section class="artwork-alignment" aria-label="Align artwork"><h4>Align artwork</h4><p class="artwork-align-status">${esc(eligible ? 'Selection bounds' : reason)}</p><div class="artwork-align-controls">${artworkAlignments.map(([id, label]) => `<button data-align-artwork="${id}" data-align-selection="${esc(JSON.stringify([...artworkSelection]))}" data-align-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="Align artwork ${label.toLowerCase()}" title="${esc(eligible ? `Align ${label.toLowerCase()} to selection bounds (one Undo)` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
+function alignmentIcon(action, distribute = false) {
+  const vertical = ['top', 'center-y', 'bottom', 'gap-y'].includes(action);
+  const edge = ['left', 'top'].includes(action) ? 0 : ['right', 'bottom'].includes(action) ? 2 : 1;
+  let shape;
+  if (action.startsWith('gap-'))
+    shape =
+      '<rect x="2" y="5" width="4" height="14"/><rect x="18" y="5" width="4" height="14"/><path d="M8 12h8m-6-3-3 3 3 3m4-6 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.4"/>';
+  else if (distribute)
+    shape = [4, 11, 18]
+      .map(
+        (x, i) =>
+          `<rect x="${x}" y="${edge === 0 ? 5 : edge === 2 ? 19 - [9, 14, 7][i] : 12 - [9, 14, 7][i] / 2}" width="3" height="${[9, 14, 7][i]}"/>`,
+      )
+      .join('');
+  else
+    shape =
+      `<path d="M${edge === 0 ? 3 : edge === 2 ? 21 : 12} 2v20" fill="none" stroke="currentColor" stroke-width="1.5"/>` +
+      [8, 13, 6]
+        .map(
+          (width, i) =>
+            `<rect x="${edge === 0 ? 5 : edge === 2 ? 19 - width : 12 - width / 2}" y="${4 + i * 6}" width="${width}" height="3"/>`,
+        )
+        .join('');
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" ${vertical ? 'style="transform:rotate(90deg)"' : ''}>${shape}</svg>`;
 }
-function artworkDistributionControls(move) {
-  const eligible = artworkSelection.size >= 3 && move.supported;
-  const reason = artworkSelection.size < 3 ? 'Select at least three artwork layers.' : move.reason;
-  return `<section class="artwork-distribution" aria-label="中心を等間隔"><h4>中心を等間隔</h4><p class="artwork-distribute-status">${esc(eligible ? '両端の中心を固定' : reason)}</p><div class="artwork-distribute-controls">${artworkDistributions.map(([id, label]) => `<button data-distribute-artwork="${id}" data-distribute-selection="${esc(JSON.stringify([...artworkSelection]))}" data-distribute-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="中心を等間隔 ${label}" title="${esc(eligible ? `${label}の中心を等間隔に配置（両端固定・1回のUndo）` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
-}
-function artworkGapControls(move) {
-  const eligible = artworkSelection.size >= 3 && move.supported;
-  const reason = artworkSelection.size < 3 ? 'Select at least three artwork layers.' : move.reason;
-  return `<section class="artwork-gap-distribution" aria-label="隙間を等間隔"><h4>隙間を等間隔</h4><p class="artwork-gap-status">${esc(eligible ? '外側の両端を固定' : reason)}</p><div class="artwork-distribute-controls">${artworkGapDistributions.map(([id, label]) => `<button data-distribute-gap="${id}" data-distribute-selection="${esc(JSON.stringify([...artworkSelection]))}" data-distribute-active="${esc(activeLayer)}" data-eligible="${eligible}" ${!eligible || alignmentBusy() ? 'disabled' : ''} aria-label="隙間を等間隔 ${label}" title="${esc(eligible ? `${label}の隙間を等間隔に配置（外側両端固定・1回のUndo）` : reason)}">${esc(label)}</button>`).join('')}</div></section>`;
+function alignmentPanel(move) {
+  if (!alignmentPreferences.open) return '';
+  const count = artworkSelection.size;
+  const allowed = !!artworkTarget && move.supported;
+  const alignReady = allowed && count >= (alignmentPreferences.reference === 'artboard' ? 1 : 2);
+  const spreadReady = allowed && count >= 3;
+  const gapReady = allowed && count >= (alignmentPreferences.spacing === null ? 3 : 2);
+  const selectedIds = esc(JSON.stringify([...artworkSelection]));
+  const busy = alignmentBusy();
+  const order = ['left', 'center-x', 'right', 'top', 'center-y', 'bottom'];
+  const alignButtons = order
+    .map((action) => {
+      const label = artworkAlignments.find(([id]) => id === action)[1];
+      return `<button data-align-artwork="${action}" data-align-selection="${selectedIds}" data-align-active="${esc(activeLayer)}" data-align-reference="${alignmentPreferences.reference}" data-eligible="${alignReady}" ${!alignReady || busy ? 'disabled' : ''} aria-label="Align artwork ${label.toLowerCase()}" title="${esc(label)}"><span>${alignmentIcon(action)}</span></button>`;
+    })
+    .join('');
+  const spreadButtons = order
+    .map((action) => {
+      const label = artworkDistributions.find(([id]) => id === action)[1];
+      return `<button data-distribute-artwork="${action}" data-distribute-selection="${selectedIds}" data-distribute-active="${esc(activeLayer)}" data-eligible="${spreadReady}" ${!spreadReady || busy ? 'disabled' : ''} aria-label="Distribute artwork ${action}" title="${esc(spreadReady ? label + '; fixed endpoints' : allowed ? 'Select at least three artwork layers' : move?.reason || 'Select artwork layers')}">${alignmentIcon(action, true)}</button>`;
+    })
+    .join('');
+  const gapButtons = artworkGapDistributions
+    .map(
+      ([action, label]) =>
+        `<button data-distribute-gap="${action}" data-distribute-selection="${selectedIds}" data-distribute-active="${esc(activeLayer)}" data-distribute-spacing="${alignmentPreferences.spacing ?? ''}" data-eligible="${gapReady}" ${!gapReady || busy ? 'disabled' : ''} aria-label="隙間を等間隔 ${label}" title="${alignmentPreferences.spacing === null ? 'Equal gaps; fixed outer edges' : `Fixed gap ${alignmentPreferences.spacing} px; fixed leading edge`}">${alignmentIcon(action)}</button>`,
+    )
+    .join('');
+  return `<section class="alignment-panel" aria-label="Alignment panel"><div class="alignment-heading"><strong>Align</strong><output aria-label="Alignment selection">${count} selected</output><button data-action="align-panel" aria-label="Hide alignment panel" title="Hide alignment panel">×</button></div><div class="alignment-icon-row" role="group" aria-label="Align objects">${alignButtons}</div><div class="alignment-icon-row" role="group" aria-label="Distribute objects">${spreadButtons}</div><div class="alignment-gap-row" role="group" aria-label="Distribute gaps"><span>Spacing</span>${gapButtons}<input type="number" data-align-spacing aria-label="Artwork gap spacing" min="-100000" max="100000" step="any" placeholder="Auto" value="${alignmentPreferences.spacing ?? ''}" title="Blank: equal gaps with outer edges fixed. Number: fixed gap from leading artwork."><span>px</span></div><div class="alignment-reference"><label>Align to <select data-align-reference aria-label="Alignment reference"><option value="selection" ${alignmentPreferences.reference === 'selection' ? 'selected' : ''}>Selection</option><option value="artboard" ${alignmentPreferences.reference === 'artboard' ? 'selected' : ''}>Artboard</option></select></label></div>${allowed || !count ? '' : `<output class="alignment-error" role="status">${esc(move.reason)}</output>`}</section>`;
 }
 function notify(text, bad = false) {
   message = text;
@@ -361,6 +646,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  editorPicker?.close(true);
   discardPenDraft();
   composing = false;
   nameEdit = null;
@@ -726,7 +1012,7 @@ function nameClicked(layerId, nodeId, event) {
 function bypassControl(n, compact = false) {
   const contract = bypassContract(n),
     label = n.bypassed ? 'Restore effect' : 'Bypass effect';
-  return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(n.name)}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>${compact ? '' : `<p class="font-note">${esc(contract.reason)}${n.bypassed ? ' Saved controls below apply when restored.' : ''}</p>`}`;
+  return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(n.name)}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
 }
 function nodeHeader(n) {
   return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(n.name)}" title="Double-click or F2 to rename">${esc(n.name)}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
@@ -856,7 +1142,7 @@ function render(resetView = false, artworkResolution = null) {
     pendingRender = null;
   }
   const focused = resetView ? null : captureFocus(app);
-  const inspectorScroll = resetView ? 0 : document.querySelector('.right')?.scrollTop || 0;
+  const inspectorScroll = resetView ? 0 : document.querySelector('.inspector')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
     : ['.guides-panel', '.guide-list'].map(
@@ -918,19 +1204,19 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen: click for corners, drag for handles; click first point to close. Enter / Escape: finish · Cancel path: discard.' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Shift-click: add/remove; drag to move · Arrow: 1 unit · Shift+Arrow: 10' : move.reason)}` : n ? `Node · ${esc(n.name)} · ${n.type === 'Transform' ? 'Selected Transform output · ' : ''}before downstream nodes${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork on the canvas or a layer; select a graph node for source-stage editing'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="visually-hidden">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Move artwork' : move.reason)}` : n ? `Node · ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="graph-hint" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -940,9 +1226,9 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section><section><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}<br>Before downstream nodes. Connected or locked parameters are read-only.</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
+      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${activeParameters(
           n,
         )
           .filter(
@@ -952,7 +1238,7 @@ function render(resetView = false, artworkResolution = null) {
           .map(([k, q]) => field(n, k, q))
           .join('')}`
       : artworkTarget
-        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? 'Each copy above its source. One Undo.' : duplication.reason)}</p>${artworkAlignmentControls(move)}${artworkDistributionControls(move)}${artworkGapControls(move)}${artworkSelection.size > 1 ? `<p class="artwork-active">Active layer ${esc(l.name)}</p>` : ''}<p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move' : move.reason)}</p>`
+        ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? '' : duplication.reason)}</p>${artworkSelection.size > 1 ? `<p class="artwork-active">Active layer ${esc(l.name)}</p>` : ''}<p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move' : move.reason)}</p>`
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3>'
           : '<p>Select artwork or a graph node.</p>'
@@ -964,6 +1250,27 @@ function render(resetView = false, artworkResolution = null) {
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  // Keep controls and actionable states visible; put reference prose in
+  // one optional help disclosure per editing region.
+  for (const region of app.querySelectorAll('.node-body, .inspector-body')) {
+    const notes = [...region.querySelectorAll('.font-note')].filter(
+      (note) => !note.hasAttribute('role') && !note.textContent.startsWith('At a wrap break'),
+    );
+    if (!notes.length) continue;
+    const help = document.createElement('details');
+    help.className = 'control-help';
+    const summary = document.createElement('summary');
+    summary.textContent = 'Help';
+    help.append(summary, ...notes);
+    region.append(help);
+  }
+  for (const control of app.querySelectorAll(
+    '#add-node, [data-font], [data-character-style="font"]',
+  )) {
+    control.setAttribute('aria-haspopup', 'dialog');
+    control.title =
+      control.id === 'add-node' ? 'Search nodes (Ctrl+Space)' : 'Search and preview fonts';
+  }
   const duplicateButton = document.querySelector('[data-duplicate-artwork]');
   if (duplicateButton) {
     duplicateButton.dataset.duplicateSelection = JSON.stringify([...artworkSelection]);
@@ -993,7 +1300,7 @@ function render(resetView = false, artworkResolution = null) {
   fitCanvas();
   updateNavigation();
   restoreFocus(app, focused);
-  document.querySelector('.right').scrollTop = inspectorScroll;
+  document.querySelector('.inspector').scrollTop = inspectorScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
     if (el) el.scrollTop = guideScroll[index];
@@ -1002,6 +1309,7 @@ function render(resetView = false, artworkResolution = null) {
     updateGraphBounds();
     drawWires();
   });
+  if (fontPreview) updateCanvas(true);
 }
 function editGuides(type, payload) {
   snapMatches = [];
@@ -1648,7 +1956,8 @@ function drawCanvas() {
   canvasFrame = null;
   const svg = document.querySelector('.artboard');
   if (!svg) return;
-  const display = drag?.preview || history.doc,
+  const display = displayDocument(),
+    fonts = resolveFonts(display, bundledFont ? { default: bundledFont } : {}),
     l =
       penDraft?.layer ||
       display.layers.find((layer) => layer.id === activeLayer) ||
@@ -1854,12 +2163,13 @@ function revealNode(id) {
       ?.scrollIntoView({ block: 'nearest', inline: 'nearest' }),
   );
 }
-function addNode(type) {
+function addNode(type, envelope = session.state, layerId = current().id) {
   const result = commandChange(
     'create-node',
-    { nodeType: type, position: freePosition(type) },
+    { layerId, nodeType: type, position: freePosition(type) },
     `Added ${type}`,
     true,
+    envelope,
   );
   if (result) {
     selected = result.nodeId;
@@ -1869,7 +2179,231 @@ function addNode(type) {
     render();
     revealNode(selected);
   }
+  return result;
 }
+
+function openNodePicker() {
+  if (
+    editorPicker ||
+    document.querySelector('dialog[open]') ||
+    navigationBusy() ||
+    penDraft ||
+    nameEdit ||
+    current().locked
+  )
+    return;
+  const envelope = session.state,
+    layerId = current().id;
+  editorPicker = openSearchPanel({
+    title: 'Add node',
+    action: 'Add node',
+    items: Object.keys(definitions)
+      .filter((type) => !['Output', 'Image Output', 'Image'].includes(type))
+      .map((type) => ({ id: type, label: type })),
+    onCommit(item) {
+      if (!item) return;
+      const picker = editorPicker;
+      editorPicker = null;
+      picker.close();
+      if (addNode(item.id, envelope, layerId))
+        document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+    },
+    onCancel() {
+      editorPicker = null;
+    },
+  });
+}
+
+const FONT_FAVORITES_KEY = 'nect.font-favorites.v1';
+function fontFavorites() {
+  try {
+    const value = JSON.parse(localStorage.getItem(FONT_FAVORITES_KEY) || '[]');
+    return new Set(Array.isArray(value) ? value.filter((item) => typeof item === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+function openFontPicker(control, query = '') {
+  if (
+    editorPicker ||
+    document.querySelector('dialog[open]') ||
+    current().locked ||
+    navigationBusy() ||
+    penDraft
+  )
+    return;
+  document.activeElement?.blur();
+  const context = control.dataset.characterStyle === 'font' ? characterContext() : null;
+  const nodeId = context?.n.id || control.dataset.font;
+  if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason)))
+    return;
+  const owner = session,
+    envelope = session.state;
+  let token;
+  try {
+    token = owner.dispatch({
+      ...envelope,
+      type: 'begin-gesture',
+      payload: {
+        target: {
+          kind: 'text-font',
+          layerId: current().id,
+          nodeId,
+          ...(context ? { characterIds: [...characterEdit.selected] } : {}),
+        },
+      },
+    });
+  } catch (error) {
+    notify(error.message, true);
+    return;
+  }
+  const items = [
+    ...(context ? [{ id: '', label: 'Inherit default font', key: 'inherit' }] : []),
+    { id: 'default', label: 'DejaVu Sans (Latin)', key: 'default' },
+    ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
+      id,
+      label: asset.name,
+      key: `font:${asset.name}`,
+    })),
+    ...systemFonts.map(([id, name, reason]) => ({
+      id,
+      label: name,
+      key: `font:${name}`,
+      detail: reason,
+      disabled: !!reason,
+      installed: true,
+    })),
+  ];
+  const favorites = fontFavorites();
+  let picker,
+    request = 0,
+    pending = Promise.resolve(),
+    readyId,
+    committing = false;
+  async function preview(item) {
+    const serial = ++request;
+    readyId = undefined;
+    if (!item) return;
+    picker.status(item.installed ? 'Loading font…' : '', false);
+    try {
+      const update = item.installed
+        ? { bytes: await readSystemFont(item.id), fileName: item.label }
+        : { font: item.id };
+      if (picker.closed || serial !== request || session !== owner) return;
+      token = owner.dispatch({
+        ...envelope,
+        type: 'update-gesture',
+        payload: { ...token, update },
+      });
+      fontPreview = owner.previewSnapshot(token.gestureId).document;
+      readyId = item.id;
+      updateCanvas(true);
+      picker.status('');
+    } catch (error) {
+      if (!picker.closed && serial === request)
+        picker.status(error.message || String(error), false);
+    }
+  }
+  picker = editorPicker = openSearchPanel({
+    title: 'Font',
+    action: 'Apply font',
+    items,
+    query,
+    selectedId: control.value,
+    isFavorite: (item) => favorites.has(item.key),
+    toggleFavorite(item) {
+      if (favorites.has(item.key)) favorites.delete(item.key);
+      else favorites.add(item.key);
+      try {
+        localStorage.setItem(FONT_FAVORITES_KEY, JSON.stringify([...favorites]));
+      } catch {
+        picker.status('Favorites could not be saved', false);
+      }
+    },
+    onSelect(item) {
+      pending = preview(item);
+    },
+    async onCommit(item) {
+      if (!item || committing) return;
+      committing = true;
+      const serial = request;
+      try {
+        await pending;
+        if (picker.closed || request !== serial || readyId !== item.id || session !== owner) return;
+        owner.dispatch({ ...envelope, type: 'commit-gesture', payload: token });
+        fontPreview = null;
+        editorPicker = null;
+        picker.close();
+        notify('Font updated');
+        render();
+      } catch (error) {
+        picker.status(error.message || String(error), false);
+      } finally {
+        committing = false;
+      }
+    },
+    onCancel() {
+      request++;
+      if (owner.hasGesture && owner.gestureState?.gestureId === token.gestureId)
+        owner.dispatch({ ...owner.state, type: 'cancel-gesture', payload: token });
+      fontPreview = null;
+      editorPicker = null;
+      updateCanvas(true);
+    },
+  });
+}
+
+// Retain the standard controls for accessibility; route normal pointer/keyboard
+// browsing to a searchable picker with an explicit commit/cancel boundary.
+app.addEventListener(
+  'pointerdown',
+  (event) => {
+    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    if (!control || event.button !== 0 || control.disabled) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    control.id === 'add-node' ? openNodePicker() : openFontPicker(control);
+  },
+  true,
+);
+app.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.isComposing || event.keyCode === 229 || composing) return;
+    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    if (!control || control.disabled || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key) && event.key.length !== 1)
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    control.id === 'add-node'
+      ? openNodePicker()
+      : openFontPicker(control, event.key.length === 1 && event.key !== ' ' ? event.key : '');
+  },
+  true,
+);
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (
+      !(event.ctrlKey && event.code === 'Space') ||
+      event.altKey ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.repeat ||
+      event.isComposing ||
+      event.keyCode === 229 ||
+      composing ||
+      editingControl(event.target) ||
+      event.target.closest('dialog')
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openNodePicker();
+  },
+  true,
+);
 function deletionBusy() {
   return !!(penDraft || navigationBusy() || nameEdit || document.querySelector('dialog[open]'));
 }
@@ -1999,6 +2533,7 @@ function alignArtwork(button) {
     !app.contains(button) ||
     alignmentBusy() ||
     button.dataset.alignActive !== activeLayer ||
+    button.dataset.alignReference !== alignmentPreferences.reference ||
     button.dataset.alignSelection !== JSON.stringify([...artworkSelection])
   )
     return;
@@ -2008,13 +2543,19 @@ function alignArtwork(button) {
     const { changed } = session.dispatch({
       ...session.state,
       type: 'align-artworks',
-      payload: { layerIds: [...artworkSelection], action: button.dataset.alignArtwork },
+      payload: {
+        layerIds: [...artworkSelection],
+        action: button.dataset.alignArtwork,
+        reference: alignmentPreferences.reference,
+      },
     });
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
       selectionHistory.set(history.doc, selectionSnapshot(true));
     }
-    notify(changed ? 'Artwork aligned to selection bounds' : 'Artwork already aligned');
+    notify(
+      changed ? `Artwork aligned to ${alignmentPreferences.reference}` : 'Artwork already aligned',
+    );
     render();
   } catch (error) {
     notify(error.message, true);
@@ -2025,6 +2566,8 @@ function distributeArtwork(button) {
     !app.contains(button) ||
     alignmentBusy() ||
     button.dataset.distributeActive !== activeLayer ||
+    (button.dataset.distributeGap !== undefined &&
+      button.dataset.distributeSpacing !== String(alignmentPreferences.spacing ?? '')) ||
     button.dataset.distributeSelection !== JSON.stringify([...artworkSelection])
   )
     return;
@@ -2038,7 +2581,13 @@ function distributeArtwork(button) {
         button.dataset.distributeGap !== undefined
           ? 'distribute-artwork-gaps'
           : 'distribute-artworks',
-      payload: { layerIds: [...artworkSelection], action },
+      payload: {
+        layerIds: [...artworkSelection],
+        action,
+        ...(button.dataset.distributeGap !== undefined && alignmentPreferences.spacing !== null
+          ? { spacing: alignmentPreferences.spacing }
+          : {}),
+      },
     });
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
@@ -2195,6 +2744,12 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.action === 'align-panel') {
+    alignmentPreferences.open = !alignmentPreferences.open;
+    saveAlignmentPreferences();
+    render();
+    return;
+  }
   if (d.distributeArtwork !== undefined || d.distributeGap !== undefined) {
     distributeArtwork(b);
     return;
@@ -3027,6 +3582,10 @@ app.addEventListener('beforeinput', (e) => {
   };
 });
 app.addEventListener('input', (e) => {
+  if (e.target.matches('[data-align-spacing]')) {
+    editAlignmentSpacing(e.target);
+    return;
+  }
   if (e.target.matches('[data-rename-name]')) {
     if (nameEdit) nameEdit.value = e.target.value;
     return;
@@ -3097,6 +3656,19 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.alignReference !== undefined || d.alignSpacing !== undefined) {
+    if (d.alignSpacing !== undefined) {
+      editAlignmentSpacing(el, true);
+      return;
+    }
+    if (d.alignReference !== undefined) {
+      if (!['selection', 'artboard'].includes(el.value)) return;
+      alignmentPreferences.reference = el.value;
+    }
+    saveAlignmentPreferences();
+    render();
+    return;
+  }
   if (penDraft && el.closest('[inert], #add-node')) return;
   if (penDraft && !finishPenDraft()) return;
   if (d.renameName !== undefined) return;
@@ -5474,9 +6046,7 @@ if (desktop)
   listSystemFonts()
     .then((items) => {
       systemFonts = items;
-      systemFontStatus = items.length
-        ? `${items.length} faces from Windows system/user Fonts folders. Selected face is embedded in JSON; variable/color fonts are unavailable.`
-        : 'No Windows fonts found. Use Load TTF / OTF.';
+      systemFontStatus = items.length ? '' : 'No Windows fonts found. Use Load TTF / OTF.';
       render();
     })
     .catch(() => {

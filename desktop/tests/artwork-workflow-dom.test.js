@@ -353,7 +353,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
       assert.notEqual(ui().selected, ids.nodeId);
       selectNode(ids.nodeId);
       assert.ok($('[data-node-stage-move]'));
-      assert.match($('.hint').textContent, /Node .*before downstream nodes/);
+      assert.match($('.hint').textContent, /Node · Rectangle/);
       const before = saved();
       fire($('[data-node-stage-move]'), 'pointerdown', [100, 100]);
       fire(document, 'pointermove', [110, 120]);

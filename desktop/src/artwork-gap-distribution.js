@@ -2,6 +2,7 @@ import { cloneDocument, validate } from './core.js';
 import { resolveArtworkDistribution } from './artwork-distribution.js';
 import { artworkBoundsPrecision } from './artwork-alignment.js';
 import { translateArtworkMoves } from './artwork-multi-move.js';
+import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
 export const artworkGapDistributions = [
   ['gap-x', '横方向', 0],
@@ -42,6 +43,65 @@ export function distributeArtworkGaps(doc, layerIds, action, options = {}) {
   const distribution = artworkGapDistributions.find(([id]) => id === action);
   if (!distribution) throw Error('Choose horizontal or vertical artwork gap distribution.');
   const ids = [...layerIds];
+  if (options.spacing !== undefined) {
+    if (!Number.isFinite(options.spacing) || Math.abs(options.spacing) > 100000)
+      throw Error('Spacing must be finite and within ±100000 px.');
+    // Explicit spacing keeps the leading artwork fixed and moves every later
+    // member. Auto mode below continues to preserve both outer endpoints.
+    if (ids.length < 2 || ids.length > 100 || new Set(ids).size !== ids.length)
+      throw Error('Select 2–100 unique artwork layers for fixed spacing.');
+    const members = ids.map((id) => {
+      const r = resolveArtworkMoveTarget(doc, id, options);
+      if (!r.supported) throw Error(r.reason);
+      return { target: r.target, bounds: r.bounds };
+    });
+    const axis = distribution[2],
+      order = new Map(doc.layers.map((layer, i) => [layer.id, i]));
+    members.sort(
+      (a, b) =>
+        a.bounds[axis][0] - b.bounds[axis][0] ||
+        order.get(a.target.layerId) - order.get(b.target.layerId),
+    );
+    let end = members[0].bounds[axis][2];
+    const moves = members.slice(1).map(({ target, bounds }) => {
+      const start = end + options.spacing;
+      end = start + bounds[axis][2] - bounds[axis][0];
+      const delta = [0, 0];
+      delta[axis] = start - bounds[axis][0];
+      return { target, delta };
+    });
+    if (moves.every(({ delta }) => Math.abs(delta[axis]) <= artworkBoundsPrecision(members)))
+      return false;
+    const candidate = cloneDocument(doc);
+    translateArtworkMoves(candidate, moves);
+    validate(candidate);
+    const next = members.map(({ target }) =>
+      resolveArtworkMoveTarget(candidate, target.layerId, options),
+    );
+    if (next.some((member) => !member.supported))
+      throw Error('Final artwork cannot retain fixed spacing.');
+    if (
+      next
+        .slice(1)
+        .some(
+          (member, i) =>
+            member.bounds[axis][0] < next[i].bounds[axis][0] - artworkBoundsPrecision(members),
+        )
+    )
+      throw Error('Spacing would reverse artwork order.');
+    if (
+      next
+        .slice(1)
+        .some(
+          (member, i) =>
+            Math.abs(member.bounds[axis][0] - next[i].bounds[axis][2] - options.spacing) >
+            artworkBoundsPrecision(members),
+        )
+    )
+      throw Error('Final artwork cannot retain fixed spacing.');
+    translateArtworkMoves(doc, moves);
+    return true;
+  }
   // Shared eligibility resolves every route afresh, including fixed endpoints.
   const resolved = resolveArtworkDistribution(doc, ids, options);
   if (!resolved.supported)

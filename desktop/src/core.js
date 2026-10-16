@@ -2397,6 +2397,56 @@ export class CommandSession {
   }
   #gestureCandidate(base, target, update) {
     if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'text-font') {
+      const layer = base.layers.find((layer) => layer.id === target.layerId);
+      const node = layer?.nodes.find((node) => node.id === target.nodeId && node.type === 'Text');
+      if (!node) throw Error('Select a Text node');
+      if (layer.locked) throw Error('Composition is locked');
+      if (target.characterIds !== undefined) {
+        const ids = characterIdsInRange(node.text, node.characterPositions, 0, node.text.length);
+        if (
+          !Array.isArray(target.characterIds) ||
+          !target.characterIds.length ||
+          new Set(target.characterIds).size !== target.characterIds.length ||
+          target.characterIds.some((id) => !ids.includes(id))
+        )
+          throw Error('Select stable character IDs');
+      }
+      // Opening the picker must also work when the current face lacks a glyph;
+      // browsing a supported face is how the user repairs that state.
+      if (update.initial === true) return cloneDocument(base);
+      const payload = { layerId: target.layerId, nodeId: target.nodeId };
+      if (target.characterIds !== undefined) payload.characterIds = target.characterIds;
+      if (update.bytes !== undefined)
+        return this.#commandCandidate(
+          'adopt-font',
+          {
+            ...payload,
+            bytes: update.bytes,
+            fileName: update.fileName,
+          },
+          base,
+        ).candidate;
+      if (typeof update.font !== 'string') throw Error('Select a font');
+      const candidate = this.#commandCandidate(
+        target.characterIds === undefined ? 'set-text-settings' : 'set-character-style',
+        {
+          ...payload,
+          ...(target.characterIds === undefined
+            ? { settings: { font: update.font } }
+            : { patch: { font: update.font || null } }),
+        },
+        base,
+      ).candidate;
+      const layerPreview = candidate.layers.find((layer) => layer.id === target.layerId);
+      const checked = evaluate(
+        { ...layerPreview, output: target.nodeId },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      );
+      if (checked.error) throw Error(checked.error);
+      return candidate;
+    }
     if (target.kind === 'artwork-translate')
       return this.#commandCandidate(
         'translate-artworks',
@@ -2793,28 +2843,30 @@ export class CommandSession {
         node = layer?.nodes.find((node) => node.id === target.nodeId);
       const q = node && target.kind === 'parameter' ? parameter(node, target.key) : null;
       const initial =
-        target?.kind === 'text-values'
-          ? { values: this.#textGestureValues(base, target) }
-          : [
-                'graph-translate',
-                'artwork-translate',
-                'nodes-translate',
-                'character-translate',
-                'curve-point',
-                'remap-point',
-              ].includes(target?.kind)
-            ? { delta: [0, 0] }
-            : target?.kind === 'guide-position'
-              ? { value: base.editor?.guides?.find((g) => g.id === target.guideId)?.position }
-              : target?.kind === 'parameter'
-                ? {
-                    value: target.alpha
-                      ? q?.value?.alpha
-                      : target.axis !== undefined
-                        ? q?.value?.[target.axis]
-                        : q?.value,
-                  }
-                : { width: node?.width ?? 264 };
+        target?.kind === 'text-font'
+          ? { initial: true }
+          : target?.kind === 'text-values'
+            ? { values: this.#textGestureValues(base, target) }
+            : [
+                  'graph-translate',
+                  'artwork-translate',
+                  'nodes-translate',
+                  'character-translate',
+                  'curve-point',
+                  'remap-point',
+                ].includes(target?.kind)
+              ? { delta: [0, 0] }
+              : target?.kind === 'guide-position'
+                ? { value: base.editor?.guides?.find((g) => g.id === target.guideId)?.position }
+                : target?.kind === 'parameter'
+                  ? {
+                      value: target.alpha
+                        ? q?.value?.alpha
+                        : target.axis !== undefined
+                          ? q?.value?.[target.axis]
+                          : q?.value,
+                    }
+                  : { width: node?.width ?? 264 };
       this.#gestureCandidate(base, target, initial);
       this.#gesture = {
         id: uid('gesture'),
@@ -2856,7 +2908,9 @@ export class CommandSession {
         draft.version++;
         return { ...this.state, ...this.gestureState };
       }
-      if (draft.update)
+      // Font adoption allocates private asset IDs during preview. Commit that
+      // validated candidate verbatim instead of allocating different IDs again.
+      if (draft.update && draft.target.kind !== 'text-font')
         draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
       validate(draft.candidate);
       const revision = this.#history.revision;
@@ -2996,6 +3050,16 @@ export class CommandSession {
       ) {
         if (!Array.isArray(payload.layerIds)) throw Error('Select artwork layer IDs');
         const options = { fonts: resolveFonts(candidate, this.#fonts()) };
+        if (type === 'align-artworks') {
+          if (
+            payload.reference !== undefined &&
+            !['selection', 'artboard'].includes(payload.reference)
+          )
+            throw Error('Invalid alignment reference');
+          options.reference = payload.reference;
+        }
+        if (type === 'distribute-artwork-gaps' && payload.spacing !== undefined)
+          options.spacing = payload.spacing;
         if (type === 'translate-artworks') {
           const resolved = resolveArtworkMoveSelection(candidate, payload.layerIds, options);
           if (!resolved.supported) throw Error(resolved.reason);

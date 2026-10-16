@@ -57,7 +57,7 @@ try {
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Artwork center distribution');
   await select();
-  assert.equal(await page.getByRole('heading', { name: '中心を等間隔' }).count(), 1);
+  assert.equal(await page.getByRole('group', { name: 'Distribute objects' }).count(), 1);
   await page.screenshot({ path: 'test-results/artwork-distribution-before-1600.png' });
   for (const [action, axis] of [
     ['center-x', 0],
@@ -135,7 +135,7 @@ try {
     await page.screenshot({ path: `test-results/artwork-distribution-${action}-1600.png` });
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.locator('[data-action="fit"]').click();
-    await page.locator('.artwork-distribution').scrollIntoViewIfNeeded();
+    await page.locator('.alignment-panel').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `test-results/artwork-distribution-${action}-1280.png` });
     await page.setViewportSize({ width: 1600, height: 1000 });
   }
@@ -150,7 +150,7 @@ try {
     else l[kind] = true;
     await page.evaluate((doc) => window.nect.load(JSON.stringify(doc)), doc);
     await select();
-    assert.match(await page.locator('.artwork-distribute-status').innerText(), /Transformed star:/);
+    assert.match(await page.locator('.alignment-error').innerText(), /Transformed star:/);
     assert.equal(await page.locator('[data-distribute-artwork="center-x"]').isDisabled(), true);
     const before = await saved();
     await page.locator('[data-distribute-artwork="center-x"]').evaluate((b) => {

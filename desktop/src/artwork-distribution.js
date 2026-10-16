@@ -4,8 +4,12 @@ import { translateArtworkMoves } from './artwork-multi-move.js';
 import { artworkBoundsPrecision } from './artwork-alignment.js';
 
 export const artworkDistributions = [
-  ['center-x', '横方向', 0],
-  ['center-y', '縦方向', 1],
+  ['center-x', '横方向', 0, 1],
+  ['center-y', '縦方向', 1, 1],
+  ['left', 'Left edges', 0, 0],
+  ['right', 'Right edges', 0, 2],
+  ['top', 'Top edges', 1, 0],
+  ['bottom', 'Bottom edges', 1, 2],
 ];
 
 export function resolveArtworkDistribution(doc, layerIds, options = {}) {
@@ -36,18 +40,19 @@ export function distributeArtworkSelection(doc, layerIds, action, options = {}) 
     resolved = resolveArtworkDistribution(doc, ids, options);
   if (!resolved.supported) throw Error(resolved.reason);
   const axis = distribution[2],
+    edge = distribution[3],
     order = new Map(doc.layers.map((l, i) => [l.id, i]));
   const members = resolved.members.toSorted(
     (a, b) =>
-      a.bounds[axis][1] - b.bounds[axis][1] ||
+      a.bounds[axis][edge] - b.bounds[axis][edge] ||
       order.get(a.target.layerId) - order.get(b.target.layerId),
   );
-  const first = members[0].bounds[axis][1],
-    last = members.at(-1).bounds[axis][1];
+  const first = members[0].bounds[axis][edge],
+    last = members.at(-1).bounds[axis][edge];
   const moves = members.slice(1, -1).map(({ target, bounds }, i) => {
     const fraction = (i + 1) / (members.length - 1);
     // Convex interpolation avoids overflowing last - first for finite bounds.
-    const distance = first * (1 - fraction) + last * fraction - bounds[axis][1];
+    const distance = first * (1 - fraction) + last * fraction - bounds[axis][edge];
     const delta = [0, 0];
     delta[axis] = Math.abs(distance) <= 1e-9 ? 0 : distance;
     return { target, delta };

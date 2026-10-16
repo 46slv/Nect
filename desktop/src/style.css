@@ -419,10 +419,15 @@ header {
 .right {
   border-left: 1px solid var(--line);
   background: white;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .layers {
-  min-height: 180px;
+  flex: 0 1 auto;
+  min-height: 74px;
+  max-height: 26%;
+  overflow: auto;
   border-bottom: 1px solid var(--line);
   padding-bottom: 8px;
 }
@@ -463,6 +468,87 @@ header {
 }
 .inspector-body {
   padding: 14px;
+}
+.inspector {
+  flex: 1 1 0;
+  overflow: auto;
+  min-height: 0;
+}
+.alignment-panel {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.alignment-heading,
+.alignment-gap-row,
+.alignment-reference {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.alignment-heading strong {
+  font-weight: 600;
+}
+.alignment-heading output {
+  flex: 1;
+  text-align: right;
+  color: var(--muted);
+  font-size: 11px;
+}
+.alignment-heading button {
+  padding: 1px 5px;
+  min-height: 24px;
+}
+.alignment-icon-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.alignment-panel button {
+  border-radius: 2px;
+}
+.alignment-panel [data-align-artwork],
+.alignment-panel [data-distribute-artwork],
+.alignment-panel [data-distribute-gap] {
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  min-width: 28px;
+  height: 29px;
+  border-color: transparent;
+}
+.alignment-panel button:hover {
+  border-color: #87949e;
+}
+.alignment-panel svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+}
+.alignment-gap-row {
+  padding: 6px 0;
+}
+.alignment-gap-row input {
+  width: 58px;
+  min-width: 0;
+  padding: 4px;
+}
+.alignment-reference label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.alignment-reference select {
+  width: 120px;
+  padding: 4px 6px;
+}
+.alignment-error {
+  display: block;
+  color: #a13324;
+  margin-top: 5px;
 }
 .inspector-body h3 {
   font-size: 14px;
@@ -1341,4 +1427,121 @@ input[data-scrub-step].scrubbing {
 .artwork-distribution h4,
 .artwork-gap-distribution h4 {
   margin: 12px 0 4px;
+}
+.search-panel {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  color: #20252b;
+  background: #fff;
+  border: 1px solid #a9b2bc;
+  border-radius: 3px;
+  box-shadow: 0 8px 28px #0007;
+  font-size: 13px;
+}
+.search-panel::backdrop {
+  background: #0002;
+}
+.search-panel[aria-label='Font'] {
+  position: fixed;
+  margin: 0;
+  top: 72px;
+  right: 12px;
+  left: auto;
+  width: min(380px, calc(100vw - 24px));
+}
+.font-note[role='status']:empty,
+.artwork-duplicate-status:empty {
+  display: none;
+}
+.control-help {
+  margin-top: 10px;
+  color: var(--muted);
+}
+.control-help summary {
+  cursor: pointer;
+}
+.search-panel header,
+.search-panel footer,
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+}
+.search-panel header {
+  justify-content: space-between;
+}
+.search-panel header strong {
+  font-size: 14px;
+}
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px;
+}
+.search-panel button {
+  min-height: 28px;
+}
+.search-panel .picker-close {
+  min-width: 28px;
+  padding: 2px 6px;
+}
+.picker-list {
+  height: min(340px, 45vh);
+  overflow: auto;
+  border-block: 1px solid var(--line);
+}
+.picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 2px 12px;
+  cursor: default;
+}
+.picker-option > span {
+  flex: 1;
+}
+.picker-option small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.picker-option[aria-selected='true'] {
+  background: #dae3e9;
+  color: #20252b;
+}
+.picker-option[aria-disabled='true'] {
+  color: #888;
+}
+.picker-option .picker-star {
+  flex: 0 0 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.picker-star[aria-pressed='true'],
+.picker-favorites[aria-pressed='true'] {
+  color: #896418;
+}
+.picker-status {
+  display: block;
+  padding: 0 12px;
+  font-size: 12px;
+}
+.picker-status:not(:empty) {
+  padding-top: 8px;
+}
+.search-panel footer {
+  justify-content: flex-end;
+}
+.search-panel .picker-apply {
+  background: #dae3e9;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

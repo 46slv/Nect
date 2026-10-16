@@ -142,7 +142,7 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
       click('[data-action="graph-zoom-in"]');
       $('.graph-scroll').scrollLeft = 120;
       $('.graph-scroll').scrollTop = 80;
-      $('.right').scrollTop = 30;
+      $('.inspector').scrollTop = 30;
       const before = saved(),
         prior = selectionState(),
         past = ui().past;
@@ -163,7 +163,7 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
       assert.equal(order(target.id).getAttribute('aria-disabled'), 'true');
       assert.equal(order(target.id).disabled, false, 'boundary is focusable disabled semantics');
       assert.deepEqual(
-        [$('.graph-scroll').scrollLeft, $('.graph-scroll').scrollTop, $('.right').scrollTop],
+        [$('.graph-scroll').scrollLeft, $('.graph-scroll').scrollTop, $('.inspector').scrollTop],
         [120, 80, 30],
       );
       for (let i = 0; i < 2; i++) {
