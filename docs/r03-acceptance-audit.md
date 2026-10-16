@@ -1170,3 +1170,47 @@ closure remain unclaimed. Unchanged product tests were not replayed.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a142b4-81a8-7970-8054-6b128ade5c1c/opacity-refusal-checkpoint.json`,
 SHA256 `730F4695BC99F74D77212F6421C128B60B83018B7D08FF46D3ADAD380769DBC4`.
+
+## 2026-10-16 native Pen creation, closure and independent Path continuation
+
+Original native `9cce3ddbd602ff96e32c369dee8b134af1caca16`, unchanged production
+`4879d02`, passed this bounded R03 / Confirmed REQ-210 authoring lifecycle.
+Only Brief metadata was dirty. Windows Qt6.5.3 PID88256/HWND46865956;
+source FF258E49, executable E7F4EE48. No product RED or repair.
+
+Before Window, the probe fixed complete manual native Documents, typed Session
+History and artwork pixel oracles for revisions3..14, with both initial Undo/Redo.
+Only generated UUID identities were bijectively mapped to predeclared roles of
+identical length; coordinates, source, topology, paint, order and full History
+were fixed independently. Native Pen activation retained revision3. Canvas
+points (170,130), (310,150), (250,290) each committed one canonical edit; first
+anchor click closed the contour at revision7. Actual Toolbar Undo8/Redo9 restored
+the entire open/closed source and History. The next point created a distinct Path
+at (390,170), followed by (470,250). Native Return finished that open Path without
+an authored edit; the next point (400,330) created a third distinct Path. Toolbar
+Undo13/Redo14 preserved all original IDs and unrelated source. Native Escape
+selected Selection without changing revision14 or full authored state.
+
+All15 records matched the complete manual native, typed History, preview and
+stage pixels, with zero gesture generation; all14 post-ready records retained
+zoom1. Host identity, independent foreign Session/History and owned workspace
+were preserved. Exact raw saved/live native bytes, distinct same-process Host
+reopen and full reopened pixels matched. Process closed, Cua ended, and exact
+mutex was free/non-abandoned/released/disposed.
+
+Preparation is retained separately: the first run stopped before Window because
+the manual new-Path anchor omitted first-point initialization. After correcting
+that fixture, run02's first native click landed Y131 instead of intended Y130
+because screenshot/input origin differed by one pixel; it stopped after that
+single point. Run03 used screenshot-grounded input Y-1. Its entire fixed native
+and History oracle remained byte-identical to run02; no expected geometry was
+adjusted after production. These are preparation failures, not product REDs.
+
+Input used background accessibility/synthetic events, mostly reported as
+unverifiable; grounded screenshots and semantic records prove outcomes, not
+physical input. Held-pointer cancellation, stale/foreign incoming producers,
+other drawing scopes, cold/external process, full transport/CTest and whole
+Requirement/Mission closure remain unclaimed. Valid product tests were not replayed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a142d2-df6b-7d61-a48a-5745f209af28/pen-checkpoint.json`,
+SHA256 `8036129694321A4C0302A826953F637EF4F56811EBD378A9987460C74906705B`.
