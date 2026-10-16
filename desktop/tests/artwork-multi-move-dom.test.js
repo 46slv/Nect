@@ -13,8 +13,10 @@ import {
 import { multiArtworkFixture } from './fixtures/artwork-multi-move.js';
 import { gapArtworkFixture } from './fixtures/artwork-gap-distribution.js';
 import { guideDefaults } from '../src/guides.js';
+import { isolatedDomScenarios } from './run-isolated-dom-scenarios.js';
 
-test('Multiple independent artworks select and move as one transaction', async (t) => {
+test('Multiple independent artworks select and move as one transaction', async (rawT) => {
+  const t = isolatedDomScenarios(rawT, import.meta.url);
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
@@ -87,7 +89,6 @@ test('Multiple independent artworks select and move as one transaction', async (
   const xy = ([x, y]) => [x * 2 + 80, y * 2 + 40];
   const fire = (el, type, p = [0, 0], extra = {}) => {
     const screen = xy(p);
-    const committedBeforePointer = JSON.stringify(win.nect.document);
     el.dispatchEvent(
       new win.PointerEvent(type, {
         bubbles: true,

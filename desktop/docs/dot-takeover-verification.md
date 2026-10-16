@@ -34,6 +34,14 @@ is development work, not a newly distributed executable.
   were rerun in the focused sets above. Three DOM files (artwork-multi-move,
   curve-artwork, pen-artwork) still exhaust the Node heap even when sequential at
   1536 MB. Their results are unresolved, not product PASS or confirmed product bugs.
+- Strict temporary isolation subsequently passed the Pen 10,000-point case, all
+  15 multi-move scenarios, and each of 22 Curve mutation/phase cases. The combined
+  Curve child passed with default heap, while repeated cases retained allocations
+  under a smaller cap. This narrows the remaining problem to cumulative DOM test
+  harness memory; no canonical Session ownership regression was demonstrated.
+  Fresh-process scenario isolation now passes at a 768 MB heap cap: Curve 30/30,
+  Pen 10/10, multi-move 16/16. Assertions remain; Curve handle editing now focuses
+  its anchor first, matching the selected-handle UI. Full aggregate rerun pending.
 - Standalone Chromium could not start: local socket operation denied. The permitted
   elevated launch failed during environment setup with a read-only filesystem error;
   no restricted session paths were read or changed. The separate cloud browser could
@@ -43,7 +51,7 @@ is development work, not a newly distributed executable.
 
 ## Remaining acceptance
 
-Resolve the three DOM harness failures without repeated blind retries. Exercise the
+The three DOM harness failures are repaired with scenario isolation. Exercise the
 approved Transform, dense Remap and Alt-wheel interactions in an actual browser;
 verify save/cold reopen/SVG/PNG on the final candidate, then Windows build/native
 qualification before trial delivery. Preserve original data and prior ZIPs.

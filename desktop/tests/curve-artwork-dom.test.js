@@ -14,8 +14,10 @@ import {
 } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
 import { guideDefaults } from '../src/guides.js';
+import { isolatedDomScenarios } from './run-isolated-dom-scenarios.js';
 
-test('Committed Curve artwork placement is rigid, atomic and independent', async (t) => {
+test('Committed Curve artwork placement is rigid, atomic and independent', async (rawT) => {
+  const t = isolatedDomScenarios(rawT, import.meta.url);
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
@@ -236,93 +238,72 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       }
     },
   );
-  await t.test(
-    'changed Curve IDs/order/closure/routes and invalid late Positions roll back before preview or commit',
-    () => {
-      for (const phase of ['preview', 'commit'])
-        for (const mutate of [
-          (l, n) => {
-            n.points.reverse();
-          },
-          (l, n) => {
-            n.points.pop();
-          },
-          (l, n) => {
-            delete n.points[1].id;
-          },
-          (l, n) => {
-            n.points[1].id = n.points[0].id;
-          },
-          (l, n) => {
-            n.points[2].position.value = [NaN, 1];
-          },
-          (l, n) => {
-            n.points[2].position.locked = true;
-          },
-          (l, n) => {
-            n.points[2].position.source = 'missing-source';
-          },
-          (l, n) => {
-            n.points[2].position.expression = '1; 2';
-          },
-          (l, n) => {
-            n.params.closed.value = !n.params.closed.value;
-          },
-          (l) => {
-            l.nodes[1].params.path.source = 'missing-source';
-          },
-          (l) => {
-            l.nodes[1].bypassed = true;
-          },
-        ]) {
-          const before = committedCurve(),
-            id = before.layers.at(-1).id;
-          fire(shape(id), 'pointerdown', [180, 180]);
-          fire(document, 'pointermove', [190, 190], { altKey: true });
-          const l = win.nect.document.layers.at(-1);
-          mutate(l, l.nodes[0]);
-          const foreign = structuredClone(win.nect.document);
-          if (phase === 'preview') fire(document, 'pointermove', [205, 210], { altKey: true });
-          assert.throws(
-            () =>
-              win.nect.dispatch({
-                ...win.nect.commandState,
-                type: 'rename',
-                payload: { layerId: l.id, name: 'Interleaved' },
-              }),
-            /GESTURE_ACTIVE/,
-          );
-          key(stage(), 'Escape');
-          fire(document, 'pointerup');
-          assert.deepEqual(
-            foreign,
-            before,
-            'mutating a debug snapshot cannot replace authored state',
-          );
-          assert.deepEqual(
-            win.nect.document,
-            foreign,
-            phase + ': preserve foreign edit on cancellation',
-          );
-          assert.equal(ui().past, 1);
-          assert.equal(ui().drag, undefined);
-        }
-      const before = committedCurve(),
-        descriptor = win.curveMoveProbe.resolve().target;
-      assert.equal(
-        win.curveMoveProbe.same({ ...descriptor, kind: 'shape-center' }, descriptor),
-        false,
-      );
-      assert.equal(
-        win.curveMoveProbe.same(
-          { ...descriptor, pointIds: [...descriptor.pointIds].reverse() },
-          descriptor,
-        ),
-        false,
-      );
-      assert.deepEqual(win.nect.document, before);
-    },
-  );
+  const invalidCurveMutations = [
+    ['reverse point order', (l, n) => n.points.reverse()],
+    ['remove a point', (l, n) => n.points.pop()],
+    ['remove a point ID', (l, n) => delete n.points[1].id],
+    ['duplicate a point ID', (l, n) => (n.points[1].id = n.points[0].id)],
+    ['set a non-finite Position', (l, n) => (n.points[2].position.value = [NaN, 1])],
+    ['lock a Position', (l, n) => (n.points[2].position.locked = true)],
+    ['drive a Position', (l, n) => (n.points[2].position.source = 'missing-source')],
+    ['express a Position', (l, n) => (n.points[2].position.expression = '1; 2')],
+    ['change closure', (l, n) => (n.params.closed.value = !n.params.closed.value)],
+    ['break a downstream route', (l) => (l.nodes[1].params.path.source = 'missing-source')],
+    ['bypass the downstream Curve', (l) => (l.nodes[1].bypassed = true)],
+  ];
+  for (const phase of ['preview', 'commit']) {
+    for (const [mutationName, mutate] of invalidCurveMutations) {
+      await t.test(`changed Curve ${phase} rejects ${mutationName} without partial writes`, () => {
+        const before = committedCurve(),
+          id = before.layers.at(-1).id;
+        fire(shape(id), 'pointerdown', [180, 180]);
+        fire(document, 'pointermove', [190, 190], { altKey: true });
+        const l = win.nect.document.layers.at(-1);
+        mutate(l, l.nodes[0]);
+        const foreign = structuredClone(win.nect.document);
+        if (phase === 'preview') fire(document, 'pointermove', [205, 210], { altKey: true });
+        assert.throws(
+          () =>
+            win.nect.dispatch({
+              ...win.nect.commandState,
+              type: 'rename',
+              payload: { layerId: l.id, name: 'Interleaved' },
+            }),
+          /GESTURE_ACTIVE/,
+        );
+        key(stage(), 'Escape');
+        fire(document, 'pointerup');
+        assert.deepEqual(
+          foreign,
+          before,
+          'mutating a debug snapshot cannot replace authored state',
+        );
+        assert.deepEqual(
+          win.nect.document,
+          foreign,
+          phase + ': preserve foreign edit on cancellation',
+        );
+        assert.equal(ui().past, 1);
+        assert.equal(ui().drag, undefined);
+      });
+    }
+  }
+  await t.test('Curve move descriptor equality includes kind and point order', () => {
+    const before = committedCurve(),
+      descriptor = win.curveMoveProbe.resolve().target;
+    assert.equal(
+      win.curveMoveProbe.same({ ...descriptor, kind: 'shape-center' }, descriptor),
+      false,
+    );
+    assert.equal(
+      win.curveMoveProbe.same(
+        { ...descriptor, pointIds: [...descriptor.pointIds].reverse() },
+        descriptor,
+      ),
+      false,
+    );
+    assert.deepEqual(win.nect.document, before);
+  });
   await t.test(
     'Curve snapping changes one common delta for all anchors and Alt bypasses it',
     () => {
@@ -393,6 +374,8 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       assert.equal(ui().artworkTarget, null);
       const before = structuredClone(win.nect.document),
         p = l.nodes[0].points[1];
+      fire($(`.vertex[data-point="${p.id}"]`), 'pointerdown', p.position.value);
+      fire(document, 'pointerup');
       fire($(`[data-point="${p.id}"][data-handle="handleB"]`), 'pointerdown', [280, 210]);
       fire(document, 'pointermove', [290, 220], { altKey: true });
       fire(document, 'pointerup');

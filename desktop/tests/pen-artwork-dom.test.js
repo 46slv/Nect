@@ -11,8 +11,10 @@ import {
   pathBounds,
 } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
+import { isolatedDomScenarios } from './run-isolated-dom-scenarios.js';
 
-test('Pen draft creation is independent, atomic and interruptible', async (t) => {
+test('Pen draft creation is independent, atomic and interruptible', async (rawT) => {
+  const t = isolatedDomScenarios(rawT, import.meta.url);
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
