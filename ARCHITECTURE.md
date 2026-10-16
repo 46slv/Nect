@@ -4,6 +4,12 @@ Status: M0 engineering baseline. Notion owns product requirements/decisions; thi
 
 ## Owners
 
+### Production Desktop lane (2026-10-16)
+
+The separate Desktop Mission lives under `desktop/`, with its adopted Brief in this worktree's CURRENT_GOAL.md. It uses Tauri/WebView2 and the imported Nect-SVG typed graph. Its common editing Session is JavaScript, independent of the DOM; Rust owns filesystem bindings and staged writes only. Supported GUI/headless/API adapters must share that Session's commands and history. Legacy C++/Qt and native formats remain preserved, separate implementations; no format/command equivalence is claimed. The imported callback History and UI direct edits are an explicit migration obligation, not a completed command architecture. DocumentLifecycle coordinates file lifetime and is not itself the editing Session.
+
+The baseline owners below continue to describe the legacy implementation.
+
 | Owner | Responsibility | Must not own |
 |---|---|---|
 | `nect_core` | Authored document, identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary codec internals |

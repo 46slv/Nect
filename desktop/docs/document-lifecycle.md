@@ -1,0 +1,17 @@
+# Document lifetime — first Desktop vertical
+
+Implemented on the imported Nect-SVG107a154 snapshot: file tokens and byte-accurate external-change refusal, Save versus Save As, saved snapshot/revision tracking, stale-save refusal, Save/Discard/Cancel transitions, titlebar Close, and separate history on New/Open. SVG Import remains undoable and clears the file binding. Export does not mark the project saved. Pen/gesture/IME drafts must be finished or cancelled before a document transition.
+
+Native verification on SHIRO-WS, Windows10.0.26200.9457, WebView2, 2026-10-16:
+
+- Owned executable: desktop/src-tauri/target/debug/nect-svg-desktop.exe, built offline with custom-protocol and locked Cargo dependencies. Rust1.99.1 toolchain is in ignored build-desktop-tools; user PATH/settings unchanged.
+- Disposable acceptance profiles r2/r3 under that executable's directory; existing installed Nect-SVG PID99756 and legacy Qt PID84564 untouched. Renderer interaction used CDP port9436 scoped to the owned process; native file dialogs and titlebar Close used snapshot-bound cua-driver UIA.
+- Save As lifecycle-native.json succeeded; adding Circle then Save reused its binding. An external byte change was refused and preserved exactly, with current edits dirty. The first observation exposed string errors without messages; native error normalization repaired that presentation.
+- Titlebar Close → Cancel preserved dirty state. Titlebar Close → Yes saved the exact latest graph and exited PID90888. Fresh process PID98708 opened those saved bytes through its native Open dialog, with empty Undo history; re-edit and same-file Save matched disk bytes exactly. Because acceptance mode requires a fresh profile, the saved file was copied unchanged into r3/documents before cold Open.
+- Native Close channel uses a custom command IPC Channel. The original event-listen attempt failed authorization in the real app; no capability/security settings were widened. Final cold run had normal startup and guarded Close. Owned windows were closed normally and temporary debug listener removed.
+
+Evidence retained in desktop/test-results/: native-before-save-close.json, native-reopen-evidence.json, native-reopened.png, native-cargo.log, native-offline-build.log, lifecycle-browser.log, js-suite-serial.log and rich-text-fixed.log. These are ignored local artifacts, not shipped assets.
+
+Validation: Rust tests19/19 and offline native build passed. Browser UI draw/save/reopen/re-edit/SVG and saved-state Undo checks passed. The bounded-concurrency JS suite had644/645 pass; its only remaining failure was a font mock tied to the old import line. After updating that mock, the unchanged typography assertions passed standalone. Related blank/Pen/gradient/font suites22/22 passed. Earlier saturated runs and failed intermediate attempts remain in local logs. These results do not prove full production acceptance, native IME, all output formats, performance budgets or completed shared editing Session migration.
+
+Remaining: imported direct editing routes/debug API must move to typed shared commands; complete native Japanese IME and representative Curve/Boolean/text production; native PNG/SVG acceptance and performance measurements. Exact-byte checks before replacement detect observed conflicts but do not promise interprocess CAS against an uncooperative simultaneous writer. Binding buffers currently retain opened documents until process exit and need explicit release as part of lifecycle stabilization. Native dialogs still use inherited unparented presentation.
