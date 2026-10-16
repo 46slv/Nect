@@ -35,6 +35,57 @@ function fixture() {
   return { session, send, text, begin, stage, commit, current };
 }
 
+test('text draft projections are detached, preserve history and reject stale or cancelled drafts', () => {
+  const f = fixture();
+  const original = f.session.snapshot(),
+    state = f.session.state;
+  const token = f.begin();
+  f.stage({
+    action: 'edit',
+    previousRaw: 'ABA',
+    nextRaw: 'ABAC',
+    selectionStart: 3,
+    selectionEnd: 3,
+    inputType: 'insertText',
+  });
+  const preview = f.session.textDraftSnapshot(token.draftId);
+  const text = preview.document.layers[0].nodes.find((n) => n.id === f.text.id);
+  assert.equal(text.text, 'ABAC');
+  assert.deepEqual(f.session.snapshot(), original);
+  assert.deepEqual(f.session.state, state);
+  text.text = 'foreign';
+  assert.equal(
+    f.session
+      .textDraftSnapshot(token.draftId)
+      .document.layers[0].nodes.find((n) => n.id === f.text.id).text,
+    'ABAC',
+  );
+  f.commit();
+  const committed = f.session.snapshot();
+  assert.throws(() => f.session.textDraftSnapshot(token.draftId), /STALE_TEXT_DRAFT/);
+  f.send('undo');
+  assert.deepEqual(f.session.snapshot(), original);
+  const cancelled = f.begin();
+  f.stage({
+    action: 'edit',
+    previousRaw: 'ABA',
+    nextRaw: 'ABAD',
+    selectionStart: 3,
+    selectionEnd: 3,
+    inputType: 'insertText',
+  });
+  f.session.textDraftSnapshot(cancelled.draftId);
+  f.send('cancel-text-draft', { draftId: cancelled.draftId });
+  assert.throws(() => f.session.textDraftSnapshot(cancelled.draftId), /STALE_TEXT_DRAFT/);
+  f.send('redo');
+  assert.deepEqual(f.session.snapshot(), committed);
+  const stale = f.begin();
+  f.send('set-parameter', { key: 'size', value: 42 });
+  const after = f.session.snapshot();
+  assert.throws(() => f.session.textDraftSnapshot(stale.draftId), /STALE_TEXT_DRAFT/);
+  assert.deepEqual(f.session.snapshot(), after);
+});
+
 test('character commands preserve mixed transforms and maps, reject partial IDs and share reset/Undo/Redo', () => {
   const f = fixture(),
     before = f.session.snapshot();

@@ -51,7 +51,11 @@ try {
   await commit('[aria-label="Text position X"]', 730);
   await commit('[aria-label="Text position Y"]', 25);
   const horizontal = await page.evaluate(() => window.nect.export());
-  await page.locator('.inspector-body [data-writing-mode]').selectOption('vertical-rl');
+  await page
+    .locator(
+      '.inspector-body [data-text-symbol="writingMode"][data-text-symbol-value="vertical-rl"]',
+    )
+    .click();
   await page.waitForTimeout(40);
   const vertical = await page.evaluate(() => window.nect.export());
   assert.notEqual(vertical, horizontal);

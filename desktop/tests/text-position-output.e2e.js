@@ -166,7 +166,9 @@ try {
   await drag(400, 270, 25, 0);
   assert.equal(await saved(), before);
   await field(ids.a, 'position', '.inspector-body').locator('[data-lock]').click();
-  await page.locator('.inspector-body [data-text-alignment]').selectOption('start');
+  await page
+    .locator('.inspector-body [data-text-symbol="textAlignment"][data-text-symbol-value="start"]')
+    .click();
   assert.deepEqual(await position(ids.a), master);
   assert.deepEqual(await position(ids.b), master);
   // A cancelled drag-wire leaves no temporary inputs or hidden connection.

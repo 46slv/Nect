@@ -212,6 +212,65 @@ header {
   background-image: radial-gradient(#c8d0d7 0.65px, transparent 0.65px);
   background-size: 16px 16px;
 }
+.graph-marquee {
+  position: absolute;
+  pointer-events: none;
+  z-index: 20;
+  border: 1px solid var(--selection);
+  background: #526a7c20;
+}
+.canvas-text-editor {
+  position: absolute;
+  z-index: 30;
+  width: 246px;
+  min-height: 88px;
+  padding: 8px;
+  resize: both;
+  background: #fff;
+  color: #263746;
+  border: 1px solid var(--selection);
+  box-shadow: 0 2px 8px #26374620;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.inspector-body .text-symbol-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.text-symbol-field > label {
+  width: 22px;
+  flex: 0 0 22px;
+}
+.text-symbol-buttons {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+}
+.text-symbol-buttons button {
+  flex: 1;
+  min-width: 28px;
+  height: 28px;
+  padding: 3px;
+}
+.text-symbol-buttons svg {
+  display: block;
+  width: 21px;
+  height: 21px;
+  margin: auto;
+}
+.text-symbol-buttons button:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: 1px;
+}
+.text-symbol-field .visually-hidden {
+  width: 1px !important;
+}
+.text-numeric-field > label {
+  font-size: 12px;
+  letter-spacing: -0.5px;
+}
 .wires {
   position: absolute;
   left: 0;

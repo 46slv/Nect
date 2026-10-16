@@ -164,7 +164,11 @@ try {
   }
   const file = await fs.readFile('test-results/workflow-character-position.json', 'utf8');
   await page.evaluate((s) => window.nect.load(s), file);
-  await page.locator('.inspector-body [data-writing-mode]').selectOption('vertical-rl');
+  await page
+    .locator(
+      '.inspector-body [data-text-symbol="writingMode"][data-text-symbol-value="vertical-rl"]',
+    )
+    .click();
   await page.locator('[data-character-mode]').click();
   await page.locator('.character-hit[data-character="c2"]').first().click();
   await page.screenshot({ path: 'test-results/workflow-character-position-vertical.png' });

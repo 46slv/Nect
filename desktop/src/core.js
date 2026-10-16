@@ -2342,6 +2342,20 @@ export class CommandSession {
       document: cloneDocument(this.#gesture.candidate),
     };
   }
+  textDraftSnapshot(draftId) {
+    const draft = this.#textDrafts.get(draftId);
+    if (!draft) throw Error('STALE_TEXT_DRAFT: unknown draft');
+    const candidate = cloneDocument(this.#history.doc);
+    const layer = candidate.layers.find((layer) => layer.id === draft.layerId);
+    const node = layer?.nodes.find((node) => node.id === draft.nodeId);
+    draft.assertCurrent(node, this.#history.revision);
+    if (layer.locked) throw Error('Composition is locked');
+    node.text = draft.raw;
+    if (draft.record) node.characterPositions = clone(draft.record);
+    else delete node.characterPositions;
+    validate(candidate);
+    return { ...this.state, ...draft.state, document: candidate };
+  }
   #textGestureValues(base, target) {
     const layer = base.layers.find((layer) => layer.id === target.layerId),
       node = layer?.nodes.find((node) => node.id === target.nodeId && node.type === 'Text');

@@ -331,10 +331,8 @@ function editAlignmentSpacing(input, commit = false) {
   }
   alignmentPreferences.spacing = value;
   saveAlignmentPreferences();
-  const eligible =
-    !!artworkTarget &&
-    artworkMove()?.supported &&
-    artworkSelection.size >= (value === null ? 3 : 2);
+  const resolved = alignmentTargets();
+  const eligible = resolved.move.supported && resolved.ids.length >= (value === null ? 3 : 2);
   for (const button of app.querySelectorAll('[data-distribute-gap]')) {
     button.dataset.distributeSpacing = String(value ?? '');
     button.dataset.eligible = String(!!eligible);
@@ -405,7 +403,15 @@ const documents = new DocumentLifecycle({
   release: releaseProject,
   choose: chooseUnsaved,
   hasDraft: () =>
-    !!(penDraft || drag || wiring || composing || session.hasTextComposition || session.hasGesture),
+    !!(
+      penDraft ||
+      drag ||
+      wiring ||
+      composing ||
+      session.hasTextComposition ||
+      session.hasGesture ||
+      [...textDrafts.values()].some((draft) => draft.state.changed)
+    ),
 });
 let openRequest = 0,
   imageRequest = 0,
@@ -475,7 +481,15 @@ const current = () =>
   penDraft?.layer || history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
 // Read-only display projection. Authoring adapters continue to resolve committed
 // targets through current(); the detached preview is never installed in History.
-const displayDocument = () => fontPreview || drag?.preview || history.doc;
+let textPreview = null,
+  textPreviewRevision = null,
+  canvasTextEdit = null,
+  lastCanvasTextClick = null;
+const displayDocument = () =>
+  fontPreview ||
+  drag?.preview ||
+  (textPreviewRevision === session.state.expectedRevision && textPreview) ||
+  history.doc;
 const displayLayer = () => {
   const doc = displayDocument();
   return penDraft?.layer || doc.layers.find((layer) => layer.id === activeLayer) || doc.layers[0];
@@ -506,6 +520,21 @@ function artworkMove() {
   return artworkSelection.size === 1
     ? resolveArtworkMoveTarget(history.doc, artworkTarget, { fonts })
     : resolveArtworkMoveSelection(history.doc, artworkSelection, { fonts });
+}
+function alignmentTargets(artworkResolution = null) {
+  if (artworkTarget)
+    return { ids: [...artworkSelection], move: artworkResolution || artworkMove() };
+  if (!selection.size) return { ids: [], move: { supported: false } };
+  const resolved = resolveArtworkMoveTarget(history.doc, activeLayer, { fonts });
+  if (!resolved.supported) return { ids: [], move: resolved };
+  const route = new Set(resolved.target.route.map((n) => n.nodeId));
+  if (![...selection].every((id) => route.has(id)))
+    return {
+      ids: [],
+      move: { supported: false, reason: 'Select nodes connected to one movable artwork output.' },
+    };
+  // Source, Fill and Output can all describe the same artwork. Move it once.
+  return { ids: [activeLayer], move: resolved };
 }
 function sameArtworkMove(target, expected) {
   if (expected.scope === 'artwork-selection')
@@ -553,12 +582,14 @@ function alignmentIcon(action, distribute = false) {
 }
 function alignmentPanel(move) {
   if (!alignmentPreferences.open) return '';
-  const count = artworkSelection.size;
-  const allowed = !!artworkTarget && move.supported;
+  const resolved = alignmentTargets(move);
+  move = resolved.move;
+  const count = resolved.ids.length;
+  const allowed = count > 0 && move.supported;
   const alignReady = allowed && count >= (alignmentPreferences.reference === 'artboard' ? 1 : 2);
   const spreadReady = allowed && count >= 3;
   const gapReady = allowed && count >= (alignmentPreferences.spacing === null ? 3 : 2);
-  const selectedIds = esc(JSON.stringify([...artworkSelection]));
+  const selectedIds = esc(JSON.stringify(resolved.ids));
   const busy = alignmentBusy();
   const order = ['left', 'center-x', 'right', 'top', 'center-y', 'bottom'];
   const alignButtons = order
@@ -579,7 +610,7 @@ function alignmentPanel(move) {
         `<button data-distribute-gap="${action}" data-distribute-selection="${selectedIds}" data-distribute-active="${esc(activeLayer)}" data-distribute-spacing="${alignmentPreferences.spacing ?? ''}" data-eligible="${gapReady}" ${!gapReady || busy ? 'disabled' : ''} aria-label="隙間を等間隔 ${label}" title="${alignmentPreferences.spacing === null ? 'Equal gaps; fixed outer edges' : `Fixed gap ${alignmentPreferences.spacing} px; fixed leading edge`}">${alignmentIcon(action)}</button>`,
     )
     .join('');
-  return `<section class="alignment-panel" aria-label="Alignment panel"><div class="alignment-heading"><strong>Align</strong><output aria-label="Alignment selection">${count} selected</output><button data-action="align-panel" aria-label="Hide alignment panel" title="Hide alignment panel">×</button></div><div class="alignment-icon-row" role="group" aria-label="Align objects">${alignButtons}</div><div class="alignment-icon-row" role="group" aria-label="Distribute objects">${spreadButtons}</div><div class="alignment-gap-row" role="group" aria-label="Distribute gaps"><span>Spacing</span>${gapButtons}<input type="number" data-align-spacing aria-label="Artwork gap spacing" min="-100000" max="100000" step="any" placeholder="Auto" value="${alignmentPreferences.spacing ?? ''}" title="Blank: equal gaps with outer edges fixed. Number: fixed gap from leading artwork."><span>px</span></div><div class="alignment-reference"><label>Align to <select data-align-reference aria-label="Alignment reference"><option value="selection" ${alignmentPreferences.reference === 'selection' ? 'selected' : ''}>Selection</option><option value="artboard" ${alignmentPreferences.reference === 'artboard' ? 'selected' : ''}>Artboard</option></select></label></div>${allowed || !count ? '' : `<output class="alignment-error" role="status">${esc(move.reason)}</output>`}</section>`;
+  return `<section class="alignment-panel" aria-label="Alignment panel"><div class="alignment-heading"><strong>Align</strong><output aria-label="Alignment selection">${count} selected</output><button data-action="align-panel" aria-label="Hide alignment panel" title="Hide alignment panel">×</button></div><div class="alignment-icon-row" role="group" aria-label="Align objects">${alignButtons}</div><div class="alignment-icon-row" role="group" aria-label="Distribute objects">${spreadButtons}</div><div class="alignment-gap-row" role="group" aria-label="Distribute gaps"><span>Spacing</span>${gapButtons}<input type="number" data-align-spacing aria-label="Artwork gap spacing" min="-100000" max="100000" step="any" placeholder="Auto" value="${alignmentPreferences.spacing ?? ''}" title="Blank: equal gaps with outer edges fixed. Number: fixed gap from leading artwork."><span>px</span></div><div class="alignment-reference"><label>Align to <select data-align-reference aria-label="Alignment reference"><option value="selection" ${alignmentPreferences.reference === 'selection' ? 'selected' : ''}>Selection</option><option value="artboard" ${alignmentPreferences.reference === 'artboard' ? 'selected' : ''}>Artboard</option></select></label></div>${allowed || (!count && (artworkTarget || !selection.size)) ? '' : `<output class="alignment-error" role="status">${esc(move.reason)}</output>`}</section>`;
 }
 function notify(text, bad = false) {
   message = text;
@@ -646,6 +677,9 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  textPreview = null;
+  canvasTextEdit = null;
+  lastCanvasTextClick = null;
   editorPicker?.close(true);
   discardPenDraft();
   composing = false;
@@ -676,7 +710,9 @@ function resetTransient() {
   textRanges.clear();
   closeEditorDialog(document.querySelector('.character-choice'));
   drag = null;
+  const oldWire = wiring;
   wiring = null;
+  releaseWirePointer(oldWire);
   penId = null;
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
@@ -1142,6 +1178,9 @@ function render(resetView = false, artworkResolution = null) {
     pendingRender = null;
   }
   const focused = resetView ? null : captureFocus(app);
+  const canvasEditor =
+    !resetView && canvasTextEdit ? app.querySelector('.canvas-text-editor') : null;
+  const canvasEditorFocused = canvasEditor === document.activeElement;
   const inspectorScroll = resetView ? 0 : document.querySelector('.inspector')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
@@ -1298,8 +1337,12 @@ function render(resetView = false, artworkResolution = null) {
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
   fitCanvas();
+  compactTextInspector();
+  if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
+    app.querySelector('.canvas-stage').append(canvasEditor);
   updateNavigation();
   restoreFocus(app, focused);
+  if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
   document.querySelector('.inspector').scrollTop = inspectorScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
@@ -1309,7 +1352,7 @@ function render(resetView = false, artworkResolution = null) {
     updateGraphBounds();
     drawWires();
   });
-  if (fontPreview) updateCanvas(true);
+  if (fontPreview || textPreview) updateCanvas(true);
 }
 function editGuides(type, payload) {
   snapMatches = [];
@@ -2528,13 +2571,14 @@ function duplicateArtwork(layerId, selectionKey) {
   }
 }
 function alignArtwork(button) {
+  const targets = alignmentTargets();
   // Reject stale or forced controls before the generic click path can finish Pen.
   if (
     !app.contains(button) ||
     alignmentBusy() ||
     button.dataset.alignActive !== activeLayer ||
     button.dataset.alignReference !== alignmentPreferences.reference ||
-    button.dataset.alignSelection !== JSON.stringify([...artworkSelection])
+    button.dataset.alignSelection !== JSON.stringify(targets.ids)
   )
     return;
   try {
@@ -2544,7 +2588,7 @@ function alignArtwork(button) {
       ...session.state,
       type: 'align-artworks',
       payload: {
-        layerIds: [...artworkSelection],
+        layerIds: targets.ids,
         action: button.dataset.alignArtwork,
         reference: alignmentPreferences.reference,
       },
@@ -2562,13 +2606,14 @@ function alignArtwork(button) {
   }
 }
 function distributeArtwork(button) {
+  const targets = alignmentTargets();
   if (
     !app.contains(button) ||
     alignmentBusy() ||
     button.dataset.distributeActive !== activeLayer ||
     (button.dataset.distributeGap !== undefined &&
       button.dataset.distributeSpacing !== String(alignmentPreferences.spacing ?? '')) ||
-    button.dataset.distributeSelection !== JSON.stringify([...artworkSelection])
+    button.dataset.distributeSelection !== JSON.stringify(targets.ids)
   )
     return;
   try {
@@ -2582,7 +2627,7 @@ function distributeArtwork(button) {
           ? 'distribute-artwork-gaps'
           : 'distribute-artworks',
       payload: {
-        layerIds: [...artworkSelection],
+        layerIds: targets.ids,
         action,
         ...(button.dataset.distributeGap !== undefined && alignmentPreferences.spacing !== null
           ? { spacing: alignmentPreferences.spacing }
@@ -3512,6 +3557,123 @@ function textDraft(el) {
   }
   return draft;
 }
+function beginCanvasTextEdit(layerId, event) {
+  const layer = history.doc.layers.find((l) => l.id === layerId);
+  if (!layer || layer.locked || !layerShown(layer) || session.hasTextComposition) return false;
+  const result = evaluate(layer, fonts, history.doc.imageAssets);
+  const occurrences = characterOccurrences(result.path).filter((o) => !o.reason);
+  const point = canvasPoint(event);
+  const hits = occurrences.filter((o) => {
+    try {
+      return result.textLayout(o.source).characters.some((g) => hitCharacter(g, o.matrix, point));
+    } catch {
+      return false;
+    }
+  });
+  const sources = [...new Set((hits.length ? hits : occurrences).map((o) => o.source))];
+  if (sources.length !== 1) return false;
+  const node = layer.nodes.find((n) => n.id === sources[0] && n.type === 'Text');
+  if (!node) return false;
+  activeLayer = layerId;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selected = node.id;
+  selection = new Set([node.id]);
+  characterEdit = null;
+  canvasTextEdit = { layerId, nodeId: node.id };
+  render();
+  const stage = app.querySelector('.canvas-stage'),
+    rect = stage.getBoundingClientRect();
+  const editor = document.createElement('textarea');
+  editor.className = 'canvas-text-editor';
+  editor.dataset.text = node.id;
+  editor.setAttribute('aria-label', 'Edit canvas text');
+  editor.title = 'Ctrl+Enter to finish; Escape to cancel';
+  editor.value = node.text;
+  editor.style.left =
+    Math.max(4, Math.min(stage.clientWidth - 250, event.clientX - rect.left)) + 'px';
+  editor.style.top =
+    Math.max(4, Math.min(stage.clientHeight - 96, event.clientY - rect.top)) + 'px';
+  stage.append(editor);
+  editor.focus({ preventScroll: true });
+  editor.select();
+  return true;
+}
+function compactTextInspector() {
+  const inspector = app.querySelector('.inspector-body');
+  if (selectedNode()?.type !== 'Text' || !inspector) return;
+  const icons = {
+    writingMode: ['T→', 'T↓'],
+    textAlignment: null,
+    crossAlignment: null,
+    referenceBounds: ['□', '↔'],
+  };
+  for (const [key, glyphs] of Object.entries(icons)) {
+    const attr = key.replace(/[A-Z]/g, (letter) => '-' + letter.toLowerCase());
+    const select = inspector.querySelector(`select[data-${attr}]`);
+    if (!select) continue;
+    const field = select.closest('.field');
+    field.classList.add('text-symbol-field');
+    const label = field.querySelector('label');
+    const axis =
+      key === 'textAlignment'
+        ? selectedNode().writingMode === 'vertical-rl'
+          ? 'Y'
+          : 'X'
+        : key === 'crossAlignment'
+          ? selectedNode().writingMode === 'vertical-rl'
+            ? 'X'
+            : 'Y'
+          : null;
+    label.innerHTML = `<span title="${esc(label.textContent)}">${axis || (key === 'writingMode' ? 'T' : '□')}</span>`;
+    select.classList.add('visually-hidden');
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    const row = document.createElement('div');
+    row.className = 'text-symbol-buttons';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', select.getAttribute('aria-label'));
+    [...select.options].forEach((option, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.textSymbol = key;
+      button.dataset.textSymbolValue = option.value;
+      button.setAttribute(
+        'aria-label',
+        `${select.getAttribute('aria-label')}: ${option.textContent}`,
+      );
+      button.setAttribute('aria-pressed', String(select.value === option.value));
+      button.classList.toggle('active', select.value === option.value);
+      button.title = button.getAttribute('aria-label');
+      button.disabled = current().locked;
+      button.innerHTML = glyphs
+        ? glyphs[index]
+        : option.value === 'origin'
+          ? '⊥'
+          : alignmentIcon(
+              (axis === 'Y' ? ['top', 'center-y', 'bottom'] : ['left', 'center-x', 'right'])[
+                ['start', 'center', 'end'].indexOf(option.value)
+              ],
+            );
+      button.onclick = () => {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      row.append(button);
+    });
+    field.append(row);
+  }
+  const symbols = { position: '↔', size: 'T↕', letterSpacing: 'VA', lineSpacing: 'A↕' };
+  for (const field of inspector.querySelectorAll('.field[data-node][data-key]')) {
+    const symbol = symbols[field.dataset.key];
+    if (!symbol) continue;
+    const label = field.querySelector('label');
+    if (!label) continue;
+    label.title = label.textContent;
+    label.innerHTML = `<span aria-hidden="true">${symbol}</span><span class="visually-hidden">${esc(label.title)}</span>`;
+    field.classList.add('text-numeric-field');
+  }
+}
 function stageTextInput(el, transaction) {
   const draft = textDraft(el);
   if (!draft) return false;
@@ -3530,6 +3692,11 @@ function stageTextInput(el, transaction) {
         inputType: transaction?.inputType,
       },
     });
+    textPreview = session.textDraftSnapshot(draft.state.draftId).document;
+    textPreviewRevision = draft.envelope.expectedRevision;
+    for (const field of app.querySelectorAll('textarea[data-text]'))
+      if (field !== el && field.dataset.text === el.dataset.text) field.value = el.value;
+    updateCanvas(true);
     return true;
   } catch (error) {
     notify(error.message, true);
@@ -3970,6 +4137,8 @@ app.addEventListener('change', async (e) => {
           },
         });
       textDrafts.delete(d.text);
+      textPreview = null;
+      if (el.classList.contains('canvas-text-editor')) canvasTextEdit = null;
       notify('Updated');
     } catch (error) {
       notify(error.message, true);
@@ -4248,6 +4417,69 @@ function captureGraphPointer(e) {
   drag.capture.focus({ preventScroll: true });
   drag.capture.setPointerCapture?.(e.pointerId);
 }
+function captureWirePointer(e) {
+  const viewport = document.querySelector('.graph-scroll');
+  try {
+    viewport.setPointerCapture?.(e.pointerId);
+    if (viewport.hasPointerCapture?.(e.pointerId)) wiring.capture = viewport;
+  } catch {
+    /* Pointer may already have ended before capture is delivered. */
+  }
+}
+function releaseWirePointer(wire) {
+  if (wire?.capture?.hasPointerCapture?.(wire.pointerId))
+    wire.capture.releasePointerCapture(wire.pointerId);
+}
+function restoreMarqueeSelection(state) {
+  restorePenSelection(state);
+  characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
+  selectedGuide = state.selectedGuide;
+}
+function moveGraphMarquee(e) {
+  const d = drag;
+  if (!d.started && Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) < 4) return;
+  d.started = true;
+  const viewport = document.querySelector('.graph-scroll'),
+    bounds = viewport.getBoundingClientRect();
+  const end = graphPoint(
+    Math.max(bounds.left, Math.min(bounds.left + viewport.clientWidth, e.clientX)),
+    Math.max(bounds.top, Math.min(bounds.top + viewport.clientHeight, e.clientY)),
+  );
+  const min = d.startWorld.map((value, i) => Math.min(value, end[i]));
+  const max = d.startWorld.map((value, i) => Math.max(value, end[i]));
+  let overlay = document.querySelector('.graph-marquee');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'graph-marquee';
+    overlay.setAttribute('aria-hidden', 'true');
+    document.querySelector('.graph').append(overlay);
+  }
+  Object.assign(overlay.style, {
+    left: min[0] + 'px',
+    top: min[1] + 'px',
+    width: max[0] - min[0] + 'px',
+    height: max[1] - min[1] + 'px',
+  });
+  const hits = [...document.querySelectorAll('.graph .node')]
+    .filter((card) => {
+      const r = card.getBoundingClientRect(),
+        low = graphPoint(r.left, r.top),
+        high = graphPoint(r.right, r.bottom);
+      return high[0] >= min[0] && low[0] <= max[0] && high[1] >= min[1] && low[1] <= max[1];
+    })
+    .map((card) => card.dataset.id);
+  selection = new Set([...(d.additive ? d.beforeUI.selection : []), ...hits]);
+  selected = selection.has(d.beforeUI.selected)
+    ? d.beforeUI.selected
+    : [...selection].at(-1) || null;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  characterEdit = null;
+  selectedGuide = null;
+  for (const card of document.querySelectorAll('.graph .node'))
+    card.classList.toggle('selected', selection.has(card.dataset.id));
+  updateNavigation();
+}
 function graphPoint(x, y) {
   const r = document.querySelector('.graph').getBoundingClientRect();
   return [(x - r.x) / graphZoom, (y - r.y) / graphZoom];
@@ -4314,13 +4546,18 @@ function edgeVelocity(value, low, high) {
 }
 function graphAutoPan(time) {
   graphFrame = null;
-  if (drag?.type !== 'node' || current().locked) return;
-  const dt = Math.min(0.05, Math.max(0, (time - (drag.frameTime ?? time)) / 1000));
-  drag.frameTime = time;
+  const motion = drag?.type === 'node' ? drag : wiring;
+  if (!motion) return;
+  if (current().locked) {
+    cancelInteraction();
+    return;
+  }
+  const dt = Math.min(0.05, Math.max(0, (time - (motion.frameTime ?? time)) / 1000));
+  motion.frameTime = time;
   const viewport = document.querySelector('.graph-scroll'),
     r = viewport.getBoundingClientRect();
-  const vx = edgeVelocity(drag.pointer[0], r.left, r.left + viewport.clientWidth),
-    vy = edgeVelocity(drag.pointer[1], r.top, r.top + viewport.clientHeight);
+  const vx = edgeVelocity(motion.pointer[0], r.left, r.left + viewport.clientWidth),
+    vy = edgeVelocity(motion.pointer[1], r.top, r.top + viewport.clientHeight);
   // Grow ahead of the pointer, including when the node itself is beyond the viewport.
   const graph = document.querySelector('.graph');
   if (vx > 0)
@@ -4333,8 +4570,9 @@ function graphAutoPan(time) {
       'px';
   viewport.scrollLeft += vx * dt;
   viewport.scrollTop += vy * dt;
-  moveGraphNodes();
-  graphFrame = requestAnimationFrame(graphAutoPan);
+  if (wiring) drawWires();
+  else moveGraphNodes();
+  if (wiring || drag?.type === 'node') graphFrame = requestAnimationFrame(graphAutoPan);
 }
 function cancelInteraction() {
   if (drag?.type === 'pen') {
@@ -4366,7 +4604,11 @@ function cancelInteraction() {
   }
   if (!drag && !wiring) return;
   const old = drag;
+  const wire = wiring;
   drag = null;
+  wiring = null;
+  releaseWirePointer(wire);
+  if (old?.type === 'graph-marquee') restoreMarqueeSelection(old.beforeUI);
   if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
   graphFrame = null;
   if (old?.capture?.hasPointerCapture?.(old.pointerId))
@@ -4469,7 +4711,7 @@ window.addEventListener('blur', () => {
   updateNavigation();
 });
 app.addEventListener('lostpointercapture', (e) => {
-  if (drag?.pointerId === e.pointerId) cancelInteraction();
+  if (drag?.pointerId === e.pointerId || wiring?.pointerId === e.pointerId) cancelInteraction();
 });
 
 app.addEventListener('pointerdown', (e) => {
@@ -4477,6 +4719,7 @@ app.addEventListener('pointerdown', (e) => {
   if (penDraft && e.target.closest('[inert]')) return;
   const viewport = e.target.closest('.graph-scroll');
   const control = editingControl(e.target);
+  if (control && e.target.closest('.canvas-text-editor')) return;
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
   if (numeric && e.button === 0 && !current().locked && !numeric.disabled && !numeric.readOnly) {
     const field = numeric.closest('.field[data-node]'),
@@ -4521,6 +4764,27 @@ app.addEventListener('pointerdown', (e) => {
     viewport.focus({ preventScroll: true });
     captureGraphPointer(e);
     updateNavigation();
+    e.preventDefault();
+    return;
+  }
+  if (
+    viewport &&
+    e.button === 0 &&
+    !control &&
+    !e.target.closest('.node') &&
+    !navigationBusy() &&
+    !penDraft
+  ) {
+    viewport.focus({ preventScroll: true });
+    drag = {
+      type: 'graph-marquee',
+      start: [e.clientX, e.clientY],
+      startWorld: graphPoint(e.clientX, e.clientY),
+      additive: e.shiftKey,
+      beforeUI: selectionSnapshot(true),
+      started: false,
+    };
+    captureGraphPointer(e);
     e.preventDefault();
     return;
   }
@@ -4649,7 +4913,9 @@ app.addEventListener('pointerdown', (e) => {
     );
     updateGraphBounds();
     drawWires();
+    captureWirePointer(e);
     e.preventDefault();
+    graphFrame = requestAnimationFrame(graphAutoPan);
     return;
   }
   if (e.target.closest('.input')) {
@@ -4670,6 +4936,8 @@ app.addEventListener('pointerdown', (e) => {
       pointerId: e.pointerId,
     };
     drawWires();
+    captureWirePointer(e);
+    graphFrame = requestAnimationFrame(graphAutoPan);
     e.preventDefault();
     return;
   }
@@ -4748,6 +5016,26 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (!stage || wiring) return;
+  if (tool === 'select' && !control && e.button === 0 && !e.shiftKey) {
+    const layerId =
+      e.target.closest('[data-node-stage-layer]')?.dataset.nodeStageLayer ||
+      e.target.closest('[data-layer]')?.dataset.layer;
+    if (layerId) {
+      const now = performance.now(),
+        prior = lastCanvasTextClick;
+      lastCanvasTextClick = { layerId, time: now, x: e.clientX, y: e.clientY };
+      if (
+        prior?.layerId === layerId &&
+        now - prior.time < 500 &&
+        Math.hypot(e.clientX - prior.x, e.clientY - prior.y) < 5 &&
+        beginCanvasTextEdit(layerId, e)
+      ) {
+        lastCanvasTextClick = null;
+        e.preventDefault();
+        return;
+      }
+    } else lastCanvasTextClick = null;
+  }
   const guideId = e.target.dataset.guide;
   if (guideId && tool !== 'pen') {
     selectedGuide = guideId;
@@ -5162,6 +5450,10 @@ function movePointer(e) {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'graph-marquee') {
+    moveGraphMarquee(e);
+    return;
+  }
   if (artworkDrag())
     drag.lastPointer = {
       clientX: e.clientX,
@@ -5587,10 +5879,14 @@ document.addEventListener('pointerup', (e) => {
     if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     let w = wiring;
     wiring = null;
+    const drop = w.capture ? document.elementFromPoint?.(e.clientX, e.clientY) : e.target;
+    releaseWirePointer(w);
+    if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
+    graphFrame = null;
     document.querySelectorAll('.compatible').forEach((x) => x.classList.remove('compatible'));
     updateGraphBounds();
     drawWires();
-    let f = e.target.closest('.graph .field');
+    let f = drop?.closest('.graph .field');
     if (w.disconnect) {
       if (!f)
         commandChange(
@@ -5622,6 +5918,18 @@ document.addEventListener('pointerup', (e) => {
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
+    if (d.type === 'graph-marquee') {
+      if (!d.started && !d.additive) {
+        selected = null;
+        selection = new Set();
+        artworkTarget = null;
+        artworkSelection = new Set();
+        characterEdit = null;
+        selectedGuide = null;
+      }
+      render();
+      return;
+    }
     snapMatches = [];
     if (d.gesture) {
       try {
@@ -5758,7 +6066,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (['pan', 'graph-pan'].includes(drag?.type) && e.key === 'Escape') {
+  if (['pan', 'graph-pan', 'graph-marquee'].includes(drag?.type) && e.key === 'Escape') {
     // Navigation is view-only: stop at the current offset without undo or selection changes.
     e.preventDefault();
     cancelInteraction();
@@ -5833,6 +6141,36 @@ document.addEventListener('keydown', (e) => {
     }
     e.preventDefault();
     return;
+  }
+  if (
+    e.target.matches?.('textarea[data-text]') &&
+    !e.isComposing &&
+    !composing &&
+    !textDrafts.get(e.target.dataset.text)?.composition
+  ) {
+    if (e.key === 'Escape') {
+      const draft = textDrafts.get(e.target.dataset.text);
+      if (draft)
+        session.dispatch({
+          ...session.state,
+          type: 'cancel-text-draft',
+          payload: { draftId: draft.state.draftId },
+        });
+      textDrafts.delete(e.target.dataset.text);
+      textPreview = null;
+      canvasTextEdit = null;
+      e.target.value = current().nodes.find((n) => n.id === e.target.dataset.text)?.text || '';
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      render();
+      return;
+    }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      e.target.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      return;
+    }
   }
   if (
     editingControl(e.target) ||

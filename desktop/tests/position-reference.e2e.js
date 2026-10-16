@@ -34,12 +34,16 @@ try {
   await inspector.locator('[data-text]').fill('A much longer headline');
   await inspector.locator('[data-text]').press('Tab');
   for (const b of await bounds()) assert.ok(Math.abs(b[0][2] - 780) < 0.00002);
-  await inspector.locator('[data-cross-alignment]').selectOption('end');
+  await inspector
+    .locator('[data-text-symbol="crossAlignment"][data-text-symbol-value="end"]')
+    .click();
   assert.ok(Math.abs((await bounds())[0][1][2] - 260) < 0.00002);
   await page.locator('[data-action="undo"]').click();
   assert.equal(await inspector.locator('[data-cross-alignment]').inputValue(), 'origin');
   await page.locator('[data-action="redo"]').click();
-  await inspector.locator('[data-reference-bounds]').selectOption('advance');
+  await inspector
+    .locator('[data-text-symbol="referenceBounds"][data-text-symbol-value="advance"]')
+    .click();
   assert.ok(Math.abs((await bounds())[0][0][2] - 780) > 0.01);
   await page.evaluate((s) => window.nect.load(s), example);
   // Canvas drag uses the unchanged Position parameter; snap resolves the generated visible bounds.

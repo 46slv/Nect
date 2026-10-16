@@ -87,7 +87,9 @@ try {
   await inspect(ids.text);
   const align = () => page.locator(`.inspector-body [data-text-alignment="${ids.text}"]`);
   assert.equal(await align().inputValue(), 'center');
-  await align().selectOption('end');
+  await page
+    .locator('.inspector-body [data-text-symbol="textAlignment"][data-text-symbol-value="end"]')
+    .click();
   assert.equal(
     await page.locator(`.graph [data-text-alignment="${ids.text}"]`).inputValue(),
     'end',
