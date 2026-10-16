@@ -761,3 +761,40 @@ active Session gesture with GESTURE_ACTIVE before replacement. The older
 native socket marquee proof had no authored Session gesture and is distinct.
 No source bypass, manufactured RED or duplicate native qualification was used.
 Source reconciliation is in OWN/authored-producer-reconciliation.json.
+## 2026-10-16 native transformed radial Gradient centre and radius
+
+Original production `4879d02` at actual native HEAD `42aa49f` passed this
+independent R03 / REQ-210 Gradient Edit operation. Only Brief metadata was dirty
+at the producer; no product RED or repair occurred. Before Window construction,
+manually authored full original/centre/final/foreign native documents, complete
+typed Session/History and distinct artwork pixel oracles were fixed and agreed.
+The initial Session had both Undo and Redo at revision 3.
+
+Windows Qt 6.5.3 PID 79776 / HWND 24580488 used actual Canvas selection and
+Gradient Rail activation. Under `world=(320-local_y,240+2*local_x)`, an external
+2400 ms / 40-step centre drag by world `(10,40)` moved local `(-30,-10)` to
+`(-10,-20)` at revision 4. A second actual radius-handle drag by world `(-15,40)`
+moved local `(40,-10)` to `(60,5)` at revision 5. Both matched complete native,
+preview and typed History oracles. Stable external Gradient Refs changed the
+consumer width 70 to 90 and height 80 to 110. Unrelated source, all IDs, Host,
+foreign Session, active Rail, selected Object and workspace were preserved.
+During 41 centre and 40 radius active observations, the committed starting
+Document and History of each gesture stayed unchanged. The pre-ready layout
+record had zoom 0.02; all records from ready onward, including native input,
+had zoom 1.
+
+Actual Toolbar Undo twice / Redo twice matched full typed Sessions at revisions
+6/7/8/9. Exact Save bytes, a distinct Host reopened in the same process and
+complete expected artwork pixels matched. Process closed, Cua session ended,
+exact mutex was free, non-abandoned and released/disposed. The owned probe's
+const-pointer initializer correction and refused Cua capture/token arguments
+preceded effective input and were preparation issues, not product REDs.
+Driver synthetic/global-input effects remain unverifiable; native records and
+grounded screenshots establish outcomes without claiming physical input.
+
+This closes only these transformed radial centre/radius operations. Driven
+edited axes, native active cancellation, other transforms, cold-process reopen,
+physical/subjective/DPI/fonts, full CTest, Host platform and whole Requirement or
+Mission closure remain unclaimed. Existing evidence retains its original HEAD.
+Receipt: `C:/Users/shiro/.codex/scratch/01a14240-6bb0-72d3-8f89-b3fa5bd04b93/radial-checkpoint.json`.
+SHA256 `8D0690CDBAE5A2D1E241C75905B196F352B007A66CEE5568FB37095D6F3E4432`.
