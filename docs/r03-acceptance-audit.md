@@ -1337,3 +1337,40 @@ Receipt: C:/Users/shiro/.codex/scratch/01a14301-a52c-7a40-83c5-630f23ff6efb/text
 SHA256 A6E3CEC34062506F8ACD643FA858D528F1A3C5B2E0B98A904E2585BED837AEBD;
 verification3C1DA9F6206C6F4968B23F2A4A432B67098641A725AE25FED1BD0A445BE7FD23,
 50 bound artifacts. Later metadata synchronization never promotes native proof HEAD.
+
+## Native Text creation inside a transformed Group — 2026-10-16
+
+Original production4879d02 at actual39de2243f36a0e1c0fca14902fad0698b3fc182b,
+with only Brief metadata dirty, passed this bounded REQ-210/15/30 operation.
+REQ-54 remains Candidate; no reparent or new model behavior was adopted.
+
+Before Window construction, independent full original/created/foreign native
+documents, typed Session histories and pixels were fixed. Group matrix
+`[0,1,-2,0,560,40]`, authored Anchor `(80,60)`, world click `(320,300)` and
+expected local Text origin `(260,120)` were fixed. The original Group child,
+Group matrix/Anchor, Text source, black Fill and source-local Text Anchor matched.
+Only two predeclared, bijective, same-length UUID roles were normalized.
+
+Windows Qt6.5.3 PID76880/HWND26680848 linked unchanged production libraries.
+Native Selection entered the Group before Horizontal Text activation; both kept
+revision3. Canvas creation committed4, Toolbar Undo5/Redo6 preserved full typed
+History and Group scope. A breadcrumb click returned to root while Text Tool
+remained active, without creating another Text. All11 settled records matched
+full Document/native/History/pixels, plane, zoom1, Host, foreign Session and owned
+workspace. Save bytes matched live native; a distinct same-process Host reopened
+full expected document/pixels without changing live History. Process closed,
+Cua ended and exact mutex was free/non-abandoned/released/disposed.
+
+Delivery limit: background Cua double-click posted single-click pairs, selecting
+the Group without entering it. One foreground SendInput double-click after that
+verified no-op entered scope; remaining inputs were background UIA/posted native.
+Gesture generation advanced0->3. Raw record3 sampled an active no-movement
+Selection gesture: the settled-stage observer reports false stage/pixel flags
+there, and the unchanged raw sample is retained. Full transient-state and
+physical-input proof are not claimed. No product RED, oracle adaptation or repair.
+
+Receipt: C:/Users/shiro/.codex/scratch/01a14315-687a-7151-a06f-1092e5ae1734/group-text-checkpoint.json
+SHA256 86B51CD5510C1F2CD71C3948E555D449087146A9911064F8AACD63E291A585B4;
+verification9E7EAD272B0B2A58F63C65494E7B11AAD514A2AB52144A3D35267D6EE639DEE2,
+35 bound artifacts. Broad typography/fonts/Japanese vertical, cold-process,
+chooser/transport/durability/DPI/subjective and whole Requirement/Mission remain open.
