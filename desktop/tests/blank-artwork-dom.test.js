@@ -321,7 +321,14 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
         if (kind === 'wire') fire($(`[data-source="${source.id}"]`), 'pointerdown', [100, 100]);
         if (kind === 'pan') fire(stage(), 'pointerdown', [100, 100], { button: 1 });
         fire(document, 'pointermove', [140, 125]);
-        if (kind === 'source' || kind === 'node') assert.notEqual(saved(), before);
+        if (kind === 'source') assert.notEqual(saved(), before);
+        if (kind === 'node') {
+          assert.equal(saved(), before, 'graph preview keeps the committed document');
+          assert.notDeepEqual(
+            win.nect.previewSnapshot(win.nect.gestureState.gestureId).document,
+            JSON.parse(before),
+          );
+        }
         click('[data-action="add-blank-layer"]');
         assert.equal(ui().drag, undefined);
         assert.equal(ui().draft, undefined);

@@ -98,7 +98,12 @@ try {
   for (const cancel of ['Escape', 'pointercancel', 'blur']) {
     const { x, y } = await start(input(id, 'center'));
     await page.mouse.move(x + 44, y, { steps: 4 });
-    assert.equal((await value(id, 'center'))[0], original[0] + 40);
+    assert.equal(Number(await input(id, 'center').inputValue()), original[0] + 40);
+    assert.deepEqual(
+      await value(id, 'center'),
+      original,
+      'committed state stays fixed during scrub',
+    );
     if (cancel === 'Escape') await page.keyboard.press('Escape');
     else
       await page.evaluate((cancel) => {

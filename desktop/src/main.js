@@ -54,11 +54,7 @@ import {
   bypassContract,
   parseStrokeDash,
   radialSettings,
-  linearGradientSettings,
-  radialGradientSettings,
-  closedOffsetSettings,
   assertClosedOffsetChange,
-  setTextWrap,
   textPathTargets,
   parameter,
   outputType,
@@ -73,7 +69,6 @@ import {
   connect,
   disconnect,
   serialize,
-  validate,
   deserialize,
   exportSVG,
   renderElement,
@@ -93,14 +88,11 @@ import {
   characterBoxPoints,
   hitCharacter,
   setCharacterOffsets,
-  setCharacterStyles,
-  setCharacterKerningPairs,
   characterPairFromIds,
   characterPairInRange,
   CHARACTER_STYLE_KEYS,
   characterIdsInRange,
   createCharacterPositions,
-  setCharacterTransforms,
   objectResizeHandles,
   resizedObjectValue,
   transformHandleGeometry,
@@ -152,7 +144,8 @@ const documents = new DocumentLifecycle({
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,
-  hasDraft: () => !!(penDraft || drag || wiring || composing || session.hasTextComposition),
+  hasDraft: () =>
+    !!(penDraft || drag || wiring || composing || session.hasTextComposition || session.hasGesture),
 });
 let openRequest = 0,
   imageRequest = 0,
@@ -220,8 +213,15 @@ const esc = (s) =>
   );
 const current = () =>
   penDraft?.layer || history.doc.layers.find((l) => l.id === activeLayer) || history.doc.layers[0];
-const canvasLayers = () =>
-  penDraft ? [...history.doc.layers, penDraft.layer] : history.doc.layers;
+// Read-only display projection. Authoring adapters continue to resolve committed
+// targets through current(); the detached preview is never installed in History.
+const displayDocument = () => drag?.preview || history.doc;
+const displayLayer = () => {
+  const doc = displayDocument();
+  return penDraft?.layer || doc.layers.find((layer) => layer.id === activeLayer) || doc.layers[0];
+};
+const canvasLayers = (doc = history.doc) =>
+  penDraft ? [...doc.layers, penDraft.layer] : doc.layers;
 const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
@@ -358,7 +358,13 @@ function resetTransient() {
   imagePick = null;
   layoutDraft = null;
   layoutPreview = false;
-  if (drag?.before) history.doc = drag.before;
+  if (drag?.gesture)
+    session.dispatch({
+      ...session.state,
+      type: 'cancel-gesture',
+      payload: { gestureId: drag.gesture.gestureId },
+    });
+  else if (drag?.before) history.doc = drag.before;
   selectedGuide = null;
   snapMatches = [];
   remapBatches.clear();
@@ -452,12 +458,13 @@ function textNumericTarget(input) {
   };
 }
 function textNumericState(d) {
-  const n = current().nodes.find((n) => n.id === d.nodeId);
+  const layer = displayLayer(),
+    n = layer.nodes.find((n) => n.id === d.nodeId);
   if (n?.type !== 'Text' || (d.started && n.text !== d.sourceText)) return null;
   if (d.textKind === 'leading')
     return n.leading?.mode === 'manual' ? { n, values: [n.leading.value] } : null;
   if (d.textKind === 'wrap') return n.textWrap ? { n, values: [n.textWrap.width] } : null;
-  const context = characterContext(evaluate(current(), fonts, history.doc.imageAssets));
+  const context = characterContext(evaluate(layer, fonts, displayDocument().imageAssets));
   if (d.textKind === 'kerning') {
     const pair = pairContext(context);
     return context?.n.id === d.nodeId && n.text === d.targetText && pair?.key === d.pairKey
@@ -486,7 +493,6 @@ function moveTextNumeric(d, event, dx) {
     cancelInteraction();
     return;
   }
-  // Commit a pending typed value first, then base the gesture on that exact result.
   if (!d.started && d.capture.value !== d.capture.defaultValue) {
     const text = d.capture.value,
       expected = Number(text);
@@ -505,106 +511,50 @@ function moveTextNumeric(d, event, dx) {
     }
   }
   if (!d.started) {
-    d.before = cloneDocument(history.doc);
     d.sourceText = state.n.text;
     d.originalValues = state.values;
-    d.originalRows = state.rows;
     d.originalManual = state.manual;
     d.originalInput =
       d.textKind === 'kerning' && !state.manual ? '' : mixedNumericDisplay(state.values);
+    d.gesture = beginGraphGesture({
+      kind: 'text-values',
+      layerId: d.layerId,
+      nodeId: d.nodeId,
+      textKind: d.textKind,
+      ids: d.ids,
+      key: d.key,
+      axis: d.axis,
+      pairKey: d.pairKey,
+    });
+    if (!d.gesture) {
+      cancelInteraction();
+      return;
+    }
     d.started = true;
     d.capture.setPointerCapture?.(event.pointerId);
     d.capture.classList.add('scrubbing');
   }
   event.preventDefault();
   const values = scrubNumericValues(
-      d.originalValues,
-      dx,
-      Number(d.capture.dataset.scrubStep),
-      Number(d.capture.min),
-      Number(d.capture.max),
-    ),
-    n = state.n,
-    base = d.before.layers.find((l) => l.id === d.layerId).nodes.find((n) => n.id === d.nodeId),
-    property =
-      d.textKind === 'leading'
-        ? 'leading'
-        : d.textKind === 'wrap'
-          ? 'textWrap'
-          : 'characterPositions',
-    previous = n[property],
-    schema = history.doc.schemaVersion;
-  const restore = (value) => {
-    if (value === undefined) delete n[property];
-    else n[property] = value;
-  };
+    d.originalValues,
+    dx,
+    Number(d.capture.dataset.scrubStep),
+    Number(d.capture.min),
+    Number(d.capture.max),
+  );
   try {
-    // Derive every preview from the gesture start, retaining sparse inheritance and schema
-    // exactly when the pointer returns to its origin or a bound prevents any change.
-    restore(base[property]);
-    history.doc.schemaVersion = d.before.schemaVersion;
-    if (values.some((value, i) => value !== d.originalValues[i])) {
-      if (d.textKind === 'offset') {
-        n.characterPositions = setCharacterOffsets(
-          n.text,
-          base.characterPositions,
-          Object.fromEntries(
-            d.originalRows.map((g, i) => [
-              g.id,
-              g.offset.map((v, axis) => (axis === d.axis ? values[i] : v)),
-            ]),
-          ),
-        );
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 3);
-      } else if (d.textKind === 'transform') {
-        n.characterPositions = setCharacterTransforms(
-          n.text,
-          base.characterPositions,
-          Object.fromEntries(
-            d.originalRows.map((g, i) => [
-              g.id,
-              { rotation: g.rotation, scale: g.scale, [d.key]: values[i] },
-            ]),
-          ),
-        );
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 4);
-      } else if (d.textKind === 'style') {
-        n.characterPositions = setCharacterStyles(
-          n.text,
-          base.characterPositions,
-          Object.fromEntries(d.ids.map((id, i) => [id, { [d.key]: values[i] / d.factor }])),
-        );
-        history.doc.schemaVersion = Math.max(
-          history.doc.schemaVersion,
-          n.characterPositions.version >= 4 ? 6 : 5,
-        );
-      } else if (d.textKind === 'kerning') {
-        n.characterPositions = setCharacterKerningPairs(n.text, base.characterPositions, {
-          [d.pairKey]: values[0],
-        });
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 9);
-      } else if (d.textKind === 'leading') {
-        n.leading = { mode: 'manual', value: values[0] };
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 6);
-      } else {
-        setTextWrap(current(), n.id, { width: values[0] }, fonts, history.doc.imageAssets);
-        history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 8);
-      }
-      validate(history.doc);
-      const result = evaluate({ ...current(), output: n.id }, fonts, history.doc.imageAssets);
-      if (result.error) throw Error(result.error);
-      const layout = result.textLayout(n.id);
-      if (layout.reason) throw Error(layout.reason);
-      assertClosedOffsetChange(
-        current(),
-        d.before.layers.find((l) => l.id === d.layerId),
-        fonts,
-        history.doc.imageAssets,
-      );
-    }
+    d.gesture = session.dispatch({
+      ...session.state,
+      type: 'update-gesture',
+      payload: {
+        ...d.gesture,
+        update: {
+          values: d.textKind === 'style' ? values.map((value) => value / d.factor) : values,
+        },
+      },
+    });
+    d.preview = session.previewSnapshot(d.gesture.gestureId).document;
   } catch (error) {
-    restore(previous);
-    history.doc.schemaVersion = schema;
     notify(error.message, true);
     return;
   }
@@ -1221,7 +1171,8 @@ function captureArtworkPointer(event, capture) {
 }
 // Character position is a source edit, with an explicit final-output occurrence.
 function characterContext(result = renderEvaluation) {
-  const n = selectedNode();
+  const layer = displayLayer(),
+    n = artworkTarget ? undefined : layer.nodes.find((node) => node.id === selected);
   if (
     !characterEdit ||
     n?.id !== characterEdit.node ||
@@ -1695,7 +1646,11 @@ function drawCanvas() {
   canvasFrame = null;
   const svg = document.querySelector('.artboard');
   if (!svg) return;
-  const l = current();
+  const display = drag?.preview || history.doc,
+    l =
+      penDraft?.layer ||
+      display.layers.find((layer) => layer.id === activeLayer) ||
+      display.layers[0];
   if (drag?.before) {
     try {
       assertClosedOffsetChange(
@@ -1710,18 +1665,18 @@ function drawCanvas() {
       return;
     }
   }
-  const r = evaluate(l, fonts, history.doc.imageAssets);
+  const r = evaluate(l, fonts, display.imageAssets);
   svg.innerHTML =
     gridOverlay() +
-    canvasLayers()
+    canvasLayers(display)
       .filter((x) => layerShown(x))
       .map((x) => {
-        const value = x === l ? r : evaluate(x, fonts, history.doc.imageAssets);
+        const value = x === l ? r : evaluate(x, fonts, display.imageAssets);
         return value.path && !value.error ? layerShape(x, value.path) : '';
       })
       .join('') +
     guidesOverlay() +
-    canvasOverlay(selectedNode(), r);
+    canvasOverlay(artworkTarget ? undefined : l.nodes.find((node) => node.id === selected), r);
   renderEvaluation = r;
   sizePositionHandle();
   positionCharacterFloating();
@@ -3709,6 +3664,30 @@ function graphPoint(x, y) {
   const r = document.querySelector('.graph').getBoundingClientRect();
   return [(x - r.x) / graphZoom, (y - r.y) / graphZoom];
 }
+function beginGraphGesture(target) {
+  try {
+    return session.dispatch({ ...session.state, type: 'begin-gesture', payload: { target } });
+  } catch (error) {
+    notify(error.message, true);
+    return null;
+  }
+}
+function updateGraphGesture(update) {
+  try {
+    drag.gesture = session.dispatch({
+      ...session.state,
+      type: 'update-gesture',
+      payload: { ...drag.gesture, update },
+    });
+    return session
+      .previewSnapshot(drag.gesture.gestureId)
+      .document.layers.find((layer) => layer.id === current().id);
+  } catch (error) {
+    notify(error.message, true);
+    cancelInteraction();
+    return null;
+  }
+}
 function moveGraphNodes() {
   if (drag?.type !== 'node' || current().locked) return;
   const point = graphPoint(...drag.pointer);
@@ -3716,9 +3695,10 @@ function moveGraphNodes() {
   const delta = point.map((v, i) =>
     Math.max(v - drag.startWorld[i], -Math.min(...drag.originals.map((o) => o.position[i]))),
   );
+  const preview = updateGraphGesture({ delta });
+  if (!preview) return;
   for (const original of drag.originals) {
-    const n = current().nodes.find((x) => x.id === original.id);
-    n.position = original.position.map((v, i) => v + delta[i]);
+    const n = preview.nodes.find((x) => x.id === original.id);
     const el = document.querySelector(`.node[data-id="${n.id}"]`);
     el.style.left = n.position[0] + 'px';
     el.style.top = n.position[1] + 'px';
@@ -3779,7 +3759,13 @@ function cancelInteraction() {
   graphFrame = null;
   if (old?.capture?.hasPointerCapture?.(old.pointerId))
     old.capture.releasePointerCapture(old.pointerId);
-  if (before) history.doc = before;
+  if (old?.gesture)
+    session.dispatch({
+      ...session.state,
+      type: 'cancel-gesture',
+      payload: { gestureId: old.gesture.gestureId },
+    });
+  else if (before) history.doc = before;
   // Do not let focus restoration retain the cancelled scrub preview as a typed draft.
   if (old?.type === 'numeric' && old.started)
     old.capture.value = old.originalInput ?? String(old.original);
@@ -4093,6 +4079,12 @@ app.addEventListener('pointerdown', (e) => {
     }
     // Commit a focused field before taking the gesture rollback snapshot.
     document.querySelector('.graph-scroll').focus({ preventScroll: true });
+    const gesture = beginGraphGesture({
+      kind: 'graph-translate',
+      layerId: current().id,
+      nodeIds: [...selection],
+    });
+    if (!gesture) return;
     drag = {
       type: 'node',
       nameTarget: e.target.closest('[data-rename-node]') ? id : null,
@@ -4105,7 +4097,7 @@ app.addEventListener('pointerdown', (e) => {
         id,
         position: [...current().nodes.find((n) => n.id === id).position],
       })),
-      before: cloneDocument(history.doc),
+      gesture,
     };
     captureGraphPointer(e);
     document
@@ -4117,13 +4109,21 @@ app.addEventListener('pointerdown', (e) => {
   const resized = e.target.closest('.node-resize')?.closest('.node');
   if (resized) {
     if (current().locked) return;
+    document.querySelector('.graph-scroll').focus({ preventScroll: true });
+    const gesture = beginGraphGesture({
+      kind: 'graph-width',
+      layerId: current().id,
+      nodeId: resized.dataset.id,
+    });
+    if (!gesture) return;
     drag = {
       type: 'resize',
       id: resized.dataset.id,
       startX: e.clientX,
       width: resized.offsetWidth,
-      before: cloneDocument(history.doc),
+      gesture,
     };
+    captureGraphPointer(e);
     e.preventDefault();
     return;
   }
@@ -4727,8 +4727,19 @@ function movePointer(e) {
       return;
     }
     if (!d.started) {
-      d.before = cloneDocument(history.doc);
       d.original = d.alpha ? q.value.alpha : q.type === 'Vector2' ? q.value[d.axis] : q.value;
+      d.gesture = beginGraphGesture({
+        kind: 'parameter',
+        layerId: d.layerId,
+        nodeId: d.nodeId,
+        key: d.key,
+        ...(q.type === 'Vector2' ? { axis: d.axis } : {}),
+        ...(d.alpha ? { alpha: true } : {}),
+      });
+      if (!d.gesture) {
+        cancelInteraction();
+        return;
+      }
       d.started = true;
       d.capture.setPointerCapture?.(e.pointerId);
       d.capture.classList.add('scrubbing');
@@ -4746,30 +4757,14 @@ function movePointer(e) {
               Math.min(max, Number((d.original + Math.trunc(distance) * step).toPrecision(15))),
             );
     if (!Number.isFinite(value)) return;
-    if (n.type === 'Linear Gradient Fill' && q.type === 'Vector2') {
-      const candidate = [...q.value];
-      candidate[d.axis] = value;
-      try {
-        linearGradientSettings((key) => (key === d.key ? candidate : n.params[key].value));
-      } catch {
-        return;
-      }
-    }
-    const previousValue = clone(q.value);
-    if (d.alpha) q.value.alpha = value;
-    else if (q.type === 'Vector2') q.value[d.axis] = value;
-    else q.value = value;
     try {
-      if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
-      if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
-      assertClosedOffsetChange(
-        current(),
-        d.before.layers.find((l) => l.id === current().id),
-        fonts,
-        history.doc.imageAssets,
-      );
+      d.gesture = session.dispatch({
+        ...session.state,
+        type: 'update-gesture',
+        payload: { ...d.gesture, update: { value } },
+      });
+      d.preview = session.previewSnapshot(d.gesture.gestureId).document;
     } catch (error) {
-      q.value = previousValue;
       notify(error.message, true);
       return;
     }
@@ -4785,7 +4780,10 @@ function movePointer(e) {
   }
   if (drag.type === 'resize') {
     const width = Math.max(220, Math.min(550, drag.width + (e.clientX - drag.startX) / graphZoom));
-    document.querySelector(`.node[data-id="${drag.id}"]`).style.width = width + 'px';
+    const preview = updateGraphGesture({ width });
+    if (!preview) return;
+    document.querySelector(`.node[data-id="${drag.id}"]`).style.width =
+      (preview.nodes.find((node) => node.id === drag.id).width ?? 264) + 'px';
     updateGraphBounds();
     drawWires();
     return;
@@ -4962,16 +4960,32 @@ document.addEventListener('pointerup', (e) => {
   }
   if (drag) {
     let d = drag;
-    if (d.type === 'resize' && !current().locked) {
-      const el = document.querySelector(`.node[data-id="${d.id}"]`),
-        n = current().nodes.find((x) => x.id === d.id);
-      n.width = Math.max(220, Math.min(550, el.offsetWidth));
-    }
     drag = null;
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     snapMatches = [];
+    if (d.gesture) {
+      try {
+        session.dispatch({ ...session.state, type: 'commit-gesture', payload: d.gesture });
+      } catch (error) {
+        session.dispatch({
+          ...session.state,
+          type: 'cancel-gesture',
+          payload: { gestureId: d.gesture.gestureId },
+        });
+        notify(error.message, true);
+      }
+      if (
+        d.type === 'node' &&
+        !d.started &&
+        d.nameTarget &&
+        nameClicked(current().id, d.nameTarget, e)
+      )
+        return;
+      render();
+      return;
+    }
     if (d.type === 'pen') {
       notify('Draft path · Enter / Escape: finish · Cancel path: discard');
       render();
@@ -5410,6 +5424,10 @@ document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
+  get gestureState() {
+    return session.gestureState;
+  },
+  previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
   get commandState() {
     return session.state;
   },

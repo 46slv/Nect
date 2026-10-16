@@ -151,7 +151,8 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
     el = input(id, 'center');
     pointer(el, 'pointerdown', 100);
     pointer(document, 'pointermove', 124);
-    assert.equal(val(id, 'center')[0], original[0] + 20);
+    assert.equal(Number(el.value), original[0] + 20);
+    assert.deepEqual(val(id, 'center'), original, 'scrub preview must not change committed state');
     if (ending === 'escape')
       el.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));

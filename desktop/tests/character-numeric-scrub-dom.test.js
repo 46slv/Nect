@@ -209,7 +209,11 @@ test('actual character palette and typography inputs scrub atomically, preserve 
         el = field(attribute, panel);
       start(el);
       pointer(document, 'pointermove', 124);
-      assert.notEqual(saved(), before);
+      assert.equal(saved(), before, 'preview must leave committed document untouched');
+      assert.notEqual(
+        JSON.stringify(win.nect.previewSnapshot(win.nect.gestureState.gestureId).document),
+        before,
+      );
       if (ending === 'Escape') keyboard(el, 'Escape');
       else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));
       else pointer(ending === 'lostpointercapture' ? el : document, ending, 124);

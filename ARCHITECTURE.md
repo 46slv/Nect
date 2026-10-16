@@ -10,6 +10,8 @@ The separate Desktop Mission lives under `desktop/`, with its adopted Brief in t
 
 For migrated Text editing, CommandSession also owns temporary text drafts, stable character reconciliation and bounded native-input Undo snapshots. The UI captures observed text/selection/composition intent and renders provisional input; it cannot install authored character maps. Text/font commits validate private candidates and share the Session History. See `desktop/docs/nect-integration.md` for the remaining direct-edit migration debt.
 
+Migrated graph layout and numeric/Text scrubs use one exclusive Session-private gesture candidate. Fixed stable targets and an independent preview revision protect updates; detached previews are output-only display projections. Committed snapshots/History remain unchanged until one validated commit, and cancellation discards the draft without restoring over newer authored state. GUI retains pointer/snap/view/selection state. Canvas/Pen routes are still staged migration work.
+
 The baseline owners below continue to describe the legacy implementation.
 
 | Owner | Responsibility | Must not own |

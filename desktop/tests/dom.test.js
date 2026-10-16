@@ -245,7 +245,15 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   // Node layout uses the same transaction boundary; a cancelled move cannot resume.
   pointer(document.querySelector(`.node[data-id="${circle.id}"] .node-head`), 'pointerdown');
   pointer(document, 'pointermove', 80, 60);
-  assert.notEqual(JSON.stringify(win.nect.document), serialized);
+  assert.equal(
+    JSON.stringify(win.nect.document),
+    serialized,
+    'graph preview keeps the committed document',
+  );
+  assert.notEqual(
+    JSON.stringify(win.nect.previewSnapshot(win.nect.gestureState.gestureId).document),
+    serialized,
+  );
   cancelAndCheck(serialized);
 
   // A cancelled first Pen point removes its new node and restores Output routing.

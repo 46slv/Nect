@@ -54,6 +54,8 @@ import {
   resetCharacterTransforms,
   resetCharacterAdjustments,
   setCharacterKerningPairs,
+  characterPairFromIds,
+  characterIdsInRange,
 } from './character-identity.js';
 import { TextDraft } from './text-draft.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
@@ -2262,6 +2264,7 @@ export class CommandSession {
   #fonts;
   #busy;
   #textDrafts = new Map();
+  #gesture = null;
   constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
     validate(doc);
     this.#history = new History(cloneDocument(doc));
@@ -2280,15 +2283,318 @@ export class CommandSession {
       (draft) => draft.composition && draft.revision === this.#history.revision,
     );
   }
+  get hasGesture() {
+    return this.#gesture !== null;
+  }
+  get gestureState() {
+    const draft = this.#gesture;
+    return draft
+      ? { gestureId: draft.id, kind: draft.target.kind, expectedPreviewRevision: draft.version }
+      : null;
+  }
+  previewSnapshot(gestureId) {
+    if (!this.#gesture || gestureId !== this.#gesture.id)
+      throw Error('STALE_GESTURE: unknown draft');
+    return {
+      ...this.gestureState,
+      baseRevision: this.#gesture.revision,
+      document: cloneDocument(this.#gesture.candidate),
+    };
+  }
+  #textGestureValues(base, target) {
+    const layer = base.layers.find((layer) => layer.id === target.layerId),
+      node = layer?.nodes.find((node) => node.id === target.nodeId && node.type === 'Text');
+    if (!node) throw Error('Select a Text node');
+    if (layer.locked) throw Error('Composition is locked');
+    const result = evaluate(
+        { ...layer, output: node.id },
+        resolveFonts(base, this.#fonts()),
+        base.imageAssets,
+      ),
+      layout = result.textLayout(node.id);
+    if (result.error || layout.reason) throw Error(result.error || layout.reason);
+    if (target.textKind === 'leading') {
+      if (node.leading?.mode !== 'manual') throw Error('Manual leading required');
+      return [node.leading.value];
+    }
+    if (target.textKind === 'wrap') {
+      if (!node.textWrap) throw Error('Text wrap required');
+      return [node.textWrap.width];
+    }
+    const ids = characterIdsInRange(node.text, node.characterPositions, 0, node.text.length);
+    if (
+      !Array.isArray(target.ids) ||
+      !target.ids.length ||
+      new Set(target.ids).size !== target.ids.length ||
+      target.ids.some((id) => !ids.includes(id))
+    )
+      throw Error('Select stable character IDs');
+    if (target.textKind === 'kerning') {
+      const key = characterPairFromIds(node.text, node.characterPositions, target.ids);
+      if (target.pairKey !== key || !layout.pairKerning?.[key])
+        throw Error('Select an ordered character pair');
+      return [layout.pairKerning[key].value];
+    }
+    if (target.textKind === 'style') {
+      if (!['size', 'width', 'height', 'tracking', 'baselineShift'].includes(target.key))
+        throw Error('Invalid character style');
+      const defaults = result.textDefaults(node.id);
+      return target.ids.map(
+        (id) => node.characterPositions?.styles?.[id]?.[target.key] ?? defaults[target.key],
+      );
+    }
+    if (target.textKind === 'offset' && ![0, 1].includes(target.axis))
+      throw Error('Invalid character axis');
+    if (target.textKind === 'transform' && !['rotation', 'scale'].includes(target.key))
+      throw Error('Invalid character transform');
+    if (!['offset', 'transform'].includes(target.textKind)) throw Error('Invalid Text gesture');
+    return target.ids.map((id) => {
+      const character = layout.characters.find((character) => character.id === id);
+      if (!character) throw Error('Character mapping unavailable');
+      return target.textKind === 'offset' ? character.offset[target.axis] : character[target.key];
+    });
+  }
+  #gestureCandidate(base, target, update) {
+    if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'text-values') {
+      const initial = this.#textGestureValues(base, target),
+        values = update.values;
+      if (
+        !Array.isArray(values) ||
+        values.length !== initial.length ||
+        !values.every(Number.isFinite)
+      )
+        throw Error('Invalid Text gesture values');
+      if (values.every((value, index) => value === initial[index])) return cloneDocument(base);
+      const payload = { layerId: target.layerId, nodeId: target.nodeId };
+      if (target.textKind === 'leading' || target.textKind === 'wrap')
+        return this.#commandCandidate(
+          'set-text-settings',
+          {
+            ...payload,
+            settings:
+              target.textKind === 'leading'
+                ? { leading: { mode: 'manual', value: values[0] } }
+                : { textWrap: { width: values[0] } },
+          },
+          base,
+        ).candidate;
+      if (target.textKind === 'kerning')
+        return this.#commandCandidate(
+          'set-character-kerning',
+          { ...payload, changes: { [target.pairKey]: values[0] } },
+          base,
+        ).candidate;
+      const candidate = cloneDocument(base),
+        layer = candidate.layers.find((layer) => layer.id === target.layerId),
+        node = layer.nodes.find((node) => node.id === target.nodeId);
+      let next;
+      if (target.textKind === 'offset')
+        next = setCharacterOffsets(
+          node.text,
+          node.characterPositions,
+          Object.fromEntries(
+            target.ids.map((id, i) => [
+              id,
+              (node.characterPositions?.offsets?.[id] ?? [0, 0]).map((value, axis) =>
+                axis === target.axis ? values[i] : value,
+              ),
+            ]),
+          ),
+        );
+      else if (target.textKind === 'transform')
+        next = setCharacterTransforms(
+          node.text,
+          node.characterPositions,
+          Object.fromEntries(
+            target.ids.map((id, i) => [
+              id,
+              {
+                rotation: 0,
+                scale: 1,
+                ...node.characterPositions?.transforms?.[id],
+                [target.key]: values[i],
+              },
+            ]),
+          ),
+        );
+      else
+        next = setCharacterStyles(
+          node.text,
+          node.characterPositions,
+          Object.fromEntries(target.ids.map((id, i) => [id, { [target.key]: values[i] }])),
+        );
+      if (next) {
+        node.characterPositions = next;
+        candidate.schemaVersion = Math.max(
+          candidate.schemaVersion,
+          next.version >= 5
+            ? 9
+            : next.version >= 4
+              ? 6
+              : next.version >= 3
+                ? 5
+                : next.version >= 2
+                  ? 4
+                  : 3,
+        );
+      }
+      validate(candidate);
+      const result = evaluate(
+        { ...layer, output: node.id },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      );
+      if (result.error || result.textLayout(node.id).reason)
+        throw Error(result.error || result.textLayout(node.id).reason);
+      assertClosedOffsetChange(
+        layer,
+        base.layers.find((layer) => layer.id === target.layerId),
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        resolveFonts(base, this.#fonts()),
+      );
+      return candidate;
+    }
+    if (target.kind === 'parameter') {
+      const node = base.layers
+          .find((layer) => layer.id === target.layerId)
+          ?.nodes.find((node) => node.id === target.nodeId),
+        q = node && parameter(node, target.key);
+      if (!q) throw Error('Missing parameter');
+      const value = target.alpha ? { ...q.value, alpha: update.value } : update.value;
+      if (target.alpha && q.type !== 'Color') throw Error('Alpha requires a Color');
+      return this.#commandCandidate(
+        'set-parameter',
+        {
+          layerId: target.layerId,
+          nodeId: target.nodeId,
+          key: target.key,
+          ...(target.axis !== undefined ? { axis: target.axis } : {}),
+          value,
+        },
+        base,
+      ).candidate;
+    }
+    const candidate = cloneDocument(base),
+      layer = candidate.layers.find((layer) => layer.id === target.layerId);
+    if (!layer) throw Error('Missing composition');
+    if (layer.locked) throw Error('Composition is locked');
+    if (target.kind === 'graph-translate') {
+      if (
+        !Array.isArray(target.nodeIds) ||
+        !target.nodeIds.length ||
+        new Set(target.nodeIds).size !== target.nodeIds.length
+      )
+        throw Error('Select distinct graph nodes');
+      const nodes = target.nodeIds.map((id) => {
+        const item = layer.nodes.find((node) => node.id === id);
+        if (!item) throw Error('Missing node');
+        return item;
+      });
+      assertValue('Vector2', update.delta);
+      const delta = update.delta.map((value, axis) =>
+        Math.max(value, -Math.min(...nodes.map((node) => node.position[axis]))),
+      );
+      for (const node of nodes)
+        node.position = node.position.map((value, axis) => value + delta[axis]);
+    } else if (target.kind === 'graph-width') {
+      const node = layer.nodes.find((node) => node.id === target.nodeId);
+      if (!node) throw Error('Missing node');
+      if (!Number.isFinite(update.width) || update.width < 220 || update.width > 550)
+        throw Error('Invalid node width');
+      if (update.width !== (node.width ?? 264)) node.width = update.width;
+    } else throw Error('Unsupported gesture kind');
+    validate(candidate);
+    return candidate;
+  }
   snapshot() {
     return cloneDocument(this.#history.doc);
   }
   dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
+    // Cleanup can release the caller's exact token even after a legacy edit made
+    // its baseline stale. It never writes the committed document.
+    if (type === 'cancel-gesture') {
+      if (!this.#gesture || payload.gestureId !== this.#gesture.id)
+        throw Error('STALE_GESTURE: unknown draft');
+      this.#gesture = null;
+      return this.state;
+    }
     if (expectedRevision !== this.#history.revision)
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    if (type === 'begin-gesture') {
+      if (
+        this.#gesture ||
+        this.#busy() ||
+        this.hasTextComposition ||
+        [...this.#textDrafts.values()].some(
+          (draft) => draft.revision === this.#history.revision && draft.state.changed,
+        )
+      )
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+      const target = clone(payload.target),
+        base = cloneDocument(this.#history.doc);
+      const layer = base.layers.find((layer) => layer.id === target?.layerId),
+        node = layer?.nodes.find((node) => node.id === target.nodeId);
+      const q = node && target.kind === 'parameter' ? parameter(node, target.key) : null;
+      const initial =
+        target?.kind === 'text-values'
+          ? { values: this.#textGestureValues(base, target) }
+          : target?.kind === 'graph-translate'
+            ? { delta: [0, 0] }
+            : target?.kind === 'parameter'
+              ? {
+                  value: target.alpha
+                    ? q?.value?.alpha
+                    : target.axis !== undefined
+                      ? q?.value?.[target.axis]
+                      : q?.value,
+                }
+              : { width: node?.width ?? 264 };
+      this.#gestureCandidate(base, target, initial);
+      this.#gesture = {
+        id: uid('gesture'),
+        target,
+        base,
+        candidate: base,
+        revision: this.#history.revision,
+        version: 0,
+      };
+      return { ...this.state, ...this.gestureState };
+    }
+    if (type === 'update-gesture' || type === 'commit-gesture') {
+      const draft = this.#gesture;
+      if (
+        !draft ||
+        payload.gestureId !== draft.id ||
+        payload.expectedPreviewRevision !== draft.version
+      )
+        throw Error('STALE_GESTURE: draft changed');
+      if (draft.revision !== this.#history.revision || !sameDocument(draft.base, this.#history.doc))
+        throw Error('STALE_GESTURE: document changed');
+      if (type === 'update-gesture') {
+        const candidate = this.#gestureCandidate(draft.base, draft.target, payload.update);
+        draft.candidate = candidate;
+        draft.update = clone(payload.update);
+        draft.version++;
+        return { ...this.state, ...this.gestureState };
+      }
+      if (draft.update)
+        draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
+      validate(draft.candidate);
+      const revision = this.#history.revision;
+      if (!sameDocument(this.#history.doc, draft.candidate))
+        this.#history.apply(() => {
+          this.#history.doc = draft.candidate;
+        });
+      this.#gesture = null;
+      return { ...this.state, changed: revision !== this.#history.revision };
+    }
+    if (this.#gesture && type !== 'cancel-text-draft')
+      throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (type === 'cancel-text-draft') {
       this.#textDrafts.delete(payload.draftId);
       return this.state;
@@ -2334,6 +2640,20 @@ export class CommandSession {
       this.#history[type]();
       return this.state;
     }
+    const { candidate, result, committingDraft } = this.#commandCandidate(
+      type,
+      payload,
+      this.#history.doc,
+    );
+    const revision = this.#history.revision;
+    if (!sameDocument(this.#history.doc, candidate))
+      this.#history.apply(() => {
+        this.#history.doc = candidate;
+      });
+    if (committingDraft) this.#textDrafts.delete(payload.draftId);
+    return { ...this.state, ...result, changed: revision !== this.#history.revision };
+  }
+  #commandCandidate(type, payload, before) {
     if (
       [
         'create-artwork',
@@ -2349,7 +2669,7 @@ export class CommandSession {
         'distribute-artwork-gaps',
       ].includes(type)
     ) {
-      const candidate = cloneDocument(this.#history.doc);
+      const candidate = cloneDocument(before);
       let result;
       if (type === 'create-artwork')
         result = appendArtwork(candidate, payload.artworkType, {
@@ -2436,11 +2756,7 @@ export class CommandSession {
         result = { layerId: artwork.id, nodeId: generator.id, assetId };
       }
       validate(candidate);
-      const revision = this.#history.revision;
-      this.#history.apply(() => {
-        this.#history.doc = candidate;
-      });
-      return { ...this.state, ...result, changed: revision !== this.#history.revision };
+      return { candidate, result };
     }
     if (
       [
@@ -2453,7 +2769,7 @@ export class CommandSession {
         'set-layout-grid',
       ].includes(type)
     ) {
-      const candidate = cloneDocument(this.#history.doc);
+      const candidate = cloneDocument(before);
       let result = {};
       if (type === 'set-layer-state') {
         const layer = candidate.layers.find((layer) => layer.id === payload.layerId);
@@ -2502,10 +2818,7 @@ export class CommandSession {
         }
       }
       validate(candidate);
-      this.#history.apply(() => {
-        this.#history.doc = candidate;
-      });
-      return { ...this.state, ...result };
+      return { candidate, result };
     }
     if (
       ![
@@ -2544,8 +2857,7 @@ export class CommandSession {
       type === 'commit-text-draft' ? this.#textDrafts.get(payload.draftId) : null;
     if (type === 'commit-text-draft' && !committingDraft)
       throw Error('STALE_TEXT_DRAFT: unknown draft');
-    const before = this.#history.doc,
-      candidate = cloneDocument(before);
+    const candidate = cloneDocument(before);
     const target = candidate.layers.find(
       (layer) => layer.id === (committingDraft?.layerId ?? payload.layerId),
     );
@@ -2935,10 +3247,6 @@ export class CommandSession {
       candidate.imageAssets,
       resolveFonts(before, this.#fonts()),
     );
-    this.#history.apply(() => {
-      this.#history.doc = candidate;
-    });
-    if (committingDraft) this.#textDrafts.delete(payload.draftId);
-    return { ...this.state, ...result };
+    return { candidate, result, committingDraft };
   }
 }

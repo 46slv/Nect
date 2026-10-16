@@ -165,7 +165,13 @@ try {
       const input = field(attribute, panel),
         { x, y } = await start(input);
       await page.mouse.move(x + 24, y, { steps: 4 });
-      assert.notEqual(await saved(), before);
+      assert.equal(await saved(), before, 'preview must leave committed document untouched');
+      assert.notEqual(
+        await page.evaluate(() =>
+          JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+        ),
+        before,
+      );
       if (cancel === 'Escape') await page.keyboard.press('Escape');
       else if (cancel === 'lostpointercapture')
         await input.evaluate((el) =>
@@ -193,7 +199,8 @@ try {
   let p = await start(field('character-axis="0"'));
   const palette = await page.locator('.character-floating').boundingBox();
   await page.mouse.move(p.x + 44, p.y, { steps: 5 });
-  assert.equal(await value('axis0'), 40);
+  assert.equal(Number(await field('character-axis="0"').inputValue()), 40);
+  assert.equal(await value('axis0'), 0, 'committed character offset stays fixed during capture');
   const preview = await page.locator('.character-floating').boundingBox();
   assert.ok(
     Math.abs(preview.x - palette.x) < 1 && Math.abs(preview.y - palette.y) < 1,

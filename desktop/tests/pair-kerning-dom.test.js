@@ -183,7 +183,11 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
     const before = saved(),
       el = start();
     pointer(document, 'pointermove', 124);
-    assert.notEqual(saved(), before);
+    assert.equal(saved(), before, 'preview must leave committed document untouched');
+    assert.notEqual(
+      JSON.stringify(win.nect.previewSnapshot(win.nect.gestureState.gestureId).document),
+      before,
+    );
     if (cancel === 'Escape')
       el.dispatchEvent(
         new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),

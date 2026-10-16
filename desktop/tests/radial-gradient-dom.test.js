@@ -162,7 +162,8 @@ test('Radial Gradient Fill controls, typed sources, fallback, invalid radius rol
     );
   pointer(radiusInput(), 'pointerdown', 100);
   pointer(document, 'pointermove', 140);
-  assert.ok(val('radius') > 150);
+  assert.ok(Number(radiusInput().value) > 150);
+  assert.equal(val('radius'), 150, 'draft preview leaves the committed radius intact');
   pointer(document, 'pointercancel', 140);
   assert.equal(val('radius'), 150);
   assert.equal(saved(), before);

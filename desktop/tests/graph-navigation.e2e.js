@@ -11,7 +11,12 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const viewport = page.locator('.graph-scroll');
-const position = () => page.evaluate(() => [...window.nect.document.layers[0].nodes[0].position]);
+// Graph drag previews are detached; inspect the displayed card during capture.
+const position = () =>
+  page.evaluate(() => {
+    const card = document.querySelector('.graph .node');
+    return [parseFloat(card.style.left), parseFloat(card.style.top)];
+  });
 const scroll = () => viewport.evaluate((el) => [el.scrollLeft, el.scrollTop]);
 let id;
 async function reset() {

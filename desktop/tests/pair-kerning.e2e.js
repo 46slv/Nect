@@ -154,7 +154,13 @@ try {
     before = await saved();
     const { x, y } = await start();
     await page.mouse.move(x + 24, y, { steps: 4 });
-    assert.notEqual(await saved(), before);
+    assert.equal(await saved(), before, 'preview must leave committed document untouched');
+    assert.notEqual(
+      await page.evaluate(() =>
+        JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+      ),
+      before,
+    );
     if (cancel === 'Escape') await page.keyboard.press('Escape');
     else if (cancel === 'lostpointercapture')
       await input().evaluate((el) =>
@@ -286,12 +292,30 @@ try {
   assert.equal(await input().inputValue(), '');
   const pathDrag = await start();
   await page.mouse.move(pathDrag.x + 14, pathDrag.y, { steps: 4 });
-  assert.deepEqual(await pairs(), { 'c1:c2': 10 });
+  assert.equal(await input().inputValue(), '10');
+  assert.deepEqual(
+    await page.evaluate(
+      () =>
+        window.nect.previewSnapshot(window.nect.gestureState.gestureId).document.layers[0].nodes[0]
+          .characterPositions.kerningPairs,
+    ),
+    { 'c1:c2': 10 },
+  );
+  assert.equal(await saved(), before);
   assert.equal(await input().evaluate((el) => el.hasPointerCapture(1)), true);
-  const lastValid = await saved();
+  const lastValid = await page.evaluate(() =>
+    JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+  );
   await page.mouse.move(pathDrag.x - 1000, pathDrag.y);
   assert.match(await page.locator('.message').textContent(), /TEXT_PATH_/);
-  assert.equal(await saved(), lastValid, 'Invalid preview keeps the last valid preview');
+  assert.equal(
+    await page.evaluate(() =>
+      JSON.stringify(window.nect.previewSnapshot(window.nect.gestureState.gestureId).document),
+    ),
+    lastValid,
+    'Invalid preview keeps the last valid preview',
+  );
+  assert.equal(await saved(), before, 'Invalid preview leaves committed state untouched');
   await page.keyboard.press('Escape');
   await page.mouse.up();
   assert.equal(await saved(), before);
@@ -309,12 +333,13 @@ try {
   await fs.mkdir('test-results', { recursive: true });
   await fs.writeFile('test-results/workflow-pair-kerning.json', json);
   await fs.writeFile('test-results/workflow-pair-kerning.svg', svg);
+  const cliOutput = `test-results/pair-kerning-cli-${crypto.randomUUID()}.svg`;
   execFileSync(process.execPath, [
     'cli/export.js',
     'test-results/workflow-pair-kerning.json',
-    'test-results/pair-kerning-cli.svg',
+    cliOutput,
   ]);
-  assert.equal(await fs.readFile('test-results/pair-kerning-cli.svg', 'utf8'), svg);
+  assert.equal(await fs.readFile(cliOutput, 'utf8'), svg);
   await range(1);
   await page.locator('.pair-kerning').scrollIntoViewIfNeeded();
   await page.screenshot({ path: 'test-results/workflow-pair-kerning.png' });
