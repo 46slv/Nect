@@ -1296,3 +1296,44 @@ REQ-42/R03/Mission completion. Unchanged product tests were not replayed.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a142ed-36e4-7600-b05a-483a2621fac9/scale-checkpoint.json`,
 SHA256 `8CE2B0D0FE0ADBCB86F4DB773369674DD0E3E145D376499067AF9B8CE9B0E723`.
+
+
+## Native horizontal Text Tool creation and content — 2026-10-16
+
+Original production 4879d02, observed at actual34bce27fa81b24ecae586159ccadfa59d78be94f
+with only Brief metadata dirty, passed this bounded R03 / Confirmed REQ-210 /
+REQ-15 authoring lifecycle. No product RED or repair.
+
+Windows Qt6.5.3 PID89556/HWND29958320 linked unchanged production libraries.
+Before Window construction, full manual original/created/edited/foreign documents
+were native-valid; fixed source parameters, black Fill, measured source-local
+Anchor, pixels and typed Session History agreed. Existing Yu Gothic only.
+Fresh object/source UUIDs used two predeclared same-length bijective roles;
+no geometry, source, paint or History was adapted to observations.
+
+Rail Horizontal Text activation kept revision3 and existing Undo/Redo history.
+One external background Canvas click created Text at fixed (200,350) as revision4.
+The content editor opened via focused background Space; changed draft Cancel
+preserved all authored state. Exact two-line Apply committed revision5.
+Toolbar Undo6/Undo7/Redo8/Redo9 preserved full expected Document/native/History/
+pixels, active composition/artboard, zoom1, Host identity, foreign Session and
+owned workspace keys across all14 records (13 after ready). Generation stayed0.
+Exact save matched full normalized expected native; a distinct same-process Host
+reopened exact live bytes and full pixels without changing the live redo Session.
+Process closed, Cua ended, exact mutex free/non-abandoned/released/disposed.
+
+Preparation: scratch-only C++ initializer corrected before Window construction;
+first Cua missing-pid call rejected before delivery. TypeText appended the Cancel
+draft; exact Apply draft used UIA SetValue. Background Space avoided the known
+blocking modal UIA Invoke. No product RED or oracle repair. Inputs were UIA and
+posted native messages, not physical input.
+
+Root horizontal creation/content only is proven. Group-local creation,
+vertical/Japanese typography, full font coverage, physical/subjective/DPI,
+cold/external process, chooser/transport/durability/fullCTest and whole
+REQ-15/16/210/R03/Mission remain open. Valid proofs/tests were not replayed.
+
+Receipt: C:/Users/shiro/.codex/scratch/01a14301-a52c-7a40-83c5-630f23ff6efb/text-checkpoint.json
+SHA256 A6E3CEC34062506F8ACD643FA858D528F1A3C5B2E0B98A904E2585BED837AEBD;
+verification3C1DA9F6206C6F4968B23F2A4A432B67098641A725AE25FED1BD0A445BE7FD23,
+50 bound artifacts. Later metadata synchronization never promotes native proof HEAD.
