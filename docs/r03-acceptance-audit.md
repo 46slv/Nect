@@ -1141,3 +1141,32 @@ or Mission closure remain unclaimed. Unchanged product tests were not replayed.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a142b4-81a8-7970-8054-6b128ade5c1c/opacity-expression-checkpoint.json`,
 SHA256 `A00B2E3FFABC77BB83A82A32D7A7EC55A9484A13687A65F04B07DB0C74E8AC06`.
+
+## 2026-10-16 native driven opacity refusal and invalid expression draft
+
+Original native `229605f18026d3c77327511a9709631d7d17626b`, unchanged production
+`4879d02`, passed this distinct REQ-42 negative editing lifecycle. Only Brief
+metadata was dirty. Windows Qt6.5.3 PID88436/HWND5704738; source C716D123,
+executable D4C3599F. No product RED or repair.
+
+Complete original/expected/foreign native, typed History and pixel oracles were
+fixed before Window. The original already retained an opacity expression and a
+downstream Ref, with revision3 and both Undo/Redo. Native numeric .4 Return was
+refused with DRIVEN_PROPERTY. Native `=ref("source","","composite.opacity") / 0`
+Return expanded an uncommitted inline draft with a division-by-zero message.
+Explicit native Apply also refused; native Cancel closed the draft and displayed
+the committed .35. All15 idle records preserved the full original Document,
+native, typed History, .812345678901234 literal, original expression and .275
+consumer, Host/foreign/workspace, and artwork pixels. One active selection record
+is retained but excluded from idle-preview acceptance; no active purity claim.
+Fourteen post-ready idle records retained zoom1; startup is separate.
+
+Exact Save and distinct same-process Host reopen matched the unchanged native
+and full pixels. Process closed, Cua ended, exact mutex free/non-abandoned.
+All input was background accessibility/synthetic events. Physical input,
+stale/foreign incoming producers, source replacement, active gestures,
+cold/external process, transport parity, full CTest and whole Requirement/Mission
+closure remain unclaimed. Unchanged product tests were not replayed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a142b4-81a8-7970-8054-6b128ade5c1c/opacity-refusal-checkpoint.json`,
+SHA256 `730F4695BC99F74D77212F6421C128B60B83018B7D08FF46D3ADAD380769DBC4`.
