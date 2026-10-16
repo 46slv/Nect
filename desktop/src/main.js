@@ -52,9 +52,7 @@ import {
   operationOptions,
   setOperation,
   bypassContract,
-  setNodeBypassed,
   parseStrokeDash,
-  validateStrokeStyle,
   radialSettings,
   linearGradientSettings,
   radialGradientSettings,
@@ -67,8 +65,6 @@ import {
   outputPorts,
   vectorReferenceTargets,
   referenceTarget,
-  setReference,
-  duplicateNodes,
   socketCompatible,
   evaluate,
   enableRemapPoint,
@@ -384,14 +380,20 @@ function change(fn, text, deferRender = false) {
   }
 }
 function commandChange(type, payload, text, deferRender = false) {
+  let result = null;
   try {
-    session.dispatch({ ...session.state, type, payload: { layerId: current().id, ...payload } });
+    result = session.dispatch({
+      ...session.state,
+      type,
+      payload: { layerId: current().id, ...payload },
+    });
     notify(text || 'Updated');
   } catch (error) {
     notify(error.message, true);
   }
   if (deferRender) scheduleRender();
   else render();
+  return result;
 }
 function resetTransient() {
   discardPenDraft();
@@ -773,10 +775,17 @@ function finishNameEdit(commit, deferred = false) {
       notify('Name edit cancelled: target changed or composition is locked', true);
     else if (!value) notify('Name cannot be empty', true);
     else {
-      history.apply(() => {
-        target.name = value;
-      });
-      notify('Name updated');
+      commandChange(
+        'rename',
+        {
+          layerId: edit.layerId,
+          ...(edit.nodeId ? { nodeId: edit.nodeId } : {}),
+          name: value,
+          expectedName: edit.original,
+        },
+        'Name updated',
+        true,
+      );
     }
   }
   if (deferred) scheduleRender();
@@ -1956,17 +1965,20 @@ function revealNode(id) {
   );
 }
 function addNode(type) {
-  change(() => {
-    const l = current(),
-      position = freePosition(type),
-      n = node(type, ...position);
-    l.nodes.push(n);
-    selected = n.id;
-    selection = new Set([n.id]);
+  const result = commandChange(
+    'create-node',
+    { nodeType: type, position: freePosition(type) },
+    `Added ${type}`,
+    true,
+  );
+  if (result) {
+    selected = result.nodeId;
+    selection = new Set([selected]);
     artworkTarget = null;
     artworkSelection = new Set();
-  }, `Added ${type}`);
-  if (selected) revealNode(selected);
+    render();
+    revealNode(selected);
+  }
 }
 function deletionBusy() {
   return !!(penDraft || navigationBusy() || nameEdit || document.querySelector('dialog[open]'));
@@ -2329,12 +2341,12 @@ app.addEventListener('click', async (e) => {
   const n = selectedNode();
   if (d.bypass) {
     cancelInteraction();
-    change(() => {
-      const target = current().nodes.find((n) => n.id === d.bypass);
-      setNodeBypassed(current(), d.bypass, !target.bypassed);
-      history.doc.schemaVersion = Math.max(history.doc.schemaVersion, 10);
-      validate(history.doc);
-    }, 'Node bypass updated; settings and connections retained');
+    const target = current().nodes.find((n) => n.id === d.bypass);
+    commandChange(
+      'set-node-bypassed',
+      { nodeId: d.bypass, bypassed: !target?.bypassed },
+      'Node bypass updated; settings and connections retained',
+    );
     return;
   }
   if (d.styleTextRange || d.kernTextCursor) {
@@ -2507,17 +2519,11 @@ app.addEventListener('click', async (e) => {
   }
   if (d.layerGuide) {
     const l = history.doc.layers.find((x) => x.id === d.layerGuide);
-    if (l.locked) {
-      notify('Composition is locked', true);
-      return;
-    }
-    history.apply(() => {
-      l.guide = !l.guide;
-    });
-    notify(
-      l.guide ? 'Guide layer: visible in editor, excluded from SVG' : 'Layer restored to artwork',
+    commandChange(
+      'set-layer-state',
+      { layerId: d.layerGuide, key: 'guide', value: !l.guide },
+      !l.guide ? 'Guide layer: visible in editor, excluded from SVG' : 'Layer restored to artwork',
     );
-    render();
     return;
   }
   if (d.addGuide) {
@@ -2801,13 +2807,10 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.visible || d.layerLock) {
-    history.apply((doc) => {
-      let id = d.visible || d.layerLock,
-        l = doc.layers.find((x) => x.id === id);
-      if (d.visible) l.visible = !l.visible;
-      if (d.layerLock) l.locked = !l.locked;
-    });
-    render();
+    const layerId = d.visible || d.layerLock,
+      key = d.visible ? 'visible' : 'locked',
+      l = history.doc.layers.find((x) => x.id === layerId);
+    commandChange('set-layer-state', { layerId, key, value: !l[key] });
     return;
   }
   if (d.connectMenu !== undefined) {
@@ -2866,32 +2869,28 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.preview)
-    change(() => {
-      const l = current(),
-        source = l.nodes.find((n) => n.id === d.preview);
-      if (outputType(source) === 'Path') {
-        const paint = node('Fill', ...freePosition('Fill'));
-        paint.params.path.source = source.id;
-        l.nodes.push(paint);
-        connect(l, paint.id, l.output, 'path');
-      } else connect(l, source.id, l.output, 'path');
-    }, 'Output connected');
+    commandChange(
+      'preview-node',
+      { nodeId: d.preview, position: freePosition('Fill') },
+      'Output connected',
+    );
   if (d.collapse)
-    change(() => {
-      const nn = current().nodes.find((n) => n.id === d.collapse);
-      nn.collapsed = !nn.collapsed;
-    }, 'Node display updated');
-  if (d.delete)
-    change(() => {
-      current().nodes = current().nodes.filter((x) => x.id !== d.delete);
-      for (const x of current().nodes)
-        for (const [, q] of parameters(x))
-          if (q.source === d.delete) {
-            delete q.source;
-            delete q.sourcePort;
-          }
-      if (selected === d.delete) selected = null;
-    }, 'Node deleted');
+    commandChange(
+      'set-node-settings',
+      {
+        nodeId: d.collapse,
+        settings: { collapsed: !current().nodes.find((n) => n.id === d.collapse)?.collapsed },
+      },
+      'Node display updated',
+    );
+  if (d.delete) {
+    const result = commandChange('delete-node', { nodeId: d.delete }, 'Node deleted', true);
+    if (result && selected === d.delete) {
+      selected = null;
+      selection.delete(d.delete);
+    }
+    render();
+  }
   if (d.referenceJump) {
     const ref = current().nodes.find((n) => n.id === d.referenceJump);
     try {
@@ -2906,20 +2905,27 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
-  if (d.duplicate)
-    change(() => {
-      const ids = selection.has(d.duplicate) && selection.size > 1 ? [...selection] : [d.duplicate],
-        position =
-          ids.length === 1
-            ? freePosition(current().nodes.find((n) => n.id === d.duplicate).type)
-            : null,
-        copies = duplicateNodes(current(), ids);
-      if (position) copies[0].position = position;
+  if (d.duplicate) {
+    const ids = selection.has(d.duplicate) && selection.size > 1 ? [...selection] : [d.duplicate],
+      result = commandChange(
+        'duplicate-nodes',
+        {
+          nodeIds: ids,
+          ...(ids.length === 1
+            ? { position: freePosition(current().nodes.find((n) => n.id === d.duplicate).type) }
+            : {}),
+        },
+        'Nodes duplicated',
+        true,
+      );
+    if (result) {
       artworkTarget = null;
       artworkSelection = new Set();
-      selected = copies[0].id;
-      selection = new Set(copies.map((n) => n.id));
-    }, 'Nodes duplicated');
+      selected = result.nodeIds[0];
+      selection = new Set(result.nodeIds);
+      render();
+    }
+  }
   if (d.addPoint)
     change(
       () =>
@@ -3672,35 +3678,69 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
-  change(
-    () => {
+  if (
+    d.referenceTarget ||
+    d.vectorPositionHandle ||
+    d.strokeCap ||
+    d.strokeJoin ||
+    d.strokeDash ||
+    d.positionReference ||
+    d.layerName !== undefined ||
+    d.dimension
+  ) {
+    try {
       if (d.referenceTarget) {
         const target = el.value ? JSON.parse(el.value) : null;
-        setReference(
-          current(),
-          d.referenceTarget,
-          target ? { nodeId: target[0], portId: target[1] } : null,
+        commandChange(
+          'set-reference',
+          {
+            nodeId: d.referenceTarget,
+            target: target ? { nodeId: target[0], portId: target[1] } : null,
+          },
+          undefined,
+          true,
         );
-      } else if (d.vectorPositionHandle) {
-        const n = current().nodes.find((n) => n.id === d.vectorPositionHandle);
-        if (n?.type !== 'Vector') throw Error('Canvas position handle needs a Vector');
-        n.canvasPositionHandle = el.checked;
-      } else if (d.strokeCap || d.strokeJoin || d.strokeDash) {
-        const n = current().nodes.find(
-          (n) => n.id === (d.strokeCap || d.strokeJoin || d.strokeDash),
+      } else if (d.layerName !== undefined)
+        commandChange('rename', { name: el.value }, undefined, true);
+      else if (d.dimension)
+        commandChange(
+          'set-document-settings',
+          { key: d.dimension, value: Number(el.value) },
+          undefined,
+          true,
         );
-        if (d.strokeCap) n.strokeCap = el.value;
-        else if (d.strokeJoin) n.strokeJoin = el.value;
-        else n.strokeDash = parseStrokeDash(el.value);
-        validateStrokeStyle(n);
-      } else if (d.positionReference)
-        current().nodes.find((n) => n.id === d.positionReference).positionReference = el.value;
-      else if (d.layerName !== undefined) current().name = el.value;
-      else if (d.dimension) {
-        let v = Number(el.value);
-        if (!(v > 0 && v <= 100000)) throw Error('Artboard dimension must be between 1 and 100000');
-        history.doc[d.dimension] = v;
-      } else if (d.handleType) {
+      else {
+        const nodeId =
+            d.vectorPositionHandle ||
+            d.strokeCap ||
+            d.strokeJoin ||
+            d.strokeDash ||
+            d.positionReference,
+          key = d.vectorPositionHandle
+            ? 'canvasPositionHandle'
+            : d.strokeCap
+              ? 'strokeCap'
+              : d.strokeJoin
+                ? 'strokeJoin'
+                : d.strokeDash
+                  ? 'strokeDash'
+                  : 'positionReference',
+          value = d.vectorPositionHandle
+            ? el.checked
+            : d.strokeDash
+              ? parseStrokeDash(el.value)
+              : el.value;
+        commandChange('set-node-settings', { nodeId, settings: { [key]: value } }, undefined, true);
+      }
+    } catch (error) {
+      notify(error.message, true);
+      scheduleRender();
+    }
+    return;
+  }
+  change(
+    () => {
+      if (d.handleType) {
         let pt = current()
           .nodes.find((n) => n.id === d.node)
           .points.find((p) => p.id === d.handleType);

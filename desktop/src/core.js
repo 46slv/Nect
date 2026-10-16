@@ -2436,6 +2436,28 @@ export class CommandSession {
       });
       return { ...this.state, ...result, changed: revision !== this.#history.revision };
     }
+    if (['set-layer-state', 'set-document-settings'].includes(type)) {
+      const candidate = cloneDocument(this.#history.doc);
+      if (type === 'set-layer-state') {
+        const layer = candidate.layers.find((layer) => layer.id === payload.layerId);
+        if (!layer) throw Error('Missing composition');
+        if (
+          !['visible', 'locked', 'guide'].includes(payload.key) ||
+          typeof payload.value !== 'boolean'
+        )
+          throw Error('Invalid layer state');
+        if (layer.locked && payload.key === 'guide') throw Error('Composition is locked');
+        layer[payload.key] = payload.value;
+      } else {
+        if (!['width', 'height'].includes(payload.key)) throw Error('Invalid document setting');
+        candidate[payload.key] = payload.value;
+      }
+      validate(candidate);
+      this.#history.apply(() => {
+        this.#history.doc = candidate;
+      });
+      return this.state;
+    }
     if (
       ![
         'connect',
@@ -2449,6 +2471,14 @@ export class CommandSession {
         'set-text-settings',
         'set-character-style',
         'adopt-font',
+        'rename',
+        'create-node',
+        'duplicate-nodes',
+        'delete-node',
+        'preview-node',
+        'set-node-bypassed',
+        'set-reference',
+        'set-node-settings',
       ].includes(type)
     )
       throw Error('Unsupported command');
@@ -2464,7 +2494,84 @@ export class CommandSession {
     );
     if (!target) throw Error('Missing composition');
     if (target.locked) throw Error('Composition is locked');
-    if (type === 'connect')
+    if (type === 'rename') {
+      const item =
+        payload.nodeId === undefined
+          ? target
+          : target.nodes.find((node) => node.id === payload.nodeId);
+      if (!item) throw Error('Missing name target');
+      if (payload.expectedName !== undefined && item.name !== payload.expectedName)
+        throw Error('Name target changed');
+      if (typeof payload.name !== 'string' || !payload.name.trim())
+        throw Error('Name cannot be empty');
+      item.name = payload.name.trim();
+    } else if (type === 'create-node') {
+      const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      target.nodes.push(created);
+      result = { nodeId: created.id };
+    } else if (type === 'duplicate-nodes') {
+      if (
+        !Array.isArray(payload.nodeIds) ||
+        !payload.nodeIds.length ||
+        new Set(payload.nodeIds).size !== payload.nodeIds.length ||
+        payload.nodeIds.some((id) => !target.nodes.some((node) => node.id === id))
+      )
+        throw Error('Select distinct nodes in this composition');
+      const copies = duplicateNodes(target, payload.nodeIds);
+      if (payload.position !== undefined) {
+        if (copies.length !== 1) throw Error('Explicit position requires one node');
+        copies[0].position = clone(payload.position);
+      }
+      result = { nodeIds: copies.map((node) => node.id) };
+    } else if (type === 'delete-node') {
+      if (!target.nodes.some((node) => node.id === payload.nodeId)) throw Error('Missing node');
+      if (target.output === payload.nodeId) throw Error('Cannot delete the Output node');
+      target.nodes = target.nodes.filter((node) => node.id !== payload.nodeId);
+      for (const node of target.nodes)
+        for (const [, q] of parameters(node))
+          if (q.source === payload.nodeId) {
+            delete q.source;
+            delete q.sourcePort;
+          }
+    } else if (type === 'preview-node') {
+      const source = target.nodes.find((node) => node.id === payload.nodeId);
+      if (!source) throw Error('Missing node');
+      if (outputType(source) === 'Path') {
+        const paint = node('Fill', ...(payload.position ?? [40, 40]));
+        target.nodes.push(paint);
+        connect(target, source.id, paint.id, 'path');
+        connect(target, paint.id, target.output, 'path');
+      } else connect(target, source.id, target.output, 'path');
+    } else if (type === 'set-node-bypassed') {
+      setNodeBypassed(target, payload.nodeId, payload.bypassed);
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 10);
+    } else if (type === 'set-reference')
+      setReference(target, payload.nodeId, clone(payload.target));
+    else if (type === 'set-node-settings') {
+      const item = target.nodes.find((node) => node.id === payload.nodeId),
+        settings = payload.settings;
+      if (!item) throw Error('Missing node');
+      if (
+        !settings ||
+        typeof settings !== 'object' ||
+        Array.isArray(settings) ||
+        Object.keys(settings).some(
+          (key) =>
+            ![
+              'collapsed',
+              'canvasPositionHandle',
+              'positionReference',
+              'strokeCap',
+              'strokeJoin',
+              'strokeDash',
+            ].includes(key),
+        )
+      )
+        throw Error('Invalid node settings');
+      if (Object.keys(settings).some((key) => key.startsWith('stroke')) && item.type !== 'Stroke')
+        throw Error('Stroke settings require a Stroke node');
+      for (const [key, value] of Object.entries(settings)) item[key] = clone(value);
+    } else if (type === 'connect')
       connect(target, payload.sourceId, payload.nodeId, payload.key, false, payload.sourcePort);
     else if (type === 'disconnect') {
       const node = target.nodes.find((node) => node.id === payload.nodeId);

@@ -91,6 +91,57 @@ try {
   assert.equal(await field().locator('[data-expression]').isDisabled(), true);
   await clickUndo();
   assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), expressed);
+  const metadata = await page.evaluate(async () => {
+    const { CommandSession } = await import('/src/core.js');
+    const before = window.nect.snapshot(),
+      layer = before.layers[0],
+      math = layer.nodes.find((n) => n.type === 'Math');
+    const headless = new CommandSession(before);
+    headless.dispatch({
+      ...headless.state,
+      type: 'rename',
+      payload: { layerId: layer.id, nodeId: math.id, name: '計算 A' },
+    });
+    return { before, expected: headless.snapshot(), layerId: layer.id, math: math.id };
+  });
+  await page.locator(`[data-rename-node="${metadata.math}"]`).press('F2');
+  await page.locator('[data-rename-name]').fill('計算 A');
+  await page.locator('[data-rename-name]').press('Enter');
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), metadata.expected);
+  await clickUndo();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), metadata.before);
+  await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
+  const beforeBypass = await page.evaluate(() => window.nect.snapshot());
+  await page.locator(`.graph .node[data-id="${metadata.math}"] [data-bypass]`).click();
+  assert.equal(
+    (await page.evaluate(() => window.nect.snapshot())).layers[0].nodes.find(
+      (n) => n.id === metadata.math,
+    ).bypassed,
+    true,
+  );
+  await clickUndo();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), beforeBypass);
+  await page.locator(`[data-layer-lock="${metadata.layerId}"]`).click();
+  await page.locator(`[data-visible="${metadata.layerId}"]`).click();
+  const locked = await page.evaluate(() => window.nect.snapshot());
+  assert.equal(locked.layers[0].locked, true);
+  assert.equal(locked.layers[0].visible, false);
+  await page.locator(`[data-layer-lock="${metadata.layerId}"]`).click();
+  await page.locator(`[data-visible="${metadata.layerId}"]`).click();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), beforeBypass);
+  await page.locator('#add-node').selectOption('Rectangle');
+  const created = (await page.evaluate(() => window.nect.snapshot())).layers[0].nodes.at(-1);
+  await page.locator(`.graph [data-preview="${created.id}"]`).click();
+  const preview = await page.evaluate(() => window.nect.snapshot());
+  assert.equal(preview.layers[0].nodes.at(-1).params.path.source, created.id);
+  await clickUndo();
+  await page.locator(`.graph [data-delete="${created.id}"]`).click();
+  assert.deepEqual(await page.evaluate(() => window.nect.snapshot()), beforeBypass);
+  await clickUndo();
+  assert.equal(
+    (await page.evaluate(() => window.nect.snapshot())).layers[0].nodes.at(-1).id,
+    created.id,
+  );
   await page.locator('[data-tool="Text"]').click();
   await page
     .locator('.graph .node')
