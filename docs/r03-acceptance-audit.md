@@ -545,3 +545,49 @@ keep their original HEAD/owner bindings.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141e6-f117-78e2-aecb-f0243d09bcc4/star-topology-checkpoint.json`,
 SHA256 `7662E7E6B2CE84380602ED26DF3064C6F798A3C7FF51795D11376C1A9F47C73E`.
+
+## 2026-10-16 native explicit conversion and dependency review
+
+The original production source `4879d02` passed this accepted REQ-197 path
+without product RED or repair. Actual native HEAD `8a43884` had only the
+next-obligation Brief dirty. Before Window construction, full hand-constructed
+original/unlinked/converted/foreign documents passed native round-trips and
+agreed with typed Session/History. The initial revision 3 had both Undo/Redo.
+Independent typed conversion refused atomically with `CONVERSION_REFERENCE`.
+
+Windows/Qt 6.5.3 PID 95660 / HWND 13436228 used actual Canvas selection and
+Edit > Convert to Path. The actual review named the external generator
+dependency `unrelated / generator.height` -> `moving / generator.width`,
+disabled confirmation, and preserved the full original through native Cancel.
+An explicit shared Session `Unlink` caller froze that dependent height at 40
+at revision 4. This caller is not evidence for a native Unlink control.
+Reopening the native review was Session-neutral, showed no blockers and enabled
+confirmation. Actual confirmation matched the complete manual converted
+Document/native/preview/typed History at revision 5.
+
+Conversion retained the stable contour and all four generated point IDs,
+corrected top-left (-20,-50), its active y binding to the external height,
+and the incoming external width binding to that point's x (evaluated width 20).
+Only the source and Point Edit were removed. Transform, Fill/Stroke/Repeater,
+full artwork pixels, Object selection, composition/Artboard, zoom 1, Host,
+foreign Document/History and the owned workspace remained intact. Actual
+Toolbar Undo/Redo matched full expected Sessions at revisions 6/7. Exact Host
+Save bytes and a distinct same-process Host reopen matched. The owned process
+exited, Cua session ended and the exact mutex was free/non-abandoned.
+
+The first owned probe referenced nonexistent Rectangle rotation before any
+Window. Another observer compared transient selection gesture generation to an
+idle oracle; native original bytes/revision were unchanged. Both probe issues
+were corrected without product changes before this conversion run. Record 3
+of the final run is a legitimate active selection press; settled authored
+Session/History are compared fully while the transient epoch 0->1 is recorded
+separately. No full-History equality claim covers every active selection sample.
+Driver background accessibility/synthetic-event effects are unverifiable;
+native records and grounded screenshots establish the reported outcomes.
+
+Bypassed conversion, stale plans, other shapes, physical/subjective operation,
+cold-process reopen, full CTest and whole REQ-197/Mission closure remain separate.
+Prior Rectangle/Star/native proofs retain their original HEAD/owner bindings.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a141fe-f62a-75d3-b999-ec8106a3cbff/conversion-checkpoint.json`,
+SHA256 `2E25A6FFDA49CF0AC0ECEBF2220CE713D901F26148CDAD77876B2F28FEEE1366`.
