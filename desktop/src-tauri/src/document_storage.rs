@@ -19,6 +19,19 @@ impl Bindings {
         self.files.insert(token.clone(), (path, contents));
         token
     }
+
+    fn release(&mut self, token: &str) {
+        self.files.remove(token);
+    }
+}
+
+#[tauri::command]
+pub fn release_project(token: String, docs: tauri::State<'_, Documents>) -> Result<(), String> {
+    docs.0
+        .lock()
+        .map_err(|_| "File binding unavailable")?
+        .release(&token);
+    Ok(())
 }
 
 #[tauri::command]
@@ -116,4 +129,28 @@ pub fn enable_close_guard(
 #[tauri::command]
 pub fn finish_close(window: tauri::WebviewWindow) -> Result<(), String> {
     window.destroy().map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_replacement_releases_buffers_and_preserves_current_token() {
+        let mut bindings = Bindings::default();
+        let mut current = bindings.bind(PathBuf::from("first.json"), vec![1; 1_000_000]);
+        for index in 0..32 {
+            let next = bindings.bind(PathBuf::from(format!("{index}.json")), vec![2; 1_000_000]);
+            bindings.release(&current);
+            bindings.release(&current); // Idempotent retry must not affect the new token.
+            assert_eq!(bindings.files.len(), 1);
+            assert_eq!(bindings.files[&next].1.len(), 1_000_000);
+            assert!(!bindings.files.contains_key(&current));
+            current = next;
+        }
+        bindings.release("unknown");
+        assert_eq!(bindings.files.len(), 1);
+        bindings.release(&current);
+        assert!(bindings.files.is_empty());
+    }
 }

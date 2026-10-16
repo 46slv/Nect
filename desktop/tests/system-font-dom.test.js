@@ -30,7 +30,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop = true, saveFile = async () => true, openFile = async () => null, listSystemFonts = async () => [['system-0', 'Japanese fixture', null], ['system-1', 'Variable face', 'Variable fonts unsupported'], ['system-2', 'DejaVu Sans', null]], readSystemFont = (id) => globalThis.readInstalledTestFont(id);`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop = true, saveFile = async () => true, openFile = async () => null, listSystemFonts = async () => [['system-0', 'Japanese fixture', null], ['system-1', 'Variable face', 'Variable fonts unsupported'], ['system-2', 'DejaVu Sans', null]], readSystemFont = (id) => globalThis.readInstalledTestFont(id);`,
     );
   for (const name of [
     'artwork-creation',

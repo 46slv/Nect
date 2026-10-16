@@ -33,6 +33,7 @@ import {
   saveFile,
   openFile,
   writeProject,
+  releaseProject,
   chooseUnsaved,
   registerClose,
   listSystemFonts,
@@ -170,6 +171,7 @@ let history = session.legacyHistory,
 const documents = new DocumentLifecycle({
   read: () => serialize(history.doc),
   write: writeProject,
+  release: releaseProject,
   choose: chooseUnsaved,
   hasDraft: () => !!(penDraft || drag || wiring || composing),
 });
@@ -2625,23 +2627,28 @@ app.addEventListener('click', async (e) => {
             const request = ++openRequest,
               before = serialize(history.doc),
               generation = documents.generation;
-            let opened = await openFile();
-            if (request !== openRequest || generation !== documents.generation) break;
-            if (serialize(history.doc) !== before)
-              throw Error('Document changed while reading; open the file again');
-            if (opened !== null) {
-              const next = deserialize(opened.contents);
-              await preflightImages(next);
-              if (
-                request !== openRequest ||
-                generation !== documents.generation ||
-                documents.hasDraft() ||
-                serialize(history.doc) !== before
-              )
+            const opened = await openFile();
+            try {
+              if (request !== openRequest || generation !== documents.generation) break;
+              if (serialize(history.doc) !== before)
                 throw Error('Document changed while reading; open the file again');
-              replaceDocument(next, { binding: opened.binding, saved: true });
-              render(true);
-              notify('Project restored');
+              if (opened !== null) {
+                const next = deserialize(opened.contents);
+                await preflightImages(next);
+                if (
+                  request !== openRequest ||
+                  generation !== documents.generation ||
+                  documents.hasDraft() ||
+                  serialize(history.doc) !== before
+                )
+                  throw Error('Document changed while reading; open the file again');
+                replaceDocument(next, { binding: opened.binding, saved: true });
+                render(true);
+                notify('Project restored');
+              }
+            } finally {
+              // Accepted tokens stay active; every rejected/stale Open is retired.
+              await documents.releaseUnused(opened?.binding);
             }
           } else document.querySelector('#open-file').click();
           break;

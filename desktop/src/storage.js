@@ -29,6 +29,11 @@ export async function openFile() {
   return result && { binding: { token: result[0], path: result[1] }, contents: result[2] };
 }
 
+export async function releaseProject(binding) {
+  if (desktop && binding?.token)
+    await invoke('release_project', { token: binding.token }).catch(nativeError);
+}
+
 export async function writeProject({ contents, binding, operation }) {
   if (!desktop) {
     await saveFile(contents, 'nect-project.json', 'json');
@@ -40,7 +45,11 @@ export async function writeProject({ contents, binding, operation }) {
     operation,
   }).catch(nativeError);
   if (!result) return null;
-  if (result[2] !== operation) throw Error('Unmatched save response');
+  if (result[2] !== operation) {
+    // A Save As response can allocate a token even when its envelope is rejected.
+    if (result[0] !== binding?.token) await releaseProject({ token: result[0] });
+    throw Error('Unmatched save response');
+  }
   return { token: result[0], path: result[1] };
 }
 

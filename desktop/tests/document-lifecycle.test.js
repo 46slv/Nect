@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DocumentLifecycle } from '../src/document-lifecycle.js';
 
-function fixture() {
+function fixture({ release = async () => {} } = {}) {
   let text = 'a',
     draft = false,
     choice = 'cancel',
@@ -18,6 +18,7 @@ function fixture() {
     },
     choose: async () => choice,
     hasDraft: () => draft,
+    release,
   });
   return {
     lifecycle,
@@ -93,4 +94,80 @@ test('transition Save/Discard/Cancel and in-flight editing never silently discar
   f.draft(true);
   await assert.rejects(d.guard('open'), /Finish or cancel/);
   await assert.rejects(d.save(), /Finish or cancel/);
+});
+
+test('replace and Save As retire only obsolete bindings; cancellation/failure retain the save target', async () => {
+  const released = [],
+    f = fixture({ release: async ({ token }) => released.push(token) }),
+    d = f.lifecycle;
+  await d.replace({ binding: { token: 'old' }, saved: true });
+  let saving = d.save(true);
+  f.finish(null);
+  assert.equal(await saving, false);
+  saving = d.save(true);
+  f.fail();
+  await assert.rejects(saving);
+  assert.deepEqual(released, []);
+  saving = d.save();
+  f.finish({ token: 'old' });
+  assert.equal(await saving, true);
+  assert.deepEqual(released, []);
+  saving = d.save(true);
+  f.finish({ token: 'save-as' });
+  assert.equal(await saving, true);
+  assert.deepEqual(released, ['old']);
+  await d.replace({ binding: { token: 'opened' }, saved: true });
+  assert.deepEqual(released, ['old', 'save-as']);
+  await d.releaseUnused({ token: 'opened' });
+  assert.deepEqual(released, ['old', 'save-as']);
+  await d.replace();
+  assert.deepEqual(released, ['old', 'save-as', 'opened']);
+});
+
+test('stale save tokens and rejected Open tokens are released without retiring the active document', async () => {
+  const released = [],
+    f = fixture({ release: async ({ token }) => released.push(token) }),
+    d = f.lifecycle;
+  await d.replace({ binding: { token: 'original' }, saved: true });
+  const saving = d.save(true);
+  await d.replace({ binding: { token: 'current' }, saved: true });
+  f.finish({ token: 'stale-save-as' });
+  assert.equal(await saving, false);
+  await d.releaseUnused({ token: 'rejected-open' });
+  await d.releaseUnused({ token: 'current' });
+  assert.deepEqual(released, ['original', 'stale-save-as', 'rejected-open']);
+  assert.equal(d.binding.token, 'current');
+  assert.equal(d.dirty, false);
+});
+
+test('cleanup failure preserves accepted state and retries; concurrent retirement drains all tokens', async () => {
+  const released = [];
+  let fail = true,
+    resume;
+  const f = fixture({
+      release: async ({ token }) => {
+        if (fail) throw Error('temporary host failure');
+        if (token === 'first')
+          await new Promise((resolve) => {
+            resume = resolve;
+          });
+        released.push(token);
+      },
+    }),
+    d = f.lifecycle;
+  await d.replace({ binding: { token: 'old' }, saved: true });
+  await d.replace({ binding: { token: 'current' }, saved: true });
+  assert.equal(d.binding.token, 'current');
+  assert.match(d.cleanupError.message, /temporary/);
+  assert.equal(d.pendingReleases.size, 1);
+  fail = false;
+  assert.equal(await d.flushReleases(), true);
+  assert.deepEqual(released, ['old']);
+  const first = d.releaseUnused({ token: 'first' });
+  const second = d.releaseUnused({ token: 'second' });
+  resume();
+  await Promise.all([first, second]);
+  assert.deepEqual(released, ['old', 'first', 'second']);
+  assert.equal(d.pendingReleases.size, 0);
+  assert.equal(d.cleanupError, null);
 });

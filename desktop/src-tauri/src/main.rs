@@ -2,8 +2,8 @@
 mod acceptance_storage;
 mod document_storage;
 use document_storage::{
-    choose_unsaved, enable_close_guard, finish_close, open_project, save_project, CloseGuard,
-    Documents,
+    choose_unsaved, enable_close_guard, finish_close, open_project, release_project, save_project,
+    CloseGuard, Documents,
 };
 use tauri::Manager;
 #[rustfmt::skip]
@@ -118,6 +118,7 @@ fn run() -> Result<(), String> {
             read_system_font,
             open_project,
             save_project,
+            release_project,
             choose_unsaved,
             enable_close_guard,
             finish_close
