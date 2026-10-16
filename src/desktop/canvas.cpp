@@ -596,6 +596,9 @@ void Canvas::set_active_artboard(Id composition, Id artboard, bool fit) {
 
 void Canvas::set_scope(Id scope) {
     if (scope == scope_) return;
+    // A pending Pen contour belongs to the scope in which it was started.
+    // Keep its committed points and the tool, but start anew in the next scope.
+    if (!drawing_object_.empty()) finish_draw_path();
     scope_ = std::move(scope);
     if (scope_changed) scope_changed();
     update();

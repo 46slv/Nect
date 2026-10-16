@@ -668,6 +668,61 @@ void hierarchy_selection_and_inverse_coordinates() {
     f.no_error();
 }
 
+void pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope() {
+    auto document=fixture_document();
+    Object group;group.id="pen-group";group.name="Pen scope";group.kind=Kind::group;
+    group.children={"path"};
+    group.transform={Scalar{0},Scalar{1},Scalar{-2},Scalar{0},Scalar{560},Scalar{40}};
+    group.anchor={Scalar{80},Scalar{60}};
+    document.objects.emplace(group.id,group);
+    document.compositions.front().roots={group.id};
+    Fixture f(document);
+    check(f.canvas.drill_scope()==group.id,"Pen fixture enters the selected child's Group");
+    f.canvas.set_draw_mode(true);
+    const auto click=[&](double x,double y){
+        QTest::mouseClick(&f.canvas,Qt::LeftButton,Qt::NoModifier,f.screen(x,y),1);
+        QApplication::processEvents();
+    };
+    click(360,140);const auto nested=f.canvas.selected_object;
+    click(360,240);
+    const auto before_exit=f.session;
+    const auto committed_contour=before_exit.document().objects.at(nested);
+    check(committed_contour.contours.front().points.size()==2,"Pending contour has two committed points");
+    near(committed_contour.contours.front().points[0].x.literal,100,"Group first point uses inverse X");
+    near(committed_contour.contours.front().points[0].y.literal,100,"Group first point uses inverse Y");
+    near(committed_contour.contours.front().points[1].x.literal,200,"Group second point uses inverse X");
+    f.canvas.leave_group();
+    check(f.canvas.drill_scope().empty()&&f.canvas.draw_mode(),"Scope exit retains the Pen tool at root");
+    check(f.session.document()==before_exit.document()&&f.session.history()==before_exit.history()&&
+          f.session.revision()==before_exit.revision(),"Scope exit preserves all committed state and history");
+    click(200,340);const auto root=f.canvas.selected_object;
+    check(root!=nested,"Next root click creates a distinct Path");
+    check(f.session.document().objects.at(nested)==committed_contour,"Root creation never appends to the old Group Path");
+    check(f.session.document().objects.at(group.id)==before_exit.document().objects.at(group.id),
+          "Root creation preserves Group children, transform and authored Anchor");
+    check(f.session.document().compositions.front().roots==std::vector<Id>{group.id,root},"New Path belongs to the current root scope");
+    const auto& created=f.session.document().objects.at(root);
+    check(created.contours.size()==1&&created.contours.front().points.size()==1,"Root Path starts with one point");
+    const auto root_contour=created.contours.front().id;
+    Point intended;intended.id=created.contours.front().points.front().id;
+    intended.x.literal=200;intended.y.literal=340;
+    Session expected=before_exit;
+    expected.apply({CreatePath{"test-composition",{},root,"Path",{{created.contours.front().id,false,{intended}}}}},expected.revision());
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),
+          "Full root creation agrees with the fixed-coordinate semantic command");
+    f.canvas.set_selection(root);click(260,340);
+    Point next;next.id=f.canvas.selected_point;next.x.literal=260;next.y.literal=340;
+    expected.apply({AddPoint{root,root_contour,next}},expected.revision());
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),
+          "Selection within the same scope retains ordinary Pen continuation");
+    f.session.undo(f.session.revision());expected.undo(expected.revision());f.canvas.refresh();
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),"Undo preserves both contour owners");
+    f.session.redo(f.session.revision());expected.redo(expected.revision());f.canvas.refresh();
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),"Redo preserves both contour owners");
+    check(decode(encode(f.session.document()))==f.session.document(),"Native round-trip retains both scopes");
+    f.no_error();
+}
+
 void driven_coordinate_rejects_atomically_but_free_axis_can_move() {
     auto document = fixture_document();
     document.objects.at("path").contours.front().points.front().x.binding =
@@ -3073,6 +3128,12 @@ int main(int argc, char** argv) {
             std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
             return 0;
         }
+        if(application.arguments().contains("--pen-scope-only")) {
+            pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope();
+            hierarchy_selection_and_inverse_coordinates();
+            std::cout << "Canvas Pen scope contract: " << checks << " checks passed\n";
+            return 0;
+        }
         marquee_refuses_replacement_document_or_host();
         rectangle_selection_is_view_only();
         keyboard_world_placement();
@@ -3087,6 +3148,7 @@ int main(int argc, char** argv) {
         independent_polar_handle_edits();
         create_and_collapse_handles_preserves_authored_angle();
         hierarchy_selection_and_inverse_coordinates();
+        pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope();
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();

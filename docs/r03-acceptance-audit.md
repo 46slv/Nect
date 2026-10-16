@@ -1374,3 +1374,47 @@ SHA256 86B51CD5510C1F2CD71C3948E555D449087146A9911064F8AACD63E291A585B4;
 verification9E7EAD272B0B2A58F63C65494E7B11AAD514A2AB52144A3D35267D6EE639DEE2,
 35 bound artifacts. Broad typography/fonts/Japanese vertical, cold-process,
 chooser/transport/durability/DPI/subjective and whole Requirement/Mission remain open.
+
+## Pen starts in the current scope after leaving a Group — 2026-10-16
+
+Original native production at4baefa3d41e48eeb62aa04943bf3e80882a8f38e reproduced
+a context-owner defect. A Pen Path with two committed points inside transformed
+Group `[0,1,-2,0,560,40]` remained the pending target after a breadcrumb return
+to root. The next root click `(200,340)` appended local `(300,180)` to that old
+Group Path instead of creating a root Path. Full native, typed History and pixels
+disagreed with independent manual expectations fixed before Window construction.
+
+Frozen original RED: C:/Users/shiro/.codex/scratch/01a14315-687a-7151-a06f-1092e5ae1734/pen-scope-red-freeze.json
+SHA256 7858FCFAF2E4E2F5139952D4A9E5809414CFF63525EC605FB9DCA7723B85BAB0.
+The minimal repair makes an actual `Canvas::set_scope` change finish a pending
+Pen contour. Committed points and Pen Tool remain; same-scope continuation remains.
+No model/schema, persistence format, dependency or reparent behavior changed.
+
+The same native probe source and byte-identical RED/GREEN original/foreign/manual
+native/oracle files qualified the repair. WindowsQt6.5.3 PID85376/HWND29826310:
+native entry before Pen activation stayedrev3, Group points committed4/5,
+breadcrumb exit retained5, independent root creation6, Toolbar Undo7/Redo8.
+All11 records matched full Document/native/preview/typedHistory/pixels, stable
+owner identities, foreign Session and owned workspace. Save matched exact live
+bytes; a distinct same-process Host reopened full expected document/pixels and
+kept live History. Only fixed same-length bijective UUID roles were normalized.
+One foreground SendInput Group entry was used; other input was background UIA/
+posted native. Physical input and cold external-process reopen are not claimed.
+Process closed, Cua ended, exact mutex free/non-abandoned/released/disposed.
+
+Focused regression plus existing transformed hierarchy checks: PASS34.
+Full Canvas suite: FAIL at Grid column-overlay edge count18/18 versus its threshold,
+after816 checks. Exact unmodified old Canvas and old tests compiled in owned scratch
+also fail with the same edge count, after797 checks. This is an independent existing
+failure, not a full-suite PASS. No test threshold was weakened. The initial focused
+test could not load Qt6Test.dll from the deployed app folder; using the existing Qt
+runtime on that command's PATH resolved it without dependency/settings changes.
+
+Repair receipt: C:/Users/shiro/.codex/scratch/01a14315-687a-7151-a06f-1092e5ae1734/pen-scope-checkpoint.json
+SHA256 B6EEF686635E3169F9034E62131C43798C5D7A31C51D9D665700AECEFABF45BB;
+verification2FC51D953935B048B7CE7AA751BA2EA37686F6572D470D95226E8AC962EBC75A,
+54 bound artifacts. Native candidate base4baefa3 had exactly Canvas/test source
+dirty, bound by Git blobs a648fc874826e08b523bcf7bb4896bc268afba0b and
+630129d4949eadd9dff93d9fc00f7c43cd13c172. Later sync binds these exact blobs;
+historical proofs retain original source identities and are not requalified at
+the repaired source. Whole Mission/Requirement closure remains open.
