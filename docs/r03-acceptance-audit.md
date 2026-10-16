@@ -1250,3 +1250,49 @@ R03/REQ-42/Mission closure remain unclaimed; unchanged tests were not replayed.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a142d2-df6b-7d61-a48a-5745f209af28/rotation-checkpoint.json`,
 SHA256 `C9354213C1DCFDE91469DA20EC975297D7B54DC701F9228CD009931B63B9886A`.
+
+## 2026-10-16 native multi-selection nonuniform scale
+
+Fresh Completion Route R03 and Confirmed REQ-42 selected the existing shared-pivot
+scale dialog. Original production at `514ee0bf352c8e4f1d1dffb243157f60a846a9b2`
+(production source `4879d02f1849bba810d1870736ea055693db923b`, only Brief dirty)
+passed this exact lifecycle without a product RED or repair. Windows Qt6.5.3,
+PID92180 / HWND24446754; probe source SHA79CEB592, binary SHAB31A3F72.
+
+The prior native Pen save supplied two stable Path identities and unrelated
+artwork as fixture input; its producer was not replayed. Before Window, full
+original/manual expected/foreign Documents round-tripped, typed Session History
+and artwork pixels were fixed, and the initial Session retained both Undo/Redo.
+The two-object geometric bounds `(170,130)..(470,290)` give shared pivot
+`(320,210)`. Independent X150% / Y50% scales require the same affine matrix
+`[1.5,0,0,0.5,-160,105]` on both targets, with authored Anchors and every other
+native field retained. The selection itself was preset as fixture view state.
+
+Native Ctrl+Shift+T opened the existing dialog. Background modifier delivery was
+a verified no-op; one narrow foreground/global-input shortcut succeeded. All
+remaining inputs used background accessibility: unlink X/Y, SetValue150/50,
+Apply, Toolbar Undo and Redo. The full 150/50 draft retained original revision3,
+Document and History. Apply4 was one atomic TransformObjects transaction;
+Undo5/Redo6 matched the pre-fixed complete native Document, typed Session History
+and pixels. All9 records, including8 post-ready records, preserved both targets,
+active plane, zoom1, Host, independent foreign Session/History and owned workspace;
+gesture generation stayed zero.
+
+Exact saved bytes matched full expected native; distinct same-process Host reopen
+matched the whole Document and pixels while the live redo Session stayed intact.
+Process closed, Cua ended, exact mutex free/non-abandoned/released/disposed.
+
+Preparation run01 is retained separately: a UIA menu Invoke stayed pending during
+the modal. Escape closed it; the pending Cua action then returned a synthetic
+fallback click that changed only view selection. All original native/History/pixels
+remained intact. Run02 used the unchanged probe and byte-identical complete
+original/expected/foreign/oracle files with the nonblocking shortcut route.
+This was an input-route preparation failure, not a product RED or oracle repair.
+
+This proves the exact nonuniform scale lifecycle, not physical input, native
+selection production, reflection/zero scale, invalid/stale/foreign incoming edits,
+held-pointer cancellation, cold/external process, full transports/CTest or whole
+REQ-42/R03/Mission completion. Unchanged product tests were not replayed.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a142ed-36e4-7600-b05a-483a2621fac9/scale-checkpoint.json`,
+SHA256 `8CE2B0D0FE0ADBCB86F4DB773369674DD0E3E145D376499067AF9B8CE9B0E723`.
