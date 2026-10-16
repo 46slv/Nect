@@ -1,0 +1,7 @@
+{
+    "capture_type": "Qt widget rendering; not native desktop screenshot",
+    "checks": 23,
+    "native_roundtrip": true,
+    "result": "PASS",
+    "single_drag_single_undo": true
+}

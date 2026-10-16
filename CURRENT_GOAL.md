@@ -1,31 +1,26 @@
-# Nect — one artwork production flow
+# Nect desktop redesign
 
 ## Mission Brief
 
-**Goal:** Finish one editable layout through normal UI: A create, B revise, C save/restart/reuse/export. This checkpoint supports L1 daily production; it does not close the whole Mission.
-**Completion conditions:** The same artwork completes A–C through finite normal-UI steps, with no known data-loss/save/normal-use blocker; focused checks for actual changes and one integration pass; owned native/SVG/PNG artifacts and coherent commit/normal push/existing PR sync or explicit external sync blocker. Do not add variants after Done.
-**Authority:** Latest direct human2026-10-16 steering delivered to this existing successor: reduce verification/handoff branching and prioritize actual implementation gaps. Current AGENTS/DEC71, Confirmed requirements and Human Gates remain.
-**Constraints:** Canonical D:/Documents/Nect-worktrees/sol-integration-20261004 only; protected D:/Documents/Nect NEVER edit/build. One all8 writer; exact Local plus one U+005C plus NectBuild(length15), zero-timeout/nonabandoned/release/dispose; serial builds /m:2/nodeReuse:false. Preserve Session/native0.87/asset1/2/envelope1/stable IDs/authored sources/atomic refusal/Undo/save and unrelated work. Owned INI/FolderLibrary/recovery/assets only. No branch/worktree/children/clipboard/settings/assets/fonts/deps/product-schema/property-model/account/main/release changes. No Candidate adoption/Must removal.
-**Coarse route:** Complete this one-artwork checkpoint; remaining Confirmed requirements stay on Completion Route. Reuse valid evidence. Related work stays with this owner KEEP/COMPACT; rollover requires an actual context/capability/authority/safety boundary.
+Goal: a coherent Windows desktop editor rebuilt from the Nect / Nect-SVG behavior prototypes. AI implements/builds/verifies; the user reviews UI and operation. First deliverable is a real executable with a minimal editing vertical.
 
-## ACTIVE CHECKPOINT
+Authority: direct 2026-10-16 08:55 / 09:01 UTC user steering and delegated UI brief. Edits, local validation, commits, development push and draft PR are authorized. No protected-main merge, release, force/history rewrite, OS/account/permission/billing change, unknown install, or Nect-Cloud mutation.
 
-**Goal:** One layout from blank to editable native plus SVG/PNG output.
-**Current phase:** ONE_ARTWORK_A_B_C_DONE / KEEP. Former external Grid variant collection is superseded.
+Isolation: C:/Users/shiro/Documents/Codex/2026-10-16/task-12/nect-desktop, independent clone, branch codex/desktop-workspace-20261016. Sole source writer takeover from 08de238a85a545ec81c9668007334dd1cf050e0f, verified against remote branch and draft PR23 before editing. The task-11 checkout is read-only to this task; its review application PID84564 stays open. Serialize builds with Local\NectBuild (length 15), zero timeout, nonabandoned, release/dispose, /m:2 /nodeReuse:false.
 
-| Flow | Already usable from live source and valid evidence | Implementation needed / remaining boundary |
-| --- | --- | --- |
-| A Create | Artboard/Margin/Grid/Guide, Pen/retained shapes, Japanese Text, Image, Group, alignment/equal gaps and color/Gradient exist. R03 audit and first-usable retain original proof bindings. | PASS: same960x640 artwork authored through normal UI; Margin48/Grid3x2/Guide240, Rectangle/Japanese Text/embedded JPEG/Pen, handle edits, color/alignment/Group. |
-| B Revise | Text/shape/property, source/expression and Undo/Redo exist; exact existing native/QTest evidence remains valid. | PASS: same-artwork content/shape/placement/color edits; Width expression960-112 then960-96; meaningful Toolbar Undo/Redo. |
-| C Reuse | Native save/reopen/recovery and SVG/PNG exist. Historical integrated acceptance includes normal restart/native equality and recovery. | PASS: native Save As, normal exit/new process/new Session with exact full native equality, Group rename/re-save; SVG and960x640 PNG. No power-loss/codec/DPI/subjective claim. |
+Done: blank -> rectangle drag -> Objects/canvas/Inspector selection -> move -> fill/W/H -> Undo/Redo -> native save/reopen/edit. Windows executable, meaningful local test, size/scale renders, explicit migration limits and durable Git checkpoint.
 
-**Next task:** This finite A-C checkpoint is closed. Next Mission selection must identify an actual missing implementation in accepted Confirmed requirements, not another unverified operation variant. No blocking product implementation gap was found in this artwork; no product change was manufactured. Retain whole Mission requirements on Route.
-**Approach:** A thin owned launcher constructs unchanged production Window with owned INI/FolderLibrary/recovery, avoiding global settings. External Cua input and read-only semantic inspection use the same artifact; no per-operation full Document/History/pixels/foreign-Host suites. Deeper checks apply only to changed save/History/ID/Host risks.
-**Done for next:** A: Artboard/Margin/Grid/Guide, Pen/retained shape/Japanese Text/supported image and normal selection/Tool/point-handle/property/alignment/Group/color or Gradient. B: revise content/shape/placement/color, one representative source, meaningful Undo/Redo. C: native save, normal exit/restart, preserve content/hierarchy/Refs, re-edit, supported SVG/PNG. Fixed one artwork and finite steps; no added variants.
-**Proven:** Existing ACK and parent independent PASS bind865 files/19 binaries/8 references/23 ORIGINAL native proofs plus SEPARATE137 measurement artifacts. Current Canvas a648fc874826e08b523bcf7bb4896bc268afba0b remains Pen-qualified; current tests6298b8a9fab5fe9d92c5421606c43599e3002ae5 are measurement-only, distinct from original Pen-native tests630129d4. Historical proofs are not promoted to current HEAD. Raster checkpoint B8AC7F5A retains native7db6fb86/28 records/full Canvas838 PASS; no replay.
-**Result:** OWN/artwork-checkpoint.json SHA7FD83E787E768EBE431F76499D91FDA75F7815E66B02F5DDE23D70AED0F4EA97 binds the same owned artwork/native/SVG/PNG/reopened screenshot and thin launcher. Production source01ee913 unchanged. Normal-close PIDs98004/98560 exited; Cua session ended. The first chooser/Cua UIA invocation timed out and required preserving bytes before stopping owned94168; later keyboard/native chooser succeeded. No shared-service/settings change. Product suites not replayed. Full restart equality proved before a Group-name-only re-edit; outputs precede only that nonvisual name edit. Owned launcher is unchanged production Window with isolated storage, not packaged-main or physical acceptance.
-**State:** Intake baseline clean codex/sol-integration-20261004@01ee91302bf6698cba9e95ea4bcc0dc8e7ab44e9; local/tracking/remote/OPEN Draft22 matched at verified intake. This Brief changes active scope. Mission43/89 and REQ15/16/42/209/210 remain OPEN.
-**Ownership:** Soleall8ACTIVE owner01a14350-86f7-77e2-acf7-62bff0f0e907; OWN=C:/Users/shiro/.codex/scratch/01a14350-86f7-77e2-acf7-62bff0f0e907. OWN/takeover-active.json SHA427A370931EFAE32AC4C1E0D18F8BEBF91F50A91F11C1BB61357170FDA1E2B1C saved/readback after separate trigger and independent gates. Parent01a14335 release62E4E73A/all8/no reacquisition; ACK B37615D5/parent independent02 8178D16B/CURRENT request10C3E005/readbackFA90914D; own fresh latest C0 key nect-c0-transfer-20261016-01a14350 exact7261chars/formattingcorrection0.
-**Local waits:** Prior held-pointer activecancel/activeSocketOpen GESTURE_ACTIVE remain exact waits; no bypass/retry. Physical/subjective/fonts/DPI/chooser/interop/durability/Q2/canonical obligations stay scoped and do not expand A–C.
-**Authority:** Latest human A/B/C steering, current AGENTS, fresh Completion Route3e3fd279a6f381b4ba9dd2d1bf066e0f and Confirmed REQ32/42; reversible development/Human Gates.
-**Handoff:** CONTINUE_CURRENT_TASK / KEEP. No new successor; continue related implementation and this finite flow.
+Coarse route: native editing vertical -> user review/bounded repair -> next real editing/graph capability on the same Document/Session. No full feature migration or general graph engine in the first vertical.
+
+## Active checkpoint
+
+Goal: close the two observed first-screen layout issues: external fixed footer with Fit/manual viewport behavior; 240 DIP Inspector below 800 logical while retaining 280 DIP at wider widths.
+Current phase: both local layout repairs implemented and verified; development checkpoint synchronization.
+Proven: Windows Release build PASS, 26 layout-only Qt-event checks PASS, final pipeline/683-logical/wide widget images visually inspected. Footer is external at22 DIP; Fit/manual mapping and Inspector240/280 boundaries are verified without authored/History/save-state changes. First vertical's 23 semantic checks at08de238 are reused. See docs/desktop-workspace/verification.md.
+Next task: user UI/interaction review of the corrected binary; incorporate further feedback only through another bounded packet.
+Approach: reuse the 22 DIP status bar, opt into Canvas Fit tracking on resize, preserve manual view mapping, keep Inspector numeric columns/height/type. No authored model, History or persistence changes.
+Done for next: focused checks and build pass, three target images inspected, exact local/remote/PR HEAD equal.
+State: TAKEOVER_ACK from verified08de238. task-12 owns the repair checkout; final exact local/remote/PR HEAD is reported in the completion receipt. Builds and offscreen validation finished; mutex released. Task-11 and existing apps/projects are untouched, review PID84564 responding.
+Authority: delegated 2026-10-16 two-issue repair. No new features/full rewrite, main merge, release or force operations.
+Local wait: native screenshot/recording/physical acceptance. Fresh native inventory failed MXC HRESULT0x80070003; no same-path retry without new host evidence. Qt renders and semantic workflow continue. This is not a build blocker.
+Handoff: bounded repair complete; source writer releases when the final local/remote/PR checkpoint is synchronized. No successor writer was created.

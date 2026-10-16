@@ -1,0 +1,46 @@
+{
+    "capture_type": "Qt widget render; no native desktop screenshot",
+    "device_pixel_ratio": 1.5,
+    "logical_height": 600,
+    "logical_width": 960,
+    "menu_height": 24,
+    "menu_items": [
+        {
+            "height": 21,
+            "text": "File",
+            "visible": true,
+            "width": 39,
+            "x": 12,
+            "y": 0
+        },
+        {
+            "height": 21,
+            "text": "Edit",
+            "visible": true,
+            "width": 43,
+            "x": 57,
+            "y": 0
+        },
+        {
+            "height": 21,
+            "text": "View",
+            "visible": true,
+            "width": 48,
+            "x": 106,
+            "y": 0
+        },
+        {
+            "height": 21,
+            "text": "Add",
+            "visible": true,
+            "width": 44,
+            "x": 160,
+            "y": 0
+        }
+    ],
+    "menu_visible": true,
+    "menu_width": 960,
+    "pixel_height": 900,
+    "pixel_width": 1440,
+    "platform": "offscreen"
+}

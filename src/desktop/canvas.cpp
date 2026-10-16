@@ -11,6 +11,7 @@
 #include <QColorSpace>
 #include <QPainterPathStroker>
 #include <QShowEvent>
+#include <QResizeEvent>
 #include <QStringList>
 #include <QUuid>
 #include <QWheelEvent>
@@ -21,8 +22,8 @@
 #include <set>
 
 namespace nect::desktop {
+QPointF Canvas::document_position(QPointF position) const { return view().inverted().map(position); }
 namespace {
-const QColor accent(68, 198, 233);
 const QColor linked(184, 142, 232);
 constexpr double hit_radius = 8;
 
@@ -533,7 +534,7 @@ void Canvas::fit_artboard() {
     QRectF bounds;
     for (const auto& artboard : artboards_) if (artboard.id == active_artboard_)
         bounds = {artboard.x, artboard.y, artboard.width, artboard.height};
-    fit_bounds(bounds);
+    fit_bounds(bounds, true);
 }
 
 void Canvas::fit_all_artboards() {
@@ -543,7 +544,7 @@ void Canvas::fit_all_artboards() {
     fit_bounds(bounds);
 }
 
-void Canvas::fit_bounds(QRectF bounds) {
+void Canvas::fit_bounds(QRectF bounds, bool artboard_fit) {
     // Authored drags, marquee and pan keep their active view mapping.
     // Guide drags deliberately support fitting through a frozen inverse view.
     if((gesture_owned_&&drag_!=Drag::guide)||drag_==Drag::marquee||drag_==Drag::pan)return;
@@ -555,10 +556,14 @@ void Canvas::fit_bounds(QRectF bounds) {
         }
     }
     if (bounds.isEmpty()) bounds = {0, 0, 640, 480};
-    zoom_ = std::clamp(std::min(std::max(1, width() - 100) / bounds.width(),
-                               std::max(1, height() - 100) / bounds.height()), 0.02, 64.0);
-    pan_ = QPointF(width() / 2.0, height() / 2.0) - bounds.center() * zoom_;
+    // A shell-owned footer leaves room to keep the artboard title below the breadcrumb.
+    // Preserve the legacy canvas's symmetric 50 DIP fit margin by default.
+    const auto viewport = QRectF(rect()).adjusted(50, view_footer_visible_ ? 50 : 64, -50, -50);
+    zoom_ = std::clamp(std::min(std::max(1.0, viewport.width()) / bounds.width(),
+                               std::max(1.0, viewport.height()) / bounds.height()), 0.02, 64.0);
+    pan_ = viewport.center() - bounds.center() * zoom_;
     initial_fit_ = false;
+    artboard_fit_ = artboard_fit;
     request_frame(QStringLiteral("fit"), true);
     if(zoom_changed)zoom_changed(zoom_);
 }
@@ -573,6 +578,7 @@ void Canvas::zoom_at(double zoom,QPointF anchor,bool new_sequence) {
     zoom_=std::clamp(zoom,0.02,64.0);
     pan_=anchor-under_anchor*zoom_;
     initial_fit_=false;
+    artboard_fit_=false;
     request_frame(QStringLiteral("zoom"),new_sequence);
     if(zoom_changed)zoom_changed(zoom_);
 }
@@ -1215,12 +1221,13 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
 }
 
 void Canvas::paintEvent(QPaintEvent*) {
+    const auto& accent=selection_color_;
     const auto observe_timing = timing_observation_enabled();
     const auto start = observe_timing ? clock_.nsecsElapsed() : 0;
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(rect(), QColor(39, 42, 47));
+        painter.fillRect(rect(), surround_color_);
         const auto& document = session_.preview_document();
         if (!artboards_.empty()) {
             painter.setWorldTransform(view());
@@ -1406,11 +1413,13 @@ void Canvas::paintEvent(QPaintEvent*) {
                 ? tr("Guide Edit · Drag a Guide · Esc cancels a drag / exits · Space-drag to pan")
                 : tr("Guide overlays are hidden · Show Guides to edit · Esc exits"))
             : tr("Empty-drag: select contained · Shift: extend · Arrows: move · Space: pan · F: fit / Shift+F: selection");
-        painter.setPen(QColor(166, 174, 186));
-        painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
-                         painter.fontMetrics().elidedText(hint, Qt::ElideRight, width() - 110));
-        painter.drawText(QRect(width() - 85, height() - 30, 70, 22), Qt::AlignRight | Qt::AlignVCenter,
-                         QString::number(zoom_ * 100, 'f', 0) + QStringLiteral("%"));
+        if (view_footer_visible_) {
+            painter.setPen(QColor(166, 174, 186));
+            painter.drawText(QRect(14, height() - 30, width() - 100, 22), Qt::AlignVCenter,
+                             painter.fontMetrics().elidedText(hint, Qt::ElideRight, width() - 110));
+            painter.drawText(QRect(width() - 85, height() - 30, 70, 22), Qt::AlignRight | Qt::AlignVCenter,
+                             QString::number(zoom_ * 100, 'f', 0) + QStringLiteral("%"));
+        }
         if(!render_error_.isEmpty()) {
             painter.fillRect(QRect(10,46,width()-20,48),QColor(65,25,27,240));painter.setPen(QColor("#ffb4ab"));
             painter.drawText(QRect(18,49,width()-36,42),Qt::TextWordWrap,tr("Rendering unavailable: ")+render_error_);
@@ -2224,6 +2233,7 @@ void Canvas::update_drag(QPointF screen) {
     }
     if (drag_ == Drag::pan) {
         request_frame(QStringLiteral("pan"));
+        if (screen != press_position_) artboard_fit_ = false;
         pan_ = press_pan_ + screen - press_position_;
         update();
         return;
@@ -2681,6 +2691,11 @@ void Canvas::focusOutEvent(QFocusEvent* event) {
 void Canvas::showEvent(QShowEvent* event) {
     QWidget::showEvent(event);
     if (initial_fit_) fit_artboard();
+}
+
+void Canvas::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    if (fit_on_resize_ && artboard_fit_) fit_artboard();
 }
 
 void Canvas::report_error(const std::exception& exception) {
