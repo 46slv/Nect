@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import { CommandSession, document, node } from '../src/core.js';
 import { parseFont } from '../src/fonts.js';
 
-function fixture() {
+function fixture({ omitWidth = false } = {}) {
   const doc = document(),
     layer = doc.layers[0],
     a = layer.nodes[0],
     b = layer.nodes[1];
+  if (omitWidth) delete a.width;
   const session = new CommandSession(doc);
   const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
   const begin = (target = { kind: 'graph-translate', layerId: layer.id, nodeIds: [a.id, b.id] }) =>
@@ -31,7 +32,7 @@ test('private gesture preview is detached; absolute baseline updates commit once
   send('commit-gesture', token);
   assert.deepEqual(s.snapshot(), final);
   assert.equal(s.snapshot().layers[0].nodes[1].position[0], b.position[0] + 60);
-  assert.equal(s.legacyHistory.past.length, 1);
+  assert.equal(s.historyView.past.length, 1);
   assert.equal(s.hasGesture, false);
   send('undo');
   assert.deepEqual(s.snapshot(), initial);
@@ -51,18 +52,15 @@ test('invalid/stale previews retain last candidate; cancellation never restores 
   );
   assert.throws(() => send('update-gesture', { ...token, update: { delta: [Infinity, 9] } }));
   assert.deepEqual(s.previewSnapshot(token.gestureId), preview);
-  s.legacyHistory.doc.name = 'Foreign legacy edit without revision';
-  const foreign = s.snapshot();
-  assert.throws(() => send('commit-gesture', token), /STALE_GESTURE/);
+  assert.throws(() => {
+    s.historyView.doc.name = 'Foreign write';
+  }, TypeError);
+  const detached = s.snapshot();
+  detached.name = 'Detached write';
+  assert.notEqual(s.snapshot().name, detached.name);
   send('cancel-gesture', token);
-  assert.deepEqual(s.snapshot(), foreign);
   const next = begin();
-  const staleEnvelope = s.state;
-  s.legacyHistory.apply((doc) => {
-    doc.name = 'Newer legacy revision';
-  });
-  s.dispatch({ ...staleEnvelope, type: 'cancel-gesture', payload: next });
-  assert.equal(s.snapshot().name, 'Newer legacy revision');
+  s.dispatch({ ...s.state, expectedRevision: -1, type: 'cancel-gesture', payload: next });
   assert.equal(s.hasGesture, false);
 });
 
@@ -91,15 +89,14 @@ test('gesture excludes authored commands and text staging; returned-to-origin an
   send('undo');
   const cancel = begin();
   send('cancel-gesture', cancel);
-  assert.equal(s.legacyHistory.future.length, 1);
+  assert.equal(s.historyView.future.length, 1);
   assert.deepEqual(s.snapshot(), before);
 });
 
 test('graph width validates locked/missing targets, preserves absent defaults and rejects foreign tokens', () => {
-  const { session: s, send, begin, layer, a } = fixture();
-  delete s.legacyHistory.doc.layers[0].nodes[0].width;
+  const { session: s, send, begin, layer, a } = fixture({ omitWidth: true });
   let token = begin({ kind: 'graph-width', layerId: layer.id, nodeId: a.id });
-  const originalDocument = s.legacyHistory.doc;
+  const originalDocument = s.historyView.doc;
   token = send('update-gesture', { ...token, update: { width: 400 } });
   assert.throws(() => send('update-gesture', { ...token, update: { width: 600 } }));
   token = send('update-gesture', { ...token, update: { width: 264 } });
@@ -110,7 +107,7 @@ test('graph width validates locked/missing targets, preserves absent defaults an
   send('commit-gesture', token);
   assert.equal(s.state.expectedRevision, 0);
   assert.equal(
-    s.legacyHistory.doc,
+    s.historyView.doc,
     originalDocument,
     'no-op preserves UI selection-history identity',
   );

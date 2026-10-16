@@ -283,8 +283,22 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
           mutate(l, l.nodes[0]);
           const foreign = structuredClone(win.nect.document);
           if (phase === 'preview') fire(document, 'pointermove', [205, 210], { altKey: true });
-          else fire(document, 'pointerup');
-          assert.notDeepEqual(foreign, before);
+          assert.throws(
+            () =>
+              win.nect.dispatch({
+                ...win.nect.commandState,
+                type: 'rename',
+                payload: { layerId: l.id, name: 'Interleaved' },
+              }),
+            /GESTURE_ACTIVE/,
+          );
+          key(stage(), 'Escape');
+          fire(document, 'pointerup');
+          assert.deepEqual(
+            foreign,
+            before,
+            'mutating a debug snapshot cannot replace authored state',
+          );
           assert.deepEqual(
             win.nect.document,
             foreign,
@@ -362,12 +376,11 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
     }
     assert.throws(() => win.curveMoveProbe.write(target, [, 1]), /delta/);
     assert.deepEqual(win.nect.document, before);
-    const q = win.nect.document.layers.at(-1).nodes[0].points[2].position;
-    delete win.nect.document.layers.at(-1).nodes[0].points[2].position;
-    const invalid = structuredClone(win.nect.document);
-    assert.throws(() => win.curveMoveProbe.write(target, [1, 2]), /finite/);
-    assert.deepEqual(win.nect.document, invalid);
-    win.nect.document.layers.at(-1).nodes[0].points[2].position = q;
+    const invalid = win.nect.document;
+    delete invalid.layers.at(-1).nodes[0].points[2].position;
+    const unchangedInvalid = structuredClone(invalid);
+    assert.throws(() => translateArtworkTargets(invalid, target, [1, 2]), /finite/);
+    assert.deepEqual(invalid, unchangedInvalid);
     assert.deepEqual(win.nect.document, before);
   });
   await t.test(

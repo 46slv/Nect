@@ -62,7 +62,7 @@ test('creation and preview allocate in core and commit one History entry', () =>
   const { session: s, dispatch } = fixture();
   const created = dispatch('create-node', { nodeType: 'Rectangle', position: [70, 80] });
   const beforePreview = s.snapshot(),
-    count = s.legacyHistory.past.length;
+    count = s.historyView.past.length;
   assert.deepEqual(
     beforePreview.layers[0].nodes.find((n) => n.id === created.nodeId).position,
     [70, 80],
@@ -73,7 +73,7 @@ test('creation and preview allocate in core and commit one History entry', () =>
     paint = l.nodes.find((n) => n.id === out.params.path.source);
   assert.equal(paint.type, 'Fill');
   assert.equal(paint.params.path.source, created.nodeId);
-  assert.equal(s.legacyHistory.past.length, count + 1);
+  assert.equal(s.historyView.past.length, count + 1);
   dispatch('undo');
   assert.deepEqual(s.snapshot(), beforePreview);
 });
@@ -85,14 +85,20 @@ test('invalid late preview, cycles, stale names, unknown fields, types and outpu
   dispatch('undo');
   const before = s.snapshot(),
     state = s.state,
-    future = s.legacyHistory.future.length;
-  const output = before.layers[0].nodes.find((n) => n.id === layer.output);
-  s.legacyHistory.doc.layers[0].nodes.find((n) => n.id === layer.output).params.path.locked = true;
-  const lockedOutput = s.snapshot();
-  assert.throws(() => dispatch('preview-node', { nodeId: layer.nodes[0].id }), /locked/);
-  assert.deepEqual(s.snapshot(), lockedOutput, 'failed preview must not leave its new Fill');
-  s.legacyHistory.doc.layers[0].nodes.find((n) => n.id === layer.output).params.path.locked =
-    output.params.path.locked;
+    future = s.historyView.future.length;
+  const locked = structuredClone(before);
+  locked.layers[0].nodes.find((n) => n.id === layer.output).params.path.locked = true;
+  const guarded = new CommandSession(locked);
+  assert.throws(
+    () =>
+      guarded.dispatch({
+        ...guarded.state,
+        type: 'preview-node',
+        payload: { layerId: layer.id, nodeId: layer.nodes[0].id },
+      }),
+    /locked/,
+  );
+  assert.deepEqual(guarded.snapshot(), locked, 'failed preview must not leave its new Fill');
   for (const [type, payload] of [
     ['rename', { nodeId: a.id, name: 'X', expectedName: 'Foreign' }],
     ['set-node-settings', { nodeId: a.id, settings: { params: {} } }],
@@ -109,7 +115,7 @@ test('invalid late preview, cycles, stale names, unknown fields, types and outpu
     assert.throws(() => dispatch(type, payload), type);
     assert.deepEqual(s.snapshot(), before, type);
     assert.deepEqual(s.state, state, type);
-    assert.equal(s.legacyHistory.future.length, future, type);
+    assert.equal(s.historyView.future.length, future, type);
   }
   assert.throws(() =>
     dispatch('set-reference', { nodeId: ref.id, target: { nodeId: ref.id, portId: 'output' } }),

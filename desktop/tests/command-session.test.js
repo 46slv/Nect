@@ -83,14 +83,13 @@ test('snapshot is detached; active gestures block commands; transitional UI shar
   copy.name = 'detached';
   assert.notEqual(s.snapshot().name, 'detached');
   const request = s.state;
-  s.legacyHistory.apply((doc) => {
-    doc.name = 'legacy edit';
-  });
+  assert.equal(s.historyView.apply, undefined);
+  dispatch('rename', { name: 'command edit' });
   assert.throws(() => s.dispatch({ ...request, type: 'undo' }), /STALE_REVISION/);
   dispatch('undo');
   assert.notEqual(s.snapshot().name, 'legacy edit');
   dispatch('set-operation', { nodeId: a.id, operation: 'multiply' });
-  assert.equal(s.legacyHistory.past.length, 1, 'one command, one shared Undo entry');
+  assert.equal(s.historyView.past.length, 1, 'one command, one shared Undo entry');
 });
 
 test('parameter commands share expressions, fallback, locks and Undo without mutating caller values', () => {
@@ -161,7 +160,7 @@ test('invalid properties preserve authored state, revision and redo; point keys 
   dispatch('undo');
   const before = serialize(s.snapshot()),
     state = s.state,
-    redo = s.legacyHistory.future.length;
+    redo = s.historyView.future.length;
   for (const [type, payload] of [
     ['set-parameter', { nodeId: color.id, key: 'value', value: { hex: 'bad', alpha: 2 } }],
     [
@@ -183,7 +182,7 @@ test('invalid properties preserve authored state, revision and redo; point keys 
     assert.throws(() => dispatch(type, payload));
     assert.equal(serialize(s.snapshot()), before);
     assert.deepEqual(s.state, state);
-    assert.equal(s.legacyHistory.future.length, redo);
+    assert.equal(s.historyView.future.length, redo);
   }
   dispatch('redo');
   assert.equal(

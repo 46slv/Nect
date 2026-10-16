@@ -314,9 +314,19 @@ test('Multiple independent artworks select and move as one transaction', async (
         fire(document, 'pointermove', [190, 190], { altKey: true });
         win.nect.document.layers.at(-1).locked = true;
         const foreign = saved();
+        assert.throws(
+          () =>
+            win.nect.dispatch({
+              ...win.nect.commandState,
+              type: 'set-layer-state',
+              payload: { layerId: f.ids.at(-1), key: 'locked', value: true },
+            }),
+          /GESTURE_ACTIVE/,
+        );
         if (phase === 'preview') fire(document, 'pointermove', [200, 200]);
+        key(stage(), 'Escape');
         fire(document, 'pointerup');
-        assert.notEqual(foreign, before);
+        assert.equal(foreign, before, 'debug snapshot mutation cannot change authored state');
         assert.equal(saved(), foreign, phase + ': cancellation preserves newer foreign edit');
         assert.equal(ui().past, 0);
       }
@@ -416,8 +426,9 @@ test('Multiple independent artworks select and move as one transaction', async (
         assert.equal(ui().past, 0);
         assert.match($('.message').textContent, /No selected artwork distributed/);
       }
-      setup();
-      win.nect.document.layers.at(-1).locked = true;
+      setup((f) => {
+        f.doc.layers.at(-1).locked = true;
+      });
       const late = saved();
       force();
       assert.equal(saved(), late);
@@ -582,8 +593,9 @@ test('Multiple independent artworks select and move as one transaction', async (
         assert.equal(saved(), before);
         assert.equal(ui().past, 0);
       }
-      setup();
-      win.nect.document.layers.at(-1).locked = true;
+      setup((f) => {
+        f.doc.layers.at(-1).locked = true;
+      });
       const late = saved();
       force();
       assert.equal(saved(), late);
@@ -654,8 +666,9 @@ test('Multiple independent artworks select and move as one transaction', async (
         assert.equal(ui().past, 0);
         assert.match($('.message').textContent, /No selected artwork aligned/);
       }
-      setup();
-      win.nect.document.layers.at(-1).locked = true;
+      setup((f) => {
+        f.doc.layers.at(-1).locked = true;
+      });
       const late = saved();
       force();
       assert.equal(saved(), late);

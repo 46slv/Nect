@@ -119,7 +119,7 @@ test('Session draft owns repeated-character replacements and native Undo/Redo; c
     f.text.characterPositions.units[1].id,
   );
   assert.deepEqual(f.current().characterPositions.offsets, {});
-  assert.equal(f.session.legacyHistory.past.length, 1);
+  assert.equal(f.session.historyView.past.length, 1);
   f.send('undo');
   assert.equal(serialize(f.session.snapshot()), before);
   f.send('redo');
@@ -236,15 +236,13 @@ test('direct intent and draft commit agree; no-op commit preserves redo and lega
   assert.deepEqual(copy.snapshot(), f.session.snapshot());
   f.send('undo');
   const revision = f.session.state.expectedRevision,
-    redo = f.session.legacyHistory.future.length;
+    redo = f.session.historyView.future.length;
   f.begin();
   f.commit();
   assert.equal(f.session.state.expectedRevision, revision);
-  assert.equal(f.session.legacyHistory.future.length, redo);
+  assert.equal(f.session.historyView.future.length, redo);
   f.begin();
-  f.session.legacyHistory.doc.layers[0].nodes.find(
-    (n) => n.id === f.text.id,
-  ).characterPositions.offsets.c2 = [1, 2];
+  f.send('set-character-offsets', { changes: { c2: [1, 2] } });
   assert.throws(() => f.commit(), /STALE_TEXT_DRAFT/);
 });
 

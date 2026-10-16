@@ -169,7 +169,16 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   [circle2, rectangle2] = win.nect.document.layers[1].nodes;
   assert.deepEqual(circle2.params.center.value, [centers[0] + 10, centers[1] + 20]);
   assert.deepEqual(rectangle2.params.center.value, [centers[2] + 10, centers[3] + 20]);
-  rectangle2.params.center.locked = true;
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-parameter-lock',
+    payload: {
+      layerId: win.nect.document.layers[1].id,
+      nodeId: rectangle2.id,
+      key: 'center',
+      locked: true,
+    },
+  });
   const unchanged = JSON.stringify(win.nect.document);
   pointer(document.querySelector('[data-node-stage-move]'), 'pointerdown', 100, 100);
   pointer(document, 'pointermove', 150, 150);

@@ -1817,6 +1817,10 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   if (q.locked && !validating) throw Error('Parameter is locked');
   if (!socketCompatible(outputType(from, sourcePort), q.type))
     throw Error(`Cannot connect ${outputType(from, sourcePort)} to ${q.type}`);
+  if (validating) {
+    assertAcyclic(layer);
+    return;
+  }
   const old = q.source,
     oldPort = q.sourcePort;
   q.source = sourceId;
@@ -2243,9 +2247,15 @@ export class History {
   }
 }
 
-// Shared command entry for the staged Desktop migration. All migrated commands
-// commit to the same History the legacy UI still uses; there is no shadow graph.
-// legacyHistory is a temporary GUI integration bridge, not a public command API.
+// Shared command entry. The UI can read stable frozen History states for its
+// selection WeakMap; only typed Session commands can replace authored state.
+function freezeDocumentView(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeDocumentView(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 export function updateTextTypography(target, ids, patch, doc, layer, fonts = {}) {
   if (!Array.isArray(ids) || !ids.length || ids.some((id) => typeof id !== 'string'))
     throw Error('Select character IDs');
@@ -2275,8 +2285,22 @@ export class CommandSession {
     this.#busy = busy;
     this.id = uid('session');
   }
-  get legacyHistory() {
-    return this.#history;
+  get historyView() {
+    const session = this;
+    return Object.freeze({
+      get doc() {
+        return freezeDocumentView(session.#history.doc);
+      },
+      get past() {
+        return Object.freeze(session.#history.past.map(freezeDocumentView));
+      },
+      get future() {
+        return Object.freeze(session.#history.future.map(freezeDocumentView));
+      },
+      get revision() {
+        return session.#history.revision;
+      },
+    });
   }
   get state() {
     return { sessionId: this.id, expectedRevision: this.#history.revision };

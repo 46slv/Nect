@@ -73,9 +73,9 @@ test('late invalid batch, locked deletion and stale creation preserve state, rev
   // An independent new composition is permitted while an existing one is locked.
   other.dispatch({ ...other.state, type: 'create-blank-layer' });
   send('undo');
-  const redo = s.legacyHistory.future.length;
+  const redo = s.historyView.future.length;
   assert.throws(() => s.dispatch({ ...state, type: 'create-blank-layer' }), /STALE_REVISION/);
-  assert.equal(s.legacyHistory.future.length, redo);
+  assert.equal(s.historyView.future.length, redo);
 });
 
 test('Image adoption derives dimensions from PNG bytes and commits asset/reference together', () => {

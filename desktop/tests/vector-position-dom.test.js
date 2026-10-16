@@ -269,8 +269,11 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   }
   // Full inverse affine mapping, with a fractional source and out-and-back no-op.
   Object.assign(matrix, { a: 0.6, b: 0.8, c: -0.8, d: 0.6, e: -103.125, f: 91.75 });
-  get(a.id).params.value.value = [300.123456789, 250.987654321];
-  win.nect.load(saved());
+  const fractionalFixture = win.nect.document;
+  fractionalFixture.layers[0].nodes.find((n) => n.id === a.id).params.value.value = [
+    300.123456789, 250.987654321,
+  ];
+  win.nect.load(JSON.stringify(fractionalFixture));
   flush();
   before = saved();
   p = start();
@@ -321,10 +324,12 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   redo();
   for (const lock of ['parameter', 'expression', 'layer']) {
     load();
-    if (lock === 'parameter') get(a.id).params.value.locked = true;
-    else if (lock === 'expression') get(a.id).params.value.expression = '5; 9';
-    else win.nect.document.layers[0].locked = true;
-    win.nect.load(saved());
+    const lockedFixture = win.nect.document,
+      lockedNode = lockedFixture.layers[0].nodes.find((n) => n.id === a.id);
+    if (lock === 'parameter') lockedNode.params.value.locked = true;
+    else if (lock === 'expression') lockedNode.params.value.expression = '5; 9';
+    else lockedFixture.layers[0].locked = true;
+    win.nect.load(JSON.stringify(lockedFixture));
     flush();
     before = saved();
     p = start();
@@ -351,14 +356,16 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   undo();
   assert.equal(get(c.id).params.center.source, a.id);
   load();
-  win.nect.document.layers[0].visible = false;
-  win.nect.load(saved());
+  const hiddenFixture = win.nect.document;
+  hiddenFixture.layers[0].visible = false;
+  win.nect.load(JSON.stringify(hiddenFixture));
   flush();
   assert.equal(marker(), null);
   load();
   const nullNode = node('Null');
-  win.nect.document.layers[0].nodes.unshift(nullNode);
-  win.nect.load(saved());
+  const controllerFixture = win.nect.document;
+  controllerFixture.layers[0].nodes.unshift(nullNode);
+  win.nect.load(JSON.stringify(controllerFixture));
   flush();
   assert.equal(marker(), null, 'only selected controller appears');
   assert.equal(document.querySelectorAll('[data-null-handle]').length, 1);

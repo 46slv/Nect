@@ -29,18 +29,19 @@ test('multiple generator movement validates every fixed target and commits all p
     curve.points[0].position.value.map((v, i) => v + [20, -10][i]),
   );
   send('commit-gesture', token);
-  assert.equal(s.legacyHistory.past.length, 1);
+  assert.equal(s.historyView.past.length, 1);
   send('undo');
   assert.deepEqual(s.snapshot(), before);
-  const live = s.legacyHistory.doc;
-  live.layers[0].nodes.at(-1).points[1].position.locked = true;
   const guarded = s.snapshot();
+  guarded.layers[0].nodes.at(-1).points[1].position.locked = true;
+  const locked = setup(guarded);
   assert.throws(
-    () => begin({ kind: 'nodes-translate', layerId: layer.id, nodeIds: [circle.id, curve.id] }),
+    () =>
+      locked.begin({ kind: 'nodes-translate', layerId: layer.id, nodeIds: [circle.id, curve.id] }),
     /locked/,
   );
-  assert.deepEqual(s.snapshot(), guarded);
-  assert.equal(s.legacyHistory.future.length, 1);
+  assert.deepEqual(locked.session.snapshot(), guarded);
+  assert.equal(s.historyView.future.length, 1);
 });
 
 test('Curve handle coupling is private, respects driven opposite handles and keeps origin identity', () => {
@@ -61,7 +62,7 @@ test('Curve handle coupling is private, respects driven opposite handles and kee
     pointId: pt.id,
     key: 'handleB',
   };
-  const original = s.legacyHistory.doc;
+  const original = s.historyView.doc;
   let token = begin(target);
   token = send('update-gesture', { ...token, update: { delta: [5, 7] } });
   const previewPoint = s.previewSnapshot(token.gestureId).document.layers[0].nodes.at(-1).points[0];
@@ -69,8 +70,13 @@ test('Curve handle coupling is private, respects driven opposite handles and kee
   assert.deepEqual(previewPoint.handleA.value, [-15, -12]);
   token = send('update-gesture', { ...token, update: { delta: [0, 0] } });
   send('commit-gesture', token);
-  assert.equal(s.legacyHistory.doc, original);
-  s.legacyHistory.doc.layers[0].nodes.at(-1).points[0].handleA.locked = true;
+  assert.equal(s.historyView.doc, original);
+  send('set-parameter-lock', {
+    layerId: layer.id,
+    nodeId: curve.id,
+    key: `${pt.id}.handleA`,
+    locked: true,
+  });
   token = begin(target);
   token = send('update-gesture', { ...token, update: { delta: [5, 7] } });
   send('commit-gesture', token);
@@ -84,7 +90,7 @@ test('Remap allocation stays private, zero/cancel preserves sparse records, stal
     id = evaluate(layer).run(remap.params.path.source).contours[0].points[0].id;
   const { session: s, send, begin } = setup(doc),
     before = s.snapshot(),
-    original = s.legacyHistory.doc;
+    original = s.historyView.doc;
   const target = {
     kind: 'remap-point',
     layerId: layer.id,
@@ -102,18 +108,23 @@ test('Remap allocation stays private, zero/cancel preserves sparse records, stal
   );
   token = send('update-gesture', { ...token, update: { delta: [0, 0] } });
   send('commit-gesture', token);
-  assert.equal(s.legacyHistory.doc, original);
+  assert.equal(s.historyView.doc, original);
   token = begin(target);
   token = send('update-gesture', { ...token, update: { delta: [11, 6] } });
-  s.legacyHistory.doc.name = 'New authored work';
-  assert.throws(() => send('commit-gesture', token), /STALE_GESTURE/);
+  assert.throws(() => {
+    s.historyView.doc.name = 'New authored work';
+  }, TypeError);
+  assert.throws(
+    () => send('rename', { layerId: layer.id, name: 'Interleaved write' }),
+    /GESTURE_ACTIVE/,
+  );
   send('cancel-gesture', token);
-  assert.equal(s.snapshot().name, 'New authored work');
+  assert.equal(s.snapshot().name, before.name);
   assert.equal(s.snapshot().layers[0].nodes[3].edits.length, 0);
   token = begin(target);
   token = send('update-gesture', { ...token, update: { delta: [11, 6] } });
   send('commit-gesture', token);
-  assert.equal(s.legacyHistory.past.length, 1);
+  assert.equal(s.historyView.past.length, 1);
 });
 
 test('guide preview uses the same typed command and refuses locks without changing history', () => {

@@ -116,7 +116,11 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
   assert.equal(snapshot(), changed);
   assert.match(document.querySelector('.message').textContent, /Missing glyphs/);
   // Import into a locked composition is not allowed to open or change it.
-  win.nect.document.layers[0].locked = true;
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-layer-state',
+    payload: { layerId: win.nect.document.layers[0].id, key: 'locked', value: true },
+  });
   document.querySelector('.inspector-body [data-load-font]').click();
   assert.match(document.querySelector('.message').textContent, /locked/);
   await win.happyDOM.close();

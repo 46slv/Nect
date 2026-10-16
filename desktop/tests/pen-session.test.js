@@ -39,7 +39,7 @@ test('Pen keeps stable identities private, point rollback preserves released poi
   assert.equal(s.gestureState.gestureId, token.gestureId);
   const done = send('commit-pen', { ...token, closed: false });
   assert.equal(done.layerId, layerId);
-  assert.equal(s.legacyHistory.past.length, 1);
+  assert.equal(s.historyView.past.length, 1);
   assert.equal(s.snapshot().layers.at(-1).nodes[0].params.closed.value, false);
   send('undo');
   assert.deepEqual(s.snapshot(), before);
@@ -57,7 +57,7 @@ test('first pressed point and whole path cancellation preserve redo; foreign/sta
   const { s, send, begin } = fixture();
   send('rename', { layerId: s.snapshot().layers[0].id, name: 'Next' });
   send('undo');
-  const original = s.legacyHistory.doc;
+  const original = s.historyView.doc;
   let token = begin();
   const initial = token;
   token = send('update-pen-point', { ...token, delta: [5, 6] });
@@ -65,17 +65,22 @@ test('first pressed point and whole path cancellation preserve redo; foreign/sta
   assert.throws(() => send('undo'), /GESTURE_ACTIVE/);
   assert.equal(send('cancel-pen-point', token).discarded, true);
   assert.equal(s.hasGesture, false);
-  assert.equal(s.legacyHistory.doc, original);
+  assert.equal(s.historyView.doc, original);
   token = begin();
   token = send('accept-pen-point', token);
   assert.equal(send('commit-pen', { ...token, closed: false }).discarded, true);
   token = begin();
   token = send('accept-pen-point', token);
   token = send('append-pen-point', { ...token, position: [200, 200] });
-  s.legacyHistory.doc.name = 'Newer legacy work';
-  assert.throws(() => send('accept-pen-point', token), /STALE_GESTURE/);
+  assert.throws(() => {
+    s.historyView.doc.name = 'Newer legacy work';
+  }, TypeError);
+  assert.throws(
+    () => send('rename', { layerId: s.snapshot().layers[0].id, name: 'Interleaved' }),
+    /GESTURE_ACTIVE/,
+  );
   send('cancel-gesture', token);
-  assert.equal(s.snapshot().name, 'Newer legacy work');
-  assert.equal(s.legacyHistory.future.length, 1);
+  assert.equal(s.snapshot().name, original.name);
+  assert.equal(s.historyView.future.length, 1);
   assert.equal(s.snapshot().layers.length, 1);
 });

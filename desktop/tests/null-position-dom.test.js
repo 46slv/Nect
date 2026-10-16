@@ -227,10 +227,12 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
   redo();
   for (const lock of ['parameter', 'expression', 'layer']) {
     load();
-    if (lock === 'parameter') get(a.id).params.position.locked = true;
-    else if (lock === 'expression') get(a.id).params.position.expression = '5; 9';
-    else win.nect.document.layers[0].locked = true;
-    win.nect.load(saved());
+    const lockedFixture = win.nect.document,
+      lockedNode = lockedFixture.layers[0].nodes.find((n) => n.id === a.id);
+    if (lock === 'parameter') lockedNode.params.position.locked = true;
+    else if (lock === 'expression') lockedNode.params.position.expression = '5; 9';
+    else lockedFixture.layers[0].locked = true;
+    win.nect.load(JSON.stringify(lockedFixture));
     flush();
     before = saved();
     p = start();
@@ -254,8 +256,9 @@ test('Null UI: point-only drag, snap, pan/zoom mapping, history, interruptions, 
   undo();
   assert.equal(get(c.id).params.center.source, a.id);
   load();
-  win.nect.document.layers[0].visible = false;
-  win.nect.load(saved());
+  const hiddenFixture = win.nect.document;
+  hiddenFixture.layers[0].visible = false;
+  win.nect.load(JSON.stringify(hiddenFixture));
   flush();
   assert.equal(marker(), null);
   assert.doesNotMatch(win.nect.export(), /null-marker|Position handle/);

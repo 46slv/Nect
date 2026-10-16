@@ -113,7 +113,7 @@ const sessionOptions = {
     ),
 };
 let session = new CommandSession(newDocument(), sessionOptions);
-let history = session.legacyHistory,
+let history = session.historyView,
   activeLayer = history.doc.layers[0].id,
   selected = history.doc.layers[0].nodes[0].id,
   artworkTarget = null,
@@ -2163,7 +2163,7 @@ function updateDocumentStatus() {
 function replaceDocument(next, { binding = null, saved = false } = {}) {
   resetTransient();
   session = new CommandSession(next, sessionOptions);
-  history = session.legacyHistory;
+  history = session.historyView;
   documents.replace({ binding, saved });
   activeLayer = next.layers[0].id;
   selected = current().nodes[0]?.id;
@@ -5504,8 +5504,7 @@ window.nect = {
   },
   snapshot: () => session.snapshot(),
   get document() {
-    // Legacy debug adapter; migrate with the editing command Session as one unit.
-    return history.doc;
+    return session.snapshot();
   },
   get fileState() {
     return {
@@ -5516,7 +5515,14 @@ window.nect = {
       saving: documents.saving,
     };
   },
-  evaluate: () => evaluate(current(), fonts, history.doc.imageAssets),
+  evaluate: () => {
+    const doc = session.snapshot();
+    return evaluate(
+      doc.layers.find((l) => l.id === activeLayer) || doc.layers[0],
+      fonts,
+      doc.imageAssets,
+    );
+  },
   load(text) {
     const d = deserialize(text);
     replaceDocument(d);
