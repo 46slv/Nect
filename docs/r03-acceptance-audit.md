@@ -671,3 +671,49 @@ native records and grounded screenshots prove outcomes, not physical input.
 Driven edited fields, cancel/stale/foreign active producers, other shapes,
 cold-process reopen, full CTest and whole Requirement/Mission remain separate.
 Previous proof keeps its original HEAD, not this later documentation checkpoint.
+## 2026-10-16 native mixed-source multi-point Direct Selection
+
+Original production `4879d02` passed this R03 / REQ-197 / REQ-210 subset
+without a product RED or repair. Actual native HEAD was
+`16d4a0c4462cb639246557f42796e39b3d96c34e`, with only Brief metadata dirty.
+Receipt: `C:/Users/shiro/.codex/scratch/01a14227-31a4-7a63-87da-87b290b24159/mixed-direct-checkpoint.json`,
+SHA256 `6A580007F87D8241AA88BE66905FFA8F5C6A5D06919EED42F83C1C7E30636F15`.
+
+Before Window construction, full independent original, expected and foreign
+Documents passed native round-trips and typed Session/History oracles were
+fixed. Original revision 3 had both Undo and Redo. Windows Qt 6.5.3
+PID75240/HWND75108752 used owned INI/FolderLibrary/recovery paths;
+probe SHA78CF5C77 and binary SHA6C4F95AA.
+
+Actual Direct Rail and an empty-space native marquee selected curve-first and
+Circle source-east. External drag moved both anchors by world (+20,+10).
+Circle's world=(180-local_y,120+2*local_x) yields local (55,-20) from (50,0).
+Curve's world=(360+2*local_x,260+local_y) yields local (10,10) from (0,0).
+Full Document/native/preview/History matched revision 4. Only Circle gained
+its stable downstream PointEdit; source, other anchors/handles/transforms
+remained intact. Unselected consumer kept both stable references and
+evaluated width55/height210.
+
+All 33 active samples retained committed original Document/History/revision 3
+and both Undo/Redo. Actual Toolbar Undo/Redo matched full typed Sessions at
+revisions 5/6. Exact Save bytes and distinct same-process Host reopen matched
+the full expected Document. Selection, Host, composition, Artboard, zoom 1,
+foreign Session and owned workspace were preserved. Owned process closed,
+both Cua lifecycles ended, exact mutex free/non-abandoned/released/disposed.
+
+The first marquee start was inside Circle and selected its whole Object;
+corrected empty-space start selected exactly two intended anchors without
+authoring. First CLI helper refused missing screenshot context before input;
+CLI-owned capture fixed that prerequisite. Queued Escape reached Canvas only
+after native release/commit and exited idle Direct mode. This does **not**
+establish native active cancellation. That exact row is LOCAL_WAIT until
+supported held-pointer/key interleaving is available; do not repeat the
+serialized attempt or call it a product failure. Original typed/Qt cancel
+evidence retains its own bindings.
+
+Cua reported accessibility/synthetic_events/global_input with unverifiable
+effects. Native records and grounded screenshots establish outcomes.
+Physical input, subjective quality, stale/foreign active producers, other
+multi-point transforms, cold-process reopen, full CTest and whole Requirement
+or Mission closure remain unproven. Older receipts retain original
+owners/HEADs and are not promoted to this checkpoint.
