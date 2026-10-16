@@ -976,3 +976,45 @@ conversion evidence retains its original producer identity and acceptance limits
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a14279-b0e3-7e70-9c7c-f8a5073a2ba2/bypassed-conversion-checkpoint.json`,
 SHA256 `6550151433DD03B03152F85BCE37674FF7B725A8FDC279602404975955AA9639`.
+
+## 2026-10-16 native stale conversion review after a source change
+
+Original native HEAD `53c542b3e463730a1f03beec798ff8d5f84c8012`
+(production `4879d02`, only CURRENT_GOAL dirty) passed this REQ-197 review
+context boundary without product RED or repair. Full manual original, changed,
+converted and foreign Documents, native round-trips, typed Session/History and
+stage-specific pixel oracles were fixed before the Windows producer. Initial
+revision 3 had both Undo/Redo; changed-source pixels differ from original and
+equal independently converted pixels.
+
+Windows/Qt 6.5.3 PID95308/HWND51710724 used actual Canvas selection and native
+Properties conversion review at source width80. An explicit canonical typed
+Session Set changed width to100 at revision4 while the plan remained open.
+This caller is not evidence for native width editing or an external-process API.
+Actual stale confirmation displayed REVISION_CONFLICT and preserved the full
+changed Document/native/preview/History/pixels. Native Cancel remained neutral.
+
+Reopening created a fresh native plan with no error; actual confirmation at
+revision5 used source top-left(-50,-30) and external point consumer width50,
+matching the full manual converted Document and typed History. It did not use
+old coordinates(-40,-30)/consumer40. Source and bypassed correction were removed;
+stable contour/four point IDs, incoming point Ref, transform and the later
+Fill/Stroke/Repeater remained. Actual Toolbar Undo6 restored the changed-width
+source and dormant correction/driver; Redo7 matched the complete expected Session.
+All five stages and eleven idle records matched. One active selection press
+was excluded from full-stage equality, with gesture epoch recorded separately.
+
+Exact Host Save and distinct same-process Host reopen matched. Host, foreign
+Document/History, selection, composition/Artboard, zoom1, workspace and all
+stage-specific artwork pixels were preserved. Process closed, Cua session ended,
+exact mutex free/non-abandoned. Background accessibility/synthetic events
+reported effect unverifiable; native records and grounded screenshots establish
+outcomes without a physical input claim. No guard bypass or manufactured foreign
+active producer was used.
+
+Other stale Document/Host/gesture contexts, other shapes, physical/subjective,
+cold-process/external-process API, full CTest and whole Requirement/Mission
+closure remain unclaimed. Earlier native proofs retain original source identities.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a14279-b0e3-7e70-9c7c-f8a5073a2ba2/stale-conversion-checkpoint.json`,
+SHA256 `6612473F3281BED79211A7C16547D33D214CBFCFA604E8C7804D8429082FE65B`.
