@@ -591,3 +591,44 @@ Prior Rectangle/Star/native proofs retain their original HEAD/owner bindings.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a141fe-f62a-75d3-b999-ec8106a3cbff/conversion-checkpoint.json`,
 SHA256 `2E25A6FFDA49CF0AC0ECEBF2220CE713D901F26148CDAD77876B2F28FEEE1366`.
+
+## 2026-10-16 native Direct Selection Circle outgoing handle
+
+Original native HEAD `d3495d8dfe12da0d7bdf670f029c44882349543a`
+(production `4879d02`, only CURRENT_GOAL metadata dirty at execution) passed
+this accepted REQ-197 obligation without a product RED or repair. Receipt:
+`C:/Users/shiro/.codex/scratch/01a14216-6573-7e30-b8d3-bf7e8bb33821/direct-handle-checkpoint.json`
+SHA256 `5B16E3EF68188CADEC70DB8A81BD52C19A8E38D5669B3EC81990F046C2AB25CE`.
+
+Before Window creation, full hand-constructed original/expected/foreign Documents
+round-tripped native encoding; a separate typed Session gesture matched the
+manual expected Document and fixed full History, including initial Undo and Redo
+at revision 3. The retained Circle has radius 50 and transform
+`world=(200-local_y,240+2*local_x)`.
+
+In Windows Qt 6.5.3 PID93712/HWND45876824, actual Canvas selection, actual Direct
+Selection Rail, actual east-anchor selection and an external 2400ms/40-step drag
+moved the outgoing handle by screen/world `(-10,+60)` and local `(+30,+10)`.
+Only `moving-source-east` outgoing angle/length overrides were automatically
+added: angle `51.42517627667842`, length `48.11268920014708`. Full Document,
+preview, native bytes and typed Session History matched at revision 4. Generator,
+all stable point/contour identities, anchor `(50,0)`, incoming handle, other
+objects and Object transform stayed intact. Inspector visibly showed the
+retained Circle radius and two absolute overrides on one point.
+
+All 43 active samples (41 during the handle gesture, two selection presses)
+kept committed original Document/History/revision 3, source, foreign Session,
+workspace and zoom 1. Actual Toolbar Undo and Redo matched full typed Sessions at
+revisions 5/6. Exact Host Save and a distinct same-process Host reopened the full
+expected Document with identical native bytes; live Redo Session was preserved.
+The owned process closed, Cua session ended and exact mutex was free,
+nonabandoned, released and disposed.
+
+Probe `7370DEB9E395AF323FF05FCEEA913797B7C9E4AC81F791757983899A56C5623D`,
+binary `C308ECFD8391A437C21DE0496D292EB8475DB6165A33823AC1B3D7F2984BC794`.
+Driver delivery was reported as accessibility/synthetic_events/global_input and
+unverifiable; native records and grounded screenshots establish the outcome,
+not physical input. Correction reuse, incoming/linked handles, cancellation,
+stale/foreign active producers, other shapes, cold-process reopen, full CTest,
+physical/subjective/platform and whole Requirement/Mission acceptance remain
+separate. Earlier proofs keep their original source/owner bindings.
