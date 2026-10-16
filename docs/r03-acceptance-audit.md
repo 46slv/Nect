@@ -798,3 +798,40 @@ physical/subjective/DPI/fonts, full CTest, Host platform and whole Requirement o
 Mission closure remain unclaimed. Existing evidence retains its original HEAD.
 Receipt: `C:/Users/shiro/.codex/scratch/01a14240-6bb0-72d3-8f89-b3fa5bd04b93/radial-checkpoint.json`.
 SHA256 `8D0690CDBAE5A2D1E241C75905B196F352B007A66CEE5568FB37095D6F3E4432`.
+## 2026-10-16 native Gradient free-axis edit with a driven axis
+
+Original production `4879d02` at actual native HEAD `58f9bcd` passed this
+independent R03 / REQ-210 boundary without product RED or repair. Only Brief
+metadata was dirty. Full manually authored original/expected/foreign native
+documents, distinct artwork pixels, typed Session/History and a complete typed
+`DRIVEN_PROPERTY` refusal oracle were established before Window construction.
+The initial revision 3 Session had both Undo and Redo.
+
+Windows Qt 6.5.3 PID 38040 / HWND 18421730 used actual Canvas selection and
+Gradient Rail activation. Gradient centre X remained linked to the unrelated
+Circle radius by a stable Ref, evaluating to -30 with its authored literal and
+binding preserved. Under `world=(320-local_y,240+2*local_x)`, an external native
+2400 ms / 40-step drag by world `(20,0)` changed only free centre Y from -10 to
+-30. Complete native/preview/typed History matched revision 4, and the external
+free-Y Ref consumer width changed 90 to 70. During 22 active observations,
+committed original and History stayed unchanged.
+
+A second actual native diagonal drag by world `(10,40)` attempted to change
+driven X as well as Y. Visible `DRIVEN_PROPERTY` feedback accompanied full
+Document, preview, History and revision 4 preservation with no active gesture.
+Ten active observations retained the committed expected document and History;
+any transient free-Y preview was canceled atomically. X binding/literal/value,
+other Gradient/source fields, all IDs, Host, foreign Session, selection, active
+Tool and workspace remained intact.
+
+Actual Toolbar Undo/Redo matched complete typed Sessions at revisions 5/6.
+Exact Save bytes, a distinct same-process Host and full expected artwork pixels
+matched. Owned process closed, Cua session ended, exact mutex free/non-abandoned
+and released/disposed. Driver accessibility/synthetic/global-input effects are
+unverifiable; native records and grounded screenshots prove semantic outcomes,
+not physical input. Other driven axes/source expressions/transforms, native
+active cancellation, physical/subjective/DPI/fonts, cold-process reopen, full
+CTest, Host platform and whole Requirement/Mission remain separate.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a14240-6bb0-72d3-8f89-b3fa5bd04b93/driven-checkpoint.json`.
+SHA256 `BE76FA677D7004C872774A7433CA343DCED55A9A34EE5C330BFC274A23DD9AC9`.
