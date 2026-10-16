@@ -21,8 +21,8 @@
 #include <set>
 
 namespace nect::desktop {
+QPointF Canvas::document_position(QPointF position) const { return view().inverted().map(position); }
 namespace {
-const QColor accent(68, 198, 233);
 const QColor linked(184, 142, 232);
 constexpr double hit_radius = 8;
 
@@ -1215,12 +1215,13 @@ void Canvas::paint_artwork(QPainter& painter,const QTransform& transform,QSizeF 
 }
 
 void Canvas::paintEvent(QPaintEvent*) {
+    const auto& accent=selection_color_;
     const auto observe_timing = timing_observation_enabled();
     const auto start = observe_timing ? clock_.nsecsElapsed() : 0;
     {
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing);
-        painter.fillRect(rect(), QColor(39, 42, 47));
+        painter.fillRect(rect(), surround_color_);
         const auto& document = session_.preview_document();
         if (!artboards_.empty()) {
             painter.setWorldTransform(view());

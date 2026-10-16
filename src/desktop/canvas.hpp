@@ -88,6 +88,10 @@ public:
     void leave_group();
     double zoom() const { return zoom_; }
     void set_zoom(double zoom);
+    // Coordinate adapter for tools hosted by an alternate shell. Geometry and
+    // command ownership stay in the shared Session.
+    QPointF document_position(QPointF viewport_position) const;
+    void set_view_colors(QColor surround,QColor selection) { surround_color_=surround;selection_color_=selection;update(); }
     void set_snap_enabled(bool enabled);
     bool snap_enabled() const { return snap_enabled_; }
     void set_snap_guides_enabled(bool enabled);
@@ -216,6 +220,8 @@ private:
     void paint_artwork(QPainter&,const QTransform&,QSizeF,double dpr) const;
     std::exception_ptr projection_error_;
     Session& session_;
+    QColor surround_color_{39,42,47};
+    QColor selection_color_{68,198,233};
     std::map<Ref, double> values_;
     std::map<Id,EvaluatedTransform> transforms_;
     std::vector<Geometry> geometry_;

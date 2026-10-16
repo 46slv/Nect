@@ -1,5 +1,10 @@
 # Nect
 
+The opt-in redesigned Windows workspace is built with `./scripts/build-studio.ps1`.
+Run `./build-studio/Release/nect_studio.exe` for the blank editor. The first editing
+vertical, architecture, compatibility limits and rendered previews are documented in
+[Desktop workspace](docs/desktop-workspace.md).
+
 > **Fresh implementation agent:** start with [START_HERE.md](START_HERE.md).  
 > A repo link plus that file is intended to be enough to resume current work without old chat history.
 

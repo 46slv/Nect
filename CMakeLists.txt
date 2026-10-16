@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 option(NECT_SANITIZE "Enable address and undefined-behavior sanitizers" OFF)
 option(NECT_DESKTOP "Build the Qt desktop authoring client" OFF)
+option(NECT_STUDIO "Build the redesigned desktop workspace" OFF)
 
 find_path(BOOST_INCLUDE_DIR boost/json/src.hpp REQUIRED)
 
@@ -75,7 +76,33 @@ if(NECT_DESKTOP)
   endif()
 endif()
 
+if(NECT_STUDIO)
+  find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Widgets Network Test)
+  # Reuse the production document, projection and persistence boundaries, without
+  # coupling the new shell to the legacy Window and its inspector controls.
+  add_library(nect_studio_client
+    src/studio/workspace.cpp src/studio/node_view.cpp src/studio/theme.cpp
+    src/desktop/canvas.cpp src/desktop/host.cpp src/desktop/storage.cpp
+    src/desktop/protection.cpp src/desktop/svg_import.cpp
+    src/desktop/flattened_svg_export.cpp src/desktop/analysis_line_control.cpp)
+  target_include_directories(nect_studio_client PUBLIC src/studio src/desktop)
+  target_link_libraries(nect_studio_client PUBLIC nect_io Qt6::Widgets Qt6::Network)
+  add_executable(nect_studio WIN32 src/studio/main.cpp)
+  target_link_libraries(nect_studio PRIVATE nect_studio_client)
+  add_executable(studio_workflow_tests tests/studio_workflow_tests.cpp)
+  target_link_libraries(studio_workflow_tests PRIVATE nect_studio_client Qt6::Test)
+  if(MSVC)
+    target_compile_options(nect_studio_client PRIVATE /W4 /permissive- /utf-8 /bigobj)
+    target_compile_options(nect_studio PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(studio_workflow_tests PRIVATE /W4 /permissive- /utf-8 /bigobj)
+  endif()
+endif()
+
 include(CTest)
+if(NECT_STUDIO AND BUILD_TESTING)
+  add_test(NAME studio_workflow COMMAND studio_workflow_tests)
+  set_tests_properties(studio_workflow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()
 if(BUILD_TESTING)
   add_executable(analysis_line_tests tests/analysis_line_tests.cpp)
   target_link_libraries(analysis_line_tests PRIVATE nect_io)
