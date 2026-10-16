@@ -937,3 +937,42 @@ without product RED or repair. Other shapes/expressions, conversion, stale plans
 native active cancellation, foreign active producers, cold-process/socket/full
 CTest/Host-platform and Requirement/Mission completion remain unclaimed.
 All earlier proofs retain their original source and owner identities.
+## 2026-10-16 native conversion with bypassed Point Edit
+
+Original native HEAD `03199cb5e8ebc741209c63f9e55ba367b52b4d41`
+(production `4879d02`, only CURRENT_GOAL metadata dirty) passed this Confirmed
+REQ-197 subset without product RED or repair. Full manual original, converted
+and foreign Documents passed native round-trips before Window construction.
+Typed Session/History, initial revision 3 with both Undo/Redo, fixed source
+coordinates and full artwork pixel equality were established before input.
+
+Windows/Qt 6.5.3 PID62628/HWND42933828 used actual Canvas selection and the
+Properties Convert to Path control. The actual review warned that bypassed
+corrections would be discarded. Native Cancel preserved the full original,
+including disabled Point Edit, stored x=-20 and dormant y driver to the external
+height. Reopening remained neutral; actual confirmation at revision 4 matched
+the full manually constructed converted Document and typed History.
+
+Conversion used the source top-left (-40,-30), removed the generator and dormant
+correction/driver, and preserved the contour/four point IDs, incoming external
+point Ref (consumer width40), transform and later Fill/Stroke/Repeater. Full
+artwork pixels stayed identical. Actual Toolbar Undo at revision 5 restored all
+source/correction/driver state; Redo at revision 6 matched the full expected
+Session again. All nine idle records and all four stages matched; one active
+Canvas selection press was excluded from full-stage comparison. Gesture epoch
+was recorded separately, with no claim of full active-gesture purity.
+
+Exact Host Save bytes and a distinct same-process Host reopen matched. Host,
+foreign Document/History, selection, composition/Artboard, zoom1 and the owned
+workspace were preserved. Process closed, Cua session ended, exact mutex was
+free/non-abandoned. Driver routes were background accessibility/synthetic
+events with effect unverifiable; native records and grounded screenshots prove
+outcomes, not physical input. Own preparation stopped on an absent whitespace
+fragment before probe output/Window; only its script was corrected.
+
+Stale plans, other shapes, physical/subjective input, cold-process reopen,
+full CTest and whole Requirement/Mission closure remain separate. Earlier
+conversion evidence retains its original producer identity and acceptance limits.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a14279-b0e3-7e70-9c7c-f8a5073a2ba2/bypassed-conversion-checkpoint.json`,
+SHA256 `6550151433DD03B03152F85BCE37674FF7B725A8FDC279602404975955AA9639`.
