@@ -1018,3 +1018,47 @@ closure remain unclaimed. Earlier native proofs retain original source identitie
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a14279-b0e3-7e70-9c7c-f8a5073a2ba2/stale-conversion-checkpoint.json`,
 SHA256 `6612473F3281BED79211A7C16547D33D214CBFCFA604E8C7804D8429082FE65B`.
+
+## 2026-10-16 native Gradient HEX preserves unedited precision
+
+Original production `4879d02`, at actual native HEAD `6773088b` with only
+CURRENT_GOAL dirty, passed the existing Gradient Inspector HEX route without
+product RED or repair. Full manual native-valid intended/original/foreign
+Documents, typed Session/History and full stage pixel oracles existed before
+Window construction. Initial revision 3 had both Undo and Redo.
+
+Windows Qt 6.5.3 PID93052/HWND12846882 used external Canvas selection and three
+actual Properties scrollbar page clicks to reach Stop 1. The intended edit was
+`#1F3C58E0` to `#993C58E0`, changing only red to Qt's parsed value
+`0.6000000238418579`. Green `0.234567890123456`, blue `0.345678901234567`
+and alpha `0.876543210987654` retained their exact authored values. A stable
+same-Document color Ref updated another Fill red to `0.5750000178813934`;
+all source/operation/Gradient/stop IDs, other paint/frame and contour were kept.
+
+UIA SetValue alone changed text with modified=false and left the whole original
+Session intact. Background native End/Left/Delete/0 restored the intended text
+with modified=true; full original Document/preview/History/pixels still matched
+before Return. Actual Return committed once at revision 4. Actual Toolbar Undo5
+and Redo6 matched full independent Sessions and stage pixels. Exact saved bytes
+and a distinct same-process Host readback matched the intended full Document.
+Foreign Session/History, Host identity, selection, zoom1 and owned workspace
+were preserved. All14 idle records matched; one active Canvas selection record
+was excluded from idle comparison, with no active-purity claim.
+
+Preparation first refused an incompatible color-to-length fixture before Window;
+the consumer was corrected to a same-unit Fill color. A second preparation had
+an incorrect DF HEX annotation; its original Session stayed intact and closed
+before editing. The final producer uses E0; full manual expected Document was
+unchanged by that annotation correction. Earlier preparation is not acceptance.
+Process closed normally, Cua ended, exact mutex free/non-abandoned. Background
+accessibility/synthetic events reported unverifiable; native records and grounded
+screenshots prove outcomes, not physical input. Probe build/diff check passed;
+unchanged product tests were not replayed.
+
+Six-digit implicit alpha, invalid input, other channels/drivers/native stale or
+foreign producers, cold-process/DPI/physical/subjective/fullCTest and whole
+Requirement/Mission closure remain unclaimed. Prior native receipts retain
+their original source identities.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a14293-714a-7700-9bf9-16788e7ec439/gradient-hex-checkpoint.json`,
+SHA256 `3165297C86A001D429A4680FA951EA7F60BF81EADDB45B83B4CE218CF64EAC12`.
