@@ -1062,3 +1062,43 @@ their original source identities.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a14293-714a-7700-9bf9-16788e7ec439/gradient-hex-checkpoint.json`,
 SHA256 `3165297C86A001D429A4680FA951EA7F60BF81EADDB45B83B4CE218CF64EAC12`.
+
+## 2026-10-16 native six-digit HEX explicitly makes alpha opaque
+
+At actual native HEAD `2cb1911b` (production `4879d02`, only Brief dirty), the
+original Gradient Inspector passed six-digit opaque-alpha intent without a
+product RED or repair. This differs from preserving unedited eight-digit color
+channels: the authored alpha `0.999999999999` already displays `FF`, but entering
+six RGB digits explicitly requests exact alpha `1`.
+
+Full manual intended/original/foreign native-valid Documents, typed
+Session/History and full stage pixel oracles preceded Window. RGB literals were
+`0.123456789012345`, `0.234567890123456`, `0.345678901234567`; only intended
+alpha changed to 1. A stable Ref from another Fill alpha used scale .75/offset
+.125. Original and expected pixels were independently equal before Window,
+while full authored Documents/native bytes differed. Initial revision 3 had
+both Undo and Redo.
+
+Windows Qt6.5.3 PID94872/HWND34278110 used actual Canvas selection/Properties
+scrolling, then background native End/Left/Left/Delete/Delete removed displayed
+`FF`, producing the exact six-digit draft `#1F3C58`. Full original Session and
+pixels stayed intact before Return. Actual Return committed once at revision 4,
+setting alpha to 1 and consumer alpha to .875 while all RGB precision and IDs,
+source/other stop/frame/paint/contour stayed intact. Actual Toolbar Undo5 restored
+alpha .999999999999/consumer .87499999999925 and Redo6 restored exact opacity.
+All12 idle records matched independent full Sessions and pixels; one active
+selection record was excluded, without an active-purity claim.
+
+Exact Host Save bytes and distinct same-process Host reopen matched. Foreign
+Session/History, Host identity, selection, zoom1 and owned workspace persisted.
+Process closed normally, Cua ended, exact mutex free/non-abandoned. All input
+was background accessibility/synthetic events with effect unverifiable; native
+records and grounded screenshots prove the outcome, not physical input. Probe
+build/diff check passed; unchanged product tests were not replayed.
+
+Other channels/drivers, invalid input, stale/foreign active producers,
+cold-process/DPI/physical/subjective/fullCTest and whole Requirement/Mission
+closure remain unclaimed. The preceding eight-digit proof keeps actual6773088b.
+
+Receipt: `C:/Users/shiro/.codex/scratch/01a14293-714a-7700-9bf9-16788e7ec439/gradient-alpha-checkpoint.json`,
+SHA256 `83597933D2F4858DCF86A49F4953F34B4737CDF317424C6E5F83ADFDDB2EB0EF`.
