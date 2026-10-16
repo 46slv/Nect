@@ -116,9 +116,14 @@ public:
     QList<LibraryPresetAssetV1> preset_assets() const;
     PresetDefinition read_preset_asset(const PresetAssetRefV1& ref,
         LibraryPresetAssetV1* metadata = nullptr) const;
+    PortablePresetClosure read_preset_closure_asset(const PresetAssetRefV1& ref,
+        LibraryPresetAssetV1* metadata = nullptr) const;
     LibraryPresetAssetV1 publish_preset(const PresetDefinition& definition);
+    LibraryPresetAssetV1 publish_preset(const PortablePresetClosure& closure);
     LibraryPresetAssetV1 update_preset_asset(const PresetAssetRefV1& ref,
         const PresetDefinition& definition, std::uint64_t expected_revision, const QString& expected_sha256);
+    LibraryPresetAssetV1 update_preset_asset(const PresetAssetRefV1& ref,
+        const PortablePresetClosure& closure, std::uint64_t expected_revision, const QString& expected_sha256);
     void delete_preset_asset(const PresetAssetRefV1& ref,
         std::uint64_t expected_revision, const QString& expected_sha256);
     LibraryFavoriteV1 add_favorite(const PresetAssetRefV1& preset, int quick_slot = 0);

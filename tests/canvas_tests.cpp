@@ -3,10 +3,12 @@
 
 #include <QApplication>
 #include <QTest>
+#include <QPainter>
 #include <cmath>
 #include <iostream>
 #include <numbers>
 #include <stdexcept>
+#include <tuple>
 
 using namespace nect;
 using nect::desktop::Canvas;
@@ -242,6 +244,160 @@ void circle_source_handles_use_local_session_properties() {
         std::to_string(session.document().objects.at("circle").point_edit.has_value())+" radius="+
         std::to_string(evaluate(session.document()).at(radius_ref))+" expected="+std::to_string(positive_radius)+
         " revision="+std::to_string(session.revision())+" error="+last_error.toStdString());
+}
+
+void view_fit_preserves_active_circle_gesture() {
+    for(const bool all_boards:{false,true})for(const bool radius:{false,true}) {
+        auto document=empty_document("circle-fit-document","test-composition","test-artboard");
+        auto& composition=document.compositions.front();
+        composition.artboards.front().width=640;composition.artboards.front().height=480;
+        composition.artboards.push_back({"distant-board","Distant board",1000,1000,640,480});
+        Object circle;circle.id="circle";circle.source=default_primitive("circle-source","nect.shape.circle");
+        circle.source->parameters.at("center_x").literal=100;
+        circle.source->parameters.at("center_y").literal=120;
+        circle.source->parameters.at("radius").literal=40;
+        circle.stack.push_back(default_operation("circle-stroke","nect.paint.stroke"));
+        document.objects.emplace(circle.id,circle);composition.roots.push_back(circle.id);
+        const Ref target{"circle",{},radius?"generator.radius":"generator.center_x"};
+        Session oracle(document);const auto initial_history=oracle.history();
+        oracle.apply({Set{target,radius?60.0:120.0}},0);
+        const auto expected=oracle.document();const auto expected_history=oracle.history();
+        check(decode(encode(document))==document&&decode(encode(expected))==expected,
+              "Complete original and typed expected native exist before the Circle producer");
+        Fixture f(document);f.canvas.resize(1000,800);QApplication::processEvents();
+        f.canvas.fit_artboard();f.canvas.set_zoom(1);
+        f.canvas.set_selection("circle");f.canvas.set_circle_source_edit(true);
+        const auto start=f.screen(radius?140:100,120),finish=start+QPoint(20,0);
+        f.press(start);f.move(start+QPoint(12,0));
+        check(f.session.gesture_active()&&f.session.document()==document&&f.session.history()==initial_history,
+              "Circle drag has a live preview with original authored state/history");
+        const auto preview=f.session.preview_document();
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        near(f.canvas.zoom(),1,"Fit keeps the active authored drag's starting zoom");
+        check(f.session.gesture_active()&&f.session.preview_document()==preview,
+              "Fit neither replaces nor cancels the Circle preview");
+        f.move(finish);f.release(finish);
+        check(f.session.document()==expected&&f.session.history()==expected_history&&f.session.revision()==1,
+              "Original pointer delta commits the complete typed Circle oracle once after Fit");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==document&&!f.session.can_undo(),"One Undo restores the full Circle original");
+        f.session.redo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==expected&&f.session.history()==expected_history,"Redo restores full expected Circle/history");
+        const auto history=f.session.history();const auto revision=f.session.revision();
+        const auto again=f.screen(radius?160:120,120);
+        f.press(again);f.move(again+QPoint(12,0));
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(again+QPoint(12,0));
+        check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==revision&&
+              !f.session.gesture_active(),"Escape after Fit preserves native state and history");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        check(std::abs(f.canvas.zoom()-1)>0.01&&f.session.document()==expected&&f.session.history()==history,
+              "The same Fit works outside the gesture without authored changes");
+        f.no_error();
+    }
+}
+
+void marquee_refuses_replacement_document_or_host() {
+    for(const bool direct:{false,true})for(const bool new_host:{false,true})
+    for(const bool refresh:{false,true})for(const bool foreign_gesture:{false,true}) {
+        auto original=empty_document("marquee-context-document","test-composition","test-artboard");
+        original.compositions.front().artboards.front().width=640;
+        original.compositions.front().artboards.front().height=480;
+        Object circle;circle.id="circle";circle.name="Original";
+        circle.source=default_primitive("circle-source","nect.shape.circle");
+        circle.source->parameters.at("center_x").literal=100;
+        circle.source->parameters.at("center_y").literal=120;
+        circle.source->parameters.at("radius").literal=10;
+        original.objects.emplace(circle.id,circle);original.compositions.front().roots.push_back(circle.id);
+        auto replacement=original;if(!new_host)replacement.id+="-replacement";
+        replacement.objects.at("circle").name="Replacement";
+        Session oracle(replacement);const auto history=oracle.history();
+        if(foreign_gesture) {
+            oracle.begin_gesture(0);
+            oracle.update_gesture({Set{{"circle",{},"generator.radius"},12}});
+        }
+        const auto expected_preview=oracle.preview_document();
+        check(decode(encode(original))==original&&decode(encode(replacement))==replacement&&
+              decode(encode(expected_preview))==expected_preview,
+              "Independent full native original/replacement/preview oracles precede marquee producer");
+        Fixture f(original);QString host="original-host";
+        f.canvas.set_session_identity_provider([&]{return host;});
+        f.canvas.set_selection({});f.canvas.set_direct_selection_mode(direct);
+        const auto start=f.screen(70,90),end=f.screen(130,150);
+        f.press(start);f.move(f.screen(85,105));
+        f.session=Session(replacement);if(new_host)host="replacement-host";
+        if(foreign_gesture) {
+            f.session.begin_gesture(0);
+            f.session.update_gesture({Set{{"circle",{},"generator.radius"},12}});
+        }
+        const auto foreign_identity=f.session.gesture_identity();
+        if(refresh)f.canvas.refresh();
+        f.release(end);
+        check(f.canvas.selections().empty(),
+              "Old marquee must not select colliding object/point IDs in replacement Document or Host");
+        check(f.session.document()==replacement&&f.session.preview_document()==expected_preview&&
+              f.session.history()==history&&f.session.revision()==0&&!f.session.can_undo()&&!f.session.can_redo(),
+              "Refusing stale marquee preserves complete caller native/preview/History/revision/UndoRedo");
+        check(f.session.gesture_active()==foreign_gesture&&f.session.gesture_identity()==foreign_identity,
+              "Stale view-only marquee cannot cancel or replace a foreign authored gesture");
+        near(f.canvas.zoom(),1,"Stale marquee preserves caller view scale");
+        if(foreign_gesture)f.session.cancel_gesture();
+        f.no_error();
+    }
+    // Same-Document edits are compatible; revision alone must not retire selection.
+    auto original=fixture_document();Session oracle(original);
+    oracle.apply({Set{{"path","p1","x"},125}},0);
+    const auto expected=oracle.document();const auto history=oracle.history();
+    check(decode(encode(expected))==expected,"Compatible edit oracle precedes Canvas producer");
+    Fixture f(original);f.canvas.set_selection({});
+    const auto start=f.screen(70,90),end=f.screen(400,280);
+    f.press(start);f.move(f.screen(85,105));
+    f.session.apply({Set{{"path","p1","x"},125}},0);f.canvas.refresh();f.release(end);
+    check(f.canvas.selections()==std::vector<Canvas::Selection>{{"path",{}}},
+          "Current Document marquee remains usable after an unrelated same-Host edit");
+    check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==1,
+          "Compatible view selection preserves the complete independent authored edit and History");
+    f.no_error();
+}
+
+void view_fit_preserves_marquee_selection() {
+    for(const bool all_boards:{false,true})for(const bool direct:{false,true}) {
+        auto document=empty_document("marquee-fit-document","test-composition","test-artboard");
+        auto& composition=document.compositions.front();
+        composition.artboards.front().width=640;composition.artboards.front().height=480;
+        composition.artboards.push_back({"distant-board","Distant board",1000,1000,640,480});
+        Object path;path.id="path";
+        Point first;first.id="p1";first.x.literal=100;first.y.literal=120;
+        Point second;second.id="p2";second.x.literal=110;second.y.literal=130;
+        path.contours={{"contour",false,{first,second}}};
+        document.objects.emplace(path.id,path);composition.roots.push_back(path.id);
+        Session oracle(document);const auto history=oracle.history();
+        const std::vector<Canvas::Selection> expected=direct
+            ?std::vector<Canvas::Selection>{{"path","p1"},{"path","p2"}}
+            :std::vector<Canvas::Selection>{{"path",{}}};
+        check(decode(encode(document))==document,"Full native marquee oracle exists before Canvas input");
+        Fixture f(document);f.canvas.resize(1000,800);QApplication::processEvents();
+        f.canvas.fit_artboard();f.canvas.set_zoom(1);f.canvas.set_selection({});
+        f.canvas.set_direct_selection_mode(direct);
+        const auto start=f.screen(70,90),finish=f.screen(130,150);
+        f.press(start);f.move(start+QPoint(12,12));
+        check(!f.session.gesture_active(),"Marquee owns view selection without an authored Session gesture");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        near(f.canvas.zoom(),1,"Fit preserves marquee's starting view");
+        f.move(finish);f.release(finish);
+        check(f.canvas.selections()==expected,"Object or Direct marquee selects the independent stable target IDs after Fit");
+        check(f.session.document()==document&&f.session.preview_document()==document&&
+              f.session.history()==history&&f.session.revision()==0&&!f.session.can_undo()&&f.commits==0,
+              "Marquee and Fit preserve full native state and History without a save notification");
+        f.press(start);f.move(start+QPoint(12,12));
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(finish);
+        check(f.canvas.selections()==expected&&f.session.document()==document&&f.session.history()==history,
+              "Escape after Fit cancels the rectangle and retains its original selection/native/History");
+        if(all_boards)f.canvas.fit_all_artboards();else f.canvas.fit_artboard();
+        check(std::abs(f.canvas.zoom()-1)>1e-3,"Fit remains available after marquee release/cancel");
+        f.no_error();
+    }
 }
 
 void circle_source_handle_context_and_driver_failures_are_atomic() {
@@ -513,6 +669,61 @@ void hierarchy_selection_and_inverse_coordinates() {
     f.no_error();
 }
 
+void pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope() {
+    auto document=fixture_document();
+    Object group;group.id="pen-group";group.name="Pen scope";group.kind=Kind::group;
+    group.children={"path"};
+    group.transform={Scalar{0},Scalar{1},Scalar{-2},Scalar{0},Scalar{560},Scalar{40}};
+    group.anchor={Scalar{80},Scalar{60}};
+    document.objects.emplace(group.id,group);
+    document.compositions.front().roots={group.id};
+    Fixture f(document);
+    check(f.canvas.drill_scope()==group.id,"Pen fixture enters the selected child's Group");
+    f.canvas.set_draw_mode(true);
+    const auto click=[&](double x,double y){
+        QTest::mouseClick(&f.canvas,Qt::LeftButton,Qt::NoModifier,f.screen(x,y),1);
+        QApplication::processEvents();
+    };
+    click(360,140);const auto nested=f.canvas.selected_object;
+    click(360,240);
+    const auto before_exit=f.session;
+    const auto committed_contour=before_exit.document().objects.at(nested);
+    check(committed_contour.contours.front().points.size()==2,"Pending contour has two committed points");
+    near(committed_contour.contours.front().points[0].x.literal,100,"Group first point uses inverse X");
+    near(committed_contour.contours.front().points[0].y.literal,100,"Group first point uses inverse Y");
+    near(committed_contour.contours.front().points[1].x.literal,200,"Group second point uses inverse X");
+    f.canvas.leave_group();
+    check(f.canvas.drill_scope().empty()&&f.canvas.draw_mode(),"Scope exit retains the Pen tool at root");
+    check(f.session.document()==before_exit.document()&&f.session.history()==before_exit.history()&&
+          f.session.revision()==before_exit.revision(),"Scope exit preserves all committed state and history");
+    click(200,340);const auto root=f.canvas.selected_object;
+    check(root!=nested,"Next root click creates a distinct Path");
+    check(f.session.document().objects.at(nested)==committed_contour,"Root creation never appends to the old Group Path");
+    check(f.session.document().objects.at(group.id)==before_exit.document().objects.at(group.id),
+          "Root creation preserves Group children, transform and authored Anchor");
+    check(f.session.document().compositions.front().roots==std::vector<Id>{group.id,root},"New Path belongs to the current root scope");
+    const auto& created=f.session.document().objects.at(root);
+    check(created.contours.size()==1&&created.contours.front().points.size()==1,"Root Path starts with one point");
+    const auto root_contour=created.contours.front().id;
+    Point intended;intended.id=created.contours.front().points.front().id;
+    intended.x.literal=200;intended.y.literal=340;
+    Session expected=before_exit;
+    expected.apply({CreatePath{"test-composition",{},root,"Path",{{created.contours.front().id,false,{intended}}}}},expected.revision());
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),
+          "Full root creation agrees with the fixed-coordinate semantic command");
+    f.canvas.set_selection(root);click(260,340);
+    Point next;next.id=f.canvas.selected_point;next.x.literal=260;next.y.literal=340;
+    expected.apply({AddPoint{root,root_contour,next}},expected.revision());
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),
+          "Selection within the same scope retains ordinary Pen continuation");
+    f.session.undo(f.session.revision());expected.undo(expected.revision());f.canvas.refresh();
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),"Undo preserves both contour owners");
+    f.session.redo(f.session.revision());expected.redo(expected.revision());f.canvas.refresh();
+    check(f.session.document()==expected.document()&&f.session.history()==expected.history(),"Redo preserves both contour owners");
+    check(decode(encode(f.session.document()))==f.session.document(),"Native round-trip retains both scopes");
+    f.no_error();
+}
+
 void driven_coordinate_rejects_atomically_but_free_axis_can_move() {
     auto document = fixture_document();
     document.objects.at("path").contours.front().points.front().x.binding =
@@ -771,6 +982,54 @@ void snap_tolerance_zoom_and_exact_edits() {
         f.session.undo(f.session.revision());f.canvas.refresh();
         f.session.apply({Set{{"path","","transform.tx"},177.125}}, f.session.revision());
         f.canvas.refresh(); near(f.value("path",{},"transform.tx"),177.125,"Exact Session numeric edit never snaps");
+        f.no_error();
+    }
+}
+
+void scoped_guide_snap_reentry_uses_corrected_other_axis() {
+    for(const bool y_axis:{false,true})for(const bool outside:{false,true}) {
+        auto document=artboard_guide_point_snap_document(false);
+        auto& composition=document.compositions.front();auto& board=composition.artboards.front();
+        board.local_guides={{y_axis?"local-y":"local-x","Local guide",y_axis?"y":"x",50,true}};
+        composition.guides={{y_axis?"global-x":"global-y","Global guide",y_axis?"x":"y",
+                             y_axis?(outside?647.0:640.0):(outside?407.0:400.0)}};
+        auto& anchor=document.objects.at("guide-point-path").contours.front().points.front();
+        anchor.x.literal=y_axis?590:38;anchor.y.literal=y_axis?138:350;
+        const double raw_x=y_axis?645:49,raw_y=y_axis?149:405;
+        const double expected_x=y_axis?(outside?647:640):(outside?49:50);
+        const double expected_y=y_axis?(outside?149:150):(outside?407:400);
+        // Independent typed/native oracles precede the Canvas producer.
+        Session oracle(document);const auto original=encode(document);
+        oracle.apply({Set{{"guide-point-path","anchor","x"},expected_x},
+                      Set{{"guide-point-path","anchor","y"},expected_y}},0);
+        const auto expected=oracle.document();const auto history=oracle.history();
+        check(decode(encode(expected))==expected,"Joint-axis Guide expected native is valid before Canvas");
+        Fixture f(document);f.canvas.set_selection("guide-point-path","anchor");
+        const auto start=f.screen(anchor.x.literal,anchor.y.literal),end=f.screen(raw_x,raw_y);
+        f.press(start);f.move(end);
+        check(f.session.preview_document()==expected,"Guide point preview equals full corrected-axis native oracle");
+        const auto local_id=QString::fromLatin1(y_axis?"Guide local-y":"Guide local-x");
+        check(f.canvas.last_snap_feedback().contains(local_id)!=outside,
+              "Guide occurrence is eligible exactly when the corrected point is on its segment");
+        check(f.canvas.last_snap_feedback().contains(y_axis?"Guide → global-x":"Guide → global-y"),
+              "Orthogonal global Guide keeps its original stable feedback identity");
+        check(encode(f.session.document())==original&&f.session.revision()==0,
+              "Guide preview preserves the authored native and revision");
+        f.release(end);
+        check(f.session.document()==expected&&f.session.history()==history&&f.session.revision()==1,
+              "Guide reentry commits the complete independent Document and History in one edit");
+        f.session.undo(f.session.revision());f.canvas.refresh();
+        check(encode(f.session.document())==original&&!f.session.can_undo(),
+              "One Undo restores every native field and leaves no extra history entry");
+        f.session.redo(f.session.revision());f.canvas.refresh();
+        check(f.session.document()==expected&&f.session.history()==history,
+              "One Redo restores the full Guide reentry oracle");
+        const auto before_cancel=f.session.history();const auto revision=f.session.revision();
+        f.press(f.screen(expected_x,expected_y));f.move(f.screen(expected_x+20,expected_y-20));
+        QTest::keyClick(&f.canvas,Qt::Key_Escape);f.release(end);
+        check(f.session.document()==expected&&f.session.history()==before_cancel&&
+              f.session.revision()==revision&&!f.session.gesture_active(),
+              "Cancelled subsequent point drag preserves Document and typed History");
         f.no_error();
     }
 }
@@ -1601,8 +1860,16 @@ void snap_text_baseline_and_unsupported_axis_omission() {
     }
     {
         auto document=text_baseline_snap_document(true,false);
+        // Keep the canonical same-font H oracle, and isolate its baseline pair
+        // from the font-line box center. The common central column baseline is
+        // not that center; at 48 du their gap is only ~1.86 du, so the legitimate
+        // distance-first Snap instead chooses baseline-to-center at raw +15.
+        document.objects.at("moving-text").text->content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
         auto& target=*document.objects.at("target-text").text;
         target.direction="vertical";
+        target.content="H";
+        target.parameters.at("font_size").literal=96;
         target.parameters.at("origin_x").literal=40;
         target.parameters.at("origin_y").literal=320;
         document.objects.at("target-text").transform[4].literal=16;
@@ -1613,12 +1880,17 @@ void snap_text_baseline_and_unsupported_axis_omission() {
             "Vertical source and target each expose one measured column baseline");
         near(target_layout.column_baselines_x[0]-source_layout.column_baselines_x[0],0,
             "Matching vertical Text metrics isolate the target's authored 16-du translation");
+        check(std::abs(source_layout.column_baselines_x[0]-(source_layout.x+source_layout.width/2))>2,
+            "Measured column baseline is clear of the competing text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const auto start=f.screen(source_layout.x+source_layout.width/2,source_layout.y+source_layout.height/2);
         const auto end=start+QPoint(15,0);
         f.press(start);f.move(end);
         near(evaluate(f.session.preview_document()).at({"moving-text","","transform.tx"}),16,
-            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du");
+            "Raw 15-du horizontal drag snaps vertical column baselines by 16 du; feedback "+
+                f.canvas.last_snap_feedback().toStdString()+", source baseline "+
+                std::to_string(source_layout.column_baselines_x[0])+", source glyph bounds "+
+                std::to_string(source_layout.x)+".."+std::to_string(source_layout.x+source_layout.width));
         check(f.canvas.last_snap_feedback().contains("X: column 1 baseline Text baseline → target-text column 1 baseline"),
             "Vertical Text feedback names both measured columns: "+f.canvas.last_snap_feedback().toStdString());
         f.release(end);near(f.value("moving-text",{},"transform.tx"),16,
@@ -1681,8 +1953,15 @@ void snap_text_baseline_and_unsupported_axis_omission() {
         target.parameters.at("origin_y").literal=320;
         document.objects.at("moving-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{0,{}}}};
         document.objects.at("target-text").transform={{{0,{}},{1,{}},{-1,{}},{0,{}},{220,{}},{16,{}}}};
+        document.objects.at("moving-text").text->content="H";
+        target.content="H";
+        document.objects.at("moving-text").text->parameters.at("font_size").literal=96;
+        target.parameters.at("font_size").literal=96;
         const auto& source=*document.objects.at("moving-text").text;
         const auto layout=evaluate_text(source,text_parameters(source));
+        check(layout.column_baselines_x.size()==1&&
+              std::abs(layout.column_baselines_x.front()-(layout.x+layout.width/2))>2,
+            "Quarter-turn measured column baseline is clear of the text-box center Snap");
         Fixture f(document);f.canvas.set_selection("moving-text");
         const QTransform quarter_turn(0,1,-1,0,220,0);
         const QPointF body_center(layout.x+layout.width/2,layout.y+layout.height/2);
@@ -2016,7 +2295,7 @@ void guide_drag_uses_stable_identity_and_one_session_undo() {
         "Canvas hit testing follows Guide expressions and refuses to drag their authored target literal");
 }
 
-void layout_overlays_are_view_only_and_not_exported() {
+void layout_overlays_are_view_only_and_not_exported(bool probe_grid_x=false,bool probe_margin_top=false,bool probe_grid_top=false) {
     auto document=empty_document("overlay-document","overlay-composition","overlay-artboard");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
     board.layout=ArtboardLayout{Margin{10,15,20,25},Grid{"overlay-grid",{20,25,130,110},2,2,10,10}};
@@ -2043,19 +2322,30 @@ void layout_overlays_are_view_only_and_not_exported() {
     const double image_scale=linked_image.width()>canvas.width()?static_cast<double>(linked_image.width())/canvas.width():1.0;
     const auto count_guide_pixels=[&](const QImage& source,double position) {
         const int guide_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int y=qRound(55*image_scale);y<qRound(215*image_scale);++y)
+        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*image_scale);
+        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*image_scale);
+        const int horizontal_guide=qRound((canvas.height()/2.0+(40-80)*canvas.zoom())*image_scale);
+        // A horizontal Guide / Artboard border must not count as a missing
+        // vertical Guide, especially when its physical pixel count grows.
+        for(int y=top;y<bottom;++y) {
+          if(std::abs(y-horizontal_guide)<=qMax(2,qRound(2*image_scale)))continue;
           for(int x=guide_x-qMax(2,qRound(2*image_scale));x<=guide_x+qMax(2,qRound(2*image_scale));++x) {
             const auto pixel=source.pixelColor(x,y);if(pixel.blue()>pixel.red()+25&&pixel.blue()>pixel.green()+15)++pixels;
           }
+        }
         return pixels;
     };
     const auto count_margin_pixels=[&](const QImage& source,double position) {
-        const int margin_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        // Pixel indices describe cells [n,n+1), not points centered at n.
+        // Rounding a fractional-scale line to n+1 can miss its covered cell.
+        const int margin_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(15-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top;y<=bottom;++y)for(int x=margin_x-qMax(2,qRound(2*image_scale));
-            x<=margin_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
+        // The right evaluated/literal positions are only 2 DIP apart. A +/-2
+        // pixel search includes the evaluated line in the literal sample at
+        // 100% scale. Sample the actual column and omit horizontal corner ink.
+        for(int y=top+qRound(3*image_scale);y<bottom-qRound(3*image_scale);++y) {
+            const auto pixel=source.pixelColor(margin_x,y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
@@ -2066,7 +2356,10 @@ void layout_overlays_are_view_only_and_not_exported() {
         for(int x=margin_x-24;x<=margin_x+24;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
             y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
             const auto pixel=source.pixelColor(x,y);
-            if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
+            // At 150%, the preview top coincides with the y=40 Guide. Its
+            // composited Margin coverage is RGB183/172/219, not pure purple.
+            // Pure blue Guide ink has red below green and still cannot qualify.
+            if(pixel.red()>pixel.green()+5&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
     };
@@ -2074,46 +2367,269 @@ void layout_overlays_are_view_only_and_not_exported() {
         const int margin_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);
         const int margin_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(130-100)*canvas.zoom())*image_scale);int pixels=0;
-        for(int x=margin_x;x<=right;++x)for(int y=margin_y-qMax(2,qRound(2*image_scale));
-            y<=margin_y+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
+        // Preview moves the bottom from 135 to 134 DIP: neighboring sample
+        // bands overlap here too. Keep the two coordinates distinguishable.
+        for(int x=margin_x;x<=right;++x) {
+            const auto pixel=source.pixelColor(x,margin_y);
             if(pixel.red()>pixel.green()+20&&pixel.blue()>pixel.green()+30)++pixels;
         }
         return pixels;
     };
     const auto count_grid_pixels=[&](const QImage& source,double position) {
-        const int grid_x=qRound((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_x=static_cast<int>(std::floor((canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale));int pixels=0;
         const int top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
         const int bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
-        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-qMax(2,qRound(2*image_scale));
-            x<=grid_x+qMax(2,qRound(2*image_scale));++x) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-        }
-        return pixels;
-    };
-    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
-        const int row_boundary= qRound((canvas.height()/2.0+(position+(grid_height-10)/2.0-80)*canvas.zoom())*image_scale);int pixels=0;
-        const int left=qRound((canvas.width()/2.0+(55-100)*canvas.zoom())*image_scale);
-        const int right=qRound((canvas.width()/2.0+(185-100)*canvas.zoom())*image_scale);
-        for(int x=left+3;x<right-3;++x)for(int y=row_boundary-qMax(2,qRound(2*image_scale));
-            y<=row_boundary+qMax(2,qRound(2*image_scale));++y) {
-            const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        const auto is_grid=[](const QColor& pixel){
+            // Clipping at fractional physical pixels can leave only faint
+            // coverage (observed RGB233/240/235 at150%). Neutral paper, purple
+            // Margin and blue Guide ink fail these two color differences.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        // The exact fixture has two rows. Omit its known horizontal boundary
+        // cells even where an overlapping source Artboard masks one side of
+        // the color-based crossing check (observed two false pixels at y173).
+        const auto middle=grid.bounds.y+(grid.bounds.height-grid.row_gutter)/2.0;
+        const std::array crossing_rows{grid.bounds.y,middle,middle+grid.row_gutter,grid.bounds.y+grid.bounds.height};
+        // Include either side of a clipped Grid boundary, without the old
+        // broad band; reject horizontal crossings as evidence of a column.
+        // At125% a clipped x65 boundary falls in the right adjacent cell144,
+        // while cells142/143 are paper. Keep a narrow three-cell footprint.
+        for(int y=top+3;y<bottom-3;++y)for(int x=grid_x-1;x<=grid_x+1;++x) {
+            if(std::any_of(crossing_rows.begin(),crossing_rows.end(),[&](double row){
+                const auto physical=(canvas.height()/2.0+(row-80)*canvas.zoom())*image_scale;
+                return std::abs((y+.5)-physical)<=2;
+            }))continue;
+            if(is_grid(source.pixelColor(x-crossing_offset,y))&&
+                is_grid(source.pixelColor(x+crossing_offset,y)))continue;
+            if(is_grid(source.pixelColor(x,y)))++pixels;
         }
         return pixels;
     };
     const auto count_grid_horizontal_pixels=[&](const QImage& source,double position) {
-        const int grid_y=qRound((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale);int pixels=0;
+        const int grid_y=static_cast<int>(std::floor((canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
         const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
-        for(int x=left;x<=right;++x)for(int y=grid_y-qMax(2,qRound(2*image_scale));
-            y<=grid_y+qMax(2,qRound(2*image_scale));++y) {
+        // A 1px translucent cosmetic stroke splits its coverage across rows at
+        // integer coordinates (observed RGB 202/223/209 on a 250 background).
+        // Exclude vertical crossings so they cannot satisfy a missing row.
+        const auto is_grid=[](const QColor& pixel){
+            // The exact 150% clipped top row covers cell173 with RGB233/240/235.
+            // Keep faint green coverage; neutral paper, blue Guides and purple
+            // Margins still fail. Crossing rejection below remains required.
+            return pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3;
+        };
+        const int crossing_offset=qRound(6*image_scale);
+        const auto grid=*evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid;
+        const auto middle=grid.bounds.x+(grid.bounds.width-grid.column_gutter)/2.0;
+        const std::array crossing_columns{grid.bounds.x,middle,middle+grid.column_gutter,grid.bounds.x+grid.bounds.width};
+        for(int x=left;x<=right;++x) {
+          // At150%, x173 is a vertical boundary with RGB233/240/235 below,
+          // but the overlapping source Artboard masks the upper sample with
+          // RGB28/37/35. Exclude exact fixture columns even in that asymmetry.
+          if(std::any_of(crossing_columns.begin(),crossing_columns.end(),[&](double column){
+              const auto physical=(canvas.width()/2.0+(column-100)*canvas.zoom())*image_scale;
+              return std::abs((x+.5)-physical)<=2;
+          }))continue;
+          if(is_grid(source.pixelColor(x,grid_y-crossing_offset))&&
+              is_grid(source.pixelColor(x,grid_y+crossing_offset)))continue;
+          // A scaled broad band also picked up the distinct committed y107.5
+          // row while testing cancelled preview y105 (49px at100%,77 at150%).
+          // Use the observed three-cell footprint, including either clip side.
+          for(int y=grid_y-1;y<=grid_y+1;++y) {
             const auto pixel=source.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+            if(is_grid(pixel))++pixels;
+          }
         }
         return pixels;
     };
+    const auto count_grid_y_pixels=[&](const QImage& source,double position,double grid_height=95) {
+        return count_grid_horizontal_pixels(source,position+(grid_height-10)/2.0);
+    };
+    if(probe_grid_top) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical=(canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical));
+                std::cout<<" Grid row="<<position<<" physical="<<physical<<" legacy="<<count_grid_horizontal_pixels(image,position)<<'\n';
+                const int left=qRound((canvas.width()/2.0+(58-100)*canvas.zoom())*image_scale);
+                const int right=qRound((canvas.width()/2.0+(132-100)*canvas.zoom())*image_scale);
+                for(int y=cell-1;y<=cell+1;++y) {
+                    std::map<std::tuple<int,int,int>,int> colors;
+                    for(int x=left;x<=right;++x){const auto c=image.pixelColor(x,y);++colors[{c.red(),c.green(),c.blue()}];}
+                    std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                    for(const auto& [rgb,count]:colors)ranked.emplace_back(count,rgb);
+                    std::sort(ranked.rbegin(),ranked.rend());std::cout<<"  cell="<<y;
+                    for(std::size_t i=0;i<std::min<std::size_t>(6,ranked.size());++i){const auto [r,g,b]=ranked[i].second;
+                        std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;}std::cout<<'\n';
+                }
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_TOP_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,25,97.5});
+        check(count_grid_horizontal_pixels(linked_image,55)>20&&count_grid_horizontal_pixels(linked_image,25)==0,
+            "Evaluated initial Grid top rejects the authored literal row");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        canvas.refresh();QApplication::processEvents();
+        const auto committed=session.document();const auto native=encode(committed);const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();const auto preview=canvas.grab().toImage();
+        observe("preview",preview,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(preview,65)>20&&count_grid_horizontal_pixels(preview,25)==0&&
+            count_grid_horizontal_pixels(preview,55)==0&&count_grid_horizontal_pixels(preview,105)>20&&
+            count_grid_horizontal_pixels(preview,97.5)==0,
+            "Preview Grid top and interior row qualify without old or literal coordinates");
+        const auto y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
+        check(std::get<double>(y.literal)==25&&std::get<double>(y.evaluated)==65&&y.driver==grid_source,
+            "Grid top probe retains the literal and stable source while evaluating preview y65");
+        canvas.set_show_guides(false);canvas.set_show_margin(false);QApplication::processEvents();
+        const auto grid_only=canvas.grab().toImage();observe("grid-only",grid_only,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(grid_only,65)>20&&count_grid_horizontal_pixels(grid_only,105)>20&&
+            count_grid_horizontal_pixels(grid_only,25)==0&&count_grid_horizontal_pixels(grid_only,97.5)==0,
+            "Grid top and row remain visible without Guide and Margin overlays");
+        canvas.set_show_grid(false);canvas.set_show_guides(true);canvas.set_show_margin(true);QApplication::processEvents();
+        const auto no_grid=canvas.grab().toImage();observe("no-grid",no_grid,{65,25,105,97.5});
+        check(count_grid_horizontal_pixels(no_grid,65)==0&&count_grid_horizontal_pixels(no_grid,105)==0,
+            "Hidden Grid does not let Guide or Margin qualify top and row coordinates");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top probe and visibility controls preserve complete authored/native/revision/history");
+        session.cancel_gesture();canvas.set_show_grid(true);canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage();observe("cancelled",cancelled,{55,65,97.5,105});
+        check(count_grid_horizontal_pixels(cancelled,55)>20&&count_grid_horizontal_pixels(cancelled,65)==0&&
+            count_grid_horizontal_pixels(cancelled,97.5)>20&&count_grid_horizontal_pixels(cancelled,105)==0,
+            "Cancelled Grid preview restores committed top and row without future-row false positives");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Grid top preview cancellation preserves complete authored state");
+        return;
+    }
+    if(probe_margin_top) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions) {
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            const int center_x=qRound((canvas.width()/2.0+(70-100)*canvas.zoom())*image_scale);
+            for(const auto position:positions) {
+                const auto physical=(canvas.height()/2.0+(position-80)*canvas.zoom())*image_scale;
+                const int cell=static_cast<int>(std::floor(physical));
+                std::map<std::tuple<int,int,int>,int> colors;
+                for(int x=center_x-24;x<=center_x+24;++x)for(int y=cell-3;y<=cell+3;++y) {
+                    const auto c=image.pixelColor(x,y);if(c!=QColor(250,250,250))++colors[{c.red(),c.green(),c.blue()}];
+                }
+                std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                for(const auto& [rgb,count]:colors)ranked.push_back({count,rgb});std::sort(ranked.rbegin(),ranked.rend());
+                std::cout<<" top="<<position<<" physical="<<physical<<" cell="<<cell<<" sampled="<<count_margin_top_pixels(image,position);
+                for(std::size_t i=0;i<std::min<std::size_t>(10,ranked.size());++i){const auto [r,g,b]=ranked[i].second;
+                    std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;}std::cout<<'\n';
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_MARGIN_TOP_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{15,20,40});
+        check(count_margin_top_pixels(linked_image,15)>20&&count_margin_top_pixels(linked_image,20)==0&&count_margin_top_pixels(linked_image,40)==0,
+            "Margin top positive row rejects old coordinates and the standalone horizontal Guide");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        canvas.refresh();QApplication::processEvents();
+        const auto committed=session.document();const auto native=encode(committed);const auto revision=session.revision();const auto history=session.history();
+        const auto expression=canvas.grab().toImage();observe("expression",expression,{20,15,40});
+        check(count_margin_top_pixels(expression,20)>20&&count_margin_top_pixels(expression,15)==0&&count_margin_top_pixels(expression,40)==0,
+            "Expression Margin top moves to its evaluated row without literal or Guide false positives");
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();const auto preview=canvas.grab().toImage();
+        observe("preview",preview,{40,20,15});
+        const auto top=artboard_layout_property(session.preview_document(),{"overlay-artboard","","margin.top"});
+        check(std::get<double>(top.literal)==15&&std::get<double>(top.evaluated)==40&&top.expression.has_value(),
+            "Preview retains literal and exact expression while evaluating Margin top40");
+        check(count_margin_top_pixels(preview,40)>20&&count_margin_top_pixels(preview,20)==0&&count_margin_top_pixels(preview,15)==0,
+            "Preview composited Margin top qualifies only the evaluated row");
+        canvas.set_show_guides(false);QApplication::processEvents();const auto no_guides=canvas.grab().toImage();observe("no-guides",no_guides,{40,20});
+        check(count_margin_top_pixels(no_guides,40)>20&&count_margin_top_pixels(no_guides,20)==0,
+            "Same evaluated Margin top remains visible without overlapping Guide ink");
+        canvas.set_show_margin(false);canvas.set_show_guides(true);QApplication::processEvents();
+        const auto guide_only=canvas.grab().toImage();observe("guide-only",guide_only,{40,20});
+        check(count_margin_top_pixels(guide_only,40)==0&&count_margin_top_pixels(guide_only,20)==0,
+            "Hidden Margin negative control rejects the exact overlapping horizontal Guide");
+        canvas.set_show_guides(false);QApplication::processEvents();observe("no-margin",canvas.grab().toImage(),{40,20});
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Margin top probe preserves authored/native/revision/history during preview and visibility controls");
+        session.cancel_gesture();canvas.set_show_guides(true);canvas.set_show_margin(true);canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage();observe("cancelled",cancelled,{20,40});
+        check(count_margin_top_pixels(cancelled,20)>20&&count_margin_top_pixels(cancelled,40)==0,
+            "Cancelled preview restores committed expression row and rejects the remaining Guide");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Margin top probe cancellation preserves complete authored state");
+        return;
+    }
+    if(probe_grid_x) {
+        const auto observe=[&](const char* phase,const QImage& image,const std::vector<double>& positions){
+            std::cout<<phase<<" image="<<image.width()<<'x'<<image.height()<<" scale="<<image_scale<<" zoom="<<canvas.zoom()<<'\n';
+            for(const auto position:positions) {
+                const auto physical_x=(canvas.width()/2.0+(position-100)*canvas.zoom())*image_scale;
+                const auto cell=static_cast<int>(std::floor(physical_x));
+                const auto top=qRound((canvas.height()/2.0+(25-80)*canvas.zoom())*image_scale);
+                const auto bottom=qRound((canvas.height()/2.0+(135-80)*canvas.zoom())*image_scale);
+                std::map<std::tuple<int,int,int>,int> colors;
+                for(int y=top+3;y<bottom-3;++y)for(int x=cell-1;x<=cell+1;++x) {
+                    const auto pixel=image.pixelColor(x,y);
+                    if(pixel.green()>pixel.red()+5&&pixel.green()>pixel.blue()+3)
+                        ++colors[{pixel.red(),pixel.green(),pixel.blue()}];
+                }
+                std::vector<std::pair<int,std::tuple<int,int,int>>> ranked;
+                for(const auto& [rgb,count]:colors)ranked.push_back({count,rgb});
+                std::sort(ranked.rbegin(),ranked.rend());
+                std::cout<<"  x="<<position<<" physical="<<physical_x<<" cell="<<cell<<" count="<<count_grid_pixels(image,position);
+                for(std::size_t i=0;i<std::min<std::size_t>(8,ranked.size());++i) {
+                    const auto [r,g,b]=ranked[i].second;std::cout<<" rgb("<<r<<','<<g<<','<<b<<")="<<ranked[i].first;
+                }
+                std::cout<<'\n';
+            }
+            if(const auto prefix=qEnvironmentVariable("NECT_GRID_X_PROBE");!prefix.isEmpty())image.save(prefix+"-"+phase+".png");
+        };
+        observe("initial",linked_image,{55,20,73.5,77.5});
+        check(count_grid_pixels(linked_image,55)>20&&count_grid_pixels(linked_image,20)==0&&
+            count_grid_pixels(linked_image,73.5)>20&&count_grid_pixels(linked_image,77.5)==0,
+            "Exact initial Grid x and gutter edges have coverage; their retained literal positions do not");
+        session.apply({MarginLeftCommand{SetMarginLeftExpression{{"overlay-artboard","","margin.left"},
+            {R"(ref("overlay-margin-source","","artboard.width") + 2)",1},true}}},session.revision());
+        session.apply({MarginTopCommand{SetMarginTopExpression{{"overlay-artboard","","margin.top"},
+            {R"(ref("overlay-margin-source","","artboard.height") - 80)",1},false}}},session.revision());
+        const auto committed=session.document();const auto native=encode(committed);
+        const auto revision=session.revision();const auto history=session.history();
+        session.begin_gesture(revision);
+        session.update_gesture({UpdateGuide{"overlay-composition",{"overlay-source-x","Evaluated source","x",140}},
+            UpdateArtboard{"overlay-composition",{"overlay-margin-source","Margin source",0,0,26,120}},
+            UpdateArtboard{"overlay-composition",{"overlay-grid-source","Grid source",0,0,65,90}}});
+        canvas.refresh();QApplication::processEvents();
+        const auto preview=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        observe("preview",preview,{65,55,20,84.5,73.5});
+        check(count_grid_pixels(preview,65)>20&&count_grid_pixels(preview,84.5)>20&&count_grid_pixels(preview,55)==0&&
+            count_grid_pixels(preview,20)==0&&count_grid_pixels(preview,73.5)==0,
+            "Exact preview Grid x and gutter edges move to evaluated coordinates without old/literal column ink");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid probe leaves authored/native/revision/history unchanged during preview");
+        session.cancel_gesture();canvas.refresh();QApplication::processEvents();
+        const auto cancelled=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(cancelled,55)>20&&count_grid_pixels(cancelled,73.5)>20&&
+            count_grid_pixels(cancelled,65)==0&&count_grid_pixels(cancelled,84.5)==0,
+            "Cancellation restores the exact committed columns and removes preview columns");
+        canvas.set_show_grid(false);QApplication::processEvents();
+        const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        check(count_grid_pixels(hidden,55)==0&&count_grid_pixels(hidden,73.5)==0,
+            "Hidden Grid negative control rejects Guide/Margin/Artboard crossings at the positive sample columns");
+        check(session.document()==committed&&encode(session.document())==native&&session.revision()==revision&&session.history()==history,
+            "Narrow Grid cancellation and visibility controls preserve authored/native/revision/history");
+        return;
+    }
     const auto evaluated_guide_pixels=count_guide_pixels(linked_image,120),literal_guide_pixels=count_guide_pixels(linked_image,30);
     check(evaluated_guide_pixels>20&&literal_guide_pixels<20,
         "Canvas paints the expression-driven Guide at its evaluated coordinate, not its authored literal (evaluated="+
@@ -2123,8 +2639,23 @@ void layout_overlays_are_view_only_and_not_exported() {
     check(linked_margin_left_pixels>20&&literal_margin_left_pixels<20,
         "Canvas paints the linked Margin inset at its evaluated Artboard width, not its authored literal (evaluated="+
             std::to_string(linked_margin_left_pixels)+", literal="+std::to_string(literal_margin_left_pixels)+")");
-    check(count_margin_pixels(linked_image,182)>20&&count_margin_pixels(linked_image,180)<20,
-        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal");
+    const auto linked_margin_right_pixels=count_margin_pixels(linked_image,182);
+    const auto literal_margin_right_pixels=count_margin_pixels(linked_image,180);
+    check(linked_margin_right_pixels>20&&literal_margin_right_pixels<20,
+        "Canvas paints the linked right inset at its evaluated Artboard width, not its authored literal (evaluated="+
+            std::to_string(linked_margin_right_pixels)+", literal="+std::to_string(literal_margin_right_pixels)+
+            ", zoom="+std::to_string(canvas.zoom())+", image_scale="+std::to_string(image_scale)+")");
+    auto literal_right_document=session.document();
+    literal_right_document.compositions.front().artboards.front().layout->margin->right_driver.reset();
+    Session literal_right_session(std::move(literal_right_document));
+    Canvas literal_right_canvas(literal_right_session);
+    literal_right_canvas.resize(canvas.size());literal_right_canvas.show();QApplication::processEvents();
+    literal_right_canvas.fit_artboard();QApplication::processEvents();
+    const auto literal_right_image=literal_right_canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_margin_pixels(literal_right_image,180)>20&&count_margin_pixels(literal_right_image,182)<20,
+        "Margin pixel oracle distinguishes a literal-right control from the linked evaluated position (literal="+
+            std::to_string(count_margin_pixels(literal_right_image,180))+", evaluated="+
+            std::to_string(count_margin_pixels(literal_right_image,182))+")");
     check(count_margin_top_pixels(linked_image,15)>20,
         "Canvas paints the literal Margin top inset on the active Artboard");
     check(count_margin_bottom_pixels(linked_image,142)>20&&count_margin_bottom_pixels(linked_image,135)<20,
@@ -2171,6 +2702,7 @@ void layout_overlays_are_view_only_and_not_exported() {
     const auto preview_grid=evaluate_artboard(session.preview_document().compositions.front(),"overlay-artboard").layout->grid.value();
     canvas.refresh();QApplication::processEvents();
     const auto preview_image=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    if(const auto path=qEnvironmentVariable("NECT_LAYOUT_CAPTURE");!path.isEmpty())preview_image.save(path);
     const auto preview_grid_width=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.width"});
     const auto preview_grid_y=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.y"});
     const auto preview_grid_height=artboard_layout_property(session.preview_document(),{"overlay-grid","","grid.bounds.height"});
@@ -2186,15 +2718,23 @@ void layout_overlays_are_view_only_and_not_exported() {
         std::get<double>(preview_grid_gutter.evaluated)==26,
         "Canvas preview projection follows Grid height expressions while preserving authored literals");
     check(count_guide_pixels(preview_image,140)>20&&count_guide_pixels(preview_image,120)<20&&
-          count_guide_pixels(preview_image,30)<20&&count_margin_pixels(preview_image,28)>20&&
+          count_guide_pixels(preview_image,30)<20,"Preview Guide uses its evaluated position");
+    check(count_margin_pixels(preview_image,28)>20&&
           count_margin_pixels(preview_image,20)<20&&count_margin_pixels(preview_image,18)<20&&
-          count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20&&
+          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20,
+        "Preview Margin uses evaluated left and right positions");
+    check(count_margin_top_pixels(preview_image,40)>20&&count_margin_top_pixels(preview_image,20)<20,
+        "Preview Margin uses its evaluated top position");
+    check(
           count_margin_bottom_pixels(preview_image,134)>20&&count_margin_bottom_pixels(preview_image,142)<20&&
-          count_margin_bottom_pixels(preview_image,135)<20&&
-          count_margin_pixels(preview_image,174)>20&&count_margin_pixels(preview_image,180)<20&&
-          count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
-          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20&&
-          count_grid_y_pixels(preview_image,65,90)>20&&
+          count_margin_bottom_pixels(preview_image,135)<20,
+        "Preview Margin uses its evaluated bottom position");
+    check(count_grid_pixels(preview_image,65)>20&&count_grid_pixels(preview_image,55)<20&&count_grid_pixels(preview_image,20)<20&&
+          count_grid_pixels(preview_image,84.5)>20&&count_grid_pixels(preview_image,73.5)<20,
+        "Preview Grid uses evaluated x and column gutter positions (gutter="+
+            std::to_string(count_grid_pixels(preview_image,84.5))+", old gutter="+
+            std::to_string(count_grid_pixels(preview_image,73.5))+")");
+    check(count_grid_y_pixels(preview_image,65,90)>20&&
           count_grid_horizontal_pixels(preview_image,65)>20&&count_grid_horizontal_pixels(preview_image,25)<20&&
           count_grid_horizontal_pixels(preview_image,105)>20&&count_grid_horizontal_pixels(preview_image,97.5)<20,
         "Canvas Guide, expression Margin and Grid x/y overlays follow evaluated sources in the Session preview document (Grid x="+
@@ -2272,17 +2812,39 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
     const auto count_horizontal=[&](const QImage& image,double world_y) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);int pixels=0;
+        const auto scale=static_cast<double>(image.width())/canvas.width();
+        const int pixel_y=static_cast<int>(std::floor((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale));int pixels=0;
         const int left=qRound((canvas.width()/2.0+(20-100)*canvas.zoom())*scale);
         const int right=qRound((canvas.width()/2.0+(180-100)*canvas.zoom())*scale);
-        for(int x=left;x<=right;++x)for(int y=pixel_y-qMax(2,qRound(2*scale));y<=pixel_y+qMax(2,qRound(2*scale));++y) {
-            const auto pixel=image.pixelColor(x,y);
-            if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
+        // Observed half-covered cosmetic Grid rows are RGB202/223/209 and
+        // 202/222/208 on the250 background. The old predicate rejected both
+        // and counted only vertical crossings. Sample the coordinate's pixel
+        // cell, accepting that coverage and excluding persistent crossings.
+        const auto is_grid=[](const QColor& pixel){return pixel.green()>pixel.red()+15&&pixel.green()>pixel.blue()+10;};
+        const int crossing_offset=qRound(6*scale);
+        for(int x=left;x<=right;++x) {
+            if(is_grid(image.pixelColor(x,pixel_y-crossing_offset))&&
+                is_grid(image.pixelColor(x,pixel_y+crossing_offset)))continue;
+            if(is_grid(image.pixelColor(x,pixel_y)))++pixels;
         }
         return pixels;
     };
     const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    const auto probe_path=qEnvironmentVariable("NECT_GRID_ROW_PROBE");
+    if(!probe_path.isEmpty()) {
+        linked.save(probe_path);
+        const auto scale=static_cast<double>(linked.width())/canvas.width();
+        std::cout<<"row probe: canvas="<<canvas.width()<<'x'<<canvas.height()<<" image="<<linked.width()<<'x'<<linked.height()
+            <<" zoom="<<canvas.zoom()<<" scale="<<scale<<'\n';
+        for(const double world_y:{60.0,65.0,75.0,80.0}) {
+            const int x=qRound((canvas.width()/2.0+(60-100)*canvas.zoom())*scale);
+            const int y=qRound((canvas.height()/2.0+(world_y-80)*canvas.zoom())*scale);
+            std::cout<<"world_y="<<world_y<<" count="<<count_horizontal(linked,world_y)<<" rgb=";
+            for(int offset=-2;offset<=2;++offset){const auto color=linked.pixelColor(x,y+offset);
+                std::cout<<offset<<':'<<color.red()<<','<<color.green()<<','<<color.blue()<<' ';}
+            std::cout<<'\n';
+        }
+    }
     check(count_horizontal(linked,60)>20&&count_horizontal(linked,80)>20&&
         count_horizontal(linked,65)<=20&&count_horizontal(linked,75)<=20&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
@@ -2301,6 +2863,38 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
         ("Canvas row overlay moves both gutter edges when its upstream Artboard height changes: edges="+
             std::to_string(count_horizontal(updated,55))+","+std::to_string(count_horizontal(updated,85))+" old="+
             std::to_string(count_horizontal(updated,60))+","+std::to_string(count_horizontal(updated,80))).c_str());
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->row_gutter_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(literal,65)>20&&count_horizontal(literal,75)>20&&
+        count_horizontal(literal,55)<=20&&count_horizontal(literal,85)<=20&&
+        count_horizontal(literal,60)<=20&&count_horizontal(literal,80)<=20,
+        "Literal-only control draws literal gutter edges and rejects every expression-evaluated position");
+    const auto before_hide=encode(session.document());const auto before_revision=session.revision();const auto before_history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+    check(count_horizontal(hidden,65)==0&&count_horizontal(hidden,75)==0,
+        "Hidden Grid control cannot satisfy either positive row assertion");
+    check(encode(session.document())==before_hide&&session.revision()==before_revision&&session.history()==before_history,
+        "Grid rendering and visibility preserve complete authored/native/revision/history state");
+}
+
+QImage fixed_column_overlay(double scale,const std::vector<double>& boundaries,bool visible=true) {
+    // Independent 200x160 Artboard fixture at unit zoom in a300x260 Canvas.
+    QImage image(QSize(qRound(300*scale),qRound(260*scale)),QImage::Format_ARGB32);
+    image.setDevicePixelRatio(scale);image.fill(QColor(250,250,250));
+    if(visible) {
+        QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
+        painter.translate(50,50);painter.setBrush(Qt::NoBrush);
+        painter.setClipRect(QRectF(20,20,160,100));
+        QPen border(QColor(91,158,112,220),1.25);border.setCosmetic(true);
+        painter.setPen(border);painter.drawRect(QRectF(20,20,160,100));
+        QPen cells(QColor(91,158,112,155),1);cells.setCosmetic(true);painter.setPen(cells);
+        for(double x:boundaries)painter.drawLine(QPointF(x,20),QPointF(x,120));
+        for(double y:{65.,75.})painter.drawLine(QPointF(20,y),QPointF(180,y));
+    }
+    return image.copy(QRect(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale)));
 }
 
 void grid_column_gutter_overlay_tracks_evaluated_source() {
@@ -2315,37 +2909,44 @@ void grid_column_gutter_overlay_tracks_evaluated_source() {
     session.apply({GridColumnGutterCommand{SetGridColumnGutterExpression{target,expression,false}}},session.revision());
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
-    const auto count_vertical=[&](const QImage& image,double world_x) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
-        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
-        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
-        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
-            for(int y=top;y<=bottom;++y) {
-                const auto pixel=image.pixelColor(x,y);
-                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-            }
-        return pixels;
-    };
-    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(linked,90)>20&&count_vertical(linked,110)>20&&
-        count_vertical(linked,95)<=20&&count_vertical(linked,105)<=20&&
+    near(canvas.zoom(),1,"Column gutter fixture retains its independent unit-scale view");
+    const double scale=canvas.devicePixelRatioF();
+    const QRect region(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale));
+    // Native Windows and offscreen observation found the correct half-covered
+    // lines at RGB202/223/209 and202/222/208. The former color predicate counted
+    // crossings only. Keep the geometry fixed and compare every pixel instead
+    // of weakening its color/count threshold or searching for a nearby line.
+    const auto expected_linked=fixed_column_overlay(scale,{90,110});
+    const auto expected_updated=fixed_column_overlay(scale,{85,115});
+    const auto expected_literal=fixed_column_overlay(scale,{95,105});
+    const auto expected_hidden=fixed_column_overlay(scale,{},false);
+    const auto capture=[&] {return canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32).copy(region);};
+    const auto linked=capture();
+    check(linked==expected_linked&&linked!=expected_literal&&linked!=expected_hidden&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
         artboard_layout_property(session.document(),target).expression==expression&&
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==20,
-        ("Canvas column overlay draws both expression-evaluated Grid column gutter edges while preserving the authored literal: edges="+
-            std::to_string(count_vertical(linked,90))+","+std::to_string(count_vertical(linked,110))+" literal="+
-            std::to_string(count_vertical(linked,95))+","+std::to_string(count_vertical(linked,105))).c_str());
+        "Canvas column overlay exactly draws evaluated edges90/110, preserving the authored literal and source");
     auto upstream=session.document().compositions.front().artboards.back();upstream.width=30;
     session.apply({UpdateArtboard{session.document().compositions.front().id,upstream}},session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(updated,85)>20&&count_vertical(updated,115)>20&&
-        count_vertical(updated,90)<=20&&count_vertical(updated,110)<=20&&
+    const auto updated=capture();
+    check(updated==expected_updated&&updated!=expected_linked&&updated!=expected_literal&&
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==30,
-        ("Canvas column overlay moves both gutter edges when its upstream Artboard width changes: edges="+
-            std::to_string(count_vertical(updated,85))+","+std::to_string(count_vertical(updated,115))+" old="+
-            std::to_string(count_vertical(updated,90))+","+std::to_string(count_vertical(updated,110))).c_str());
+        "Canvas column overlay exactly moves to edges85/115 after its upstream Artboard width changes");
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->column_gutter_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=capture();
+    check(literal==expected_literal&&literal!=expected_linked&&literal!=expected_updated,
+        "Literal-only control exactly draws edges95/105 and rejects both evaluated positions");
+    const auto before_hide=encode(session.document());const auto revision=session.revision();const auto history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=capture();
+    check(hidden==expected_hidden&&hidden!=expected_linked&&hidden!=expected_updated&&hidden!=expected_literal,
+        "Hidden Grid control rejects every visible column overlay");
+    check(encode(session.document())==before_hide&&session.revision()==revision&&session.history()==history,
+        "Column overlay rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_columns_overlay_tracks_evaluated_source() {
@@ -2361,24 +2962,22 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({GridColumnsCommand{LinkGridColumns{target,source,false}}},session.revision());
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
-    const auto count_vertical=[&](const QImage& image,double world_x) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
-        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
-        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
-        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
-            for(int y=top;y<=bottom;++y) {
-                const auto pixel=image.pixelColor(x,y);
-                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-            }
-        return pixels;
-    };
-    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(linked,66.6666667)>20&&count_vertical(linked,95)<=20&&
+    near(canvas.zoom(),1,"Column count fixture retains its independent unit-scale view");
+    const double scale=canvas.devicePixelRatioF();
+    const QRect region(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale));
+    // Pre-fixed complete boundary sets: literal2, linked3, linked4 and expressed5.
+    const auto expected_literal=fixed_column_overlay(scale,{95,105});
+    const auto expected_three=fixed_column_overlay(scale,{200./3,230./3,370./3,400./3});
+    const auto expected_four=fixed_column_overlay(scale,{52.5,62.5,95,105,137.5,147.5});
+    const auto expected_five=fixed_column_overlay(scale,{44,54,78,88,112,122,146,156});
+    const auto expected_hidden=fixed_column_overlay(scale,{},false);
+    const auto capture=[&] {return canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32).copy(region);};
+    const auto linked=capture();
+    check(linked==expected_three&&linked!=expected_literal&&linked!=expected_hidden&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
         artboard_layout_property(session.document(),target).driver==source&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==3,
-        "Canvas Grid overlay draws the first evaluated-count boundary and preserves its authored literal and stable Ref");
+        "Canvas Grid overlay exactly draws all three evaluated columns and preserves its literal and stable Ref");
     auto updated=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[](const Artboard& value){
             return value.id=="columns-overlay-source-board";
@@ -2387,15 +2986,15 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
         session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto evaluated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(evaluated,52.5)>20&&count_vertical(evaluated,66.6666667)<=20&&
+    const auto evaluated=capture();
+    check(evaluated==expected_four&&evaluated!=expected_three&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows a source count change to the new first-column boundary");
     const Expression expression{R"(ref("columns-overlay-source-grid","","grid.columns") + 1)",1};
     session.apply({GridColumnsCommand{SetGridColumnsExpression{target,expression,true}}},session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto expressed=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(expressed,44)>20&&
+    const auto expressed=capture();
+    check(expressed==expected_five&&expressed!=expected_four&&
         artboard_layout_property(session.document(),target).expression==expression&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==5,
@@ -2408,10 +3007,23 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
         session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto expression_updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(expression_updated,52.5)>20&&
+    const auto expression_updated=capture();
+    check(expression_updated==expected_four&&expression_updated!=expected_five&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows upstream source changes through the active columns expression");
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->columns_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=capture();
+    check(literal==expected_literal&&literal!=expected_three&&literal!=expected_four&&literal!=expected_five,
+        "Literal-only count control rejects every evaluated column set");
+    const auto before_hide=encode(session.document());const auto revision=session.revision();const auto history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=capture();
+    check(hidden==expected_hidden&&hidden!=expected_literal&&hidden!=expected_three&&hidden!=expected_four&&hidden!=expected_five,
+        "Hidden Grid count control rejects every visible column set");
+    check(encode(session.document())==before_hide&&session.revision()==revision&&session.history()==history,
+        "Column count rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_rows_overlay_tracks_evaluated_source() {
@@ -2509,21 +3121,85 @@ int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QApplication application(argc, argv);
     try {
+        if(application.arguments().contains("--linked-grid-x-probe")) {
+            layout_overlays_are_view_only_and_not_exported(true);
+            std::cout<<"Linked Grid x contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--margin-top-probe")) {
+            layout_overlays_are_view_only_and_not_exported(false,true);
+            std::cout<<"Margin top contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--grid-top-probe")) {
+            layout_overlays_are_view_only_and_not_exported(false,false,true);
+            std::cout<<"Grid top contract: "<<checks<<" focused checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--grid-row-gutter-only")) {
+            grid_row_gutter_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid row gutter contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--grid-columns-only")) {
+            grid_columns_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid columns contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--grid-column-gutter-only")) {
+            grid_column_gutter_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid column gutter contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--linked-margin-only")) {
+            layout_overlays_are_view_only_and_not_exported();
+            std::cout << "Canvas linked Margin contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--guide-segment-reentry-only")) {
+            scoped_guide_snap_reentry_uses_corrected_other_axis();
+            artboard_guide_snap_segments_and_overlay_clipping();
+            std::cout<<"canvas_guide_segment_reentry: "<<checks<<" checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--marquee-context-only")) {
+            marquee_refuses_replacement_document_or_host();
+            view_fit_preserves_marquee_selection();
+            std::cout<<"canvas_marquee_context: "<<checks<<" checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--fit-gesture-only")) {
+            view_fit_preserves_active_circle_gesture();
+            view_fit_preserves_marquee_selection();
+            guide_drag_uses_stable_identity_and_one_session_undo();
+            std::cout<<"canvas_fit_gesture: "<<checks<<" checks passed\n";return 0;
+        }
+        if(application.arguments().contains("--text-baseline-only")) {
+            snap_text_baseline_and_unsupported_axis_omission();
+            std::cout << "Canvas Text baseline contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--pen-scope-only")) {
+            pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope();
+            hierarchy_selection_and_inverse_coordinates();
+            std::cout << "Canvas Pen scope contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        marquee_refuses_replacement_document_or_host();
         rectangle_selection_is_view_only();
         keyboard_world_placement();
         contextual_selection_and_framing();
         detailed_canvas_timing_is_opt_in_with_shared_observer();
         circle_source_handles_use_local_session_properties();
+        view_fit_preserves_active_circle_gesture();
+        view_fit_preserves_marquee_selection();
         circle_source_handle_context_and_driver_failures_are_atomic();
         point_drag_is_one_transaction();
         cancellation_and_return_home_do_not_commit();
         independent_polar_handle_edits();
         create_and_collapse_handles_preserves_authored_angle();
         hierarchy_selection_and_inverse_coordinates();
+        pen_scope_exit_preserves_committed_contour_and_starts_in_current_scope();
         driven_coordinate_rejects_atomically_but_free_axis_can_move();
         snap_tolerance_zoom_and_exact_edits();
         snap_guide_grid_priority_visibility_and_controls();
         artboard_guide_snap_segments_and_overlay_clipping();
+        scoped_guide_snap_reentry_uses_corrected_other_axis();
         grid_rows_snap_uses_evaluated_source();
         snap_two_sided_equal_gap_and_point_world_correction();
         snap_repeated_gap_fixed_oracles_and_eligibility();

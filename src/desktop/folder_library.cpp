@@ -119,7 +119,7 @@ bool canonical_asset_id(const QString& asset_id) {
 
 struct StoredPresetAsset {
     LibraryPresetAssetV1 metadata;
-    PresetDefinition definition;
+    PortablePresetClosure closure;
     QByteArray raw_envelope;
     QByteArray payload;
 };
@@ -208,7 +208,7 @@ StoredPresetAsset read_stored_preset_asset(const QString& root,const QString& as
         throw Error("PRESET_ASSET_ID_MISMATCH","Preset asset envelope AssetID does not match the exact requested file identity");
     const auto revision=envelope.accepted_revision;
     const auto schema=envelope.payload_schema;
-    if(schema!=1&&schema!=2)
+    if(schema!=1&&schema!=2&&schema!=3)
         throw Error("UNSUPPORTED_PRESET_SCHEMA","Preset payload schema is not supported by this build");
     const auto& payload_text=envelope.payload;
     const QByteArray payload(payload_text.data(),static_cast<qsizetype>(payload_text.size()));
@@ -218,20 +218,29 @@ StoredPresetAsset read_stored_preset_asset(const QString& root,const QString& as
     const auto actual_hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
     if(QString::fromStdString(claimed_hash)!=QString::fromLatin1(actual_hash))
         throw Error("PRESET_ASSET_HASH_MISMATCH","Preset asset payload SHA-256 does not match its envelope");
-    PresetDefinition definition;
-    try { definition=read_canonical_preset_payload(std::string_view(payload.constData(),static_cast<std::size_t>(payload.size()))); }
+    PortablePresetClosure closure;
+    try {
+        closure=read_canonical_preset_closure_payload(
+            std::string_view(payload.constData(),static_cast<std::size_t>(payload.size())),static_cast<unsigned>(schema));
+        if(QByteArray::fromStdString(canonical_preset_closure_payload(closure))!=payload)
+            throw Error("NONCANONICAL_PRESET_PAYLOAD","Preset asset payload must use exact canonical bytes");
+    }
     catch(const Error& error) {
         if(error.code=="UNSUPPORTED_PRESET_SCHEMA"||error.code=="PRESET_PAYLOAD_LIMIT")throw;
+        if(error.code=="PRESET_SCHEMA_MISMATCH")
+            throw Error("PRESET_ASSET_ENVELOPE_MISMATCH","Preset asset schema does not match its canonical payload");
         throw Error("UNAVAILABLE_PRESET_ASSET",std::string("Preset asset payload is unavailable: ")+error.code+": "+error.what());
+    } catch(const std::exception& error) {
+        throw Error("UNAVAILABLE_PRESET_ASSET",std::string("Preset asset payload is malformed: ")+error.what());
     }
-    if(definition.schema_version!=schema||QString::fromStdString(definition.label)!=QString::fromStdString(envelope.label))
+    if(portable_preset_closure_schema(closure)!=schema||QString::fromStdString(closure.definition.label)!=QString::fromStdString(envelope.label))
         throw Error("PRESET_ASSET_ENVELOPE_MISMATCH","Preset asset label or schema does not match its canonical payload");
-    if(definition.id==asset_id.toStdString())
-        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from the source Document DefinitionID");
-    validate_portable_literal_preset(definition);
+    if(closure.definition.id==asset_id.toStdString()||closure.macro_definitions.contains(asset_id.toStdString()))
+        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from source Document definition IDs");
+    validate_portable_preset_closure(closure);
     LibraryPresetAssetV1 metadata{{asset_id},QString::fromStdString(envelope.label),revision,
         QString::fromStdString(claimed_hash),static_cast<unsigned>(schema),true,{}};
-    return {std::move(metadata),std::move(definition),raw,payload};
+    return {std::move(metadata),std::move(closure),raw,payload};
 }
 
 QByteArray macro_asset_envelope(const LibraryMacroAssetV1& metadata,const QByteArray& payload) {
@@ -353,18 +362,18 @@ std::unique_ptr<QLockFile> lock_preset_asset_root(const QString& root) {
     return lock;
 }
 
-void validate_publishable_preset(const PresetDefinition& definition) {
-    validate_portable_literal_preset(definition);
-    (void)canonical_preset_payload(definition);
+void validate_publishable_preset(const PortablePresetClosure& closure) {
+    validate_portable_preset_closure(closure);
+    (void)canonical_preset_closure_payload(closure);
 }
 
-LibraryPresetAssetV1 metadata_for(const PresetDefinition& definition,const QString& asset_id,std::uint64_t revision) {
-    validate_publishable_preset(definition);
-    if(definition.id==asset_id.toStdString())
-        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from its Document DefinitionID");
-    const auto payload=QByteArray::fromStdString(canonical_preset_payload(definition));
+LibraryPresetAssetV1 metadata_for(const PortablePresetClosure& closure,const QString& asset_id,std::uint64_t revision) {
+    validate_publishable_preset(closure);
+    if(closure.definition.id==asset_id.toStdString()||closure.macro_definitions.contains(asset_id.toStdString()))
+        throw Error("PRESET_ASSET_ID_MISMATCH","Workspace AssetID must be distinct from source Document definition IDs");
+    const auto payload=QByteArray::fromStdString(canonical_preset_closure_payload(closure));
     const auto hash=QCryptographicHash::hash(payload,QCryptographicHash::Sha256).toHex();
-    return {{asset_id},QString::fromStdString(definition.label),revision,QString::fromLatin1(hash),definition.schema_version,true,{}};
+    return {{asset_id},QString::fromStdString(closure.definition.label),revision,QString::fromLatin1(hash),portable_preset_closure_schema(closure),true,{}};
 }
 
 }
@@ -879,7 +888,7 @@ QString FolderLibrary::favorite_status(const LibraryFavoriteV1& favorite) const 
         return "Available";
     }
     if(const auto* preset=std::get_if<PresetAssetRefV1>(&favorite.target)) {
-        try {(void)read_preset_asset(*preset);return "Available";}
+        try {(void)read_preset_closure_asset(*preset);return "Available";}
         catch(const Error& error) {return error_message(error);}
     }
     if(const auto* macro=std::get_if<MacroAssetRefV1>(&favorite.target)) {
@@ -923,14 +932,28 @@ QList<LibraryPresetAssetV1> FolderLibrary::preset_assets() const {
 }
 
 PresetDefinition FolderLibrary::read_preset_asset(const PresetAssetRefV1& ref,LibraryPresetAssetV1* metadata) const {
+    LibraryPresetAssetV1 read_metadata;
+    auto closure=read_preset_closure_asset(ref,&read_metadata);
+    if(!closure.macro_definitions.empty())
+        throw Error("PRESET_DEPENDENCY_CLOSURE_REQUIRED","Preset asset includes Macro dependencies; read its complete portable closure");
+    if(metadata)*metadata=std::move(read_metadata);
+    return std::move(closure.definition);
+}
+
+PortablePresetClosure FolderLibrary::read_preset_closure_asset(const PresetAssetRefV1& ref,LibraryPresetAssetV1* metadata) const {
     const auto root_path=resolved_preset_payload_root(false);
     auto stored=read_stored_preset_asset(root_path,ref.asset_id);
     if(metadata)*metadata=stored.metadata;
-    return std::move(stored.definition);
+    return std::move(stored.closure);
 }
 
 LibraryPresetAssetV1 FolderLibrary::publish_preset(const PresetDefinition& definition) {
-    validate_publishable_preset(definition);
+    validate_portable_literal_preset(definition);
+    return publish_preset(PortablePresetClosure{definition,{}});
+}
+
+LibraryPresetAssetV1 FolderLibrary::publish_preset(const PortablePresetClosure& closure) {
+    validate_publishable_preset(closure);
     const auto root_path=resolved_preset_payload_root(true);
     auto lock=lock_preset_asset_root(root_path);
     (void)lock;
@@ -944,8 +967,8 @@ LibraryPresetAssetV1 FolderLibrary::publish_preset(const PresetDefinition& defin
         asset_id=QUuid::createUuid().toString(QUuid::WithoutBraces);
         path=QDir(root_path).filePath(asset_id+QStringLiteral(".preset.json"));
     } while(QFileInfo::exists(path));
-    auto metadata=metadata_for(definition,asset_id,1);
-    const auto payload=QByteArray::fromStdString(canonical_preset_payload(definition));
+    auto metadata=metadata_for(closure,asset_id,1);
+    const auto payload=QByteArray::fromStdString(canonical_preset_closure_payload(closure));
     const auto envelope=preset_asset_envelope(metadata,payload);
     write_preset_asset_file(root_path,path,envelope,payload_write_override_,std::nullopt);
     bool removed_candidate=false;
@@ -964,7 +987,13 @@ LibraryPresetAssetV1 FolderLibrary::publish_preset(const PresetDefinition& defin
 
 LibraryPresetAssetV1 FolderLibrary::update_preset_asset(const PresetAssetRefV1& ref,
     const PresetDefinition& definition,std::uint64_t expected_revision,const QString& expected_sha256) {
-    validate_publishable_preset(definition);
+    validate_portable_literal_preset(definition);
+    return update_preset_asset(ref,PortablePresetClosure{definition,{}},expected_revision,expected_sha256);
+}
+
+LibraryPresetAssetV1 FolderLibrary::update_preset_asset(const PresetAssetRefV1& ref,
+    const PortablePresetClosure& closure,std::uint64_t expected_revision,const QString& expected_sha256) {
+    validate_publishable_preset(closure);
     const auto root_path=resolved_preset_payload_root(false);
     if(!QFileInfo::exists(root_path))throw Error("MISSING_PRESET_ASSET","The exact Preset Library asset file is missing");
     auto lock=lock_preset_asset_root(root_path);
@@ -974,8 +1003,8 @@ LibraryPresetAssetV1 FolderLibrary::update_preset_asset(const PresetAssetRefV1& 
         throw Error("PRESET_ASSET_REVISION_CONFLICT","Preset asset changed after selection; refresh before updating");
     if(expected_revision>=9007199254740991ULL)
         throw Error("PRESET_ASSET_REVISION_LIMIT","Preset asset revision reached the supported integer limit");
-    auto next=metadata_for(definition,ref.asset_id,expected_revision+1);
-    const auto payload=QByteArray::fromStdString(canonical_preset_payload(definition));
+    auto next=metadata_for(closure,ref.asset_id,expected_revision+1);
+    const auto payload=QByteArray::fromStdString(canonical_preset_closure_payload(closure));
     const auto envelope=preset_asset_envelope(next,payload);
     const auto path=QDir(root_path).filePath(ref.asset_id+QStringLiteral(".preset.json"));
     write_preset_asset_file(root_path,path,envelope,payload_write_override_,current.raw_envelope);
@@ -1017,7 +1046,7 @@ void FolderLibrary::delete_preset_asset(const PresetAssetRefV1& ref,
 
 LibraryFavoriteV1 FolderLibrary::add_favorite(const PresetAssetRefV1& preset,int quick_slot) {
     if(quick_slot<0||quick_slot>9)throw Error("INVALID_QUICK_SLOT","Quick Access slot must be between 1 and 9, or 0 for none");
-    (void)read_preset_asset(preset);
+    (void)read_preset_closure_asset(preset);
     return add_favorite_target(LibraryFavoriteTargetV1{preset},quick_slot);
 }
 

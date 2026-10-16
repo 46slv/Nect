@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QGroupBox>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPointer>
@@ -45,10 +46,18 @@ void show_error(QLabel* status,const std::exception& error){
 QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    std::vector<std::string> retained_families;retained_families.reserve(targets.size());
+    for(const auto& id:targets) {
+        const auto found=host.session.document().objects.find(id);
+        retained_families.push_back(found!=host.session.document().objects.end()&&found->second.text?found->second.text->family:std::string{});
+    }
     auto* box=new QGroupBox(QString("Text family · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-family-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-family-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-family-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);
     auto* editor=new QComboBox(box);editor->setObjectName("text-family-batch-editor");
     editor->setAccessibleName("Font family for every selected Text object");
     editor->setEditable(true);
@@ -66,13 +75,11 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
     layout->addWidget(editor);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-family-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QComboBox> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply);
     const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document&{
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,retained_families]()->const Document&{
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Text selection belongs to another document");
         if(safe_host->session.revision()!=revision)
@@ -81,7 +88,11 @@ QWidget* make_text_family_batch_controls(Host& host,const std::vector<Id>& targe
             throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying family");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();require_targets(document,targets);
+        for(std::size_t i=0;i<targets.size();++i)
+            if(document.objects.at(targets[i]).text->family!=retained_families[i])
+                throw Error("PROPERTY_CONFLICT","The retained Text family changed; refresh before applying the draft");
+        return document;
     };
     try{
         const auto& document=current_document();const auto& first=document.objects.at(targets.front()).text->family;

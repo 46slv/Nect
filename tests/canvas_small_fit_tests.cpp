@@ -187,6 +187,41 @@ void normal_view_and_inputs(Session& session) {
     verify_fit(canvas, session);
     before.unchanged(session);
 }
+
+void fit_preserves_active_pan(Session& session) {
+    const Snapshot before(session);
+    for (const bool hand : {false, true}) for (const bool all_artboards : {false, true}) {
+        Canvas canvas(session);
+        canvas.set_show_grid(false);
+        canvas.set_show_guides(false);
+        canvas.set_show_margin(false);
+        canvas.resize(900, 700);
+        canvas.show();
+        settle();
+        canvas.fit_artboard();
+        canvas.set_zoom(1.0);
+        canvas.set_hand_mode(hand);
+        const auto initial = painted_artboard(canvas);
+        const auto button = hand ? Qt::LeftButton : Qt::MiddleButton;
+        const QPoint start(400, 300), first(12, 6), final(40, 20);
+        QTest::mousePress(&canvas, button, Qt::NoModifier, start);
+        QTest::mouseMove(&canvas, start + first);
+        const auto moving = painted_artboard(canvas);
+        check(moving == initial.translated(first), "Active Hand/middle pan has the expected view before Fit");
+        if (all_artboards) canvas.fit_all_artboards();
+        else canvas.fit_artboard();
+        near(canvas.zoom(), 1.0, "Fit preserves the active Hand/middle pan scale");
+        check(painted_artboard(canvas) == moving, "Fit preserves the active pan position");
+        QTest::mouseMove(&canvas, start + final);
+        QTest::mouseRelease(&canvas, button, Qt::NoModifier, start + final);
+        settle();
+        check(painted_artboard(canvas) == initial.translated(final), "Pan continues through Fit with its original mapping");
+        before.unchanged(session);
+        canvas.fit_artboard();
+        verify_fit(canvas, session);
+        before.unchanged(session);
+    }
+}
 }
 
 int main(int argc, char** argv) {
@@ -199,6 +234,7 @@ int main(int argc, char** argv) {
         session.apply({Set{x, 270.0}}, session.revision());
         session.undo(session.revision());
         check(session.can_undo() && session.can_redo(), "Fixture retains both History directions");
+        fit_preserves_active_pan(session);
         normal_view_and_inputs(session);
         constrained_viewport(session);
         std::cout << "PASS " << checks << " Canvas small-Fit geometry/view checks\n";

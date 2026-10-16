@@ -35,7 +35,7 @@ private:
     std::uint64_t revision_=0,gesture_=0,saved_revision_=0;
     bool finished_=false,loaded_=false,presenting_=false;
     int selected_row_=-1;
-    MacroDefinitionRevision draft_;
+    MacroDefinitionRevision loaded_source_,draft_;
     std::vector<MacroPublicParameter> controls_;
     std::map<Mapping,QString> defaults_;
     std::map<Mapping,bool> enabled_defaults_;

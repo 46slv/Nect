@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-// The optional core-only path must link source-matched native 0.83 libraries.
+// The optional core-only path must link source-matched native 0.87 libraries.
 // It never qualifies the Qt component or replaces its desktop regression run.
 using namespace nect;
 namespace {
@@ -96,7 +96,7 @@ struct Snapshot{
     }
 };
 void core_smoke(){
-    check(std::string(native_version)=="0.83","Smoke is source-bound to native 0.83");
+    check(std::string(native_version)=="0.87","Smoke is source-bound to native 0.87");
     Session session(fixture());const Snapshot before(session);
     session.apply(content_commands(session.document(),changed_content),session.revision());
     const auto expected=contentized(before.document,changed_content);

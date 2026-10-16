@@ -80,7 +80,7 @@ int main() {
         check(!vertical_cjk.first_line_baseline_y.has_value(),
             "Vertical text does not expose a horizontal-baseline snap metric");
         check(vertical_cjk.column_baselines_x.size()==1&&std::isfinite(vertical_cjk.column_baselines_x.front()),
-            "One vertical CJK column exposes its measured DirectWrite run baseline X");
+            "One vertical CJK column exposes its measured DirectWrite central baseline X");
         cjk.parameters.at("origin_x").literal=123.25;
         const auto shifted_vertical_cjk=evaluate_text(cjk,values(cjk));
         near(shifted_vertical_cjk.column_baselines_x.front()-vertical_cjk.column_baselines_x.front(),123.25,
@@ -125,12 +125,72 @@ int main() {
         lines.direction="vertical";
         const auto vertical_columns=evaluate_text(lines,values(lines));
         check(vertical_columns.column_baselines_x.size()==2,
-            "Two vertical columns expose two measured run baseline origins");
+            "Two vertical columns expose two measured central baselines");
         near(vertical_columns.column_baselines_x[1]-vertical_columns.column_baselines_x[0],-80,
             "Vertical columns progress right to left by measured uniform spacing");
         lines.content="H\n\nH";
         check(evaluate_text(lines,values(lines)).column_baselines_x.empty(),
             "A blank vertical column does not get a fabricated baseline");
+
+        // Upright CJK and rotated Latin have different drawing origins. Their
+        // common column metric must survive run order, fallback font metrics,
+        // em size, authored origin and right-to-left column progression.
+        std::vector<std::string> vertical_families{source.family};
+        for(const auto& family:{"Arial","Yu Gothic"})
+            if(std::binary_search(fonts.begin(),fonts.end(),family))vertical_families.emplace_back(family);
+        for(const auto& family:vertical_families)for(const auto size:{12.5,24.0,42.0}) {
+            auto vertical_mixed=default_text("vertical-mixed","日ABC本\nABC日本");
+            vertical_mixed.family=family;vertical_mixed.direction="vertical";
+            vertical_mixed.parameters.at("font_size").literal=size;
+            vertical_mixed.parameters.at("line_spacing").literal=80;
+            const auto retained=vertical_mixed;
+            const auto measured=evaluate_text(vertical_mixed,values(vertical_mixed));
+            check(measured.column_baselines_x.size()==2&&!measured.contours->empty(),
+                "Mixed upright Japanese and sideways Latin expose both measured column baselines");
+            near(measured.column_baselines_x[1]-measured.column_baselines_x[0],-80,
+                "Mixed vertical columns retain measured right-to-left spacing");
+            auto reordered=vertical_mixed;reordered.content="ABC日本\n日ABC本";
+            const auto reordered_layout=evaluate_text(reordered,values(reordered));
+            check(reordered_layout.column_baselines_x.size()==2,
+                "A Latin first run does not hide the mixed column central baseline");
+            near(reordered_layout.column_baselines_x.front(),measured.column_baselines_x.front(),
+                "Central baseline is independent of the first run's upright or rotated orientation");
+            vertical_mixed.parameters.at("origin_x").literal=123.25;
+            vertical_mixed.parameters.at("origin_y").literal=-17.5;
+            const auto moved=evaluate_text(vertical_mixed,values(vertical_mixed));
+            check(moved.column_baselines_x.size()==2&&moved.contours->size()==measured.contours->size(),
+                "Moving mixed vertical text retains all column metrics and shaped contours");
+            for(std::size_t column=0;column<2;++column)
+                near(moved.column_baselines_x[column]-measured.column_baselines_x[column],123.25,
+                    "Every mixed column baseline follows authored X without depending on Y");
+            for(std::size_t c=0;c<measured.contours->size();++c) {
+                const auto& original=measured.contours->at(c);const auto& translated=moved.contours->at(c);
+                check(original.closed==translated.closed&&original.points.size()==translated.points.size(),
+                    "Mixed vertical origin translation preserves exact glyph topology");
+                for(std::size_t p=0;p<original.points.size();++p) {
+                    const auto& before=original.points[p];const auto& after=translated.points[p];
+                    for(const auto& pair:{std::pair{before.anchor,after.anchor},std::pair{before.incoming,after.incoming},
+                            std::pair{before.outgoing,after.outgoing}}) {
+                        near(pair.second.x-pair.first.x,123.25,"Mixed vertical origin moves every cubic X");
+                        near(pair.second.y-pair.first.y,-17.5,"Mixed vertical origin moves every cubic Y");
+                    }
+                }
+            }
+            auto whitespace=retained;whitespace.content="日ABC本\n \t　\nABC日本";
+            check(evaluate_text(whitespace,values(whitespace)).column_baselines_x.empty(),
+                "A whitespace-only mixed vertical column does not receive a fabricated baseline");
+            check(retained.parameters.at("origin_x").literal==0&&retained.parameters.at("origin_y").literal==0,
+                "Derived mixed column metrics leave authored origins unchanged");
+            auto wrapped=retained;wrapped.content="日ABC本日ABC本日ABC本";wrapped.layout="frame";
+            wrapped.parameters.at("frame_width").literal=96;
+            wrapped.parameters.at("frame_height").literal=48;
+            const auto wrapped_layout=evaluate_text(wrapped,values(wrapped));
+            check(wrapped_layout.column_baselines_x.size()>2&&wrapped_layout.overflow,
+                "Mixed vertical frame wrapping retains measured overflow column baselines");
+            for(std::size_t column=1;column<wrapped_layout.column_baselines_x.size();++column)
+                near(wrapped_layout.column_baselines_x[column]-wrapped_layout.column_baselines_x[column-1],-80,
+                    "Mixed wrapped columns use the actual uniform spacing across frame overflow");
+        }
 
         auto paragraph=default_text("paragraph","");for(int i=0;i<30;++i)paragraph.content+="日本";
         const auto auto_paragraph=evaluate_text(paragraph,values(paragraph));paragraph.layout="frame";

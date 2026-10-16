@@ -149,10 +149,43 @@ void ColorTools::populate_menu(QMenu* menu,const Ref& ref,const QString& session
         check_target(ref,session);const auto source=clipboard_reference(window_.host.session.document());
         window_.host.session.apply({LinkColor{ref,source}},window_.host.session.revision());window_.host.edited();
     });
-    action("color-link-named","Link named color…",[this,ref,session]{check_target(ref,session);pick_named(ref,session);});
-    action("color-edit-expressions","Edit RGBA expressions…",[this,ref,session]{check_target(ref,session);edit_expressions(ref,session);});
-    action("color-unlink","Unlink · keep evaluated RGBA",[this,ref,session]{
-        check_target(ref,session);window_.host.session.apply({UnlinkColor{ref}},window_.host.session.revision());window_.host.edited();
+    const auto unlink_document_id=window_.host.session.document().id;
+    const auto unlink_revision=window_.host.session.revision();
+    const auto unlink_generation=window_.host.session.gesture_generation();
+    const auto unlink_preview_born=window_.host.session.gesture_active();
+    std::optional<std::array<Scalar,4>> unlink_authored;
+    try {
+        const auto refs=color_channels(window_.host.session.document(),ref);
+        std::array<Scalar,4> authored{};
+        for(std::size_t i=0;i<refs.size();++i)authored[i]=nect::property(window_.host.session.document(),refs[i]);
+        unlink_authored=authored;
+    } catch(const Error&) {
+        // Invocation keeps the existing missing-target diagnostic; menu refresh cannot throw it.
+    }
+    const auto verify_editor_context=[this,ref,session,unlink_document_id,unlink_revision,unlink_generation,unlink_preview_born,unlink_authored]{
+        check_target(ref,session);
+        if(window_.host.session.document().id!=unlink_document_id)throw Error("SESSION_CONFLICT","Color action belongs to another document");
+        if(window_.host.session.revision()!=unlink_revision)throw Error("REVISION_CONFLICT","Color target changed; reopen its actions");
+        if(unlink_preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(window_.host.session.gesture_generation()!=unlink_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen its actions");
+        if(!unlink_authored)throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        const auto refs=color_channels(window_.host.session.document(),ref);
+        for(std::size_t i=0;i<refs.size();++i)
+            if(nect::property(window_.host.session.document(),refs[i])!=(*unlink_authored)[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+    };
+    action("color-link-named","Link named color…",[this,ref,session,verify_editor_context]{verify_editor_context();pick_named(ref,session);});
+    action("color-edit-expressions","Edit RGBA expressions…",[this,ref,session,verify_editor_context]{verify_editor_context();edit_expressions(ref,session);});
+    action("color-unlink","Unlink · keep evaluated RGBA",[this,ref,session,unlink_document_id,unlink_revision,unlink_generation,unlink_preview_born,unlink_authored]{
+        check_target(ref,session);
+        if(window_.host.session.document().id!=unlink_document_id)throw Error("SESSION_CONFLICT","Color unlink action belongs to another document");
+        if(window_.host.session.revision()!=unlink_revision)throw Error("REVISION_CONFLICT","Color target changed; reopen its actions");
+        if(unlink_preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(window_.host.session.gesture_generation()!=unlink_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen its actions");
+        if(!unlink_authored)throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        const auto refs=color_channels(window_.host.session.document(),ref);
+        for(std::size_t i=0;i<refs.size();++i)
+            if(nect::property(window_.host.session.document(),refs[i])!=(*unlink_authored)[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        window_.host.session.apply({UnlinkColor{ref}},unlink_revision);window_.host.edited();
     });
     auto* history=menu->addMenu("Copied Color History · this window");history->setObjectName("color-history-menu");
     if(history_.empty()){auto* empty=history->addAction("No colors explicitly copied yet");empty->setEnabled(false);}
@@ -163,8 +196,8 @@ void ColorTools::populate_menu(QMenu* menu,const Ref& ref,const QString& session
         });});
     }
     menu->addSeparator();
-    action("color-create-named","Save value as named color",[this,ref,session]{
-        check_target(ref,session);const auto& document=window_.host.session.document();
+    action("color-create-named","Save value as named color",[this,ref,session,verify_editor_context]{
+        verify_editor_context();const auto& document=window_.host.session.document();
         create_named(color_value(document,ref,evaluate(document)));
     });
     action("color-manager","Manage colors…",[this]{show_manager();});
@@ -185,6 +218,13 @@ void ColorTools::copy(const Ref& ref,const QString& session,bool reference) {
 }
 
 void ColorTools::pick_named(const Ref& target,const QString& session) {
+    const auto document_id=window_.host.session.document().id;
+    const auto revision=window_.host.session.revision();
+    const auto gesture_generation=window_.host.session.gesture_generation();
+    const auto preview_born=window_.host.session.gesture_active();
+    const auto refs=color_channels(window_.host.session.document(),target);
+    std::array<Scalar,4> authored{};
+    for(std::size_t i=0;i<refs.size();++i)authored[i]=nect::property(window_.host.session.document(),refs[i]);
     auto* dialog=new QDialog(&window_);dialog->setObjectName("named-color-picker");dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle("Link named color");dialog->resize(420,330);auto* layout=new QVBoxLayout(dialog);
     auto* label=new QLabel("Target: "+qs(property_name(window_.host.session.document(),target)));label->setWordWrap(true);layout->addWidget(label);
@@ -197,10 +237,17 @@ void ColorTools::pick_named(const Ref& target,const QString& session) {
     auto* note=new QLabel("This explicitly replaces all four channel links. Equal color values alone never create a link.");note->setWordWrap(true);layout->addWidget(note);
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,list,target,session]{window_.perform([&]{
-        check_target(target,session);if(!list->currentItem())throw Error("NO_COLOR_SOURCE","Choose a named color");
+    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,list,target,session,document_id,revision,gesture_generation,preview_born,refs,authored]{window_.perform([&]{
+        check_target(target,session);
+        if(window_.host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Color picker belongs to another document");
+        if(window_.host.session.revision()!=revision)throw Error("REVISION_CONFLICT","Color target changed while its picker was open; reopen it");
+        if(preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit before linking Color");
+        if(window_.host.session.gesture_generation()!=gesture_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen the picker");
+        for(std::size_t i=0;i<refs.size();++i)
+            if(nect::property(window_.host.session.document(),refs[i])!=authored[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
+        if(!list->currentItem())throw Error("NO_COLOR_SOURCE","Choose a named color");
         const Ref source{list->currentItem()->data(Qt::UserRole).toString().toStdString(),"","color"};
-        window_.host.session.apply({LinkColor{target,source}},window_.host.session.revision());window_.host.edited();dialog->accept();
+        window_.host.session.apply({LinkColor{target,source}},revision);window_.host.edited();dialog->accept();
     });});dialog->show();
 }
 
@@ -208,6 +255,9 @@ void ColorTools::edit_expressions(const Ref& target,const QString& session) {
     check_target(target,session);
     const auto revision=window_.host.session.revision();
     const auto& document=window_.host.session.document();
+    const auto document_id=document.id;
+    const auto gesture_generation=window_.host.session.gesture_generation();
+    const auto preview_born=window_.host.session.gesture_active();
     const auto refs=color_channels(document,target);
     const auto values=evaluate(document);
     auto* dialog=new QDialog(&window_);dialog->setObjectName("color-expression-editor");
@@ -237,10 +287,15 @@ void ColorTools::edit_expressions(const Ref& target,const QString& session) {
     auto* status=new QLabel(dialog);status->setObjectName("color-expression-status");status->setWordWrap(true);layout->addWidget(status);
     auto* buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,dialog);layout->addWidget(buttons);
     connect(buttons,&QDialogButtonBox::rejected,dialog,&QDialog::reject);
-    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,status,replace,edits,initial,authored,refs,target,session,revision]{
+    connect(buttons,&QDialogButtonBox::accepted,this,[this,dialog,status,replace,edits,initial,authored,refs,target,session,revision,document_id,gesture_generation,preview_born]{
         try {
             check_target(target,session);
             if(window_.host.session.revision()!=revision)throw Error("REVISION_CONFLICT","The document changed while the Color draft was open");
+            if(window_.host.session.document().id!=document_id)throw Error("SESSION_CONFLICT","Color draft belongs to another document");
+            if(preview_born||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current edit before changing Color");
+            if(window_.host.session.gesture_generation()!=gesture_generation)throw Error("REVISION_CONFLICT","Color context changed; reopen the editor");
+            for(std::size_t i=0;i<refs.size();++i)
+                if(nect::property(window_.host.session.document(),refs[i])!=authored[i])throw Error("PROPERTY_CONFLICT","The original Color channels changed");
             std::vector<Command> commands;
             for(std::size_t i=0;i<4;++i) {
                 const auto input=edits[i]->text().trimmed();
@@ -290,6 +345,11 @@ void ColorTools::show_manager() {
         if(!editor_base_)throw Error("NO_COLOR_SOURCE","Select a named color");
         if(editor_dirty())throw Error("COLOR_DRAFT","Apply or discard the current draft before deleting its color");
         check_target({editor_base_->id,"","color"},editor_session_);
+        const auto& document=window_.host.session.document();
+        if(document.id!=editor_document_)throw Error("SESSION_CONFLICT","Named color selection belongs to another document");
+        if(editor_preview_born_||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+        if(window_.host.session.gesture_generation()!=editor_generation_)throw Error("REVISION_CONFLICT","Named color context changed; reload the selection");
+        if(document.named_colors.at(editor_base_->id)!=*editor_base_)throw Error("PROPERTY_CONFLICT","The selected named color changed; reload it before deleting");
         window_.host.session.apply({DeleteNamedColor{editor_base_->id}},window_.host.session.revision());window_.host.edited();
     });});
     editor_=new QGroupBox("Selected named color");auto* editor_layout=new QVBoxLayout(editor_);named_layout->addWidget(editor_);
@@ -355,6 +415,9 @@ void ColorTools::clear_editor() {
 }
 void ColorTools::load_editor(const Id& id,const std::map<Ref,double>& values) {
     const auto& document=window_.host.session.document();editor_base_=document.named_colors.at(id);editor_session_=window_.host.session_id;
+    editor_document_=document.id;
+    editor_generation_=window_.host.session.gesture_generation();
+    editor_preview_born_=window_.host.session.gesture_active();
     editor_value_=color_value(document,{id,"","color"},values);editor_->setEnabled(true);apply_->setEnabled(true);
     clear_modified(name_,qs(editor_base_->name));clear_modified(hex_,hex_color(editor_value_));
     for(std::size_t i=0;i<channels_.size();++i)clear_modified(channels_[i],number(editor_value_.rgba[i]));
@@ -377,7 +440,11 @@ void ColorTools::create_named(const ColorValue& value) {
 void ColorTools::apply_editor() {
     if(!editor_base_)throw Error("NO_COLOR_SOURCE","Select a named color");
     const auto id=editor_base_->id;const Ref ref{id,"","color"};check_target(ref,editor_session_);
-    const auto& document=window_.host.session.document();const auto& current=document.named_colors.at(id);
+    const auto& document=window_.host.session.document();
+    if(document.id!=editor_document_)throw Error("SESSION_CONFLICT","Named color draft belongs to another document");
+    if(editor_preview_born_||window_.host.session.gesture_active())throw Error("GESTURE_ACTIVE","Finish or cancel the current gesture before another edit");
+    if(window_.host.session.gesture_generation()!=editor_generation_)throw Error("REVISION_CONFLICT","Named color context changed; reload the draft");
+    const auto& current=document.named_colors.at(id);
     const bool rename=name_->isModified();const bool recolor=hex_->isModified()||std::any_of(channels_.begin(),channels_.end(),[](const auto* input){return input->isModified();});
     if(rename&&current.name!=editor_base_->name)throw Error("COLOR_DRAFT_CONFLICT","This color was renamed while the draft was open; discard the draft to reload it");
     if(recolor) {

@@ -2,7 +2,7 @@
 #include "host.hpp"
 #include <QComboBox>
 #include <QGroupBox>
-#include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -46,6 +46,7 @@ void show_error(QLabel* status,const std::exception& error){
     else status->setText(QString::fromUtf8(error.what()));
 }
 struct Draft {
+    std::optional<Object> source_context,instance_context;
     Id source;
     std::string raw;
     QString displayed;
@@ -91,7 +92,9 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     editor->setAccessibleName("Local Text content draft for this Instance");
     editor->setToolTip("Starts from current occurrence content, including local upstream Text links. Typing edits a draft; Apply local writes only this Instance's selected Text content.");
     layout->addWidget(editor);
-    auto* row=new QHBoxLayout;
+    auto* status=new QLabel(box);status->setObjectName("instance-text-content-error");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
+    auto* row=new QGridLayout;
     auto* apply=new QPushButton("Apply local",box);apply->setObjectName("instance-text-content-apply");
     apply->setToolTip("Sets a literal content override in one Undo step. Unchanged inherited text can be frozen locally; source links remain unchanged.");
     auto* cancel=new QPushButton("Cancel draft",box);cancel->setObjectName("instance-text-content-cancel");
@@ -100,11 +103,11 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     clear->setToolTip("Makes the draft explicitly empty. Apply local commits empty content; this does not reset inheritance.");
     auto* reset=new QPushButton("Use Source",box);reset->setObjectName("instance-text-content-reset");
     reset->setToolTip("Removes only the selected Text's local override and follows its current source content.");
-    row->addWidget(apply);row->addWidget(cancel);row->addWidget(clear);row->addWidget(reset);layout->addLayout(row);
+    // Keep complete action labels reachable at the standard Properties width.
+    row->addWidget(apply,0,0);row->addWidget(cancel,0,1);
+    row->addWidget(clear,1,0);row->addWidget(reset,1,1);layout->addLayout(row);
     auto* note=new QLabel("Descendant Text only. Source content links stay intact. Unsupported Text-on-Path line breaks are refused on Apply.",box);
     note->setTextFormat(Qt::PlainText);note->setWordWrap(true);layout->addWidget(note);
-    auto* status=new QLabel(box);status->setObjectName("instance-text-content-error");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QWidget> safe_parent(parent);const QPointer<QComboBox> safe_source(source);
@@ -155,7 +158,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
     };
     const auto load_selection=[=]{
         if(!safe_box||!safe_source||!safe_editor||!safe_source_state||!safe_local_state)return;
-        disable();draft->source.clear();
+        disable();draft->source.clear();draft->source_context.reset();draft->instance_context.reset();
         if(safe_source->currentIndex()<0){
             safe_source->setEnabled(false);const QSignalBlocker blocker(safe_editor.data());safe_editor->clear();
             safe_source_state->setText("Source: —");safe_local_state->setText("Local: —");
@@ -173,6 +176,7 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
             // Inheritance can follow another descendant's local content link.
             // The typed core evaluator owns that occurrence-local dependency.
             draft->raw=overridden?local->second:evaluate_instance_text_content(current,instance,target);
+            draft->source_context=current.objects.at(target);draft->instance_context=current.objects.at(instance);
             {const QSignalBlocker blocker(safe_editor.data());safe_editor->setPlainText(QString::fromStdString(draft->raw));}
             draft->displayed=safe_editor->toPlainText();
             if(safe_parent)safe_parent->setProperty(selection_property,QVariantMap{
@@ -206,6 +210,9 @@ QWidget* make_instance_text_content_controls(Host& host,const Id& instance,QWidg
         try{
             const auto& current=current_document();const auto target=selected_target();require_target(current,instance,target);
             if(target!=draft->source)throw Error("REVISION_CONFLICT","The Text draft belongs to another source Object");
+            if(!draft->source_context||!draft->instance_context||current.objects.at(target)!=*draft->source_context||
+               current.objects.at(instance)!=*draft->instance_context||evaluate_instance_text_content(current,instance,target)!=draft->raw)
+                throw Error("PROPERTY_CONFLICT","The Instance or source Text changed; reload the draft before applying");
             const auto value=draft_value();const auto& overrides=current.objects.at(instance).instance->text_content_overrides;
             const auto local=overrides.find(target);if(local!=overrides.end()&&local->second==value)return;
             // Core validation owns UTF-8/size and direct or indirectly linked

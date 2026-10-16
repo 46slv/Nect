@@ -105,7 +105,8 @@ void MacroRevisionDialog::load_definition() {
         validate_macro_definition(found->second);
         if(found->second.latest_revision==std::numeric_limits<std::uint64_t>::max())
             throw Error("MACRO_REVISION_LIMIT","Macro revision space exhausted");
-        draft_=found->second.revisions.at(found->second.latest_revision);
+        source_=found->second.revisions.at(found->second.latest_revision);
+        draft_=source_;
         draft_.revision=found->second.latest_revision+1;
         QStringList chain{"Input"};
         for(const auto* node:macro_execution_order(draft_))
@@ -189,7 +190,13 @@ MacroDefinitionRevision MacroRevisionDialog::edited_revision() const {
 void MacroRevisionDialog::accept() {
     if(finished_||saved_revision_)return;
     try {
-        (void)current_document();
+        const auto& document=current_document();
+        if(loaded_) {
+            const auto source=document.macro_definitions.find(definition_id_);
+            if(source==document.macro_definitions.end()||source->second.latest_revision!=source_.revision||
+               !source->second.revisions.contains(source_.revision)||source->second.revisions.at(source_.revision)!=source_)
+                throw Error("PROPERTY_CONFLICT","The Macro source revision changed; reopen Edit Macro revision");
+        }
         auto next=edited_revision();
         host_->session.apply({MacroCommand{UpdateMacroDefinition{definition_id_,next}}},revision_);
         updated_definition_id_=definition_id_;saved_revision_=next.revision;save_->setEnabled(false);

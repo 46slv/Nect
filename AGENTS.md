@@ -1,5 +1,19 @@
 # Agent entry
 
+## 2026-10-04 continuation and fast implementation
+
+Current user authority selects GPT-6.1 Sol for the Mission Owner and every fresh
+implementation/research Worker, superseding the older model-routing defaults below.
+Keep 2–4 waves lightweight: Goal/Done, scope, dependencies and focused acceptance;
+bind exact base and ownership immediately before dispatch. Each source scope has one
+writer in its own worktree/branch. The owner also implements and batch-integrates.
+Build a usable vertical first, protect identity/native/Undo/save boundaries, and
+repair observed failures. Do not replay valid checks, add routine audits or stop at
+ordinary checkpoints. Serialize GUI and shared Windows builds; preserve other app
+work, including KNOTFIELD/Resolve. Normal edits/focused tests/commits/development
+pushes/Draft PRs proceed; protected-main merge, release, force/history changes,
+credentials/permissions/billing and irreversible operations retain their gates.
+
 ## 2026-09-25 standing Mission ownership (DEC-71)
 
 ### 2026-09-26 DEC-71 / Autonomous Mission Owner v0.2 locality update
@@ -97,6 +111,16 @@ Meaning:
 Historical checkpoints belong in Git history, an existing issue/PR, or evidence receipts.
 Do not keep multiple old checkpoints active and do not paste completed logs back into the
 current one.
+
+### 2026-10-07 brief-driven execution
+
+Fresh-read `CURRENT_GOAL.md` at start, resume, each semantic boundary and before choosing
+the next task. Follow its approved scope and priority without waiting for individual
+dispatch instructions; incorporate dot's design/priority changes at the next boundary.
+Keep `Next task`, `Done for next` and the sufficient focused validation explicit in the
+single active checkpoint. Reuse valid PASS evidence. An unresolved decision, permission
+or capability pauses only its dependent work: record the missing item and resume trigger,
+report them to the parent, and continue independent accepted work.
 
 ## Checkpoint execution
 

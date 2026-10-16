@@ -1,0 +1,50 @@
+#include "window.hpp"
+#include "nect/io.hpp"
+#include <QApplication>
+#include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDockWidget>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMenu>
+#include <QPlainTextEdit>
+#include <QPointer>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QSettings>
+#include <QSignalSpy>
+#include <QStatusBar>
+#include <QTemporaryDir>
+#include <QTest>
+#include <QTimer>
+#include <QToolButton>
+#include <iostream>
+#include <memory>
+#include <stdexcept>
+using namespace nect;using namespace nect::desktop;
+namespace{
+int checks=0;
+void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);++checks;}
+void events(){QApplication::processEvents();QApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QTest::qWait(20);}
+void valid(const Document& d){validate(d);check(decode(encode(d))==d,"Independent full caller native-valid BEFORE Window");}
+void same(const Session& a,const Session& b){check(a.document()==b.document()&&encode(a.document())==encode(b.document())&&a.preview_document()==b.preview_document()&&a.history()==b.history()&&a.revision()==b.revision()&&a.gesture_active()==b.gesture_active()&&a.gesture_generation()==b.gesture_generation(),"Entire caller Session/native/History/preview/revision/generation unchanged");}
+void write(const QString& path,const Document& d){QFile f(path);const auto b=encode(d);check(f.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&f.write(b.data(),b.size())==static_cast<qint64>(b.size()),"Immutable actual or independent native retained once");}
+QByteArray read(const QString& path){QFile f(path);check(f.open(QIODevice::ReadOnly),"Owned native bytes readable");return f.readAll();}
+template<class T>T* control(Window& w,const QString& name){for(auto* c:w.findChildren<T*>(name))if(c->isVisible())return c;throw std::runtime_error("Original visible source producer missing");}
+void reveal(QWidget* c){QPointer<QWidget> alive=c;for(auto* p=c->parentWidget();p;p=p->parentWidget())if(auto* s=qobject_cast<QScrollArea*>(p))s->ensureWidgetVisible(c);events();check(alive&&alive->isVisible()&&alive->isEnabled(),"Original source producer survives reveal and is enabled");}
+Document fixture(){Session setup(empty_document("source-composition-document","composition","artboard"));auto fill=default_operation("fill","nect.paint.fill");fill.parameters.at("r").literal=.125;fill.parameters.at("g").literal=.234;fill.parameters.at("b").literal=.345;fill.parameters.at("a").literal=.456;setup.apply({CreatePrimitive{"composition","","built","Built",default_primitive("shape","nect.shape.rectangle")},AddOperation{"built",fill,1}},0);return setup.document();}
+void flow(const QString& root,int mode){
+ const bool fill=mode%2,missing=mode>=2;auto initial=fixture();valid(initial);auto caller_doc=initial;if(missing)caller_doc.compositions.at(0).id="replacement-composition";valid(caller_doc);check(caller_doc.id==initial.id&&caller_doc.objects==initial.objects,"Independent absent captured Composition keeps exact Document ID and all full target entries BEFORE Window");const auto target=operation_ref("built","fill",fill?"fill_rule":"enabled");if(fill)check(evaluate_fill_rule(caller_doc,target)=="nonzero","Independent current rule remains Core-resolvable in replacement owning Composition BEFORE Window");else check(operation_enabled_state(caller_doc,target).literal&&operation_enabled_state(caller_doc,target).evaluated,"Independent current enabled property remains Core-resolvable in replacement owning Composition BEFORE Window");Session base(initial),caller(caller_doc);check(caller.revision()==0&&caller.history()==base.history()&&!caller.gesture_active()&&caller.gesture_generation()==base.gesture_generation(),"Independent full no-authoring caller snapshot BEFORE Window");
+ const auto path=root+"/mode-"+QString::number(mode);write(path+"-expected.nect",caller_doc);QSettings settings(root+"/settings.ini",QSettings::IniFormat);Window w(path+"-recovery",std::make_unique<FolderLibrary>(settings),&settings);w.host.session=base;w.host.edited();w.resize(1400,1100);w.show();events();w.canvas->set_selection("built");events();auto* dock=w.findChild<QDockWidget*>("properties");check(dock,"Properties exists");dock->show();dock->raise();events();QPointer<QPushButton> enabled_button;QPointer<QAction> rule_action;QPointer<QToolButton> rule_button;if(fill){rule_button=control<QToolButton>(w,"operation-fill-rule-driver-fill");reveal(rule_button);check(rule_button->menu()&&rule_button->menu()->actions().size()==1,"Original Fill QAction identified");rule_action=rule_button->menu()->actions().front();}else{enabled_button=control<QPushButton>(w,"operation-enabled-driver-fill");reveal(enabled_button);}
+ const auto dialog_name=fill?QString("fill-rule-dialog-fill"):QString("operation-enabled-dialog-fill");w.host.session=caller;same(w.host.session,caller);bool visited=false,escaped=false;QString callback_error,escaped_code,escaped_message;
+ QTimer::singleShot(0,&w,[&]{QPointer<QDialog> dialog=w.findChild<QDialog*>(dialog_name);if(!dialog||!dialog->isVisible())return;visited=true;try{check(dialog->grab().save(path+"-dialog.png"),"Actual original source dialog retained");if(fill){auto* mode_control=dialog->findChild<QComboBox*>("fill-rule-mode-fill");auto* value=dialog->findChild<QComboBox*>("fill-rule-value-fill");check(mode_control&&value&&mode_control->currentData().toString()=="edit"&&mode_control->findData("link")<0&&value->currentData().toString()=="nonzero"&&value->isEnabled(),"Current Fill literal-only choices match original owning Composition");}else{auto* editor=dialog->findChild<QPlainTextEdit*>("operation-enabled-expression-source-fill");auto* actions=dialog->findChild<QComboBox*>("operation-enabled-mode-fill");check(editor&&actions&&editor->toPlainText()=="true"&&actions->findData("expression")>=0,"Current original enabled expression draft/choice retained");}auto* buttons=dialog->findChild<QDialogButtonBox*>();check(buttons&&buttons->button(QDialogButtonBox::Cancel),"Original Cancel exists");QSignalSpy cancelled(buttons,&QDialogButtonBox::rejected);buttons->button(QDialogButtonBox::Cancel)->click();check(cancelled.count()==1&&!dialog->isVisible(),"Actual original API Cancel leaves entire caller unchanged");}catch(const std::exception& e){callback_error=QString::fromUtf8(e.what());}if(dialog&&dialog->isVisible())dialog->reject();});
+ std::unique_ptr<QSignalSpy> signalled;if(fill)signalled=std::make_unique<QSignalSpy>(rule_action,&QAction::triggered);else signalled=std::make_unique<QSignalSpy>(enabled_button,&QAbstractButton::clicked);
+ try{if(fill)rule_action->trigger();else enabled_button->click();}catch(const Error& error){escaped=true;escaped_code=QString::fromStdString(error.code);escaped_message=QString::fromUtf8(error.what());}catch(const std::exception& error){escaped=true;escaped_message=QString::fromUtf8(error.what());}const auto diagnostic=w.statusBar()->currentMessage();events();check(callback_error.isEmpty(),callback_error.toUtf8().constData());check(escaped||signalled->count()==1,"Original API producer was activated; an escaped direct callback exception may interrupt later spy delivery");same(w.host.session,caller);write(path+"-observed.nect",w.host.session.document());check(read(path+"-observed.nect")==read(path+"-expected.nect"),"Original exception/refusal producer preserves exact full caller native");check(w.grab().save(path+"-status.png"),"Actual original source Window status retained");
+ QJsonObject state{{"mode",mode},{"fill",fill},{"missing_captured_composition",missing},{"entered_modal",visited},{"escaped_exception",escaped},{"observed_signal_count",signalled->count()},{"escaped_code",escaped_code},{"escaped_message",escaped_message},{"producer_status",diagnostic},{"status_after_events",w.statusBar()->currentMessage()}};QFile f(path+"-exception.json");const auto bytes=QJsonDocument(state).toJson(QJsonDocument::Indented);check(f.open(QIODevice::WriteOnly|QIODevice::NewOnly)&&f.write(bytes)==bytes.size(),"Original producer exception/status readback retained once");w.host.save(path+"-saved.nect");w.host.flush();events();same(w.host.session,caller);check(read(path+"-saved.nect")==read(path+"-expected.nect")&&QFile::copy(path+"-saved.nect",path+"-snapshot.nect"),"Actual immutable native Save retains every original field in current or replacement Composition");w.close();events();same(w.host.session,caller);std::cout<<"SOURCE_COMPOSITION mode="<<mode<<" entered="<<visited<<" escaped="<<escaped<<" code="<<escaped_code.toStdString()<<" status="<<diagnostic.toStdString()<<"\n";check(!escaped,"Native-valid missing captured Composition must not escape original source producer as an exception");check(missing?!visited:visited,"Current source dialog opens; missing captured Composition rejects before modal");if(missing)check(diagnostic=="MISSING_COMPOSITION: Choose an artboard in a composition","Original missing-Composition error is reported outside unopened modal");
+}
+}
+int main(int argc,char** argv){qputenv("QT_QPA_PLATFORM","windows");QApplication app(argc,argv);std::cout.setf(std::ios::unitbuf);try{std::cout<<"Native platform="<<QGuiApplication::platformName().toStdString()<<" PID="<<QCoreApplication::applicationPid()<<"\n";QTemporaryDir temp;check(temp.isValid(),"Owned scratch valid");const auto requested=qEnvironmentVariable("NECT_SOURCE_COMPOSITION_OPENER_ROOT"),root=requested.isEmpty()?temp.path():requested;int failures=0;for(int mode=0;mode<4;++mode){try{flow(root,mode);std::cout<<"CASE PASS mode="<<mode<<"\n";}catch(const std::exception& e){++failures;std::cerr<<"CASE FAIL mode="<<mode<<" reason="<<e.what()<<" checks="<<checks<<"\n";}}if(failures)throw std::runtime_error("Source composition cases failed: "+std::to_string(failures));std::cout<<"PASS Source composition "<<checks<<" checks\n";return 0;}catch(const std::exception& e){std::cerr<<"FAIL Source composition "<<e.what()<<" after "<<checks<<" checks\n";return 1;}}

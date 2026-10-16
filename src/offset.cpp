@@ -145,7 +145,31 @@ std::shared_ptr<const Contours> offset_contours(const Contours& source,const Aff
         else bg::buffer(input,output,distance,side,Join{miter_limit,join=="bevel"},end,point);
     }
     require(amount<0||input.empty()||!output.empty(),"OFFSET_GEOMETRY","Positive Offset could not represent its expanded region");
-    require(output.empty()||bg::is_valid(output),"OFFSET_GEOMETRY","Offset could not produce a valid region");
+    // Buffer can leave zero-area backtracking edges when an expanded concavity
+    // closes (including a second Offset on glyph outlines). Remove only those
+    // generated spikes; authored input is still validated without repair, and
+    // all other output validity checks remain mandatory.
+    bg::validity_failure_type failure;
+    if(!output.empty()&&!bg::is_valid(output,failure)) {
+        // Roundoff can also leave consecutive vertices equal under Boost's
+        // point-comparison policy, reported as a tiny self-intersection rather
+        // than a spike (notably on translated glyph copies). Remove those
+        // generated duplicates before classifying the remaining failure.
+        bg::unique(output);
+        bg::is_valid(output,failure);
+        if(failure==bg::failure_spikes) {
+            bg::remove_spikes(output);
+            // Boost 1.85 validity checks each spike with the opposite traversal
+            // from remove_spikes. Near-coincident buffer vertices can make its
+            // floating-point direction predicate asymmetric. Use the same
+            // spike policy in both directions, then restore the ring winding.
+            bg::reverse(output);
+            bg::remove_spikes(output);
+            bg::reverse(output);
+        }
+        std::string invalid_reason;
+        if(!bg::is_valid(output,invalid_reason))throw Error("OFFSET_GEOMETRY","Offset could not produce a valid region: "+invalid_reason);
+    }
     auto result=std::make_shared<Contours>();std::size_t vertices=0;
     const auto append=[&](const auto& ring) {
         if(ring.empty())return;

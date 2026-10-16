@@ -91,7 +91,14 @@ void fixture_model_path(){
     check(occurrence_text(session.document(),"content-instance","first-item")==exact_source&&
         occurrence_text(session.document(),"plain-instance","first-item")==exact_source,"Portable Definition projection evaluates both local and inherited occurrence content without Text geometry");
     const auto frozen=encode(session.document());
-    check(frozen.find("\"version\":\"0.85\"")!=std::string::npos&&decode(frozen)==session.document(),"Native085 cold decode retains exact local text and source drivers");
+    const auto writer_version="\"version\":\""+std::string(native_version)+"\"";
+    check(frozen.find(writer_version)!=std::string::npos&&decode(frozen)==session.document(),"Current native writer cold decode retains exact local text and source drivers");
+    auto legacy=frozen;const std::string legacy_version="\"version\":\"0.85\"";
+    legacy.replace(legacy.find(writer_version),writer_version.size(),legacy_version);
+    check(decode(legacy)==session.document(),"Native085 legacy decode retains exact local text and source drivers");
+    legacy.replace(legacy.find(legacy_version),legacy_version.size(),"\"version\":\"0.84\"");
+    bool legacy_refused=false;try{(void)decode(legacy);}catch(const Error& error){legacy_refused=error.code=="NATIVE_VERSION_MISMATCH";}
+    check(legacy_refused,"Native084 refuses version-lied local Text content overrides");
     session.undo(session.revision());check(session.document()==original.document&&encode(session.document())==original.native,"One Undo restores exact inheritance");
     session.redo(session.revision());check(encode(session.document())==frozen,"One Redo restores exact raw local freeze");
     session.apply({DefinitionCommand{SetInstanceTextContentOverride{"content-instance","second-item","Another local"}},

@@ -17,6 +17,9 @@ std::string base64_encode(const std::vector<unsigned char>&);
 std::vector<unsigned char> base64_decode(std::string_view);
 // Asset mutations preflight native serialization before changing the live Session.
 void apply_serializable(Session&,const std::vector<Command>&,std::uint64_t expected_revision);
+// Preflight the dedicated Preset command family on a Session copy, including
+// closure size and native serialization, before installing the exact candidate.
+void apply_serializable_preset(Session&,const PresetCommand&,std::uint64_t expected_revision);
 Document decode(std::string_view input);
 void validate_json(std::string_view input);
 std::string encode(const Document& document);
@@ -24,6 +27,10 @@ std::string encode(const Document& document);
 // These reuse the native v1/v2 codec and reject noncanonical or duplicate-key JSON.
 std::string canonical_preset_payload(const PresetDefinition& definition);
 PresetDefinition read_canonical_preset_payload(std::string_view input);
+// Schema 3 carries a self-contained Preset/Macro closure. Literal-only closures
+// retain the exact schema 1/2 canonical payload bytes. Schema 0 infers the shape.
+std::string canonical_preset_closure_payload(const PortablePresetClosure&);
+PortablePresetClosure read_canonical_preset_closure_payload(std::string_view input,unsigned payload_schema=0);
 PortablePresetAssetEnvelope read_portable_preset_asset_envelope(std::string_view input);
 // Canonical MacroDefinition bytes retain every graph revision and stable local ID.
 // Schema 0 selects the minimum supported payload schema. Envelope readers pass

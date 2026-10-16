@@ -300,7 +300,7 @@ public:
         }
     }
     std::exception_ptr failure;
-    std::vector<std::pair<UINT32,double>> column_run_origins;
+    std::vector<UINT32> visible_column_runs;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid,void** object) override {
         if(!object)return E_POINTER;*object=nullptr;
         if(iid==__uuidof(IUnknown)||iid==__uuidof(IDWritePixelSnapping)||iid==__uuidof(IDWriteTextRenderer)||iid==__uuidof(IDWriteTextRenderer1)) {
@@ -406,8 +406,8 @@ public:
             check_hr(hr,"Project glyph outlines");
             if(before==anchor_count_&&run->glyphCount>0&&visible_characters(description))
                 throw Error(color_font?"TEXT_COLOR_UNSUPPORTED":"TEXT_OUTLINE_UNSUPPORTED","Visible text has no supported glyph outlines; no blank replacement was committed");
-            if(vertical_&&description&&std::isfinite(x))
-                column_run_origins.emplace_back(description->textPosition,x);
+            if(vertical_&&description&&visible_characters(description))
+                visible_column_runs.push_back(description->textPosition);
             return S_OK;
         } catch(...) {failure=std::current_exception();return E_FAIL;}
     }
@@ -804,22 +804,27 @@ TextLayout evaluate_text(const TextSource& source,const std::map<std::string,dou
         if(line_count>32769)throw Error("TEXT_LAYOUT_LIMIT","Text has too many columns");
         std::vector<DWRITE_LINE_METRICS> lines(line_count);
         if(line_count)check_hr(layout->GetLineMetrics(lines.data(),line_count,&line_count),"Measure vertical column positions");
-        auto runs=renderer->column_run_origins;
-        std::sort(runs.begin(),runs.end(),[](const auto& a,const auto& b){return a.first<b.first;});
+        auto runs=renderer->visible_column_runs;
+        std::sort(runs.begin(),runs.end());
         std::uint64_t start=0;
         std::size_t run_index=0;
         bool complete=true;
+        // In right-to-left vertical flow, the line's baseline is measured from
+        // its right edge. This is the common central column baseline: drawn
+        // upright runs use it directly, while rotated Latin runs are displaced
+        // to their Roman baseline. Raw DrawGlyphRun X values therefore need not
+        // agree within a column, even though the actual layout is valid.
+        double column_right=origin_x-(automatic?metrics.left:0)+layout->GetMaxWidth();
         for(UINT32 i=0;i<line_count;++i) {
             const auto end=start+lines[i].length;
-            std::optional<double> baseline;
-            while(run_index<runs.size()&&runs[run_index].first<start)++run_index;
-            while(run_index<runs.size()&&runs[run_index].first<end) {
-                const auto x=runs[run_index++].second;
-                if(baseline&&std::abs(x-*baseline)>1e-5) {complete=false;break;}
-                baseline=x;
+            while(run_index<runs.size()&&runs[run_index]<start)++run_index;
+            const bool has_visible_run=run_index<runs.size()&&runs[run_index]<end;
+            const double baseline=column_right-lines[i].baseline;
+            if(!has_visible_run||!std::isfinite(baseline)||!std::isfinite(lines[i].height)||lines[i].height<=0) {
+                complete=false;break;
             }
-            if(!complete||!baseline) {complete=false;break;}
-            result.column_baselines_x.push_back(*baseline);
+            result.column_baselines_x.push_back(baseline);
+            column_right-=lines[i].height;
             start=end;
         }
         if(!complete)result.column_baselines_x.clear();

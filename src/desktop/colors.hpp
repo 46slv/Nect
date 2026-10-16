@@ -47,6 +47,9 @@ private:
     QVBoxLayout* usage_actions_=nullptr;
     QString manager_session_,editor_session_;
     std::optional<NamedColor> editor_base_;
+    Id editor_document_;
+    std::uint64_t editor_generation_=0;
+    bool editor_preview_born_=false;
     ColorValue editor_value_;
     std::optional<Ref> usage_selection_;
     bool refreshing_=false;

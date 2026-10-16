@@ -1,56 +1,31 @@
-# Nect — Fast Build / Bug Harvest
+# Nect — one artwork production flow
 
-## Mission
-Advance the accepted Nect Completion Route toward a useful integrated graphics authoring app. Preserve confirmed product semantics and final L1/L2/L3 acceptance boundaries. Dot remains an active critical-path implementer with independently owned parallel Sol implementation scopes.
+## Mission Brief
 
-## Execution cadence
-Build a coherent usable vertical, run minimum useful smoke and changed high-risk checks, use the candidate, then fix demonstrated failures in parallel and batch-integrate. Full regression, every-platform matrices and exhaustive review belong at meaningful milestones, not every small edit. `USABLE_UNHARDENED` does not mean release-ready or fully verified.
+**Goal:** Finish one editable layout through normal UI: A create, B revise, C save/restart/reuse/export. This checkpoint supports L1 daily production; it does not close the whole Mission.
+**Completion conditions:** The same artwork completes A–C through finite normal-UI steps, with no known data-loss/save/normal-use blocker; focused checks for actual changes and one integration pass; owned native/SVG/PNG artifacts and coherent commit/normal push/existing PR sync or explicit external sync blocker. Do not add variants after Done.
+**Authority:** Latest direct human2026-10-16 steering delivered to this existing successor: reduce verification/handoff branching and prioritize actual implementation gaps. Current AGENTS/DEC71, Confirmed requirements and Human Gates remain.
+**Constraints:** Canonical D:/Documents/Nect-worktrees/sol-integration-20261004 only; protected D:/Documents/Nect NEVER edit/build. One all8 writer; exact Local plus one U+005C plus NectBuild(length15), zero-timeout/nonabandoned/release/dispose; serial builds /m:2/nodeReuse:false. Preserve Session/native0.87/asset1/2/envelope1/stable IDs/authored sources/atomic refusal/Undo/save and unrelated work. Owned INI/FolderLibrary/recovery/assets only. No branch/worktree/children/clipboard/settings/assets/fonts/deps/product-schema/property-model/account/main/release changes. No Candidate adoption/Must removal.
+**Coarse route:** Complete this one-artwork checkpoint; remaining Confirmed requirements stay on Completion Route. Reuse valid evidence. Related work stays with this owner KEEP/COMPACT; rollover requires an actual context/capability/authority/safety boundary.
 
-Keep Save/Save As, native migration, stable identity, Undo/History and trust boundaries protected from the start. One source scope has one writer. Development-branch publication does not authorize primary-branch merge or release.
+## ACTIVE CHECKPOINT
 
-## Current integrated candidate
-Native 0.81 development candidate combines:
-- Existing native 0.80 typography, source-preserving Text Apply, arithmetic compositing and save/Undo work.
-- Read-only SVG compatibility planning with source provenance and bounded local derivative closures. AI/PDF policies and encoders remain explicitly unqualified; planned bakes are not executed.
-- Metadata-driven numeric Offset, angle Repeater and Macro Amount controls.
-- An OFF-by-default developer-only Windows extension-loader fixture. No normal product autoload or production extension capability is claimed.
-- Atomic Text-content fan-out core safeguards; retained multi-target UI is the next independent UI task.
-- Optional Artboard background values with Template inheritance, local override, Reset and full detach freeze. Background is an output underlay after transparent artwork, not an object-blend backdrop. PNG/viewport/SVG include it; region analysis does not.
+**Goal:** One layout from blank to editable native plus SVG/PNG output.
+**Current phase:** ONE_ARTWORK_A_B_C_DONE / KEEP. Former external Grid variant collection is superseded.
 
-## Current evidence and remaining work
-The `dot/req65-contour-path` candidate starts from verified public
-`dot/fast-build-native081@f3c61ef708342c379cd8d587c126b3e32ced3105`. It adds a
-REQ-65 outer-contour adoption entry through Host/API/MCP and Add > Outer contour
-to Path, using the existing CreatePath command and native schema. Exact snapshot
-and contour IDs are rechecked; original artwork is retained, each corner receives
-a fresh authored ID, and adoption is one Undo. No holes or curve fitting are claimed.
+| Flow | Already usable from live source and valid evidence | Implementation needed / remaining boundary |
+| --- | --- | --- |
+| A Create | Artboard/Margin/Grid/Guide, Pen/retained shapes, Japanese Text, Image, Group, alignment/equal gaps and color/Gradient exist. R03 audit and first-usable retain original proof bindings. | PASS: same960x640 artwork authored through normal UI; Margin48/Grid3x2/Guide240, Rectangle/Japanese Text/embedded JPEG/Pen, handle edits, color/alignment/Group. |
+| B Revise | Text/shape/property, source/expression and Undo/Redo exist; exact existing native/QTest evidence remains valid. | PASS: same-artwork content/shape/placement/color edits; Width expression960-112 then960-96; meaningful Toolbar Undo/Redo. |
+| C Reuse | Native save/reopen/recovery and SVG/PNG exist. Historical integrated acceptance includes normal restart/native equality and recovery. | PASS: native Save As, normal exit/new process/new Session with exact full native equality, Group rename/re-save; SVG and960x640 PNG. No power-loss/codec/DPI/subjective claim. |
 
-The batch includes the portable helper from `5dcffeb`, standalone Macro authoring
-from `74330ad`, its Effects-panel entry, and the qualified background precision
-repair from `37dd7dd`. These additions retain native 0.81. Shared Windows builds
-use `Local\NectBuild`; prior task-18 worktrees, launchers and processes are preserved.
-
-Windows Release build and five focused contracts passed: geometry helper (36),
-Host/Window adoption (62), existing region analysis, formal desktop MCP adoption/restart,
-and Macro authoring UI (48). Adoption covers
-real Canvas analysis, nonzero Artboard origin/scale, original artwork/native
-preservation, point edit, Undo/Redo, cold process reopen, stale Session/revision/
-snapshot/contour rejection, gesture refusal and draft cancellation. The background
-repair was then integrated and the desktop rebuilt. Final integration passed both
-background UI (14) and actual desktop/MCP cold restart (16 semantic checks). A
-shell-wrapper launch failure was isolated to copied Python PATH/Qt resolution;
-the explicit-Qt Python runner passes. This is USABLE_UNHARDENED;
-physical input/visual comfort, broad regression, whole REQ-65 and full Macro graph
-authoring remain open.
-
-The earlier Linux desktop compiler kill remains historical evidence. These Windows
-primary-path checks do not establish final interoperability or milestone hardening.
-
-## Next
-Use the supported candidate and collect demonstrated authoring failures. The parent
-owns the next independent DefinitionInstance/Template visibility lane; keep its core
-and native-version changes separate until the next batch integration. Current scope
-is released after source publication and remote SHA verification; no primary merge
-or release is authorized by this checkpoint.
-
-Source policy: [Fast Build / Bug Harvest Directive](https://app.notion.com/p/3eefd279a6f381e8a206ef658c90714a).
+**Next task:** This finite A-C checkpoint is closed. Next Mission selection must identify an actual missing implementation in accepted Confirmed requirements, not another unverified operation variant. No blocking product implementation gap was found in this artwork; no product change was manufactured. Retain whole Mission requirements on Route.
+**Approach:** A thin owned launcher constructs unchanged production Window with owned INI/FolderLibrary/recovery, avoiding global settings. External Cua input and read-only semantic inspection use the same artifact; no per-operation full Document/History/pixels/foreign-Host suites. Deeper checks apply only to changed save/History/ID/Host risks.
+**Done for next:** A: Artboard/Margin/Grid/Guide, Pen/retained shape/Japanese Text/supported image and normal selection/Tool/point-handle/property/alignment/Group/color or Gradient. B: revise content/shape/placement/color, one representative source, meaningful Undo/Redo. C: native save, normal exit/restart, preserve content/hierarchy/Refs, re-edit, supported SVG/PNG. Fixed one artwork and finite steps; no added variants.
+**Proven:** Existing ACK and parent independent PASS bind865 files/19 binaries/8 references/23 ORIGINAL native proofs plus SEPARATE137 measurement artifacts. Current Canvas a648fc874826e08b523bcf7bb4896bc268afba0b remains Pen-qualified; current tests6298b8a9fab5fe9d92c5421606c43599e3002ae5 are measurement-only, distinct from original Pen-native tests630129d4. Historical proofs are not promoted to current HEAD. Raster checkpoint B8AC7F5A retains native7db6fb86/28 records/full Canvas838 PASS; no replay.
+**Result:** OWN/artwork-checkpoint.json SHA7FD83E787E768EBE431F76499D91FDA75F7815E66B02F5DDE23D70AED0F4EA97 binds the same owned artwork/native/SVG/PNG/reopened screenshot and thin launcher. Production source01ee913 unchanged. Normal-close PIDs98004/98560 exited; Cua session ended. The first chooser/Cua UIA invocation timed out and required preserving bytes before stopping owned94168; later keyboard/native chooser succeeded. No shared-service/settings change. Product suites not replayed. Full restart equality proved before a Group-name-only re-edit; outputs precede only that nonvisual name edit. Owned launcher is unchanged production Window with isolated storage, not packaged-main or physical acceptance.
+**State:** Intake baseline clean codex/sol-integration-20261004@01ee91302bf6698cba9e95ea4bcc0dc8e7ab44e9; local/tracking/remote/OPEN Draft22 matched at verified intake. This Brief changes active scope. Mission43/89 and REQ15/16/42/209/210 remain OPEN.
+**Ownership:** Soleall8ACTIVE owner01a14350-86f7-77e2-acf7-62bff0f0e907; OWN=C:/Users/shiro/.codex/scratch/01a14350-86f7-77e2-acf7-62bff0f0e907. OWN/takeover-active.json SHA427A370931EFAE32AC4C1E0D18F8BEBF91F50A91F11C1BB61357170FDA1E2B1C saved/readback after separate trigger and independent gates. Parent01a14335 release62E4E73A/all8/no reacquisition; ACK B37615D5/parent independent02 8178D16B/CURRENT request10C3E005/readbackFA90914D; own fresh latest C0 key nect-c0-transfer-20261016-01a14350 exact7261chars/formattingcorrection0.
+**Local waits:** Prior held-pointer activecancel/activeSocketOpen GESTURE_ACTIVE remain exact waits; no bypass/retry. Physical/subjective/fonts/DPI/chooser/interop/durability/Q2/canonical obligations stay scoped and do not expand A–C.
+**Authority:** Latest human A/B/C steering, current AGENTS, fresh Completion Route3e3fd279a6f381b4ba9dd2d1bf066e0f and Confirmed REQ32/42; reversible development/Human Gates.
+**Handoff:** CONTINUE_CURRENT_TASK / KEEP. No new successor; continue related implementation and this finite flow.

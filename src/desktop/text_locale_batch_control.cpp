@@ -1,5 +1,6 @@
 #include "text_locale_batch_control.hpp"
 #include "host.hpp"
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -41,10 +42,18 @@ void show_error(QLabel* status,const std::exception& error){
 QWidget* make_text_locale_batch_controls(Host& host,const std::vector<Id>& targets,QWidget* parent){
     const auto session_id=host.session_id;const auto document_id=host.session.document().id;
     const auto revision=host.session.revision();const auto gesture=host.session.gesture_generation();
+    std::vector<std::string> retained_locales;retained_locales.reserve(targets.size());
+    for(const auto& id:targets) {
+        const auto found=host.session.document().objects.find(id);
+        retained_locales.push_back(found!=host.session.document().objects.end()&&found->second.text?found->second.text->locale:std::string{});
+    }
     auto* box=new QGroupBox(QString("Text locale · %1 selected objects").arg(targets.size()),parent);
     box->setObjectName("text-locale-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("text-locale-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("text-locale-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);
+    status->setMinimumHeight(status->fontMetrics().lineSpacing()*3);layout->addWidget(status);
     auto* editor=new QLineEdit(box);editor->setObjectName("text-locale-batch-editor");
     editor->setAccessibleName("Language tag for every selected Text object");
     editor->setToolTip("Enter a locale, then Apply to every retained Text object. The core validates the exact text.");
@@ -56,13 +65,11 @@ QWidget* make_text_locale_batch_controls(Host& host,const std::vector<Id>& targe
     layout->addWidget(editor);
     auto* actions=new QHBoxLayout;actions->addStretch(1);
     actions->addWidget(apply);actions->addWidget(cancel);layout->addLayout(actions);
-    auto* status=new QLabel(box);status->setObjectName("text-locale-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
 
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QLineEdit> safe_editor(editor);const QPointer<QPushButton> safe_apply(apply),safe_cancel(cancel);
     const QPointer<QLabel> safe_status(status);
-    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets]()->const Document&{
+    const auto current_document=[safe_host,session_id,document_id,revision,gesture,targets,retained_locales]()->const Document&{
         if(!safe_host||safe_host->session_id!=session_id||safe_host->session.document().id!=document_id)
             throw Error("SESSION_CONFLICT","This Text selection belongs to another document");
         if(safe_host->session.revision()!=revision)
@@ -71,7 +78,11 @@ QWidget* make_text_locale_batch_controls(Host& host,const std::vector<Id>& targe
             throw Error("GESTURE_ACTIVE","Finish or cancel the current edit first");
         if(safe_host->session.gesture_generation()!=gesture)
             throw Error("REVISION_CONFLICT","The edit context changed; refresh before applying locale");
-        const auto& document=safe_host->session.document();require_targets(document,targets);return document;
+        const auto& document=safe_host->session.document();require_targets(document,targets);
+        for(std::size_t i=0;i<targets.size();++i)
+            if(document.objects.at(targets[i]).text->locale!=retained_locales[i])
+                throw Error("PROPERTY_CONFLICT","The retained Text locale changed; refresh before applying the draft");
+        return document;
     };
     QString initial_text;
     try{

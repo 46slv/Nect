@@ -13,6 +13,7 @@ namespace nect::desktop {
 namespace {
 struct PaintSelection {
     std::vector<ColorValue> colors;
+    std::vector<ProcessingEntry> operations;
     std::string kind;
     std::size_t slot=0;
 };
@@ -43,6 +44,7 @@ PaintSelection require_targets(const Document& document,const std::vector<Ref>& 
         if(objects.size()==1){result.kind=operation->type;result.slot=slot;}
         else if(result.kind!=operation->type||result.slot!=slot)
             throw Error("INCOMPATIBLE_PAINT","Every target must have the same Fill/Stroke kind at the same stack position");
+        result.operations.push_back(*operation);
         // Even an inactive gradient is retained authored state, not permission
         // to quietly expose/edit its solid fallback as a compatible solid paint.
         if(operation->gradient)
@@ -77,12 +79,12 @@ QWidget* make_paint_color_batch_controls(Host& host,const std::vector<Ref>& targ
     box->setObjectName("paint-color-batch-panel");auto* layout=new QVBoxLayout(box);
     auto* state=new QLabel(box);state->setObjectName("paint-color-batch-state");
     state->setTextFormat(Qt::PlainText);state->setWordWrap(true);layout->addWidget(state);
+    auto* status=new QLabel(box);status->setObjectName("paint-color-batch-status");
+    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     auto* choose=new QPushButton("Color…",box);choose->setObjectName("paint-color-batch-choose");
     choose->setAccessibleName("sRGB color for every retained solid paint target");
     choose->setToolTip("OK applies one sRGB/straight-alpha color to all retained targets in one Undo step. Cancel keeps every color.");
     choose->setEnabled(false);layout->addWidget(choose);
-    auto* status=new QLabel(box);status->setObjectName("paint-color-batch-status");
-    status->setTextFormat(Qt::PlainText);status->setWordWrap(true);layout->addWidget(status);
     const QPointer<Host> safe_host(&host);const QPointer<QGroupBox> safe_box(box);
     const QPointer<QPushButton> safe_choose(choose);const QPointer<QLabel> safe_status(status);
     const auto current_selection=[safe_host,session_id,document_id,revision,gesture,targets]{
@@ -108,10 +110,16 @@ QWidget* make_paint_color_batch_controls(Host& host,const std::vector<Ref>& targ
         if(shared)choose->setStyleSheet("border: 3px solid "+QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]).name()+";");
         choose->setEnabled(true);
     }catch(const std::exception& error){state->setText("Unavailable");show_error(status,error);}
+    const auto verified_selection=[current_selection,original]{
+        auto current=current_selection();
+        if(current.operations!=original.operations)
+            throw Error("PROPERTY_CONFLICT","The retained paint operation changed; refresh before applying a color");
+        return current;
+    };
     QObject::connect(choose,&QPushButton::clicked,box,[=]{
         if(!safe_box||!safe_host||original.colors.empty())return;
         try{
-            (void)current_selection();if(safe_status)safe_status->clear();
+            (void)verified_selection();if(safe_status)safe_status->clear();
             const auto& retained=original.colors.front();const auto& rgba=retained.rgba;
             auto* dialog=new QColorDialog(QColor::fromRgbF(rgba[0],rgba[1],rgba[2],rgba[3]),safe_box.data());
             dialog->setObjectName("paint-color-batch-dialog");dialog->setWindowTitle("Selected solid paint color");
@@ -123,7 +131,7 @@ QWidget* make_paint_color_batch_controls(Host& host,const std::vector<Ref>& targ
             const auto selected=safe_dialog?safe_dialog->currentColor():QColor{};
             if(safe_dialog)safe_dialog->deleteLater();
             if(!safe_box||!safe_host||!accepted||!selected.isValid())return;
-            const auto current=current_selection();ColorValue value=retained;
+            const auto current=verified_selection();ColorValue value=retained;
             if(selected!=displayed_initial)value.rgba={selected.redF(),selected.greenF(),selected.blueF(),selected.alphaF()};
             if(std::all_of(current.colors.begin(),current.colors.end(),[&](const auto& color){return color==value;}))return;
             std::vector<Command> commands;commands.reserve(targets.size());

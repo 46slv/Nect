@@ -225,7 +225,8 @@ void source_controls_and_short_rows(){
 }
 }
 int main(int argc,char** argv){
-    qputenv("QT_QPA_PLATFORM","offscreen");QApplication application(argc,argv);
+    const bool native=argc==2&&std::string(argv[1])=="--native";
+    qputenv("QT_QPA_PLATFORM",native?"windows":"offscreen");QApplication application(argc,argv);
     application.setStyleSheet(application_style_sheet());
     try{
         literal_content();mixed_boolean_and_enum();other_packed_controls();source_controls_and_short_rows();

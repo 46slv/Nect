@@ -22,7 +22,8 @@ int main(int argc,char** argv) {
     try {
         auto recovery=parser.value("recovery-dir");
         if(recovery.isEmpty())recovery=QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation)+"/recovery";
-        nect::desktop::Window window(recovery);
+        QSettings workspace_preferences(QSettings::NativeFormat,QSettings::UserScope,"Nect","Nect");
+        nect::desktop::Window window(recovery,{},&workspace_preferences);
         if(!parser.positionalArguments().isEmpty())window.host.open(parser.positionalArguments().front());
         const auto endpoint=parser.value("automation-endpoint");
         if(!endpoint.isEmpty())window.host.listen(endpoint);

@@ -408,6 +408,66 @@ void capture_filters_other_stack_entries_explicitly() {
     }
     throw std::runtime_error("Expected driven option capture refusal");
 }
+void batch_document_preset_contract() {
+    auto document=macro_preset_fixture();
+    document.objects.at("path").stack.push_back(default_operation("path-fill","nect.paint.fill"));
+    document.objects.at("target").stack.push_back(default_operation("target-fill","nect.paint.fill"));
+    const auto macro=macro_definition();document.macro_definitions.emplace(macro.id,macro);
+    auto preset=sample_preset();preset.schema_version=2;
+    PresetEntry macro_entry;macro_entry.kind="macro";macro_entry.type=macro_entry_type;macro_entry.macro_definition=macro.id;
+    macro_entry.pinned_revision=1;macro_entry.overrides["macro.offset.amount"]=27;
+    preset.entries.push_back(macro_entry);document.preset_definitions.emplace(preset.id,preset);
+    Session session(document);const auto before=session.document();const auto history=session.history();
+    const PresetCommand batch{ApplyPresetBatch{"preset",{{"path","first-use"},{"target","second-use"}}}};
+    session.apply_preset_command(batch,0);const auto applied=session.document();
+    check(session.revision()==1&&session.history().states.size()==history.states.size()+1,
+        "Document Preset batch commits one revision/history state");
+    auto unchanged=applied;
+    for(const auto& [object,prefix]:std::vector<std::pair<Id,Id>>{{"path","first-use"},{"target","second-use"}}) {
+        const auto& stack=applied.objects.at(object).stack;
+        check(stack.size()==4&&stack.front()==before.objects.at(object).stack.front()&&
+            stack[1].id==prefix+"-op-1"&&stack[1].parameters.at("amount").literal==18&&
+            stack[2].id==prefix+"-op-2"&&stack[2].parameters.at("copies").literal==4&&
+            stack[3].id==prefix+"-op-3"&&stack[3].macro&&stack[3].macro->pinned_revision==1&&
+            stack[3].macro->definition==macro.id&&stack[3].macro->overrides.at("macro.offset.amount")==27,
+            "Batch reuses built-in and document-pinned Macro expansion with exact fresh IDs/literal values");
+        unchanged.objects.at(object).stack=before.objects.at(object).stack;
+    }
+    check(unchanged==before&&decode(encode(applied))==applied,
+        "Batch preserves source/definition snapshots and native exact IDs");
+    session.undo(1);check(session.document()==before,"One batch Undo restores both prior stacks");
+    session.redo(session.revision());check(session.document()==applied,"One batch Redo restores exact generated IDs and Macro pin");
+    expect_atomic(session,"REVISION_CONFLICT",batch,0);
+    expect_atomic(session,"MISSING_PRESET",PresetCommand{ApplyPresetBatch{"missing",{{"path","a"},{"target","b"}}}},session.revision());
+    expect_atomic(session,"INVALID_BATCH",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"}}}},session.revision());
+    expect_atomic(session,"INVALID_BATCH",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"},{"path","b"}}}},session.revision());
+    expect_atomic(session,"MISSING_OBJECT",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"},{"missing","b"}}}},session.revision());
+    expect_atomic(session,"INVALID_ID",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"},{"target","bad prefix"}}}},session.revision());
+    expect_atomic(session,"DUPLICATE_ID",PresetCommand{ApplyPresetBatch{"preset",{{"path","same"},{"target","same"}}}},session.revision());
+    expect_atomic(session,"DUPLICATE_ID",PresetCommand{ApplyPresetBatch{"preset",{{"path","fresh"},{"target","second-use"}}}},session.revision());
+    session.begin_gesture(session.revision());
+    expect_atomic(session,"GESTURE_ACTIVE",batch,session.revision());session.cancel_gesture();
+    auto incompatible=before;incompatible.objects.at("target").kind=Kind::group;
+    incompatible.objects.at("target").contours.clear();incompatible.objects.at("target").stack.clear();
+    Session mixed(incompatible);
+    expect_atomic(mixed,"INVALID_DOMAIN",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"},{"target","b"}}}},0);
+    auto full=before;
+    for(int i=1;i<128;++i)full.objects.at("target").stack.push_back(default_operation("existing-"+std::to_string(i),"nect.paint.fill"));
+    Session limited(full);
+    expect_atomic(limited,"LIMIT",PresetCommand{ApplyPresetBatch{"preset",{{"path","a"},{"target","b"}}}},0);
+
+    Session api(before);
+    const auto response=request(api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"apply_preset_batch","preset":"preset","targets":[{"object":"path","operation_id_prefix":"api-first"},{"object":"target","operation_id_prefix":"api-second"}]}]})");
+    check(response.find("\"ok\":true")!=std::string::npos&&response.find("api-first-op-3")!=std::string::npos&&
+        response.find("api-second-op-3")!=std::string::npos&&api.revision()==1&&
+        api.document().objects.at("path").stack[3].macro->overrides.at("macro.offset.amount")==27&&
+        api.document().objects.at("target").stack[1].parameters.at("amount").literal==18,
+        "JSON batch adapter uses same canonical command and returns exact per-target processing IDs");
+    const auto api_snapshot=api.document();const auto api_history=api.history();
+    const auto refused=request(api,R"({"op":"apply","expected_revision":1,"commands":[{"type":"apply_preset_batch","preset":"preset","targets":[{"object":"path","operation_id_prefix":"new-first"},{"object":"missing","operation_id_prefix":"new-second"}]}]})");
+    check(refused.find("MISSING_OBJECT")!=std::string::npos&&api.document()==api_snapshot&&api.history()==api_history&&api.revision()==1,
+        "JSON later-target failure preserves entire transaction and history");
+}
 void json_lines_and_native_payload_contract() {
     auto legacy_document=fixture();
     legacy_document.objects.at("path").stack.push_back(default_operation("legacy-offset","nect.shape.offset"));
@@ -473,6 +533,7 @@ int main() {
         capture_refusal_lists_exact_source_refs();
         capture_filters_other_stack_entries_explicitly();
         json_lines_and_native_payload_contract();
+        batch_document_preset_contract();
         std::cout<<checks<<" preset contract checks passed\n";return 0;
     } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 }

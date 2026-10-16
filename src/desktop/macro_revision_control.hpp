@@ -37,7 +37,7 @@ private:
     Id document_id_,definition_id_,updated_definition_id_;
     std::uint64_t revision_=0,gesture_=0,saved_revision_=0;
     bool finished_=false,loaded_=false;
-    MacroDefinitionRevision draft_;
+    MacroDefinitionRevision source_,draft_;
     QComboBox* definitions_=nullptr;
     QScrollArea* scroll_=nullptr;
     QLineEdit* parameter_label_=nullptr;

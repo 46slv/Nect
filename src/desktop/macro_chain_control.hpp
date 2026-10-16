@@ -38,7 +38,7 @@ private:
     Id document_id_,definition_id_,updated_definition_id_,selected_node_,mapped_node_;
     std::uint64_t revision_=0,gesture_=0,saved_revision_=0;
     bool finished_=false,loaded_=false;
-    MacroDefinitionRevision draft_;
+    MacroDefinitionRevision loaded_source_,draft_;
     MacroPublicParameter public_template_;
     std::vector<NodeDraft> nodes_;
     std::map<std::string,QLineEdit*> inputs_;
