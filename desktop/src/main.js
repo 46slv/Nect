@@ -273,6 +273,9 @@ import {
   layoutGridDefaults,
   layoutGridLines,
   characterOccurrences,
+  textEditGeometry,
+  nearestTextCaret,
+  resolveNodeOutputTargets,
   inverseCharacterDelta,
   characterBoxPoints,
   hitCharacter,
@@ -332,7 +335,10 @@ function editAlignmentSpacing(input, commit = false) {
   alignmentPreferences.spacing = value;
   saveAlignmentPreferences();
   const resolved = alignmentTargets();
-  const eligible = resolved.move.supported && resolved.ids.length >= (value === null ? 3 : 2);
+  const eligible =
+    resolved.scope !== 'nodes' &&
+    resolved.move.supported &&
+    resolved.ids.length >= (value === null ? 3 : 2);
   for (const button of app.querySelectorAll('[data-distribute-gap]')) {
     button.dataset.distributeSpacing = String(value ?? '');
     button.dataset.eligible = String(!!eligible);
@@ -523,18 +529,15 @@ function artworkMove() {
 }
 function alignmentTargets(artworkResolution = null) {
   if (artworkTarget)
-    return { ids: [...artworkSelection], move: artworkResolution || artworkMove() };
-  if (!selection.size) return { ids: [], move: { supported: false } };
-  const resolved = resolveArtworkMoveTarget(history.doc, activeLayer, { fonts });
-  if (!resolved.supported) return { ids: [], move: resolved };
-  const route = new Set(resolved.target.route.map((n) => n.nodeId));
-  if (![...selection].every((id) => route.has(id)))
     return {
-      ids: [],
-      move: { supported: false, reason: 'Select nodes connected to one movable artwork output.' },
+      scope: 'artwork',
+      ids: [...artworkSelection],
+      move: artworkResolution || artworkMove(),
     };
-  // Source, Fill and Output can all describe the same artwork. Move it once.
-  return { ids: [activeLayer], move: resolved };
+  if (!selection.size) return { ids: [], move: { supported: false } };
+  const ids = [...selection],
+    move = resolveNodeOutputTargets(history.doc, activeLayer, ids, { fonts });
+  return { scope: 'nodes', ids, count: move.members?.length || ids.length, move };
 }
 function sameArtworkMove(target, expected) {
   if (expected.scope === 'artwork-selection')
@@ -584,11 +587,14 @@ function alignmentPanel(move) {
   if (!alignmentPreferences.open) return '';
   const resolved = alignmentTargets(move);
   move = resolved.move;
-  const count = resolved.ids.length;
+  const count = resolved.count ?? resolved.ids.length;
   const allowed = count > 0 && move.supported;
   const alignReady = allowed && count >= (alignmentPreferences.reference === 'artboard' ? 1 : 2);
-  const spreadReady = allowed && count >= 3;
-  const gapReady = allowed && count >= (alignmentPreferences.spacing === null ? 3 : 2);
+  const spreadReady = resolved.scope !== 'nodes' && allowed && count >= 3;
+  const gapReady =
+    resolved.scope !== 'nodes' &&
+    allowed &&
+    count >= (alignmentPreferences.spacing === null ? 3 : 2);
   const selectedIds = esc(JSON.stringify(resolved.ids));
   const busy = alignmentBusy();
   const order = ['left', 'center-x', 'right', 'top', 'center-y', 'bottom'];
@@ -677,6 +683,8 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  for (const { face } of editorFonts.values()) document.fonts?.delete(face);
+  editorFonts.clear();
   textPreview = null;
   canvasTextEdit = null;
   lastCanvasTextClick = null;
@@ -1912,6 +1920,7 @@ function transformOverlay(n, result) {
 }
 
 function canvasOverlay(n, result) {
+  if (canvasTextEdit) return canvasTextOverlay(result);
   if (characterEdit) return characterOverlay(result);
   if (artworkTarget) {
     return [...artworkSelection]
@@ -2034,6 +2043,7 @@ function drawCanvas() {
   renderEvaluation = r;
   sizePositionHandle();
   positionCharacterFloating();
+  positionCanvasTextEditor();
 }
 function sizePositionHandle() {
   document
@@ -2093,6 +2103,7 @@ function fitCanvas() {
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
   sizePositionHandle();
   positionCharacterFloating();
+  positionCanvasTextEditor();
   updateNavigation();
   // Keep screen-sized handles and their hit targets atomic with the new view scale.
   // Only the SVG changes; graph/input drafts and focus stay intact.
@@ -2586,9 +2597,11 @@ function alignArtwork(button) {
       oldPast = history.past.at(-1);
     const { changed } = session.dispatch({
       ...session.state,
-      type: 'align-artworks',
+      type: targets.scope === 'nodes' ? 'align-node-outputs' : 'align-artworks',
       payload: {
-        layerIds: targets.ids,
+        ...(targets.scope === 'nodes'
+          ? { layerId: activeLayer, nodeIds: targets.ids }
+          : { layerIds: targets.ids }),
         action: button.dataset.alignArtwork,
         reference: alignmentPreferences.reference,
       },
@@ -2607,6 +2620,7 @@ function alignArtwork(button) {
 }
 function distributeArtwork(button) {
   const targets = alignmentTargets();
+  if (targets.scope === 'nodes') return;
   if (
     !app.contains(button) ||
     alignmentBusy() ||
@@ -3580,24 +3594,144 @@ function beginCanvasTextEdit(layerId, event) {
   selected = node.id;
   selection = new Set([node.id]);
   characterEdit = null;
-  canvasTextEdit = { layerId, nodeId: node.id };
+  const occurrence = (hits.length ? hits : occurrences).find((o) => o.source === node.id);
+  canvasTextEdit = { layerId, nodeId: node.id, route: occurrence.route, occurrence };
   render();
-  const stage = app.querySelector('.canvas-stage'),
-    rect = stage.getBoundingClientRect();
+  const stage = app.querySelector('.canvas-stage');
   const editor = document.createElement('textarea');
   editor.className = 'canvas-text-editor';
   editor.dataset.text = node.id;
   editor.setAttribute('aria-label', 'Edit canvas text');
   editor.title = 'Ctrl+Enter to finish; Escape to cancel';
   editor.value = node.text;
-  editor.style.left =
-    Math.max(4, Math.min(stage.clientWidth - 250, event.clientX - rect.left)) + 'px';
-  editor.style.top =
-    Math.max(4, Math.min(stage.clientHeight - 96, event.clientY - rect.top)) + 'px';
   stage.append(editor);
+  let anchor;
+  const selectAt = (event, extend) => {
+    const context = canvasTextContext();
+    if (!context) return;
+    const index = nearestTextCaret(context.geometry, canvasPoint(event));
+    if (!extend) anchor = index;
+    else anchor ??= editor.selectionStart;
+    editor.setSelectionRange(
+      Math.min(anchor, index),
+      Math.max(anchor, index),
+      index < anchor ? 'backward' : 'forward',
+    );
+    updateCanvas(true);
+  };
+  editor.onpointerdown = (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    editor.focus({ preventScroll: true });
+    selectAt(event, event.shiftKey);
+    editor.setPointerCapture(event.pointerId);
+  };
+  editor.onpointermove = (event) => {
+    if (!editor.hasPointerCapture(event.pointerId)) return;
+    event.stopPropagation();
+    selectAt(event, true);
+  };
+  editor.onpointerup = (event) => {
+    if (editor.hasPointerCapture(event.pointerId)) editor.releasePointerCapture(event.pointerId);
+    event.stopPropagation();
+  };
+  editor.onselect = editor.onkeyup = () => updateCanvas(true);
   editor.focus({ preventScroll: true });
-  editor.select();
+  selectAt(event, false);
+  positionCanvasTextEditor();
   return true;
+}
+function canvasTextContext(result = renderEvaluation) {
+  // Geometry must read the displayed draft; current() deliberately owns committed authoring targets.
+  if (!canvasTextEdit || displayLayer().id !== canvasTextEdit.layerId) return null;
+  const n = displayLayer().nodes.find((n) => n.id === canvasTextEdit.nodeId);
+  if (!n) return null;
+  const occurrence =
+    characterOccurrences(result.path).find((o) => o.route === canvasTextEdit.route) ||
+    canvasTextEdit.occurrence;
+  const defaults = {
+    ...result.textDefaults(n.id),
+    position: result.objectResizeState(n.id).position,
+  };
+  return {
+    n,
+    defaults,
+    geometry: textEditGeometry(n, result.textLayout(n.id), occurrence, fonts, defaults),
+  };
+}
+document.addEventListener('selectionchange', () => {
+  if (document.activeElement?.matches('.canvas-text-editor')) updateCanvas();
+});
+function canvasTextOverlay(result) {
+  const context = canvasTextContext(result),
+    input = app.querySelector('.canvas-text-editor');
+  if (!context || !input) return '';
+  const { selectionStart: start, selectionEnd: end } = input;
+  const caretIndex = input.selectionDirection === 'backward' ? start : end;
+  const caret =
+    context.geometry.carets.filter((c) => c.index <= caretIndex).at(-1) ||
+    context.geometry.carets[0];
+  const selected = context.geometry.selections.filter((g) => g.end > start && g.start < end);
+  return `<g class="canvas-text-selection" aria-hidden="true">${selected.map((g) => `<polygon points="${g.points.map((p) => p.join(',')).join(' ')}"/>`).join('')}${caret ? `<path class="canvas-text-caret" data-caret-index="${caret.index}" d="M${caret.points[0].join(' ')}L${caret.points[1].join(' ')}"/>` : ''}</g>`;
+}
+const editorFonts = new Map();
+function positionCanvasTextEditor() {
+  const editor = app.querySelector('.canvas-text-editor'),
+    context = editor && canvasTextContext();
+  if (!context) return;
+  const svg = app.querySelector('.artboard'),
+    ctm = svg.getScreenCTM();
+  if (!ctm) return;
+  const stage = app.querySelector('.canvas-stage').getBoundingClientRect();
+  const points = [
+    ...context.geometry.carets.flatMap((c) => c.points),
+    ...context.geometry.selections.flatMap((g) => g.points),
+  ].map((p) => new DOMPoint(...p).matrixTransform(ctm));
+  if (!points.length) return;
+  const left = Math.min(...points.map((p) => p.x)),
+    top = Math.min(...points.map((p) => p.y));
+  Object.assign(editor.style, {
+    left: left - stage.left - 3 + 'px',
+    top: top - stage.top - 3 + 'px',
+    width: Math.max(12, Math.max(...points.map((p) => p.x)) - left + 6) + 'px',
+    height: Math.max(12, Math.max(...points.map((p) => p.y)) - top + 6) + 'px',
+    fontSize: context.defaults.size * canvasScale() + 'px',
+    lineHeight:
+      (context.n.leading?.mode === 'manual'
+        ? context.n.leading.value
+        : context.defaults.size * context.defaults.lineSpacing) *
+        canvasScale() +
+      'px',
+    letterSpacing: context.defaults.tracking * canvasScale() + 'px',
+    writingMode: context.n.writingMode || 'horizontal-tb',
+  });
+  // Same local face for the native IME caret. Outlines/caret geometry remain authoritative.
+  const fontId = context.n.font;
+  if (typeof FontFace === 'function') {
+    const asset = history.doc.fontAssets?.[fontId];
+    if (!editorFonts.has(fontId) || editorFonts.get(fontId).data !== asset?.data) {
+      const old = editorFonts.get(fontId);
+      if (old) document.fonts.delete(old.face);
+      const family = 'NectEditor_' + fontId.replace(/[^a-zA-Z0-9_]/g, '_');
+      const source = asset
+        ? Uint8Array.from(atob(asset.data), (c) => c.charCodeAt(0)).buffer
+        : 'url(/fonts/DejaVuSans.ttf)';
+      const face = new FontFace(family, source);
+      editorFonts.set(fontId, {
+        family,
+        face,
+        data: asset?.data,
+        ready: face
+          .load()
+          .then((loaded) => {
+            if (editorFonts.get(fontId)?.face === loaded) document.fonts.add(loaded);
+          })
+          .catch(() => {}),
+      });
+    }
+    editor.style.fontFamily = editorFonts.get(fontId).family;
+  }
 }
 function compactTextInspector() {
   const inspector = app.querySelector('.inspector-body');
@@ -3734,6 +3868,9 @@ app.addEventListener('dblclick', (e) => {
 });
 app.addEventListener('focusout', (e) => {
   if (e.target.matches('[data-rename-name]') && nameEdit) finishNameEdit(true, true);
+  if (e.target.matches('.canvas-text-editor') && canvasTextEdit) {
+    e.target.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 });
 app.addEventListener('beforeinput', (e) => {
   if (!e.target.matches('textarea[data-text]')) return;
@@ -4126,7 +4263,11 @@ app.addEventListener('change', async (e) => {
             expectedDraftRevision: draft.state.draftRevision,
           },
         });
-      } else
+      } else if (
+        current()
+          .nodes.find((n) => n.id === d.text)
+          ?.text.replace(/\r\n?/g, '\n') !== el.value
+      )
         session.dispatch({
           ...session.state,
           type: 'set-text-content',
@@ -5879,7 +6020,9 @@ document.addEventListener('pointerup', (e) => {
     if (wiring.pointerId !== undefined && wiring.pointerId !== e.pointerId) return;
     let w = wiring;
     wiring = null;
-    const drop = w.capture ? document.elementFromPoint?.(e.clientX, e.clientY) : e.target;
+    const drop = w.capture
+      ? document.elementFromPoint?.(e.clientX, e.clientY) || e.target
+      : e.target;
     releaseWirePointer(w);
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;

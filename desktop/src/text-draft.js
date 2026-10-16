@@ -6,10 +6,12 @@ export class TextDraft {
   constructor({ layerId, nodeId, revision, text, record }) {
     Object.assign(this, { layerId, nodeId, revision });
     this.baseText = text;
+    // Native textareas normalize line endings; retain authored bytes separately.
+    this.baseRaw = text.replace(/\r\n?/g, '\n');
     this.baseRecord = JSON.stringify(record ?? null);
-    this.raw = text;
+    this.raw = this.baseRaw;
     this.record = structuredClone(record);
-    this.snapshots = [{ raw: text, record: this.record }];
+    this.snapshots = [{ raw: this.raw, record: this.record }];
     this.cursor = 0;
     this.version = 0;
     this.composition = null;
@@ -21,8 +23,7 @@ export class TextDraft {
       draftRevision: this.version,
       text: this.raw,
       composing: !!this.composition,
-      changed:
-        this.raw !== this.baseText || JSON.stringify(this.record ?? null) !== this.baseRecord,
+      changed: this.raw !== this.baseRaw || JSON.stringify(this.record ?? null) !== this.baseRecord,
       status: this.status,
       reason: this.reason,
     };

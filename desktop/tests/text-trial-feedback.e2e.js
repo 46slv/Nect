@@ -195,6 +195,19 @@ try {
   console.log(
     'PASS: focused live text, private draft/cancel/one Undo, composition boundary, node-output align/dedup/graph preservation, icon controls, canvas double-click editing/sync/Undo/reload/SVG.',
   );
+} catch (error) {
+  console.error(
+    JSON.stringify({
+      pageErrors: errors,
+      canvas: await page.evaluate(() => ({
+        editor: document.querySelector('.canvas-text-editor')?.outerHTML.slice(0, 500),
+        caret: document.querySelector('.canvas-text-caret')?.outerHTML,
+        focus: document.activeElement?.tagName,
+      })),
+    }),
+  );
+  await page.screenshot({ path: 'test-results/text-feedback-failure.png' });
+  throw error;
 } finally {
   await browser.close();
 }

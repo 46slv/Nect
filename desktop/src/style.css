@@ -222,17 +222,35 @@ header {
 .canvas-text-editor {
   position: absolute;
   z-index: 30;
-  width: 246px;
-  min-height: 88px;
-  padding: 8px;
-  resize: both;
-  background: #fff;
-  color: #263746;
-  border: 1px solid var(--selection);
-  box-shadow: 0 2px 8px #26374620;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  border: 0;
+  outline: none !important;
+  box-shadow: none !important;
+  opacity: 0;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
+}
+.canvas-text-selection {
+  pointer-events: none;
+}
+.canvas-text-selection polygon {
+  fill: #527fa640;
+  stroke: none;
+}
+.canvas-text-caret {
+  stroke: #243e53;
+  stroke-width: 1.5;
+  fill: none;
+  vector-effect: non-scaling-stroke;
 }
 .inspector-body .text-symbol-field {
   display: flex;

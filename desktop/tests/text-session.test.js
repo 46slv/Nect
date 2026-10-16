@@ -35,6 +35,32 @@ function fixture() {
   return { session, send, text, begin, stage, commit, current };
 }
 
+test('textarea line endings preserve authored no-op and restore exact source on Undo', () => {
+  const f = fixture();
+  f.send('set-text-content', { text: 'A\r\nB\rC' });
+  const original = f.session.snapshot(),
+    state = f.session.state;
+  assert.equal(f.begin().text, 'A\nB\nC');
+  f.commit();
+  assert.deepEqual(f.session.snapshot(), original);
+  assert.deepEqual(f.session.state, state);
+  f.begin();
+  f.stage({
+    action: 'edit',
+    previousRaw: 'A\nB\nC',
+    nextRaw: 'A\nB\nCe\u0301',
+    selectionStart: 5,
+    selectionEnd: 5,
+    inputType: 'insertText',
+  });
+  f.commit();
+  assert.equal(f.current().text, 'A\nB\nCe\u0301');
+  f.send('undo');
+  assert.deepEqual(f.session.snapshot(), original);
+  f.send('redo');
+  assert.equal(f.current().text, 'A\nB\nCe\u0301');
+});
+
 test('text draft projections are detached, preserve history and reject stale or cancelled drafts', () => {
   const f = fixture();
   const original = f.session.snapshot(),

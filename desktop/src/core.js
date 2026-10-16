@@ -1,4 +1,6 @@
 export { scrubNumericValues } from './numeric-scrub.js';
+export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
+export { resolveNodeOutputTargets } from './node-output-alignment.js';
 export { constrainAxisDrag } from './axis-drag.js';
 export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
 import { validateImageAssets, imageURL, decodeImage, pngSize } from './images.js';
@@ -14,6 +16,7 @@ import { removeArtworkLayer } from './artwork-deletion.js';
 import { moveArtworkLayer } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
+import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
@@ -1304,6 +1307,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result = fromPaper(item, n.id);
         textLayouts.set(n.id, {
           characters: layout.characters,
+          glyphAdvances: Object.fromEntries(
+            layout.glyphs.map((glyph) => [glyph.sourceIndex, glyph.advance]),
+          ),
           attachment: layout.attachment,
           placements: layout.placements,
           lineOffsets: layout.lineOffsets,
@@ -2528,18 +2534,28 @@ export class CommandSession {
           } else {
             if (
               !(target.nodeIds.length === 1 && node.type === 'Transform') &&
-              !['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Text', 'Image'].includes(
-                node.type,
-              )
+              ![
+                'Circle',
+                'Ellipse',
+                'Rectangle',
+                'Polygon',
+                'Star',
+                'Text',
+                'Image',
+                'Vector',
+                'Null',
+              ].includes(node.type)
             )
               throw Error('Unsupported node move');
             write(
               node.params[
                 node.type === 'Transform'
                   ? 'offset'
-                  : ['Text', 'Image'].includes(node.type)
-                    ? 'position'
-                    : 'center'
+                  : node.type === 'Vector'
+                    ? 'value'
+                    : ['Text', 'Image', 'Null'].includes(node.type)
+                      ? 'position'
+                      : 'center'
               ],
             );
           }
@@ -2996,6 +3012,20 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before) {
+    if (type === 'align-node-outputs') {
+      const moves = planNodeOutputAlignment(
+        before,
+        payload.layerId,
+        payload.nodeIds,
+        payload.action,
+        { fonts: resolveFonts(before, this.#fonts()), reference: payload.reference },
+      );
+      let candidate = cloneDocument(before);
+      for (const move of moves)
+        if (move.delta.some((value) => value !== 0))
+          candidate = this.#gestureCandidate(candidate, move.target, { delta: move.delta });
+      return { candidate, result: {} };
+    }
     if (type === 'import-svg') {
       const candidate = importSVGTree(payload.source);
       serialize(candidate);
@@ -3383,7 +3413,7 @@ export class CommandSession {
         if (payload.expectedDraftRevision !== committingDraft.version)
           throw Error('STALE_TEXT_DRAFT: input changed');
         committingDraft.assertCurrent(node, this.#history.revision, payload.expectedDraftRevision);
-        text = committingDraft.raw;
+        text = committingDraft.state.changed ? committingDraft.raw : committingDraft.baseText;
         record = clone(committingDraft.record);
       } else {
         text = payload.text;
