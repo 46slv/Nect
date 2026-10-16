@@ -142,8 +142,20 @@ let history = session.historyView,
   drag = null,
   penId = null,
   penDraft = null;
+// Committed History states are frozen. Keep only the current state's encoding,
+// so pointer previews/status reads do not repeatedly encode embedded fonts.
+let encodedDocument = null,
+  encodedText;
+function readDocument() {
+  const doc = history.doc;
+  if (doc !== encodedDocument) {
+    encodedText = serialize(doc);
+    encodedDocument = doc;
+  }
+  return encodedText;
+}
 const documents = new DocumentLifecycle({
-  read: () => serialize(history.doc),
+  read: readDocument,
   write: writeProject,
   release: releaseProject,
   choose: chooseUnsaved,

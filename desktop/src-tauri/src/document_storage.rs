@@ -36,11 +36,12 @@ pub fn release_project(token: String, docs: tauri::State<'_, Documents>) -> Resu
 
 #[tauri::command]
 pub fn open_project(
+    window: tauri::WebviewWindow,
     storage: tauri::State<'_, RunStorage>,
     docs: tauri::State<'_, Documents>,
 ) -> Result<Option<(String, String, String)>, String> {
     let Some(path) = storage
-        .dialog()
+        .dialog(&window)
         .add_filter("Nect project", &["json"])
         .pick_file()
     else {
@@ -57,6 +58,7 @@ pub fn open_project(
 
 #[tauri::command]
 pub fn save_project(
+    window: tauri::WebviewWindow,
     contents: String,
     token: Option<String>,
     operation: u32,
@@ -76,7 +78,7 @@ pub fn save_project(
         (path.clone(), Some(contents.clone()))
     } else {
         let Some(path) = storage
-            .dialog()
+            .dialog(&window)
             .set_file_name("nect-project.json")
             .add_filter("Nect project", &["json"])
             .save_file()
@@ -101,20 +103,33 @@ pub fn save_project(
 }
 
 #[tauri::command]
-pub fn choose_unsaved(action: String) -> String {
-    use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
-    match MessageDialog::new()
-        .set_title("Unsaved changes")
-        .set_description(format!("Save the current document before {action}?"))
-        .set_level(MessageLevel::Warning)
-        .set_buttons(MessageButtons::YesNoCancel)
-        .show()
-    {
+pub fn choose_unsaved(window: tauri::WebviewWindow, action: String) -> String {
+    use rfd::{MessageButtons, MessageDialog, MessageLevel};
+    unsaved_choice(
+        MessageDialog::new()
+            .set_parent(&window)
+            .set_title("Unsaved changes")
+            .set_description(format!("Save the current document before {action}?"))
+            .set_level(MessageLevel::Warning)
+            .set_buttons(MessageButtons::YesNoCancelCustom(
+                "Save".into(),
+                "Discard".into(),
+                "Cancel".into(),
+            ))
+            .show(),
+    )
+    .into()
+}
+
+fn unsaved_choice(result: rfd::MessageDialogResult) -> &'static str {
+    use rfd::MessageDialogResult;
+    match result {
         MessageDialogResult::Yes => "save",
         MessageDialogResult::No => "discard",
+        MessageDialogResult::Custom(label) if label == "Save" => "save",
+        MessageDialogResult::Custom(label) if label == "Discard" => "discard",
         _ => "cancel",
     }
-    .into()
 }
 
 #[tauri::command]
@@ -134,6 +149,27 @@ pub fn finish_close(window: tauri::WebviewWindow) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_unsaved_choices_preserve_save_discard_cancel_and_refuse_unknown_results() {
+        use rfd::MessageDialogResult;
+        assert_eq!(
+            unsaved_choice(MessageDialogResult::Custom("Save".into())),
+            "save"
+        );
+        assert_eq!(
+            unsaved_choice(MessageDialogResult::Custom("Discard".into())),
+            "discard"
+        );
+        for result in [
+            MessageDialogResult::Cancel,
+            MessageDialogResult::Ok,
+            MessageDialogResult::Custom("Cancel".into()),
+            MessageDialogResult::Custom("Unknown".into()),
+        ] {
+            assert_eq!(unsaved_choice(result), "cancel");
+        }
+    }
 
     #[test]
     fn repeated_replacement_releases_buffers_and_preserves_current_token() {

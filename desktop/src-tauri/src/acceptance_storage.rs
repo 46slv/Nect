@@ -153,8 +153,8 @@ impl RunStorage {
         Ok(Self(Some(paths)))
     }
 
-    pub fn dialog(&self) -> rfd::FileDialog {
-        let dialog = rfd::FileDialog::new();
+    pub fn dialog(&self, window: &tauri::WebviewWindow) -> rfd::FileDialog {
+        let dialog = rfd::FileDialog::new().set_parent(window);
         match &self.0 {
             Some(paths) => dialog.set_directory(&paths.documents),
             None => dialog,

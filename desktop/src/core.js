@@ -74,11 +74,11 @@ export function cloneDocument(doc) {
   const { fontAssets, imageAssets, ...model } = doc;
   const copy = clone(model);
   if (fontAssets) {
-    for (const asset of Object.values(fontAssets)) Object.freeze(asset);
+    for (const asset of Object.values(fontAssets)) freezeDocumentView(asset);
     copy.fontAssets = { ...fontAssets };
   }
   if (imageAssets) {
-    for (const asset of Object.values(imageAssets)) Object.freeze(asset);
+    for (const asset of Object.values(imageAssets)) freezeDocumentView(asset);
     copy.imageAssets = { ...imageAssets };
   }
   return copy;
@@ -2249,8 +2249,10 @@ export class History {
 
 // Shared command entry. The UI can read stable frozen History states for its
 // selection WeakMap; only typed Session commands can replace authored state.
+const frozenDocumentViews = new WeakSet();
 function freezeDocumentView(value) {
-  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+  if (value && typeof value === 'object' && !frozenDocumentViews.has(value)) {
+    frozenDocumentViews.add(value);
     for (const child of Object.values(value)) freezeDocumentView(child);
     Object.freeze(value);
   }

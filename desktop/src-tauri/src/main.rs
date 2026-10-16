@@ -12,9 +12,12 @@ use acceptance_storage::RunStorage;
 use system_fonts::{list_system_fonts, read_system_font, Catalog};
 
 #[tauri::command]
-fn open_document(storage: tauri::State<'_, RunStorage>) -> Result<Option<String>, String> {
+fn open_document(
+    window: tauri::WebviewWindow,
+    storage: tauri::State<'_, RunStorage>,
+) -> Result<Option<String>, String> {
     let Some(path) = storage
-        .dialog()
+        .dialog(&window)
         .add_filter("Nect project", &["json"])
         .pick_file()
     else {
@@ -25,6 +28,7 @@ fn open_document(storage: tauri::State<'_, RunStorage>) -> Result<Option<String>
 
 #[tauri::command]
 fn save_document(
+    window: tauri::WebviewWindow,
     contents: String,
     suggested_name: String,
     kind: String,
@@ -38,7 +42,7 @@ fn save_document(
     }
     let extension = if kind == "svg" { "svg" } else { "json" };
     let Some(path) = storage
-        .dialog()
+        .dialog(&window)
         .set_file_name(&suggested_name)
         .add_filter("Nect document", &[extension])
         .save_file()
@@ -51,6 +55,7 @@ fn save_document(
 
 #[tauri::command]
 fn save_png(
+    window: tauri::WebviewWindow,
     bytes: Vec<u8>,
     suggested_name: String,
     storage: tauri::State<'_, RunStorage>,
@@ -59,7 +64,7 @@ fn save_png(
         return Err("Invalid PNG or PNG exceeds 64 MB".into());
     }
     let Some(path) = storage
-        .dialog()
+        .dialog(&window)
         .set_file_name(&suggested_name)
         .add_filter("PNG image", &["png"])
         .save_file()
