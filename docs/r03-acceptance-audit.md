@@ -835,3 +835,60 @@ CTest, Host platform and whole Requirement/Mission remain separate.
 
 Receipt: `C:/Users/shiro/.codex/scratch/01a14240-6bb0-72d3-8f89-b3fa5bd04b93/driven-checkpoint.json`.
 SHA256 `BE76FA677D7004C872774A7433CA343DCED55A9A34EE5C330BFC274A23DD9AC9`.
+
+## 2026-10-16 native source edit while Point Edit is bypassed
+
+REQ-197 requires generator editing to continue while a correction is disabled,
+and topology changes to report lost correspondence. The original production
+source passed this previously open path; no product repair was needed.
+
+The owned Windows/Qt 6.5.3 Window ran at actual HEAD
+`16fbe4709cd266d9aee04b44559685294e396800`, production
+`4879d02f1849bba810d1870736ea055693db923b`, with only CURRENT_GOAL.md dirty.
+Before constructing the Window, the probe fixed complete manual native-valid
+original, bypassed, radius-edited, re-enabled and foreign documents, independent
+typed Session/History, trigonometric angular coordinates, external Ref widths,
+full raster oracles and fixed red/black/white samples. All authored transitions
+had distinct pixels. The initial revision 3 had both Undo and Redo available.
+
+PID 17352 / HWND 23732364 accepted an actual Canvas selection and Properties
+Point Edit toggle. Bypass committed revision 4 while retaining the same correction
+ID and absolute X=245 override. Actual key input changed outer radius 60 to 90
+while bypassed, committing revision 5. The visible angular point followed the
+source to X=207.81152949374527; its external Ref consumer width became
+20.78115294937453. An actual Points=6 submission displayed
+`UNRESOLVED_POINT_EDIT: moving-source-outer-1-5`, retaining points=10 and the
+entire committed/preview Document, native bytes, History and revision 5.
+Re-enabling the correction committed revision 6, retained radius 90 and restored
+the absolute X=245 and linked width 24.5.
+
+Actual Toolbar Undo three times and Redo three times matched all six complete
+expected Sessions and raster oracles at revisions 7 through 12. All 25 idle
+records matched full native/preview/History/revision/Undo availability and pixels;
+source identity, transforms, selection, zoom, foreign Session, Host and owned
+workspace marker were preserved. One active record belonged to the neutral
+Canvas selection click and was excluded from full-stage comparisons; it is not
+an active-gesture purity proof. Exact saved bytes and a distinct Host in the
+same process reopened the full expected document and pixels without changing
+the live final History. Both owned preparation/runtime processes exited, the
+Cua session ended, and the exact build mutex was free and non-abandoned.
+
+UIA text insertion and posted modifier delivery initially changed only the draft
+at revision 4. Readback reconciled that state before real key input committed
+the intended value. An ineffective scroll was likewise reconciled before using
+the actual accessibility scrollbar. The first owned fixture lacked consumer
+paint and stopped before Window construction; adding its explicit black Fill
+made the independent pixel samples valid. These were preparation/input-route
+corrections, not product failures. Driver reports include accessibility,
+synthetic events and global input with unknown/unverifiable effect; native
+records and grounded screenshots establish outcomes, not physical input.
+
+Receipt:
+`C:/Users/shiro/.codex/scratch/01a1425b-3073-7e93-9a03-00d30eb4f768/bypassed-checkpoint.json`,
+SHA256 `F27198589AF81275CCFDABD430A34B782BB79164971D69BFE5E1DB1AB4FAF2F6`,
+binds 79 artifacts. The exact Star literal bypass/radius/dormant corrected-role
+path is closed. Linked-only disappearing roles, other source inputs/shapes,
+conversion, active cancellation, stale/foreign producers, cold-process/socket,
+full CTest, physical/subjective and Requirement/Mission closure remain unclaimed.
+Earlier native proofs retain their original owner/source bindings.
+
