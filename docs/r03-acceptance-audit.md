@@ -717,3 +717,47 @@ Physical input, subjective quality, stale/foreign active producers, other
 multi-point transforms, cold-process reopen, full CTest and whole Requirement
 or Mission closure remain unproven. Older receipts retain original
 owners/HEADs and are not promoted to this checkpoint.
+
+## 2026-10-16 native Anchor Edit on a transformed retained Circle
+
+Original production `4879d02` passed this R03 / Tool Rail Anchor operation
+without a product RED or repair. Actual native HEAD was
+`d3dd5c5b646ee1b661fe21b8eac6f77375fc21e1`, with only Brief metadata dirty.
+Receipt: `C:/Users/shiro/.codex/scratch/01a14227-31a4-7a63-87da-87b290b24159/anchor-checkpoint.json`,
+SHA256 `48260AA366E30840A226DBD6309FECDEB1C406C3D30CE5123330AE2E6E1124F0`.
+
+Before Window construction, full independent original/expected/foreign Documents
+passed native round-trips, with typed Session/History and pixel oracles fixed.
+Original revision 3 had both Undo and Redo. Expected Anchor-only Document
+preserved the selected Circle's entire rendered image; full expected scene
+also included the intentional linked consumer width change.
+
+Actual Canvas selection and Anchor Rail activation in Windows Qt 6.5.3
+PID91748/HWND59841714 preceded the external 2400ms/40-step pivot drag.
+World (+20,+20) under world=(200-local_y,240+2*local_x) changed authored Anchor
+from local (0,0) to (10,-20). Full Document/native/preview/History matched
+revision 4. Generator radius50, existing stable PointEdit outgoing15/35,
+all path/paint/source data and affine matrix stayed intact. The unselected
+consumer retained its anchor_x reference and evaluated width110.
+
+All 22 active samples retained committed original Document/History/revision 3
+and both Undo/Redo; all observed selected-Circle images remained pixel equal.
+Actual Toolbar Undo/Redo matched full typed Sessions at revisions 5/6.
+Exact Save bytes, distinct same-process Host reopen and full expected scene
+pixels matched. Selection, active Anchor mode/Rail, Host/view/foreign Session
+and owned INI/FolderLibrary were preserved. Owned process closed, Cua ended,
+exact mutex free/non-abandoned/released/disposed. Probe SHA238FB93E,
+binary SHAB3F7AEFA; receipt binds 25 artifacts.
+
+Cua reported accessibility/synthetic_events/global_input with unverifiable
+effects; semantic records and grounded screenshots establish outcomes.
+Native cancellation, driven edited Anchor, foreign/stale active producers,
+other transforms, physical/subjective input, cold-process reopen, full CTest
+and whole Requirement/Mission closure remain outside this proof.
+
+The separately considered active socket Open producer was rejected before
+native execution: current Host::reset (src/desktop/host.cpp:168) refuses an
+active Session gesture with GESTURE_ACTIVE before replacement. The older
+native socket marquee proof had no authored Session gesture and is distinct.
+No source bypass, manufactured RED or duplicate native qualification was used.
+Source reconciliation is in OWN/authored-producer-reconciliation.json.
