@@ -2241,7 +2241,16 @@ export class CommandSession {
     }
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
-    if (!['connect', 'disconnect', 'set-operation'].includes(type))
+    if (
+      ![
+        'connect',
+        'disconnect',
+        'set-operation',
+        'set-parameter',
+        'set-parameter-expression',
+        'set-parameter-lock',
+      ].includes(type)
+    )
       throw Error('Unsupported command');
     const before = this.#history.doc,
       candidate = cloneDocument(before);
@@ -2254,7 +2263,44 @@ export class CommandSession {
       const node = target.nodes.find((node) => node.id === payload.nodeId);
       if (!node) throw Error('Missing node');
       disconnect(node, payload.key);
-    } else setOperation(target, payload.nodeId, payload.operation);
+    } else if (type === 'set-operation') setOperation(target, payload.nodeId, payload.operation);
+    else {
+      const node = target.nodes.find((node) => node.id === payload.nodeId),
+        q = node && parameter(node, payload.key);
+      if (!q) throw Error('Missing parameter');
+      if (type === 'set-parameter-lock') {
+        if (typeof payload.locked !== 'boolean') throw Error('Invalid lock state');
+        q.locked = payload.locked;
+      } else {
+        if (q.locked) throw Error('Parameter is locked');
+        if (type === 'set-parameter-expression') {
+          if (!['Scalar', 'Vector2'].includes(q.type) || typeof payload.expression !== 'string')
+            throw Error('Expected a numeric expression');
+          if (payload.expression) {
+            const value =
+              q.type === 'Vector2'
+                ? payload.expression.split(';').map(expression)
+                : expression(payload.expression);
+            assertValue(q.type, value);
+          }
+          q.expression = payload.expression;
+        } else {
+          if (q.source || q.expression)
+            throw Error(
+              'Parameter is driven; disconnect input or clear expression before editing its fallback',
+            );
+          if (payload.axis !== undefined) {
+            if (q.type !== 'Vector2' || ![0, 1].includes(payload.axis))
+              throw Error('Invalid parameter axis');
+            assertValue('Scalar', payload.value);
+            q.value[payload.axis] = payload.value;
+          } else {
+            assertValue(q.type, payload.value);
+            q.value = clone(payload.value);
+          }
+        }
+      }
+    }
     validate(candidate);
     assertClosedOffsetChange(
       target,

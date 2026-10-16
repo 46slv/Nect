@@ -390,14 +390,15 @@ function change(fn, text, deferRender = false) {
     else render();
   }
 }
-function commandChange(type, payload, text) {
+function commandChange(type, payload, text, deferRender = false) {
   try {
     session.dispatch({ ...session.state, type, payload: { layerId: current().id, ...payload } });
     notify(text || 'Updated');
   } catch (error) {
     notify(error.message, true);
   }
-  render();
+  if (deferRender) scheduleRender();
+  else render();
 }
 function resetTransient() {
   discardPenDraft();
@@ -2864,17 +2865,21 @@ app.addEventListener('click', async (e) => {
     let f = b.closest('.field'),
       nn = current().nodes.find((x) => x.id === f.dataset.node),
       q = parameter(nn, f.dataset.key);
-    change(() => {
-      if (d.lock !== undefined) q.locked = !q.locked;
-      else {
-        if (q.locked) throw Error('Parameter is locked');
-        let next = prompt(
-          'Expression (Vector2: x; y). Leave blank for direct values.',
-          q.expression || '',
+    const payload = { nodeId: nn.id, key: f.dataset.key };
+    if (d.lock !== undefined)
+      commandChange('set-parameter-lock', { ...payload, locked: !q.locked }, 'Parameter updated');
+    else {
+      const next = prompt(
+        'Expression (Vector2: x; y). Leave blank for direct values.',
+        q.expression || '',
+      );
+      if (next !== null)
+        commandChange(
+          'set-parameter-expression',
+          { ...payload, expression: next },
+          'Parameter updated',
         );
-        if (next !== null) q.expression = next;
-      }
-    }, 'Parameter updated');
+    }
     return;
   }
   if (d.preview)
@@ -3525,6 +3530,57 @@ app.addEventListener('change', async (e) => {
     });
     return;
   }
+  if (d.value !== undefined || d.expression !== undefined || d.color !== undefined) {
+    const field = el.closest('.field'),
+      n = current().nodes.find((node) => node.id === field?.dataset.node),
+      q = n && parameter(n, field.dataset.key);
+    if (!q) return;
+    const payload = { nodeId: n.id, key: field.dataset.key };
+    try {
+      if (d.expression !== undefined) {
+        commandChange(
+          'set-parameter-expression',
+          { ...payload, expression: el.value },
+          undefined,
+          true,
+        );
+      } else {
+        let value;
+        if (d.color !== undefined) {
+          value = { ...(q.value || { hex: current().fill, alpha: 1 }) };
+          if (d.color === 'alpha') {
+            if (!el.value.trim()) throw Error('Alpha must be from 0 to 1');
+            value.alpha = Number(el.value);
+          } else value.hex = el.value;
+        } else {
+          value = q.type === 'Boolean' ? el.checked : Number(el.value);
+          if (
+            q.type !== 'Boolean' &&
+            !el.value.trim() &&
+            (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
+              n.type,
+            ) ||
+              (n.type === 'Stroke' && field.dataset.key === 'width'))
+          )
+            throw Error('Expected a finite number');
+        }
+        commandChange(
+          'set-parameter',
+          {
+            ...payload,
+            value,
+            ...(q.type === 'Vector2' ? { axis: Number(d.axis) } : {}),
+          },
+          undefined,
+          true,
+        );
+      }
+    } catch (error) {
+      notify(error.message, true);
+      scheduleRender();
+    }
+    return;
+  }
   change(
     () => {
       if (d.referenceTarget) {
@@ -3674,66 +3730,6 @@ app.addEventListener('change', async (e) => {
         }
         if (!edit[d.component]) edit[d.component] = [0, 0];
         edit[d.component][Number(d.axis)] = Number(el.value);
-      } else {
-        let f = el.closest('.field');
-        if (!f) return;
-        let nn = current().nodes.find((n) => n.id === f.dataset.node),
-          q = parameter(nn, f.dataset.key);
-        if (q.locked) throw Error('Parameter is locked');
-        if (d.color !== undefined) {
-          if (q.source) throw Error('Disconnect input before editing its fallback');
-          const color = { ...(q.value || { hex: current().fill, alpha: 1 }) };
-          if (d.color === 'alpha') {
-            const alpha = Number(el.value);
-            if (el.value === '' || !Number.isFinite(alpha) || alpha < 0 || alpha > 1)
-              throw Error('Alpha must be from 0 to 1');
-            color.alpha = alpha;
-          } else {
-            if (!/^#[0-9a-fA-F]{6}$/.test(el.value)) throw Error('Expected color #RRGGBB');
-            color.hex = el.value;
-          }
-          q.value = color;
-        } else if (d.expression !== undefined) q.expression = el.value;
-        else if (d.value !== undefined) {
-          if (q.source) throw Error('Disconnect input before editing its fallback');
-          let value = q.type === 'Boolean' ? el.checked : Number(el.value);
-          if (
-            q.type !== 'Boolean' &&
-            (!Number.isFinite(value) ||
-              (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
-                nn.type,
-              ) &&
-                !el.value.trim()))
-          )
-            throw Error('Expected a finite number');
-          if (
-            nn.type === 'Stroke' &&
-            f.dataset.key === 'width' &&
-            (el.value === '' || value < 0 || value > 100000)
-          )
-            throw Error('Stroke width must be from 0 to 100000 px');
-          if (
-            nn.type === 'Geometry Repeater' &&
-            f.dataset.key === 'count' &&
-            (!Number.isInteger(value) || value < 1 || value > 256)
-          )
-            throw Error('Repeater count must be an integer from 1 to 256');
-          if (
-            nn.type === 'Stroke' &&
-            ((f.dataset.key === 'miterLimit' && (value < 1 || value > 10000)) ||
-              (f.dataset.key === 'dashOffset' && Math.abs(value) > 100000))
-          )
-            throw Error('Invalid stroke miter limit or dash offset');
-          if (q.type === 'Vector2') q.value[Number(d.axis)] = value;
-          else q.value = value;
-          if (['Polygon', 'Star'].includes(nn.type))
-            radialSettings(nn.type, (key) => nn.params[key].value);
-          if (nn.type === 'Linear Gradient Fill')
-            linearGradientSettings((key) => nn.params[key].value);
-          if (nn.type === 'Radial Gradient Fill')
-            radialGradientSettings((key) => nn.params[key].value);
-          if (nn.type === 'Closed Path Offset') closedOffsetSettings((key) => nn.params[key].value);
-        }
       }
     },
     undefined,
