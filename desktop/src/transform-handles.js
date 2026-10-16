@@ -11,7 +11,7 @@ export function transformHandleGeometry(state, bounds, screenScale = 1) {
     screenScale <= 0
   )
     throw Error('Transform handles need finite coordinates');
-  const pivot = anchor.map((v, i) => v + offset[i]);
+  const pivot = state.pivot || anchor.map((v, i) => v + offset[i]);
   const corners = [
     [bounds[0][2], bounds[1][2]],
     [bounds[0][0], bounds[1][2]],
@@ -29,11 +29,10 @@ export function transformHandleGeometry(state, bounds, screenScale = 1) {
     radius = 100;
   }
   const sign = scale < 0 ? -1 : 1;
-  const axis = transformCharacterPoint(
-    characterTransform([0, 0], [0, 0], sign / radius, rotation),
-    vector,
-  );
-  const distance = Math.max(40 / screenScale, radius * Math.abs(scale));
+  const transformed = state.matrix ? transformCharacterPoint([...state.matrix.slice(0, 4), 0, 0], vector) : null;
+  const magnitude = transformed ? Math.hypot(...transformed) : 0;
+  const axis = transformed && magnitude > 1e-8 ? transformed.map(v => v / magnitude) : transformCharacterPoint(characterTransform([0, 0], [0, 0], sign / radius, rotation), vector);
+  const distance = Math.max(40 / screenScale, transformed ? magnitude : radius * Math.abs(scale));
   const point = (d) => pivot.map((v, i) => v + axis[i] * d);
   const geometry = {
     pivot,

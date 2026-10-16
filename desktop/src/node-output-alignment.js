@@ -13,6 +13,7 @@ const positions = {
   Polygon: 'center',
   Star: 'center',
   Transform: 'offset',
+  'Vector Transform': 'offset',
 };
 const union = (members) =>
   [0, 1].map((axis) => {
@@ -67,7 +68,7 @@ export function resolveNodeOutputTargets(doc, layerId, nodeIds, options = {}) {
         route.add(n.id);
       }
       if (n.bypassed || n.pathAttachment) fail('This output cannot be translated safely.');
-      const key = positions[n.type];
+      const key = ['Transform', 'Vector Transform'].includes(n.type) && n.params.position ? 'position' : positions[n.type];
       if (!key && n.type !== 'Curve') fail('This output has no supported position control.');
       for (const [name, q] of Object.entries(n.params)) {
         if (name !== key && name !== 'path' && (q.source || q.expression))
@@ -125,7 +126,7 @@ export function resolveNodeOutputTargets(doc, layerId, nodeIds, options = {}) {
         outputId,
         route: [...route],
         bounds,
-        key: owner.id + ':' + (positions[owner.type] || 'points'),
+        key: owner.id + ':' + ((['Transform', 'Vector Transform'].includes(owner.type) && owner.params.position ? 'position' : positions[owner.type]) || 'points'),
         target: { kind: 'nodes-translate', layerId, nodeIds: [owner.id] },
       });
     }

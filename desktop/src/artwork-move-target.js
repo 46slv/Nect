@@ -1,3 +1,4 @@
+import { transformExtensions } from './transform-affine.js';
 import { definitions, evaluate, outputType, pathBounds, socketCompatible } from './core.js';
 
 const shapes = new Set(['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star']);
@@ -119,7 +120,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     if (generator.type === 'Text' && generator.pathAttachment != null)
       return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');
     target = transform || generator;
-    parameter = transform ? 'offset' : generator.type === 'Text' ? 'position' : 'center';
+    parameter = transform ? (transform.params.position ? 'position' : 'offset') : generator.type === 'Text' ? 'position' : 'center';
     kind = transform
       ? 'terminal-transform-offset'
       : generator.type === 'Text'
@@ -200,7 +201,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   // input. Do not assume a reference is harmless because it is off the main
   // path. Disconnected references cannot affect this final Output.
   for (const n of route) {
-    const expected = definitions[n.type];
+    const expected = n.type === 'Transform' ? {...definitions[n.type], ...Object.fromEntries(Object.entries(transformExtensions).filter(([key]) => Object.hasOwn(n.params, key)))} : definitions[n.type];
     if (
       !n.params ||
       Object.keys(n.params).some((key) => !Object.hasOwn(expected, key)) ||

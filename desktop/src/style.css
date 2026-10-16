@@ -1622,3 +1622,7 @@ input[data-scrub-step].scrubbing {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.point-hit { fill: transparent; stroke: none; pointer-events: all; cursor: move; }
+.point-marker { pointer-events: none; vector-effect: non-scaling-stroke; }
+.vertex.active { fill: #527fa6; stroke: white; }
