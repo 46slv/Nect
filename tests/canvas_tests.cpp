@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QTest>
+#include <QPainter>
 #include <cmath>
 #include <iostream>
 #include <numbers>
@@ -2879,6 +2880,23 @@ void grid_row_gutter_overlay_tracks_evaluated_source() {
         "Grid rendering and visibility preserve complete authored/native/revision/history state");
 }
 
+QImage fixed_column_overlay(double scale,const std::vector<double>& boundaries,bool visible=true) {
+    // Independent 200x160 Artboard fixture at unit zoom in a300x260 Canvas.
+    QImage image(QSize(qRound(300*scale),qRound(260*scale)),QImage::Format_ARGB32);
+    image.setDevicePixelRatio(scale);image.fill(QColor(250,250,250));
+    if(visible) {
+        QPainter painter(&image);painter.setRenderHint(QPainter::Antialiasing);
+        painter.translate(50,50);painter.setBrush(Qt::NoBrush);
+        painter.setClipRect(QRectF(20,20,160,100));
+        QPen border(QColor(91,158,112,220),1.25);border.setCosmetic(true);
+        painter.setPen(border);painter.drawRect(QRectF(20,20,160,100));
+        QPen cells(QColor(91,158,112,155),1);cells.setCosmetic(true);painter.setPen(cells);
+        for(double x:boundaries)painter.drawLine(QPointF(x,20),QPointF(x,120));
+        for(double y:{65.,75.})painter.drawLine(QPointF(20,y),QPointF(180,y));
+    }
+    return image.copy(QRect(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale)));
+}
+
 void grid_column_gutter_overlay_tracks_evaluated_source() {
     auto document=empty_document("column-gutter-overlay-document","column-gutter-overlay-composition","column-gutter-overlay-board");
     auto& board=document.compositions.front().artboards.front();board.width=200;board.height=160;
@@ -2891,37 +2909,44 @@ void grid_column_gutter_overlay_tracks_evaluated_source() {
     session.apply({GridColumnGutterCommand{SetGridColumnGutterExpression{target,expression,false}}},session.revision());
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
-    const auto count_vertical=[&](const QImage& image,double world_x) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
-        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
-        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
-        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
-            for(int y=top;y<=bottom;++y) {
-                const auto pixel=image.pixelColor(x,y);
-                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-            }
-        return pixels;
-    };
-    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(linked,90)>20&&count_vertical(linked,110)>20&&
-        count_vertical(linked,95)<=20&&count_vertical(linked,105)<=20&&
+    near(canvas.zoom(),1,"Column gutter fixture retains its independent unit-scale view");
+    const double scale=canvas.devicePixelRatioF();
+    const QRect region(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale));
+    // Native Windows and offscreen observation found the correct half-covered
+    // lines at RGB202/223/209 and202/222/208. The former color predicate counted
+    // crossings only. Keep the geometry fixed and compare every pixel instead
+    // of weakening its color/count threshold or searching for a nearby line.
+    const auto expected_linked=fixed_column_overlay(scale,{90,110});
+    const auto expected_updated=fixed_column_overlay(scale,{85,115});
+    const auto expected_literal=fixed_column_overlay(scale,{95,105});
+    const auto expected_hidden=fixed_column_overlay(scale,{},false);
+    const auto capture=[&] {return canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32).copy(region);};
+    const auto linked=capture();
+    check(linked==expected_linked&&linked!=expected_literal&&linked!=expected_hidden&&
         std::get<double>(artboard_layout_property(session.document(),target).literal)==10&&
         artboard_layout_property(session.document(),target).expression==expression&&
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==20,
-        ("Canvas column overlay draws both expression-evaluated Grid column gutter edges while preserving the authored literal: edges="+
-            std::to_string(count_vertical(linked,90))+","+std::to_string(count_vertical(linked,110))+" literal="+
-            std::to_string(count_vertical(linked,95))+","+std::to_string(count_vertical(linked,105))).c_str());
+        "Canvas column overlay exactly draws evaluated edges90/110, preserving the authored literal and source");
     auto upstream=session.document().compositions.front().artboards.back();upstream.width=30;
     session.apply({UpdateArtboard{session.document().compositions.front().id,upstream}},session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(updated,85)>20&&count_vertical(updated,115)>20&&
-        count_vertical(updated,90)<=20&&count_vertical(updated,110)<=20&&
+    const auto updated=capture();
+    check(updated==expected_updated&&updated!=expected_linked&&updated!=expected_literal&&
         std::get<double>(artboard_layout_property(session.document(),target).evaluated)==30,
-        ("Canvas column overlay moves both gutter edges when its upstream Artboard width changes: edges="+
-            std::to_string(count_vertical(updated,85))+","+std::to_string(count_vertical(updated,115))+" old="+
-            std::to_string(count_vertical(updated,90))+","+std::to_string(count_vertical(updated,110))).c_str());
+        "Canvas column overlay exactly moves to edges85/115 after its upstream Artboard width changes");
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->column_gutter_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=capture();
+    check(literal==expected_literal&&literal!=expected_linked&&literal!=expected_updated,
+        "Literal-only control exactly draws edges95/105 and rejects both evaluated positions");
+    const auto before_hide=encode(session.document());const auto revision=session.revision();const auto history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=capture();
+    check(hidden==expected_hidden&&hidden!=expected_linked&&hidden!=expected_updated&&hidden!=expected_literal,
+        "Hidden Grid control rejects every visible column overlay");
+    check(encode(session.document())==before_hide&&session.revision()==revision&&session.history()==history,
+        "Column overlay rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_columns_overlay_tracks_evaluated_source() {
@@ -2937,24 +2962,22 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({GridColumnsCommand{LinkGridColumns{target,source,false}}},session.revision());
     Canvas canvas(session);canvas.resize(300,260);canvas.show();QApplication::processEvents();
     canvas.fit_artboard();QApplication::processEvents();
-    const auto count_vertical=[&](const QImage& image,double world_x) {
-        const auto scale=image.width()>canvas.width()?static_cast<double>(image.width())/canvas.width():1.0;
-        const int pixel_x=qRound((canvas.width()/2.0+(world_x-100)*canvas.zoom())*scale);int pixels=0;
-        const int top=qRound((canvas.height()/2.0+(20-80)*canvas.zoom())*scale);
-        const int bottom=qRound((canvas.height()/2.0+(120-80)*canvas.zoom())*scale);
-        for(int x=pixel_x-qMax(2,qRound(2*scale));x<=pixel_x+qMax(2,qRound(2*scale));++x)
-            for(int y=top;y<=bottom;++y) {
-                const auto pixel=image.pixelColor(x,y);
-                if(pixel.green()>pixel.red()+20&&pixel.green()>pixel.blue()+15)++pixels;
-            }
-        return pixels;
-    };
-    const auto linked=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(linked,66.6666667)>20&&count_vertical(linked,95)<=20&&
+    near(canvas.zoom(),1,"Column count fixture retains its independent unit-scale view");
+    const double scale=canvas.devicePixelRatioF();
+    const QRect region(qRound(55*scale),qRound(55*scale),qRound(190*scale),qRound(125*scale));
+    // Pre-fixed complete boundary sets: literal2, linked3, linked4 and expressed5.
+    const auto expected_literal=fixed_column_overlay(scale,{95,105});
+    const auto expected_three=fixed_column_overlay(scale,{200./3,230./3,370./3,400./3});
+    const auto expected_four=fixed_column_overlay(scale,{52.5,62.5,95,105,137.5,147.5});
+    const auto expected_five=fixed_column_overlay(scale,{44,54,78,88,112,122,146,156});
+    const auto expected_hidden=fixed_column_overlay(scale,{},false);
+    const auto capture=[&] {return canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32).copy(region);};
+    const auto linked=capture();
+    check(linked==expected_three&&linked!=expected_literal&&linked!=expected_hidden&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
         artboard_layout_property(session.document(),target).driver==source&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==3,
-        "Canvas Grid overlay draws the first evaluated-count boundary and preserves its authored literal and stable Ref");
+        "Canvas Grid overlay exactly draws all three evaluated columns and preserves its literal and stable Ref");
     auto updated=std::find_if(session.document().compositions.front().artboards.begin(),
         session.document().compositions.front().artboards.end(),[](const Artboard& value){
             return value.id=="columns-overlay-source-board";
@@ -2963,15 +2986,15 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
         session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto evaluated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(evaluated,52.5)>20&&count_vertical(evaluated,66.6666667)<=20&&
+    const auto evaluated=capture();
+    check(evaluated==expected_four&&evaluated!=expected_three&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows a source count change to the new first-column boundary");
     const Expression expression{R"(ref("columns-overlay-source-grid","","grid.columns") + 1)",1};
     session.apply({GridColumnsCommand{SetGridColumnsExpression{target,expression,true}}},session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto expressed=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(expressed,44)>20&&
+    const auto expressed=capture();
+    check(expressed==expected_five&&expressed!=expected_four&&
         artboard_layout_property(session.document(),target).expression==expression&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).literal)==2&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==5,
@@ -2984,10 +3007,23 @@ void grid_columns_overlay_tracks_evaluated_source() {
     session.apply({SetArtboardLayout{session.document().compositions.front().id,source_update.id,source_update.layout}},
         session.revision());
     canvas.refresh();QApplication::processEvents();
-    const auto expression_updated=canvas.grab().toImage().convertToFormat(QImage::Format_ARGB32);
-    check(count_vertical(expression_updated,52.5)>20&&
+    const auto expression_updated=capture();
+    check(expression_updated==expected_four&&expression_updated!=expected_five&&
         std::get<std::size_t>(artboard_layout_property(session.document(),target).evaluated)==4,
         "Canvas Grid overlay follows upstream source changes through the active columns expression");
+    auto literal_document=session.document();
+    literal_document.compositions.front().artboards.front().layout->grid->columns_expression.reset();
+    session=Session(literal_document);canvas.refresh();QApplication::processEvents();
+    const auto literal=capture();
+    check(literal==expected_literal&&literal!=expected_three&&literal!=expected_four&&literal!=expected_five,
+        "Literal-only count control rejects every evaluated column set");
+    const auto before_hide=encode(session.document());const auto revision=session.revision();const auto history=session.history();
+    canvas.set_show_grid(false);QApplication::processEvents();
+    const auto hidden=capture();
+    check(hidden==expected_hidden&&hidden!=expected_literal&&hidden!=expected_three&&hidden!=expected_four&&hidden!=expected_five,
+        "Hidden Grid count control rejects every visible column set");
+    check(encode(session.document())==before_hide&&session.revision()==revision&&session.history()==history,
+        "Column count rendering and visibility preserve complete authored/native/revision/history state");
 }
 
 void grid_rows_overlay_tracks_evaluated_source() {
@@ -3100,6 +3136,16 @@ int main(int argc, char** argv) {
         if(application.arguments().contains("--grid-row-gutter-only")) {
             grid_row_gutter_overlay_tracks_evaluated_source();
             std::cout << "Canvas Grid row gutter contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--grid-columns-only")) {
+            grid_columns_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid columns contract: " << checks << " checks passed\n";
+            return 0;
+        }
+        if(application.arguments().contains("--grid-column-gutter-only")) {
+            grid_column_gutter_overlay_tracks_evaluated_source();
+            std::cout << "Canvas Grid column gutter contract: " << checks << " checks passed\n";
             return 0;
         }
         if(application.arguments().contains("--linked-margin-only")) {

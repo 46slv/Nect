@@ -1418,3 +1418,45 @@ dirty, bound by Git blobs a648fc874826e08b523bcf7bb4896bc268afba0b and
 630129d4949eadd9dff93d9fc00f7c43cd13c172. Later sync binds these exact blobs;
 historical proofs retain original source identities and are not requalified at
 the repaired source. Whole Mission/Requirement closure remains open.
+
+## Grid column raster measurements distinguish half-covered lines — 2026-10-16
+
+The existing column-gutter test failed with edges18/18 and literal10/10 on both
+the original baseline and the Pen-repair candidate. After correcting that sampler,
+the full Canvas run reached a second failure at the first boundary of five
+expression-evaluated columns. Independent Windows Qt6.5.3 and offscreen probes
+established that both failures were test measurement errors, not product REDs.
+Production Canvas blob a648fc874826e08b523bcf7bb4896bc268afba0b and the accepted
+native client library remained unchanged.
+
+Before each native Canvas existed, the probes constructed complete independent
+native-valid documents, typed History and fixed raster expectations. Gutter20
+requires x90/110, gutter30 x85/115, literal10 x95/105. Three/four/five evaluated
+columns use complete pre-fixed boundary sets; five columns require
+44/54/78/88/112/122/146/156. Across six gutter and eight count stages on each
+platform, all28 complete Document/native/preview/History/view records and every
+pixel in the fixed Grid region matched. Upstream update, Undo/Redo, literal-only
+and hidden controls, Host identity, foreign state and exact native save/readback
+were preserved. These are real Windows Canvas raster and typed Session results;
+external UI input, full Window interactions, subjective review and other DPI
+configurations are not claimed.
+
+Half-covered line pixels were RGB202/223/209 and202/222/208. The old predicate
+required green greater than blue+15, so it rejected the line body and counted
+crossings only. At x44 it again counted18 despite exact expected rendering.
+The test repair compares every Grid-region pixel against fixed independent
+geometry instead of lowering a color/count threshold or finding nearby lines.
+Literal-only and hidden controls must reject all evaluated boundary sets.
+
+Only tests/canvas_tests.cpp changed source. Focused gutter6 and columns8 checks
+passed on Windows and offscreen. The complete offscreen Canvas suite now passes
+838 checks. This closes the two observed measurement failures; whole Grid/R03,
+REQ-32/42 and Mission acceptance remain open. Earlier native authoring proofs
+remain bound to their original production source and are not promoted.
+
+Receipt: C:/Users/shiro/.codex/scratch/01a14335-5c86-7261-8a62-01bc1126b929/grid-raster-checkpoint.json
+SHA256 B8AC7F5A4D2151C72FBD1C237FBDFAEFAEEBA9EF7C5AB7A686020CA56A79D839.
+It binds137 artifacts, the two pre-native freezes and diagnoses, original failure
+logs, native/offscreen results and final focused/full test logs. Native product
+source is7db6fb869332ffea73f1f6bc43a43244caf10513; final test candidate blob
+6298b8a9fab5fe9d92c5421606c43599e3002ae5. No product repair was made.
