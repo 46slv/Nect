@@ -1,24 +1,18 @@
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
-import { validateImageAssets } from './images.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
 import {
-  appendArtwork,
   createPenArtworkDraft,
   appendPenArtwork,
-  appendBlankComposition,
   resolveArtworkDuplicateTarget,
-  duplicateArtworkLayer,
   resolveArtworkDuplicateSelection,
-  duplicateArtworkLayers,
 } from './artwork-creation.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
-import { artworkAlignments, alignArtworkSelection } from './artwork-alignment.js';
-import { artworkDistributions, distributeArtworkSelection } from './artwork-distribution.js';
-import { artworkGapDistributions, distributeArtworkGaps } from './artwork-gap-distribution.js';
-import { removeArtworkLayer } from './artwork-deletion.js';
-import { moveArtworkLayer, resolveArtworkOrderTarget } from './artwork-ordering.js';
+import { artworkAlignments } from './artwork-alignment.js';
+import { artworkDistributions } from './artwork-distribution.js';
+import { artworkGapDistributions } from './artwork-gap-distribution.js';
+import { resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
   fitScale,
@@ -2041,9 +2035,10 @@ function deleteArtwork(layerId) {
     if (!target) throw Error('Layer is unavailable; select it again');
     if (target.locked) throw Error('Composition is locked');
     const priorUI = selectionSnapshot(true);
-    let deleted;
-    history.apply((doc) => {
-      deleted = removeArtworkLayer(doc, layerId);
+    const deleted = session.dispatch({
+      ...session.state,
+      type: 'delete-layer',
+      payload: { layerId },
     });
     resetTransient();
     activeLayer = deleted.nextLayerId;
@@ -2078,12 +2073,10 @@ function duplicateArtwork(layerId, selectionKey) {
     return;
   try {
     const priorUI = selectionSnapshot(true);
-    let created;
-    history.apply((doc) => {
-      created =
-        artworkSelection.size === 1
-          ? [{ sourceLayerId: layerId, ...duplicateArtworkLayer(doc, layerId, { fonts }) }]
-          : duplicateArtworkLayers(doc, artworkSelection, { fonts });
+    const { copies: created } = session.dispatch({
+      ...session.state,
+      type: 'duplicate-artworks',
+      payload: { layerIds: [...artworkSelection] },
     });
     const nextActive = created.find((copy) => copy.sourceLayerId === layerId).layerId;
     artworkSelection = new Set(created.map((copy) => copy.layerId));
@@ -2110,11 +2103,10 @@ function alignArtwork(button) {
   try {
     const priorUI = selectionSnapshot(true),
       oldPast = history.past.at(-1);
-    let changed;
-    history.apply((doc) => {
-      changed = alignArtworkSelection(doc, artworkSelection, button.dataset.alignArtwork, {
-        fonts,
-      });
+    const { changed } = session.dispatch({
+      ...session.state,
+      type: 'align-artworks',
+      payload: { layerIds: [...artworkSelection], action: button.dataset.alignArtwork },
     });
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
@@ -2138,15 +2130,13 @@ function distributeArtwork(button) {
     const priorUI = selectionSnapshot(true),
       oldPast = history.past.at(-1);
     const action = button.dataset.distributeArtwork ?? button.dataset.distributeGap;
-    let changed;
-    history.apply((doc) => {
-      const distribute =
+    const { changed } = session.dispatch({
+      ...session.state,
+      type:
         button.dataset.distributeGap !== undefined
-          ? distributeArtworkGaps
-          : distributeArtworkSelection;
-      changed = distribute(doc, artworkSelection, action, {
-        fonts,
-      });
+          ? 'distribute-artwork-gaps'
+          : 'distribute-artworks',
+      payload: { layerIds: [...artworkSelection], action },
     });
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
@@ -2170,7 +2160,7 @@ function orderArtwork(layerId, direction) {
   const target = resolveArtworkOrderTarget(history.doc, layerId, direction);
   if (!target.supported) return;
   const priorUI = selectionSnapshot(true);
-  history.apply((doc) => moveArtworkLayer(doc, layerId, direction));
+  session.dispatch({ ...session.state, type: 'order-layer', payload: { layerId, direction } });
   selectionHistory.set(history.past.at(-1), priorUI);
   selectionHistory.set(history.doc, selectionSnapshot(true));
   notify(`Layer moved ${direction} one position`);
@@ -2178,10 +2168,11 @@ function orderArtwork(layerId, direction) {
 }
 function createArtwork(type) {
   try {
-    let created;
     const priorUI = selectionSnapshot();
-    history.apply((doc) => {
-      created = appendArtwork(doc, type, { at: [doc.width / 2, doc.height / 2] });
+    const created = session.dispatch({
+      ...session.state,
+      type: 'create-artwork',
+      payload: { artworkType: type, at: [history.doc.width / 2, history.doc.height / 2] },
     });
     selectArtwork(created.layerId);
     selectionHistory.set(history.past.at(-1), priorUI);
@@ -2604,7 +2595,12 @@ app.addEventListener('click', async (e) => {
           break;
         }
         case 'import-image':
-          imagePick = { id: ++imageRequest, before: serialize(history.doc), doc: history.doc };
+          imagePick = {
+            id: ++imageRequest,
+            before: serialize(history.doc),
+            doc: history.doc,
+            commandState: session.state,
+          };
           document.querySelector('#image-file').value = '';
           document.querySelector('#image-file').click();
           break;
@@ -2660,10 +2656,7 @@ app.addEventListener('click', async (e) => {
           // Changing layer scope must not retain an old layer's drag/wire target.
           cancelInteraction();
           const priorUI = selectionSnapshot();
-          let created;
-          history.apply((doc) => {
-            created = appendBlankComposition(doc);
-          });
+          const created = session.dispatch({ ...session.state, type: 'create-blank-layer' });
           activeLayer = created.layerId;
           selected = null;
           artworkTarget = null;
@@ -2678,15 +2671,14 @@ app.addEventListener('click', async (e) => {
           break;
         }
         case 'add-layer':
-          history.apply((doc) => {
-            let l = layer(`Composition ${doc.layers.length + 1}`);
-            doc.layers.push(l);
-            activeLayer = l.id;
-            selected = l.nodes[0].id;
+          {
+            const created = session.dispatch({ ...session.state, type: 'create-demo-layer' });
+            activeLayer = created.layerId;
+            selected = created.nodeId;
             artworkTarget = null;
             artworkSelection = new Set();
             selection = new Set([selected]);
-          });
+          }
           render(true);
           break;
         case 'zoom-in':
@@ -3379,6 +3371,7 @@ app.addEventListener('change', async (e) => {
       id: ++imageRequest,
       before: serialize(history.doc),
       doc: history.doc,
+      commandState: session.state,
     };
     imagePick = null;
     try {
@@ -3386,29 +3379,13 @@ app.addEventListener('change', async (e) => {
       if (request.id !== imageRequest) return;
       if (history.doc !== request.doc || serialize(history.doc) !== request.before)
         throw Error('Document changed while reading; import the image again');
-      history.apply((doc) => {
-        const id = uid('image');
-        doc.imageAssets = { ...doc.imageAssets, [id]: asset };
-        validateImageAssets(doc.imageAssets);
-        const l = layer(asset.name),
-          n = node('Image'),
-          out = node('Image Output', 380, 40);
-        n.asset = id;
-        const scale = Math.min(1, doc.width / asset.width, doc.height / asset.height);
-        n.params.size.value = [asset.width * scale, asset.height * scale];
-        n.params.position.value = [
-          (doc.width - n.params.size.value[0]) / 2,
-          (doc.height - n.params.size.value[1]) / 2,
-        ];
-        out.params.path.source = n.id;
-        l.nodes = [n, out];
-        l.output = out.id;
-        doc.layers.push(l);
-        validate(doc);
-        serialize(doc);
+      const created = session.dispatch({
+        ...request.commandState,
+        type: 'adopt-image',
+        payload: { name: asset.name, png: asset.data },
       });
-      activeLayer = history.doc.layers.at(-1).id;
-      selected = current().nodes[0].id;
+      activeLayer = created.layerId;
+      selected = created.nodeId;
       artworkTarget = null;
       artworkSelection = new Set();
       selection = new Set([selected]);
@@ -5364,7 +5341,11 @@ document.addEventListener('keydown', (e) => {
     // The next preview/key/commit still resolves independently from live state.
     const priorUI = selectionSnapshot();
     const oldPast = history.past.at(-1);
-    change(() => writeArtworkMove(resolved.target, delta), 'Artwork position updated');
+    commandChange(
+      'translate-artworks',
+      { layerIds: [...artworkSelection], delta },
+      'Artwork position updated',
+    );
     if (history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), priorUI);
       selectionHistory.set(history.doc, selectionSnapshot());

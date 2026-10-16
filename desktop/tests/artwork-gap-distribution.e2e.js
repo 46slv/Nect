@@ -60,6 +60,7 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('[data-action="open"]').click();
+  await page.locator('dialog button[value="discard"]').click();
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Artwork equal gaps');
   await select();
@@ -178,18 +179,18 @@ try {
       await (await download).saveAs(`test-results/workflow-artwork-${action}.${ext}`);
     }
     await page.locator('[data-action="open"]').click();
+    if (await page.locator('dialog[open] button[value="discard"]').count())
+      await page.locator('dialog[open] button[value="discard"]').click();
     await page.locator('#open-file').setInputFiles(saveFile);
+    await page.waitForFunction(() => document.querySelector('.message').textContent.includes('Project restored'));
     assert.equal(await page.evaluate(() => window.nect.export()), exported);
     await select();
     await page.locator(`[data-distribute-gap="${action}"]`).click();
     assert.equal(await saved(), after, 'reopened equal gaps are a no-op');
     assert.match(await page.locator('.message').innerText(), /gaps already equally spaced/);
-    // Open is itself undoable in the real UI. The equal-gap no-op must not
-    // insert a step between the original distribution and its Undo/Redo.
-    await page.locator('[data-action="undo"]').click();
-    assert.equal(await saved(), before);
-    await page.locator('[data-action="redo"]').click();
-    assert.equal(await saved(), after);
+    // Open starts a new document Session. Repeating equal gaps must leave its
+    // fresh History empty; the next authored nudge owns its own Undo/Redo.
+    assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
     await page.locator(`[data-select-layer="${ids[2]}"]`).click();
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');

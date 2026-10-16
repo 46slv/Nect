@@ -1,7 +1,19 @@
 export { scrubNumericValues } from './numeric-scrub.js';
 export { constrainAxisDrag } from './axis-drag.js';
 export { objectResizeHandles, resizedObjectValue } from './object-resize.js';
-import { validateImageAssets, imageURL } from './images.js';
+import { validateImageAssets, imageURL, decodeImage, pngSize } from './images.js';
+import {
+  appendArtwork,
+  appendBlankComposition,
+  duplicateArtworkLayer,
+  duplicateArtworkLayers,
+} from './artwork-creation.js';
+import { removeArtworkLayer } from './artwork-deletion.js';
+import { moveArtworkLayer } from './artwork-ordering.js';
+import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
+import { alignArtworkSelection } from './artwork-alignment.js';
+import { distributeArtworkSelection } from './artwork-distribution.js';
+import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { validateGuides } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
@@ -2315,6 +2327,114 @@ export class CommandSession {
     if (type === 'undo' || type === 'redo') {
       this.#history[type]();
       return this.state;
+    }
+    if (
+      [
+        'create-artwork',
+        'create-blank-layer',
+        'create-demo-layer',
+        'delete-layer',
+        'order-layer',
+        'duplicate-artworks',
+        'adopt-image',
+        'translate-artworks',
+        'align-artworks',
+        'distribute-artworks',
+        'distribute-artwork-gaps',
+      ].includes(type)
+    ) {
+      const candidate = cloneDocument(this.#history.doc);
+      let result;
+      if (type === 'create-artwork')
+        result = appendArtwork(candidate, payload.artworkType, {
+          at: payload.at,
+          name: payload.name,
+        });
+      else if (type === 'create-blank-layer')
+        result = appendBlankComposition(candidate, { name: payload.name });
+      else if (type === 'create-demo-layer') {
+        const created = layer(payload.name ?? `Composition ${candidate.layers.length + 1}`);
+        candidate.layers.push(created);
+        result = { layerId: created.id, nodeId: created.nodes[0].id };
+      } else if (type === 'delete-layer') result = removeArtworkLayer(candidate, payload.layerId);
+      else if (type === 'order-layer')
+        result = moveArtworkLayer(candidate, payload.layerId, payload.direction);
+      else if (type === 'duplicate-artworks') {
+        if (
+          !Array.isArray(payload.layerIds) ||
+          !payload.layerIds.length ||
+          new Set(payload.layerIds).size !== payload.layerIds.length
+        )
+          throw Error('Select distinct artwork layers');
+        const options = { fonts: resolveFonts(candidate, this.#fonts()) };
+        result = {
+          copies:
+            payload.layerIds.length === 1
+              ? [
+                  {
+                    sourceLayerId: payload.layerIds[0],
+                    ...duplicateArtworkLayer(candidate, payload.layerIds[0], options),
+                  },
+                ]
+              : duplicateArtworkLayers(candidate, payload.layerIds, options),
+        };
+      } else if (
+        [
+          'translate-artworks',
+          'align-artworks',
+          'distribute-artworks',
+          'distribute-artwork-gaps',
+        ].includes(type)
+      ) {
+        if (!Array.isArray(payload.layerIds)) throw Error('Select artwork layer IDs');
+        const options = { fonts: resolveFonts(candidate, this.#fonts()) };
+        if (type === 'translate-artworks') {
+          const resolved = resolveArtworkMoveSelection(candidate, payload.layerIds, options);
+          if (!resolved.supported) throw Error(resolved.reason);
+          translateArtworkTargets(candidate, resolved.target, payload.delta);
+        } else {
+          const edit =
+            type === 'align-artworks'
+              ? alignArtworkSelection
+              : type === 'distribute-artwork-gaps'
+                ? distributeArtworkGaps
+                : distributeArtworkSelection;
+          edit(candidate, payload.layerIds, payload.action, options);
+        }
+        result = {};
+      } else {
+        const size = pngSize(decodeImage(payload.png)),
+          assetId = uid('image');
+        if (Object.hasOwn(candidate.imageAssets || {}, assetId))
+          throw Error('Image identity collision');
+        candidate.imageAssets = {
+          ...candidate.imageAssets,
+          [assetId]: { name: payload.name, mime: 'image/png', ...size, data: payload.png },
+        };
+        validateImageAssets(candidate.imageAssets);
+        const artwork = layer(payload.name),
+          generator = node('Image'),
+          output = node('Image Output', 380, 40),
+          scale = Math.min(1, candidate.width / size.width, candidate.height / size.height);
+        generator.asset = assetId;
+        generator.params.size.value = [size.width * scale, size.height * scale];
+        generator.params.position.value = [
+          (candidate.width - generator.params.size.value[0]) / 2,
+          (candidate.height - generator.params.size.value[1]) / 2,
+        ];
+        output.params.path.source = generator.id;
+        artwork.nodes = [generator, output];
+        artwork.output = output.id;
+        candidate.layers.push(artwork);
+        serialize(candidate);
+        result = { layerId: artwork.id, nodeId: generator.id, assetId };
+      }
+      validate(candidate);
+      const revision = this.#history.revision;
+      this.#history.apply(() => {
+        this.#history.doc = candidate;
+      });
+      return { ...this.state, ...result, changed: revision !== this.#history.revision };
     }
     if (
       ![
