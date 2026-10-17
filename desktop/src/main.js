@@ -1,3 +1,4 @@
+import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
@@ -639,6 +640,7 @@ const sessionOptions = {
       composing
     ),
 };
+let viewerState = createViewerState();
 let session = new CommandSession(newDocument(), sessionOptions);
 let history = session.historyView,
   activeLayer = history.doc.layers[0].id,
@@ -2213,6 +2215,15 @@ function render(resetView = false, artworkResolution = null) {
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  mountViewers(app, viewerState, {
+    doc,
+    fonts,
+    layer: l,
+    node: n,
+    canAssign: selection.size === 1,
+    busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
+    evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
+  });
   prepareNumericInputs(app);
   // Keep controls and actionable states visible; put reference prose in
   // one optional help disclosure per editing region.
@@ -3052,6 +3063,7 @@ function drawCanvas() {
     guidesOverlay() +
     canvasOverlay(artworkTarget ? undefined : l.nodes.find((node) => node.id === selected), r);
   renderEvaluation = r;
+  updateViewers(app, viewerState, display, fonts, new Map([[l.id, r]]));
   sizePositionHandle();
   positionCharacterFloating();
   positionCanvasTextEditor();
@@ -3901,6 +3913,7 @@ function replaceDocument(next, { binding = null, saved = false, prepared = false
     variableBridge = null;
   }
   resetTransient();
+  viewerState = createViewerState();
   session = new CommandSession(next, sessionOptions);
   history = session.historyView;
   documents.replace({ binding, saved });

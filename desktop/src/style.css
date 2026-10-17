@@ -1732,3 +1732,106 @@ input[data-scrub-step].scrubbing {
   line-height: 1.4;
   opacity: 0.8;
 }
+
+/* Viewer state is separate from the authored artboard and its editing overlays. */
+.viewer-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #e8edf2;
+  flex-shrink: 0;
+}
+.viewer-tabs [aria-pressed='true'] {
+  background: #d3e5f8;
+  border-color: #7296bd;
+}
+.node-viewers {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1px;
+  background: #aab5c1;
+}
+.canvas-wrap[data-viewer-mode='viewers'] > :not(.viewer-tabs):not(.node-viewers) {
+  display: none;
+}
+.canvas-wrap[data-viewer-mode='viewers'] > .node-viewers {
+  display: grid;
+}
+.node-viewer {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #f1f4f7;
+}
+.node-viewer-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 5px;
+}
+.node-viewer-header output {
+  margin-right: auto;
+  font-size: 11px;
+}
+[data-viewer-label] {
+  padding: 2px 8px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.node-viewer-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+.node-viewer-body svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.node-viewer-body:focus-visible {
+  outline: 2px solid #7296bd;
+  outline-offset: -2px;
+}
+.viewer-value {
+  padding: 15px;
+  overflow-wrap: anywhere;
+}
+.viewer-inspection-note {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  color: #475569;
+  font-size: 10px;
+  pointer-events: none;
+}
+.viewer-assignment {
+  border-bottom: 1px solid #c6cfd9;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.viewer-assignment select {
+  max-width: 100%;
+}
+.viewer-assignment > div {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.canvas-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.canvas-wrap > .canvas-stage {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.canvas-wrap > .canvas-toolbar {
+  top: 43px;
+}
