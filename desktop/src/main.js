@@ -1067,45 +1067,49 @@ function field(n, key, q) {
             ? { start: 'Start (0–1)', end: 'End (0–1)' }[key] || key
             : n.type === 'Set Path Start' && key === 'start'
               ? 'Start (0–1)'
-              : n.type === 'Roughen'
-                ? { amount: 'Amount (px per axis)', seed: 'Seed', keepEndpoints: 'Keep Endpoints' }[
-                    key
-                  ] || key
-                : n.type === 'Resample Path' && key === 'count'
-                  ? 'Points per Contour'
-                  : n.type === 'Wave Points'
-                    ? {
-                        amplitude: 'Amplitude (px)',
-                        wavelength: 'Wavelength (px)',
-                        phase: 'Phase (°)',
-                        keepEndpoints: 'Keep Endpoints',
-                      }[key] || key
-                    : n.type === 'Taper' && key === 'amount'
-                      ? 'Amount (%)'
-                      : n.type === 'Bend Points' && key === 'angle'
-                        ? 'Angle (°)'
-                        : n.type === 'Pucker & Bloat'
-                          ? {
-                              amount: 'Amount (%)',
-                              autoCenter: 'Automatic Center',
-                              center: 'Center',
-                            }[key] || key
-                          : n.type === 'Subdivide Path' && key === 'segments'
-                            ? 'Segments per Edge'
-                            : n.type === 'Mirror'
-                              ? {
-                                  center: 'Axis Center',
-                                  angle: 'Axis Angle (°)',
-                                  keepOriginal: 'Keep Original',
-                                }[key] || key
-                              : key === 'center' &&
-                                  ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star'].includes(
-                                    n.type,
-                                  )
-                                ? 'Position'
-                                : key.includes('.')
-                                  ? key.split('.').at(-1)
-                                  : key;
+              : n.type === 'Set Closure' && key === 'closed'
+                ? 'Closed'
+                : n.type === 'Roughen'
+                  ? {
+                      amount: 'Amount (px per axis)',
+                      seed: 'Seed',
+                      keepEndpoints: 'Keep Endpoints',
+                    }[key] || key
+                  : n.type === 'Resample Path' && key === 'count'
+                    ? 'Points per Contour'
+                    : n.type === 'Wave Points'
+                      ? {
+                          amplitude: 'Amplitude (px)',
+                          wavelength: 'Wavelength (px)',
+                          phase: 'Phase (°)',
+                          keepEndpoints: 'Keep Endpoints',
+                        }[key] || key
+                      : n.type === 'Taper' && key === 'amount'
+                        ? 'Amount (%)'
+                        : n.type === 'Bend Points' && key === 'angle'
+                          ? 'Angle (°)'
+                          : n.type === 'Pucker & Bloat'
+                            ? {
+                                amount: 'Amount (%)',
+                                autoCenter: 'Automatic Center',
+                                center: 'Center',
+                              }[key] || key
+                            : n.type === 'Subdivide Path' && key === 'segments'
+                              ? 'Segments per Edge'
+                              : n.type === 'Mirror'
+                                ? {
+                                    center: 'Axis Center',
+                                    angle: 'Axis Angle (°)',
+                                    keepOriginal: 'Keep Original',
+                                  }[key] || key
+                                : key === 'center' &&
+                                    ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star'].includes(
+                                      n.type,
+                                    )
+                                  ? 'Position'
+                                  : key.includes('.')
+                                    ? key.split('.').at(-1)
+                                    : key;
   let control;
   let displayed = q.value;
   if (
@@ -1399,6 +1403,11 @@ function setPathStartControls(n) {
     ? '<p class="font-note">Move the seam of each closed contour by an arc-length fraction from 0 to 1 while preserving forward winding and the exact Bézier shape. Open contours pass through unchanged; 0 and 1 keep the original seam. Interior positions split one curve without duplicating a vertex. Edit upstream Text for direct character editing.</p>'
     : '';
 }
+function setClosureControls(n) {
+  return n.type === 'Set Closure'
+    ? '<p class="font-note">Sets actual closure on every contour. Fill can close an open path visually without changing its geometry. No endpoints are welded.</p>'
+    : '';
+}
 function reversePathControls(n) {
   return n.type === 'Reverse Path'
     ? '<p class="font-note">Reverse contour direction without changing the exact Bézier shape: anchors reverse, handles swap, and each closed contour keeps its first anchor seam. This changes start/end-sensitive results such as Trim Path and Dash Path. Edit upstream Text for direct character editing.</p>'
@@ -1456,7 +1465,7 @@ function operationControls(n) {
   return `<div class="field"><label>${n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${bendControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${editorParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${bendControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${editorParameters(
     n,
   )
     .filter(([k]) => isTransform(n) || Object.hasOwn(n.params, k))
@@ -1571,7 +1580,7 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${bendControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${editorParameters(
+      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${bendControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${editorParameters(
           n,
         )
           .filter(

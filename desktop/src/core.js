@@ -10,6 +10,7 @@ import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
+import { setClosureGeometry } from './set-closure-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -191,6 +192,7 @@ export const definitions = {
     path: p('Path', null),
     start: p('Scalar', 0),
   },
+  'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Reverse Path': { path: p('Path', null) },
@@ -527,6 +529,7 @@ const bypassInputs = Object.freeze({
   'Reverse Path': 'path',
   'Trim Path': 'path',
   'Set Path Start': 'path',
+  'Set Closure': 'path',
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
   Taper: 'path',
@@ -2110,6 +2113,25 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Set Closure') {
+        const source = read('path'),
+          closed = read('closed');
+        result = setClosureGeometry(source, { closed, prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Set Closure; edit the upstream Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(
+          JSON.stringify([
+            provenance(n.id),
+            closed,
+            source.fingerprint || signature(source),
+            signature(result),
+          ]),
+        );
       } else if (n.type === 'Reverse Path') {
         const source = read('path');
         result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
@@ -2753,6 +2775,8 @@ export function assertClosedOffsetChange(
     'Smooth Path',
     'Trim Path',
     'Set Path Start',
+    'Set Closure',
+    'Boolean',
     'Reverse Path',
     'Subdivide Path',
     'Expand Stroke',
@@ -2763,16 +2787,22 @@ export function assertClosedOffsetChange(
     'Taper',
     'Bend Points',
   ]);
-  if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
+  const boundedInputs = (n) =>
+    n.type === 'Boolean' ? ['a', 'b'].map((key) => n.params[key]?.source) : [n.params.path?.source];
+  if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
-  for (const n of layer.nodes.filter((n) => bounded.has(n.type) && n.params.path.source)) {
+  for (const n of layer.nodes.filter(
+    (n) => bounded.has(n.type) && boundedInputs(n).some(Boolean),
+  )) {
     try {
       current.run(n.id);
     } catch (error) {
       // Missing inputs are an ordinary intermediate wiring state.
       if (/^Connect (a |both )/.test(error.message)) continue;
-      const old = previousLayer?.nodes.find((x) => x.id === n.id && x.params.path?.source);
+      const old = previousLayer?.nodes.find(
+        (x) => x.id === n.id && bounded.has(x.type) && boundedInputs(x).some(Boolean),
+      );
       if (old) {
         previous ??= evaluate(previousLayer, previousFonts, imageAssets);
         try {

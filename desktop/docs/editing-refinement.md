@@ -438,3 +438,29 @@ packaging remains a separate dependency.
 Bend checkpoint playground: 41 serialized/reopened and evaluated layers now cover all16 modifiers.
 The last row compares unchanged Text, Taper50% and Bend Points120° on the same NECT word.
 The actual exported SVG was rasterized and visually inspected; this remains source-render evidence, not native GUI acceptance.
+
+### Set Closure
+
+- Path → Path with a Boolean **Closed** input (default true). It sets the closed flag on every
+  contour, retaining contour order, groups, anchor positions and relative handles. Closing uses
+  the last point's outgoing handle and the first point's incoming handle for the real final cubic
+  segment; opening removes that segment while retaining both dormant vectors. Empty and one-point
+  contours remain valid and finite. This does not merge endpoints or weld contours.
+- Fill may draw an implicit final edge on an open path, but it leaves the path geometry open.
+  Set Closure changes that geometry, so downstream Stroke and Boolean can use the real closing
+  segment. Its graph and Inspector note makes this distinction explicit.
+- Closure geometry preflight checks finite coordinates, finite handle endpoints and
+  the 10,000-contour / 100,000-point limits before evaluation. Derived contour and point IDs are
+  deterministic; the result is fingerprinted and marked unstable for downstream Remap. Standard
+  Path bypass, transactional Session history/locks, and JSON/SVG behavior apply. Canvas text
+  character editing remains upstream at Text.
+- No sampling is performed. Focused geometry, core/Session and DOM evidence is recorded with this
+  change; this does not establish native GUI or any other application's behavior.
+- The current modifier catalog has 17 entries; the existing 41-layer playground remains unchanged
+  and covers the previous 16. Focused Set Closure geometry/core/Session/DOM tests pass 9/9, the
+  existing Join/Boolean regression passes 5/5, and the Web build succeeds with the existing large-
+  chunk warning. This is source-level evidence, not native GUI acceptance.
+
+Root integration keeps the existing Boolean evaluator unchanged; Set Closure validates its own geometry. Updated the existing bypass contract test list for the implemented Path→Path modifiers instead of retaining stale unsupported-node expectations.
+
+Final Set Closure integration evidence: closure helper/core/DOM9 + refreshed existing bypass-contract40 =49/49 pass; final Web build passes. Existing Boolean evaluation semantics remain unchanged. The prior stale unsupported-Smooth-Path assertion is repaired by explicitly listing all implemented identity-bypass nodes; no production bypass guard was weakened.

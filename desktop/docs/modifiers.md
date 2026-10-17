@@ -13,6 +13,7 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Smooth Path    | Factor 0–1; Iterations 1–50; Keep Endpoints                                                           | Neighbor-average positions; can shrink/collapse outlines; not curve fitting                                                                                   |
 | Trim Path      | Start / End fractions 0–1                                                                             | Per-contour length; Start ≤ End; equal values empty; partial closed inputs become open, no wrap                                                               |
 | Set Path Start | Start fraction 0–1                                                                                    | Per-contour closed-path seam moves by arc length; open contours pass through; winding and exact cubic shape stay intact                                       |
+| Set Closure    | Closed                                                                                                | Sets actual closure on every contour; preserves anchors and relative handles; no endpoint weld; Fill's implicit edge remains separate                         |
 | Subdivide Path | Segments per Edge 1–32                                                                                | Equal-parameter Bézier portions; exact curve shape/tangents retained; closed seam not duplicated                                                              |
 | Expand Stroke  | Existing upstream Stroke width/cap/join                                                               | Solid straight-edge stroke → closed outline geometry; add Fill after; no type-preserving bypass                                                               |
 | Simplify Path  | Tolerance in px                                                                                       | Straight-edge RDP reduction; fixed endpoints and valid-ring fallback; not topology repair                                                                     |
@@ -39,6 +40,7 @@ Direct canvas text-character editing through these effects is unavailable; edit 
 - Curve → Resample Path → Stroke → Expand Stroke → Boolean → Fill
 - Curve → Dash Path → Stroke for actual separated path pieces.
 - Curve → Set Path Start → Trim Path / Dash Path to move where closed-contour traversal begins while keeping its forward direction.
+- Imported Path / generated Path → Set Closure → Stroke or Boolean to create a real closing segment using the retained endpoint handles.
 - Curve → Reverse Path → Trim Path / Dash Path to reverse direction-sensitive start and pattern order.
 - Imported polyline or Resample Path → Simplify Path for point reduction.
 - Rectangle/Star → Pucker & Bloat → Fill for pointed or petal-like shapes.
@@ -49,6 +51,6 @@ Direct canvas text-character editing through these effects is unavailable; edit 
   available; these additions do not replace them.
 
 Open `examples/modifier-playground.json` in this development build for editable examples. It has
-41 evaluated editable layers and examples for all 16 listed modifiers. Rebuild with
+41 evaluated editable layers and examples for the original 16 listed modifiers. Rebuild with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).

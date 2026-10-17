@@ -56,6 +56,22 @@ function fixture(type, painted = false) {
   return { doc, l, source, effect, fill, out };
 }
 const supported = [
+  'Mirror',
+  'Corner Round',
+  'Resample Path',
+  'Roughen',
+  'Smooth Path',
+  'Trim Path',
+  'Subdivide Path',
+  'Simplify Path',
+  'Dash Path',
+  'Pucker & Bloat',
+  'Wave Points',
+  'Reverse Path',
+  'Set Path Start',
+  'Taper',
+  'Bend Points',
+  'Set Closure',
   'Boolean',
   'Join Geometry',
   'Math',
