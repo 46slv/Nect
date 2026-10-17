@@ -85,17 +85,26 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   let generator, transform, target, parameter, kind, route;
   if (output.type === 'Image Output') {
     if (last.type !== 'Image')
-      return unsupported('unsupported-graph', 'Only a direct Image to Image Output is supported.');
+      return unsupported(
+        'unsupported-graph',
+        'Whole-artwork Move supports only a direct Image to Image Output route.',
+      );
     generator = target = last;
     parameter = 'position';
     kind = 'image-position';
     route = [generator, output];
   } else {
-    if (last.type !== 'Fill')
+    if (last.type !== 'Fill') {
+      if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(last.type))
+        return unsupported(
+          'unsupported-graph',
+          `Whole-artwork Move doesn't support ${last.type} output. Select the ${last.type} node in the graph to edit its settings.`,
+        );
       return unsupported(
         'unsupported-graph',
-        'Only a single solid Fill before Output is supported.',
+        'Whole-artwork Move supports only one solid Fill before Output. Select a graph node to edit its settings.',
       );
+    }
     generator = pathSource(last, 'PaintedPath');
     if (!generator)
       return unsupported('missing-source', 'The solid Fill needs a supported geometry source.');
@@ -115,7 +124,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     )
       return unsupported(
         'unsupported-graph',
-        'Move is supported for direct Curve, shape or unattached Text artwork; only shapes/Text may use one terminal Transform.',
+        'Whole-artwork Move supports direct Curve, shape or unattached Text artwork; shapes and Text may use one terminal Transform.',
       );
     if (generator.type === 'Text' && generator.pathAttachment != null)
       return unsupported('attached-text', 'Detach Type on Path before using this artwork move.');

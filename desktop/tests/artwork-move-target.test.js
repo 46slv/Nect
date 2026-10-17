@@ -352,6 +352,35 @@ test('gradients stay selection-only even if a later solid Fill would replace the
     }
 });
 
+test('valid paint effects evaluate normally while whole-artwork Move gives graph-edit guidance', () => {
+  for (const type of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const f = fixture(),
+      effect = node(type);
+    f.layer.nodes.push(effect);
+    connect(f.layer, f.fill.id, effect.id, 'path');
+    connect(f.layer, effect.id, f.output.id, 'path');
+    const before = structuredClone(f.doc),
+      evaluation = evaluate(f.layer, fonts, f.doc.imageAssets);
+
+    assert.equal(evaluation.error, null, `${type} should evaluate as a valid output`);
+    assert.ok(evaluation.path?.contours?.some((contour) => contour.points.length > 0));
+    assert.ok(pathBounds(evaluation.path).flat().every(Number.isFinite));
+    assert.deepEqual(f.doc, before, 'normal evaluation must not mutate authored state');
+
+    const result = resolve(f);
+    assert.equal(result.supported, false);
+    assert.equal(result.code, 'unsupported-graph');
+    assert.equal(
+      result.reason,
+      `Whole-artwork Move doesn't support ${type} output. Select the ${type} node in the graph to edit its settings.`,
+    );
+    assert.equal(result.target, undefined);
+    assert.equal(result.apply, undefined);
+    assert.equal(result.history, undefined);
+    assert.deepEqual(f.doc, before, 'a Move refusal must not change document or history state');
+  }
+});
+
 test('bare geometry, extra solid paint and Transform after paint are outside the exact capsule', () => {
   const f = fixture();
   f.output.params.path.source = f.generator.id;
