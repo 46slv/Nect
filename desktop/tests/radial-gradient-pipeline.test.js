@@ -164,18 +164,19 @@ test('radial socket boundaries accept paths and reject incompatible geometry and
     'Join Geometry',
     'Transform',
     'Path Remap',
-    'Convert to Path',
     'Text to Path',
     'Geometry Repeater',
     'Closed Path Offset',
   ]) {
     const n = node(type);
     l.nodes.push(n);
+    const key = ['Boolean', 'Join Geometry'].includes(type) ? 'a' : 'path';
     assert.throws(
-      () =>
-        connect(l, gradient.id, n.id, ['Boolean', 'Join Geometry'].includes(type) ? 'a' : 'path'),
+      () => connect(l, gradient.id, n.id, key),
       /PaintedPath to Path/,
+      `${type} still rejects direct painted geometry`,
     );
+    assert.equal(n.params[key].source, undefined, `${type} rejection leaves no connection`);
   }
   const color = node('Color'),
     vector = node('Vector'),
@@ -193,6 +194,38 @@ test('radial socket boundaries accept paths and reject incompatible geometry and
   delete gradient.params.center.source;
   assert.equal(evaluate(l).error, null);
   assert.equal(evaluate(l).run(shape.id).fill, undefined);
+});
+
+test('radial gradient converts explicitly to unpainted Path without mutating upstream paint', () => {
+  const { doc, l, shape, gradient, out } = scene(),
+    stroke = append(l, 'Stroke', shape);
+  connect(l, stroke.id, gradient.id, 'path');
+  const paintedBefore = structuredClone(evaluate(l).run(gradient.id)),
+    converter = append(l, 'Convert to Path', gradient),
+    transform = append(l, 'Transform', converter);
+  connect(l, transform.id, out.id, 'path');
+  assert.equal(outputType(converter), 'Path');
+  assert.equal(converter.params.path.type, 'Path');
+  assert.doesNotThrow(() => validate(doc));
+  const result = evaluate(l),
+    converted = result.run(converter.id);
+  assert.equal(result.error, null);
+  assert.equal(paintedBefore.fill.kind, 'radial-gradient');
+  assert.ok(paintedBefore.stroke);
+  assert.notEqual(converted, result.run(gradient.id));
+  assert.deepEqual(converted.contours, paintedBefore.contours);
+  assert.equal(pathData(converted), pathData(paintedBefore));
+  assert.deepEqual(pathBounds(converted), pathBounds(paintedBefore));
+  assert.equal(Object.hasOwn(converted, 'fill'), false);
+  assert.equal(Object.hasOwn(converted, 'stroke'), false);
+  assert.deepEqual(result.run(gradient.id), paintedBefore);
+  assert.equal(Object.hasOwn(result.path, 'fill'), false);
+  assert.equal(Object.hasOwn(result.path, 'stroke'), false);
+  assert.doesNotMatch(exportSVG(doc), /linearGradient|radialGradient|url\(#/);
+  const reopened = evaluate(deserialize(serialize(doc)).layers[0]);
+  assert.equal(reopened.error, null);
+  assert.deepEqual(reopened.run(converter.id), converted);
+  assert.deepEqual(reopened.run(gradient.id), paintedBefore);
 });
 
 test('radial sources, expressions, fallbacks, locks, history and JSON keep independent editable values', () => {
