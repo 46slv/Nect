@@ -1,4 +1,5 @@
 import { taperGeometry } from './taper-geometry.js';
+import { bendGeometry } from './bend-geometry.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
@@ -191,6 +192,7 @@ export const definitions = {
     start: p('Scalar', 0),
   },
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
+  'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
@@ -379,7 +381,7 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Taper'
+      type === 'Taper' || type === 'Bend Points'
         ? 'horizontal'
         : type === 'Wave Points'
           ? 'vertical'
@@ -528,6 +530,7 @@ const bypassInputs = Object.freeze({
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
   Taper: 'path',
+  'Bend Points': 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
   'Dash Path': 'path',
@@ -757,6 +760,7 @@ export function parameters(n) {
 }
 export const operationOptions = {
   Taper: ['horizontal', 'vertical'],
+  'Bend Points': ['horizontal', 'vertical'],
   'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
@@ -2132,6 +2136,21 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Bend Points') {
+        const source = read('path');
+        result = bendGeometry(source, {
+          angle: read('angle'),
+          axis: n.operation,
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Bend Points; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Wave Points') {
         const source = read('path');
         result = waveGeometry(source, {
@@ -2742,6 +2761,7 @@ export function assertClosedOffsetChange(
     'Pucker & Bloat',
     'Wave Points',
     'Taper',
+    'Bend Points',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -3095,6 +3115,13 @@ export function validate(doc) {
       }
       if (n.type === 'Taper' && (n.params.amount.value < -50 || n.params.amount.value > 50))
         throw Error('Taper amount must be from -50 to 50');
+      if (
+        n.type === 'Bend Points' &&
+        (!Number.isFinite(n.params.angle.value) ||
+          n.params.angle.value < -180 ||
+          n.params.angle.value > 180)
+      )
+        throw Error('Bend Points angle must be finite and from -180 to 180 degrees');
       if (n.type === 'Set Path Start' && (n.params.start.value < 0 || n.params.start.value > 1))
         throw Error('Set Path Start start must be from 0 to 1');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))

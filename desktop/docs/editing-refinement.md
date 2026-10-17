@@ -392,7 +392,7 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
   validation 1/1, and Web build pass with the existing large-chunk warning. No native GUI or
   full-suite claim.
 
-The current catalog and editable playground cover 14 modifiers in 35 layers. The final row compares the same half-Trim with unchanged, reversed and shifted-start traversal; the exported SVG was visually inspected.
+The catalog lists 16 modifiers; the editable playground covers 14 in 35 layers. The final row compares the same half-Trim with unchanged, reversed and shifted-start traversal; the exported SVG was visually inspected.
 Continue with useful researched slices rather than duplicating existing nodes. Native trial
 packaging remains a separate dependency.
 
@@ -412,5 +412,29 @@ packaging remains a separate dependency.
   transactional preflight, and upstream Text editing restrictions apply.
 - Evidence: helper10 + graph/Session2 + DOM1 + disconnected-validation1 =14 focused checks pass;
   Web build passes with the existing large-chunk warning. No native GUI/full-suite claim.
-- Catalog now15 modifiers. The existing 35-layer playground covers14; Taper's focused rectangle
+- Catalog now16 modifiers. The existing 35-layer playground covers14; Taper's focused rectangle
   evidence explicitly checks output anchors, JSON roundtrip and SVG output.
+
+### Bend Points
+
+- Distinct from Type on Path: Path → Path deformation of the existing geometry into a circular
+  strip. Angle −180..180° (default 0); Horizontal / Vertical selected axis (default Horizontal).
+- The origin is only the midpoint of shared control bounds, including anchors and absolute Bézier
+  handle endpoints across every contour. For selected-axis span L, local axial coordinate q and
+  cross-axis coordinate w, φ = θq/L; the control-point mapping uses
+  u′ = q sinc(φ) − w sin(φ), v′ = q cosc(φ) + w cos(φ), then adds the shared origin. Small φ uses
+  series approximations for sinc and cosc. Relative handles are reconstructed from mapped absolute
+  controls; this is not an exact warp of nonlinear cubic interiors. Resample Path first for finer
+  geometry.
+- Empty input, zero axial span and zero angle independently clone geometry. Groups, contour order,
+  closure and metadata remain; generated IDs are deterministic. Non-finite vector/bounds/arithmetic,
+  over-budget input, or a fold (1 − θw/L ≤ 0 at either cross-axis bounds endpoint) is rejected.
+  Folds are not silently clamped. The modifier participates in Path bypass, unstable provenance,
+  upstream Text editing restriction, Session history/locks and transactional geometry preflight.
+- Focused evidence: 10 helper tests + 4 graph/Session tests + 1 DOM test + 1 disconnected
+  validation test = 16/16 pass; Web build passes with the existing large-chunk warning. No Blender
+  numeric parity, native GUI or full-suite claim.
+
+Bend checkpoint playground: 41 serialized/reopened and evaluated layers now cover all16 modifiers.
+The last row compares unchanged Text, Taper50% and Bend Points120° on the same NECT word.
+The actual exported SVG was rasterized and visually inspected; this remains source-render evidence, not native GUI acceptance.

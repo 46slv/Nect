@@ -22,7 +22,7 @@ const fonts = {
 const doc = document();
 doc.name = 'Modifier Playground';
 doc.width = 1080;
-doc.height = 1420;
+doc.height = 1680;
 doc.layers = [];
 function chain(name, nodes, color = '#40586b', paint = true) {
   const l = layer(name);
@@ -212,6 +212,18 @@ for (const [cx, title, effect] of [
     false,
   );
   label(title, cx - 125, 1385);
+}
+for (const [cx, title, effect] of [
+  [180, 'Text reference', null],
+  [540, '15  Taper', modifier('Taper', { amount: 50 })],
+  [890, '16  Bend Points', modifier('Bend Points', { angle: 120 })],
+]) {
+  const text = node('Text');
+  text.text = 'NECT';
+  text.params.position.value = [cx - 88, 1545];
+  text.params.size.value = 60;
+  chain(title, [text, ...(effect ? [effect] : [])], '#40586b');
+  label(title, cx - 125, 1645);
 }
 const saved = serialize(doc),
   restored = deserialize(saved);
