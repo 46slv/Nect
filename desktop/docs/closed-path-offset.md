@@ -1,8 +1,10 @@
 # Closed Path Offset
 
-**Path → Path**, before Fill / Linear Gradient Fill / Stroke. This first bounded version offsets one ungrouped collection of closed nonzero-winding regions. It does not implement open-path stroke expansion or silently merge independently painted groups.
+**Path → Path**, before Fill / Linear Gradient Fill / Stroke. Offsets closed nonzero-winding region collections. Explicit contour groups are processed independently; untagged contours remain one global region collection. It does not implement open-path stroke expansion or silently merge independently painted groups.
 
 Open [the editable sample](../examples/closed-path-offset.json) for miter, true bevel, round and a negative inset with a counter. Select the Offset node and change `amount`, `miterLimit` or **Join**. Scalar sources and expressions drive both numeric controls. Disconnect restores the saved fallback; parameter locks and layer locks apply. Each completed edit or scrub is one Undo step; Escape, pointer cancellation or focus loss cancels a scrub. JSON retains the graph and settings; SVG/PNG contain the evaluated result.
+
+For explicit groups, open [the grouped sample](../examples/grouped-offset.json): overlapping Join instances remain independently painted before/after a +10 px miter offset. Rebuild with `node scripts/grouped-offset-playground.js`. It has four editable layers; each group retains its own alpha rather than becoming a global union.
 
 ## Distance, joins and geometry
 
@@ -11,7 +13,7 @@ Open [the editable sample](../examples/closed-path-offset.json) for miter, true 
 - `amount = 0` returns the exact input geometry, IDs, handles and metadata without flattening, including open/grouped inputs. Nonzero amounts have magnitude at least 0.0001 px.
 - Joins: **miter**, **bevel**, **round**. Miter limit is a ratio from 1 to 100. Over-limit miters use a true bevel, not Clipper's square fallback. Miter limit is retained for all join modes.
 - Cubics become closed polygons with zero handles and new derived IDs. Disjoint ungrouped regions can merge during expansion; regions can split during erosion. Source geometry remains editable and unchanged.
-- Explicitly open, crossing, touching, overlapping or degenerate boundaries are rejected. Grouped Join Geometry output is rejected: offset its individual inputs before joining. Repeater output without contour groups can be admitted only if its boundaries satisfy the same non-touching region contract. Use Offset before Repeater when each copy should retain its own geometry.
+- Within each region collection, explicitly open, crossing, touching, overlapping or degenerate boundaries are rejected. Explicit Join/Repeater groups retain their holes and are offset separately; overlap between different groups is allowed and stays separately painted. Repeater output without contour groups remains one collection and must satisfy the same non-touching region contract. Direct Text has no per-glyph paint groups: it remains one global nonzero collection, preserving counters without inventing independent glyph groups.
 - Source changes, upstream source reroutes (even identical coordinates), Offset settings or resulting topology changes suspend downstream Path Remap edits. Definitions stay saved and can be explicitly rebound. Nonzero Offset also disables direct canvas character editing through that route. Zero bypass preserves the original route and identities.
 
 ## Precision and work limits
@@ -26,6 +28,8 @@ The reusable pure kernel retains its independently qualified limits: 2048 flatte
 - 4096 estimated construction/join vertices, checked before engine execution
 - 512 output vertices, checked before output topology validation
 - At most 8 nonzero Offset nodes in one evaluated graph, including cached nodes
+
+The editor limits are aggregate across all explicit groups, not renewed per kernel call. Input contours/points are counted globally; flattening, subdivision, topology, estimated joins and output vertices use residual budgets. If a budget is exhausted, a later group may be conservatively rejected even if it might erode empty. The pure region kernel keeps its ungrouped-input contract; the graph wrapper handles explicit groups.
 
 These limits reject work explicitly; they do not change tolerance or drop vertices. They can only tighten the qualified kernel budgets. Coordinate/handle magnitude is at most 1e12; the local geometry plus maximal join reach and 1 px margin must remain below approximately 107374 px. Actual admitted ranges can be smaller because of precision/topology guards.
 

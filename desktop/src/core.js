@@ -62,6 +62,7 @@ import { layoutText, validateLeading } from './text-layout.js';
 import { validateTextWrap } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
 import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
+import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
 import { fingerprint } from './fingerprint.js';
 import {
@@ -2436,16 +2437,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           throw new OffsetError('OFFSET_OPTIONS', 'Invalid Offset join');
         if (amount === 0) result = source;
         else {
-          result = offsetClosedPath(
-            source,
-            amount,
-            {
-              join: n.operation,
-              miterLimit,
-              prefix: n.id,
-            },
-            OFFSET_EDITOR_LIMITS,
-          );
+          const options = { join: n.operation, miterLimit, prefix: n.id };
+          result = source.contours.some((contour) => contour.group !== undefined)
+            ? offsetGroupedClosedPathDetailed(source, amount, options, OFFSET_EDITOR_LIMITS).path
+            : offsetClosedPath(source, amount, options, OFFSET_EDITOR_LIMITS);
           result.unstable = true;
           result.fingerprint = fingerprint(
             JSON.stringify([

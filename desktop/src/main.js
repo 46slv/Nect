@@ -1437,7 +1437,7 @@ function mirrorControls(n) {
 }
 function offsetControls(n) {
   return n.type === 'Closed Path Offset'
-    ? '<p class="font-note">Closed, ungrouped nonzero regions only. Positive expands; negative insets (empty erosion is valid). Distance is artboard px after upstream Transform. Place before Fill / Stroke. Curves become polygons (0.1 px flatten/arc tolerances, 0.0001 px grid); these are component tolerances, not a final offset error bound. Interactive cap: 256 flattened input / 512 output vertices, 8 nonzero Offset nodes. Unsupported or over-budget edits roll back.</p>'
+    ? '<p class="font-note">Closed nonzero regions. Explicit contour groups offset independently and overlapping groups remain separate; ungrouped geometry, including Compound Text, stays one global region collection. Positive expands; negative insets (empty erosion is valid). Distance is artboard px after upstream Transform. Place before Fill / Stroke. Curves become polygons (0.1 px flatten/arc tolerances, 0.0001 px grid); these are component tolerances, not a final offset error bound. Shared interactive caps across all groups: 32 contours / 256 authored points, 256 flattened input / 512 output vertices, 4096 subdivision nodes, 300000 topology checks and 4096 estimated join vertices; 8 nonzero Offset nodes. Exhausted budgets reject remaining groups. Unsupported or over-budget edits roll back.</p>'
     : '';
 }
 function gradientControls(n) {

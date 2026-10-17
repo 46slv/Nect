@@ -167,7 +167,7 @@ test('Offset rejects unsupported source geometry explicitly and leaves it untouc
   connect(l, r.id, j.id, 'a');
   connect(l, c.id, j.id, 'b');
   connect(l, j.id, offset.id, 'path');
-  assert.match(evaluate(l).error, /Grouped geometry/);
+  assert.match(evaluate(l).error, /closed contours/);
   const before = JSON.stringify(l);
   assert.throws(() => evaluate(l).run(offset.id), OffsetError);
   assert.equal(JSON.stringify(l), before);

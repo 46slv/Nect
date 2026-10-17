@@ -116,6 +116,11 @@ test('Closed Path Offset controls, failure rollback, scrubbing, typed inputs, lo
     new win.PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 1 }),
   );
   assert.match(document.querySelector('.inspector-body').textContent, /256 flattened/);
+  assert.match(
+    document.querySelector('.inspector-body').textContent,
+    /Explicit contour groups offset independently/,
+  );
+  assert.match(document.querySelector('.inspector-body').textContent, /Compound Text/);
   await change(input('amount'), '-10');
   assert.equal(val('amount'), -10);
   document.querySelector('[data-action="undo"]').click();

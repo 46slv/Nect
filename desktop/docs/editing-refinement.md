@@ -93,6 +93,25 @@ modifier-count ceiling. Each addition must have an actual vector-art use, search
 editable parameters, bypass, atomic common commands, focused verification and bounded output.
 This does not expand merge/release or account permissions.
 
+### Closed Path Offset — explicit group inputs
+
+- A Path with explicit contour-group tags is partitioned by the existing group identity rule:
+  equal tags, including untagged and empty-tag contours, remain together as one region instance.
+  Each group is passed independently through the existing closed nonzero-region kernel.
+- Each group retains its own holes, winding, splits/erosion and internal topology rejection.
+  Separate groups are not unioned and are not rejected for overlap or contact with each other.
+- Paths with no explicit group tags still make exactly one existing kernel call. This includes
+  Text's ungrouped CompoundPath: it remains one global nonzero region collection rather than
+  being split into glyphs. A zero amount preserves the exact upstream geometry and identities.
+- The 32-contour / 256-authored-point caps are pre-summed for the full source. Flattening,
+  subdivision, topology checks, estimated join work and output-vertex limits are consumed from
+  one shared budget across groups. Group count therefore does not multiply editor limits; if any
+  shared budget is exhausted, later groups reject before processing, even if one might erode empty.
+- Derived contours receive deterministic per-group IDs/tags. The modifier remains unstable for
+  downstream Path Remap, and Text character provenance is routed once from the full source.
+- Evidence: grouped Offset core tests plus the focused Offset kernel/pipeline/DOM and Join set
+  pass54/54. The Web build is checked after this change set; no full-suite or native GUI claim.
+
 ### Mirror
 
 - Geometry node before Fill / Stroke, found through Add node → Mirror.
@@ -486,3 +505,5 @@ Twist checkpoint playground: all18 modifiers now have examples in47 serialized/r
 ### Direct curved Expand Stroke checkpoint
 
 Expand Stroke now accepts bounded cubic centerlines directly using the existing adaptive subdivision core, without invoking Closed Path Offset region semantics. All-zero-handle inputs retain their prior fast path. Endpoint support vertices align open-cap tangent chords; curve/arc/grid components have explicit tolerances but no global final-boundary error guarantee. Focused Expand Stroke and Closed Offset checks pass49/49; formatting and Web build pass. The playground's Expand Stroke card now uses a cubic S-like path directly, and its actual filled outline SVG was inspected in Inkscape. The catalog remains18 modifiers and the example remains47 layers; this is an improvement of an existing node.
+
+Grouped Offset integration proof: `scripts/grouped-offset-playground.js` creates four validated/reopened editable layers in `examples/grouped-offset.json`. Two overlapping ellipse instances stay independent before/after +10px miter offset. Actual SVG paths retain separate groups/0.45 alpha; Inkscape white-background rendering shows the darker overlap (transparent PNG pixels carry alpha115 vs178). A round-join version exceeded the existing aggregate estimated-join budget and was correctly rejected; limits were not raised.
