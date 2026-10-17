@@ -732,13 +732,29 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  if (n.type === 'Luminance Instances') {
+    if (['minScale', 'maxScale'].includes(key)) return [0, 100];
+    if (['minRotation', 'maxRotation'].includes(key)) return [-360, 360];
+  }
   if (
-    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
+    [
+      'Halftone',
+      'Ordered Dither',
+      'Line Screen',
+      'Error Diffusion Dither',
+      'Luminance Instances',
+    ].includes(n.type) &&
     key === 'pitch'
   )
     return [1, 1024];
   if (
-    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
+    [
+      'Halftone',
+      'Ordered Dither',
+      'Line Screen',
+      'Error Diffusion Dither',
+      'Luminance Instances',
+    ].includes(n.type) &&
     key === 'gridOrigin'
   )
     return [-100000, 100000];
@@ -1055,11 +1071,20 @@ function field(n, key, q) {
         key === 'scaleWidth' &&
         (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name = ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(
-    n.type,
-  )
+  const name = [
+    'Halftone',
+    'Ordered Dither',
+    'Line Screen',
+    'Error Diffusion Dither',
+    'Luminance Instances',
+  ].includes(n.type)
     ? {
         path: 'Source fill',
+        motif: 'Motif',
+        minScale: 'Scale at white',
+        maxScale: 'Scale at black',
+        minRotation: 'Angle at white (°)',
+        maxRotation: 'Angle at black (°)',
         pitch: 'Cell pitch (px)',
         invert: 'Invert luminance',
         gridOrigin: 'Grid origin · cell (0, 0) top-left',
@@ -1396,6 +1421,9 @@ function instancePointsControls(n) {
     : '';
 }
 function luminanceControls(n) {
+  if (n.type === 'Luminance Instances')
+    return '<p class="font-note">Place a Path motif at grid centers inside the source mask or image rectangle. Darkness linearly maps white/black scale and angle endpoints; Invert swaps darkness. Pivot is the whole motif bounds center. Zero scale omits a copy. Partial cells whose center is outside are omitted; whole motifs remain unclipped, preserving cubic handles and groups. Output is an unpainted Path: add Fill or Stroke. Bypass passes the motif unchanged. Up to 256 copies/groups and 100000 points; the shared 4096 sampled-cell cap remains. Filled vector sources must be closed and ungrouped; supported PNG images sample nearest texels in linear light over white.</p>';
+
   if (n.type === 'Halftone')
     return '<p class="font-note">Convert a solid or two-stop gradient fill, or an embedded Image, into black dots. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector luminance uses sRGB stop interpolation; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and generated marks are clipped to the placed image rectangle (transparent pixels do not define a contour). Dot polygon area tracks darkness, then each vector dot is clipped to its cell and the closed source mask. Curves are flattened at about 0.1 document unit. Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   if (n.type === 'Ordered Dither')

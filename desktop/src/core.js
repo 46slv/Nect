@@ -1,3 +1,9 @@
+import {
+  luminanceInstanceSettings,
+  luminanceInstancesGeometry,
+  selectLuminanceCenters,
+} from './luminance-instances.js';
+import { validateInstancePath } from './instance-points-geometry.js';
 import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
@@ -249,6 +255,17 @@ export const definitions = {
     center: p('Vector2', [480, 270]),
     startAngle: p('Scalar', 0),
     angle: p('Scalar', 360),
+  },
+  'Luminance Instances': {
+    path: p('PaintedPath', null),
+    motif: p('Path', null),
+    pitch: p('Scalar', 32),
+    invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
+    minScale: p('Scalar', 0.2),
+    maxScale: p('Scalar', 1),
+    minRotation: p('Scalar', 0),
+    maxRotation: p('Scalar', 90),
   },
   'Instance on Points': {
     path: p('Path', null),
@@ -622,6 +639,7 @@ const bypassInputs = Object.freeze({
   'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
   'Instance on Points': 'path',
+  'Luminance Instances': 'motif',
   'Convert to Path': 'path',
   'Text to Path': 'path',
   Fill: 'path',
@@ -861,6 +879,7 @@ export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
 }
 const imageLuminanceTargets = new Set([
+  'Luminance Instances',
   'Halftone',
   'Ordered Dither',
   'Line Screen',
@@ -2615,6 +2634,74 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Luminance Instances') {
+        if (!n.params.path.source || !n.params.motif.source)
+          throw Error('Connect both Source fill and Motif inputs');
+        const source = read('path'),
+          motif = read('motif');
+        if (!source || !motif) throw Error('Connect both Source fill and Motif inputs');
+        const motifInfo = validateInstancePath(motif, 'Luminance Instances motif');
+        const settings = luminanceInstanceSettings(read),
+          { pitch, invert, gridOrigin } = luminanceModifierSettings(read);
+        const options = { pitch, invert, origin: { x: gridOrigin[0], y: gridOrigin[1] } };
+        let field, mask;
+        if (source.kind === 'image') {
+          field = sampleImageLuminanceGrid(
+            imageAssets[source.asset],
+            source.position,
+            source.size,
+            options,
+          );
+        } else {
+          if (!source.fill) throw Error('Luminance Instances requires a filled source');
+          if (source.contours?.length === 0)
+            field = sampleLuminanceGrid(
+              source.fill,
+              { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+              options,
+            );
+          else {
+            mask = prepareLuminanceMask(source);
+            field = sampleLuminanceGrid(source.fill, mask.bounds, options);
+          }
+        }
+        const cells = selectLuminanceCenters(
+          field.cells,
+          mask,
+          source.kind === 'image' ? source : null,
+        );
+        // Validate cardinality and transformed options before expensive exact bounds work.
+        const prefix = fingerprint(n.id);
+        luminanceInstancesGeometry(motif, cells, { ...settings, pivot: [0, 0], prefix });
+        const bounds = motifInfo.pointCount ? pathBounds(motif) : null;
+        result = luminanceInstancesGeometry(motif, cells, {
+          ...settings,
+          pivot: bounds ? [bounds[0][1], bounds[1][1]] : [0, 0],
+          prefix,
+        });
+        delete result.fill;
+        delete result.stroke;
+        result.characterOccurrences = routeCharacters(
+          motif,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Luminance Instances; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(
+          JSON.stringify([
+            provenance(n.id),
+            source.fingerprint || null,
+            motif.fingerprint || null,
+            settings,
+            pitch,
+            invert,
+            gridOrigin,
+            cells,
+            signature(motif),
+            signature(result),
+          ]),
+        );
       } else if (n.type === 'Instance on Points') {
         if (!n.params.path.source || !n.params.points.source)
           throw Error('Connect both Source and Points Path inputs');
@@ -3185,6 +3272,7 @@ export function assertClosedOffsetChange(
     'Twist Points',
     'Auto Handles',
     'Instance on Points',
+    'Luminance Instances',
     'Halftone',
     'Ordered Dither',
     'Error Diffusion Dither',
@@ -3193,9 +3281,11 @@ export function assertClosedOffsetChange(
   const boundedInputs = (n) =>
     n.type === 'Boolean'
       ? ['a', 'b'].map((key) => n.params[key]?.source)
-      : n.type === 'Instance on Points'
-        ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
-        : [n.params.path?.source];
+      : n.type === 'Luminance Instances'
+        ? Object.values(n.params).map((q) => q.source)
+        : n.type === 'Instance on Points'
+          ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
+          : [n.params.path?.source];
   if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
@@ -3230,6 +3320,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   if (q.locked && !validating) throw Error('Parameter is locked');
   if (
     to.bypassed &&
+    to.type !== 'Luminance Instances' &&
     imageLuminanceTargets.has(to.type) &&
     key === 'path' &&
     outputType(from, sourcePort) === 'Image'
@@ -3342,7 +3433,9 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(doc.schemaVersion)
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].includes(
+      doc.schemaVersion,
+    )
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -3574,6 +3667,10 @@ export function validate(doc) {
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type))
         luminanceModifierSettings((key) => n.params[key].value);
+      if (n.type === 'Luminance Instances') {
+        luminanceModifierSettings((key) => n.params[key].value);
+        luminanceInstanceSettings((key) => n.params[key].value);
+      }
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);
@@ -3722,6 +3819,7 @@ export function validate(doc) {
   if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
     doc.schemaVersion = Math.max(doc.schemaVersion, 16);
   if (hasImageLuminanceConnection && doc.schemaVersion < 17) doc.schemaVersion = 17;
+  if (hasNodeType('Luminance Instances')) doc.schemaVersion = Math.max(doc.schemaVersion, 20);
   if (hasNodeType('Error Diffusion Dither')) doc.schemaVersion = Math.max(doc.schemaVersion, 19);
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);

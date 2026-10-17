@@ -13,7 +13,7 @@ const finiteVector = (value) =>
   Number.isFinite(value[0]) &&
   Number.isFinite(value[1]);
 
-function validatePath(path, label) {
+export function validateInstancePath(path, label) {
   if (!path || typeof path !== 'object' || !Array.isArray(path.contours))
     throw Error(`${label} needs a Path with contours`);
   if (path.contours.length > MAX_CONTOURS) throw Error(`${label} exceeds geometry budget`);
@@ -140,14 +140,14 @@ function rotateVector(vector, cosine, sine) {
 export function instancePointsGeometry(source, targets, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     throw Error('Instance on Points needs valid options');
-  const { pivot, prefix = 'instances', alignTangent = false } = options;
+  const { pivot, prefix = 'instances', alignTangent = false, transforms } = options;
   if (typeof prefix !== 'string' || !prefix)
     throw Error('Instance on Points needs a nonempty ID prefix');
   if (typeof alignTangent !== 'boolean')
     throw Error('Instance on Points needs a boolean alignTangent option');
 
-  const sourceInfo = validatePath(source, 'Instance on Points source');
-  const targetInfo = validatePath(targets, 'Instance on Points targets');
+  const sourceInfo = validateInstancePath(source, 'Instance on Points source');
+  const targetInfo = validateInstancePath(targets, 'Instance on Points targets');
 
   const anchors = [];
   const anchorContexts = [];
@@ -159,6 +159,15 @@ export function instancePointsGeometry(source, targets, options = {}) {
   }
   if (anchors.length > MAX_INSTANCES) throw Error('Instance on Points exceeds instance budget');
 
+  if (
+    transforms !== undefined &&
+    (!Array.isArray(transforms) ||
+      transforms.length !== anchors.length ||
+      transforms.some(
+        (t) => !t || !Number.isFinite(t.scale) || t.scale < 0 || !Number.isFinite(t.rotation),
+      ))
+  )
+    throw Error('Instance on Points needs finite per-instance scale and rotation');
   // No geometry can be emitted without anchors in both inputs. In particular,
   // an irrelevant pivot is not required for an empty source or target.
   if (sourceInfo.pointCount === 0 || targetInfo.pointCount === 0) return emptyPath(source);
@@ -184,14 +193,17 @@ export function instancePointsGeometry(source, targets, options = {}) {
 
   let deltas;
   let alignedPoints;
-  if (alignTangent) {
+  if (alignTangent || transforms) {
     // Preflight transformed anchors and handles before allocating output. The
     // source pivot maps to each target point; handles remain relative vectors.
     alignedPoints = anchorContexts.map(({ contour, pointIndex }, instanceIndex) => {
       const tangent = tangentForPoint(contour, pointIndex);
-      const angle = Math.atan2(tangent[1], tangent[0]);
-      const cosine = Math.cos(angle);
-      const sine = Math.sin(angle);
+      const angle = transforms
+        ? (transforms[instanceIndex].rotation * Math.PI) / 180
+        : Math.atan2(tangent[1], tangent[0]);
+      const scale = transforms ? transforms[instanceIndex].scale : 1;
+      const cosine = Math.cos(angle) * scale;
+      const sine = Math.sin(angle) * scale;
       const anchor = anchors[instanceIndex];
       return source.contours.map((sourceContour) =>
         sourceContour.points.map((point) => {
