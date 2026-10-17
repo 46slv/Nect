@@ -49,7 +49,7 @@ export function resolveArtworkDuplicateTarget(doc, layerId, options = {}, moveme
         !Array.isArray(n.points) ||
         !Array.isArray(n.edits) ||
         n.edits.length ||
-        (n.type !== 'Curve' && n.points.length) ||
+        (!['Curve', 'Multi Path'].includes(n.type) && n.points.length) ||
         n.reference ||
         n.pathAttachment
       )
@@ -116,6 +116,18 @@ function copyArtwork(source, occupied) {
   for (const n of layer.nodes) {
     n.id = fresh(n.id, 'node');
     for (const pt of n.points) pt.id = fresh(pt.id, 'pt');
+    if (n.type === 'Multi Path') {
+      const contours = new Map(n.contours.map((c, i) => [c.id, `${n.id}:c${i}`]));
+      n.contours = n.contours.map((c) => ({
+        ...c,
+        id: contours.get(c.id),
+        points: c.points.map((id) => ids.get(id)),
+      }));
+      n.units = n.units.map((u, i) => ({
+        id: `${n.id}:u${i}`,
+        contours: u.contours.map((id) => contours.get(id)),
+      }));
+    }
   }
   layer.output = ids.get(source.output);
   layer.name = `${source.name} copy`;

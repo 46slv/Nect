@@ -121,7 +121,9 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     }
     if (
       !generator ||
-      (!shapes.has(generator.type) && generator.type !== 'Text' && generator.type !== 'Curve') ||
+      (!shapes.has(generator.type) &&
+        generator.type !== 'Text' &&
+        !['Curve', 'Multi Path'].includes(generator.type)) ||
       (generator.type === 'Curve' && transform)
     )
       return unsupported(
@@ -142,7 +144,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       ? 'terminal-transform-offset'
       : generator.type === 'Text'
         ? 'text-position'
-        : generator.type === 'Curve'
+        : ['Curve', 'Multi Path'].includes(generator.type)
           ? 'curve-point-positions'
           : 'shape-center';
     route = transform ? [generator, transform, last, output] : [generator, last, output];
@@ -163,7 +165,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   if (batch) {
     if (!Array.isArray(target.points) || target.points.length < 2 || target.points.length > 10000)
       return unsupported('invalid-points', 'Curve movement needs 2–10000 authored anchors.');
-    if (target.points.length > CURVE_ARTWORK_MOVE_POINT_LIMIT)
+    if (target.type === 'Curve' && target.points.length > CURVE_ARTWORK_MOVE_POINT_LIMIT)
       return unsupported(
         'curve-move-limit',
         `Whole-artwork Curve movement supports up to ${CURVE_ARTWORK_MOVE_POINT_LIMIT} anchors. Select the graph Curve for point/handle edits or Move node stage; Save/export retains every anchor.`,
@@ -218,6 +220,18 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   // input. Do not assume a reference is harmless because it is off the main
   // path. Disconnected references cannot affect this final Output.
   for (const n of route) {
+    if (
+      n.type === 'Multi Path' &&
+      n.points.some((pt) =>
+        ['position', 'handleA', 'handleB'].some(
+          (key) => pt[key].source !== undefined || pt[key].sourcePort !== undefined,
+        ),
+      )
+    )
+      return unsupported(
+        'side-dependency',
+        'Connected Multi Path points are outside this safe move capsule.',
+      );
     const expected =
       n.type === 'Transform'
         ? {
@@ -284,7 +298,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
         ? {
             pointIds: target.points.map((pt) => pt.id),
             positions: positions.map((q) => [...q.value]),
-            closed: structuredClone(target.params.closed),
+            ...(target.type === 'Curve' ? { closed: structuredClone(target.params.closed) } : {}),
           }
         : {
             parameter,

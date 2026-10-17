@@ -161,6 +161,7 @@ export const definitions = {
     rotation: p('Scalar', 0),
   },
   Curve: { closed: p('Boolean', true) },
+  'Multi Path': {},
   Boolean: { a: p('Path', null), b: p('Path', null) },
   'Join Geometry': { a: p('Path', null), b: p('Path', null) },
   'Convert to Path': { path: p('Path', null) },
@@ -499,6 +500,7 @@ export function node(type, x = 40, y = 40) {
         }
       : {}),
     rawPath: '',
+    ...(type === 'Multi Path' ? { contours: [], units: [] } : {}),
     ...(type === 'Image' ? { asset: '' } : {}),
     ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
     ...(type === 'Reference' ? { reference: null } : {}),
@@ -850,7 +852,20 @@ export function duplicateNodes(layer, ids) {
     copy.id = remap.get(original.id);
     copy.name += ' copy';
     copy.position = copy.position.map((v) => v + 30);
-    for (const pt of copy.points) pt.id = uid('point');
+    const pointIds = new Map(copy.points.map((pt) => [pt.id, uid('point')]));
+    for (const pt of copy.points) pt.id = pointIds.get(pt.id);
+    if (copy.type === 'Multi Path') {
+      const contourIds = new Map(copy.contours.map((c, i) => [c.id, `${copy.id}:c${i}`]));
+      copy.contours = copy.contours.map((c) => ({
+        ...c,
+        id: contourIds.get(c.id),
+        points: c.points.map((id) => pointIds.get(id)),
+      }));
+      copy.units = copy.units.map((u, i) => ({
+        id: `${copy.id}:u${i}`,
+        contours: u.contours.map((id) => contourIds.get(id)),
+      }));
+    }
     for (const [, q] of parameters(copy)) {
       if (remap.has(q.source)) q.source = remap.get(q.source);
       if (q.expression)
@@ -2237,7 +2252,28 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             },
           ],
         };
-      else if (n.type === 'Text') {
+      else if (n.type === 'Multi Path') {
+        const points = new Map(
+          n.points.map((pt) => [
+            pt.id,
+            {
+              id: pt.id,
+              position: read(`${pt.id}.position`),
+              handleA: read(`${pt.id}.handleA`),
+              handleB: read(`${pt.id}.handleB`),
+            },
+          ]),
+        );
+        result = {
+          contours: n.contours.map((contour) => ({
+            ...contour,
+            points: contour.points.map((id) => points.get(id)),
+          })),
+        };
+        // Preserve Text's fingerprint contract for existing downstream Remap edits.
+        result.unstable = true;
+        result.fingerprint = signature(result);
+      } else if (n.type === 'Text') {
         let font = fonts[n.font];
         if (!font) throw Error('Font is still loading or unavailable');
         const attachment = n.pathAttachment;
@@ -2284,7 +2320,27 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         const d = layout.path.toPathData(5);
         let item = new scope.CompoundPath({ pathData: d, insert: false });
         result = fromPaper(item, n.id);
+        // Glyph command ranges are layout provenance, not character/contour guesses.
+        // Keep grouping separate from paint groups to preserve overlapping fills.
+        const unitCounts = layout.glyphs.map(
+          (glyph) =>
+            layout.path.commands
+              .slice(glyph.commandStart, glyph.commandEnd)
+              .filter((command) => command.type === 'M').length,
+        );
+        let contourOffset = 0;
+        const outlineUnits =
+          unitCounts.reduce((sum, count) => sum + count, 0) === result.contours.length
+            ? unitCounts.flatMap((count, index) => {
+                const contours = result.contours
+                  .slice(contourOffset, contourOffset + count)
+                  .map((c) => c.id);
+                contourOffset += count;
+                return count ? [{ id: `${n.id}:u${index}`, contours }] : [];
+              })
+            : [{ id: `${n.id}:u0`, contours: result.contours.map((c) => c.id) }];
         textLayouts.set(n.id, {
+          outlineUnits,
           characters: layout.characters,
           glyphAdvances: Object.fromEntries(
             layout.glyphs.map((glyph) => [glyph.sourceIndex, glyph.advance]),
@@ -3588,7 +3644,7 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].includes(
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].includes(
       doc.schemaVersion,
     )
   )
@@ -3895,6 +3951,56 @@ export function validate(doc) {
           Math.abs(n.params.dashOffset.value) > 100000)
       )
         throw Error('Invalid stroke miter limit or dash offset');
+      if (n.type === 'Multi Path') {
+        if (sourceSchemaVersion < 22) throw Error('Multi Path requires schemaVersion 22');
+        if (!Array.isArray(n.contours) || n.contours.length > 10000)
+          throw Error('Multi Path exceeds contour budget');
+        const pointIds = new Set(n.points.map((pt) => pt.id)),
+          used = new Set(),
+          contourIds = new Set();
+        for (const contour of n.contours) {
+          if (
+            !contour ||
+            typeof contour.id !== 'string' ||
+            !idPattern.test(contour.id) ||
+            contourIds.has(contour.id) ||
+            typeof contour.closed !== 'boolean' ||
+            !Array.isArray(contour.points) ||
+            (contour.group !== undefined &&
+              (typeof contour.group !== 'string' || !idPattern.test(contour.group)))
+          )
+            throw Error('Invalid Multi Path contour');
+          contourIds.add(contour.id);
+          for (const pointId of contour.points) {
+            if (!pointIds.has(pointId) || used.has(pointId))
+              throw Error('Invalid Multi Path point reference');
+            used.add(pointId);
+          }
+        }
+        if (used.size !== pointIds.size) throw Error('Unassigned Multi Path point');
+        if (!Array.isArray(n.units) || n.units.length > 10000)
+          throw Error('Invalid Multi Path units');
+        const unitIds = new Set(),
+          assignedContours = new Set();
+        for (const unit of n.units) {
+          if (
+            !unit ||
+            typeof unit.id !== 'string' ||
+            !idPattern.test(unit.id) ||
+            unitIds.has(unit.id) ||
+            !Array.isArray(unit.contours) ||
+            !unit.contours.length
+          )
+            throw Error('Invalid Multi Path unit');
+          unitIds.add(unit.id);
+          for (const contourId of unit.contours) {
+            if (!contourIds.has(contourId) || assignedContours.has(contourId))
+              throw Error('Invalid Multi Path unit contour');
+            assignedContours.add(contourId);
+          }
+        }
+        if (assignedContours.size !== contourIds.size) throw Error('Unassigned Multi Path contour');
+      }
       if (n.points.length > 10000 || n.edits.length > 10000) throw Error('Too many vertices');
       for (const pt of n.points) {
         id(pt.id);
@@ -4355,6 +4461,28 @@ export class CommandSession {
       if (checked.error) throw Error(checked.error);
       return candidate;
     }
+    if (target.kind === 'point-handles')
+      return this.#commandCandidate(
+        'create-point-handles',
+        {
+          layerId: target.layerId,
+          nodeId: target.nodeId,
+          pointId: target.pointId,
+          delta: update.delta,
+        },
+        base,
+      ).candidate;
+    if (target.kind === 'path-units-translate')
+      return this.#commandCandidate(
+        'translate-path-units',
+        {
+          layerId: target.layerId,
+          nodeId: target.nodeId,
+          unitIds: target.unitIds,
+          delta: update.delta,
+        },
+        base,
+      ).candidate;
     if (target.kind === 'artwork-translate')
       return this.#commandCandidate(
         'translate-artworks',
@@ -4417,7 +4545,7 @@ export class CommandSession {
         for (const id of target.nodeIds) {
           const node = layer.nodes.find((n) => n.id === id);
           if (!node || node.bypassed || node.pathAttachment) throw Error('Unsupported node move');
-          if (node.type === 'Curve') {
+          if (['Curve', 'Multi Path'].includes(node.type)) {
             for (const point of node.points) write(point.position);
           } else {
             if (
@@ -4456,7 +4584,9 @@ export class CommandSession {
         const node = layer.nodes.find(
           (n) =>
             n.id === target.nodeId &&
-            n.type === (target.kind === 'curve-point' ? 'Curve' : 'Path Remap'),
+            (target.kind === 'curve-point'
+              ? ['Curve', 'Multi Path'].includes(n.type)
+              : n.type === 'Path Remap'),
         );
         if (!node || node.bypassed) throw Error('Missing editable point node');
         const pointIds = target.pointIds ?? [target.pointId];
@@ -4807,6 +4937,7 @@ export class CommandSession {
                   'artwork-translate',
                   'nodes-translate',
                   'character-translate',
+                  'path-units-translate',
                   'curve-point',
                   'remap-point',
                 ].includes(target?.kind)
@@ -4939,6 +5070,168 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before) {
+    if (type === 'create-point-handles') {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((l) => l.id === payload.layerId);
+      const item = layer?.nodes.find(
+        (n) => n.id === payload.nodeId && ['Curve', 'Multi Path', 'Path Remap'].includes(n.type),
+      );
+      if (!item) throw Error('Select an editable path node');
+      if (item.locked === true) throw Error('Path node is locked');
+      if (layer.locked) throw Error('Composition is locked');
+      if (item.bypassed) throw Error('Enable the path before editing handles');
+      const evaluated = evaluate(
+        { ...layer, output: item.id },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      );
+      if (evaluated.error) throw Error(evaluated.error);
+      if (evaluated.path.remapSuspended)
+        throw Error('Path edits are suspended; rebind explicitly first');
+      const contour = evaluated.path.contours.find((c) =>
+        c.points.some((p) => p.id === payload.pointId),
+      );
+      const index = contour?.points.findIndex((p) => p.id === payload.pointId),
+        current = contour?.points[index];
+      if (!current) throw Error('Select a path anchor');
+      const input = item.type === 'Path Remap' ? evaluated.run(item.params.path.source) : null;
+      const pt = input
+        ? enableRemapPoint(item, input, payload.pointId).params
+        : item.points.find((p) => p.id === payload.pointId);
+      if (
+        ['position', 'handleA', 'handleB'].some(
+          (key) => pt[key].locked || pt[key].source || pt[key].expression,
+        )
+      )
+        throw Error('Anchor or handles are locked or driven');
+      let delta = payload.delta;
+      if (delta === undefined) {
+        if (Math.hypot(...current.handleA) || Math.hypot(...current.handleB))
+          return { candidate: cloneDocument(before), result: {} };
+        const previous = (
+            contour.points[index - 1] ?? (contour.closed ? contour.points.at(-1) : current)
+          ).position,
+          next = (contour.points[index + 1] ?? (contour.closed ? contour.points[0] : current))
+            .position;
+        delta = next.map((v, axis) => (v - previous[axis]) / 6);
+        if (!delta.some((v) => v !== 0)) delta = [20, 0];
+      }
+      assertValue('Vector2', delta);
+      const original = input?.contours
+        .flatMap((c) => c.points)
+        .find((p) => p.id === payload.pointId);
+      pt.handleA.value = delta.map((v, axis) => -v - (original?.handleA[axis] ?? 0));
+      pt.handleB.value = delta.map((v, axis) => v - (original?.handleB[axis] ?? 0));
+      if (!input) pt.handleType = 'symmetric';
+      validate(candidate);
+      return { candidate, result: {} };
+    }
+    if (type === 'translate-path-units') {
+      assertValue('Vector2', payload.delta);
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((l) => l.id === payload.layerId);
+      const item = layer?.nodes.find((n) => n.id === payload.nodeId && n.type === 'Multi Path');
+      if (!item) throw Error('Select a Multi Path node');
+      if (item.locked === true) throw Error('Path node is locked');
+      if (layer.locked) throw Error('Composition is locked');
+      if (
+        !Array.isArray(payload.unitIds) ||
+        !payload.unitIds.length ||
+        new Set(payload.unitIds).size !== payload.unitIds.length ||
+        payload.unitIds.some((id) => !item.units.some((u) => u.id === id))
+      )
+        throw Error('Select distinct path units');
+      const contours = new Set(
+        item.units.filter((u) => payload.unitIds.includes(u.id)).flatMap((u) => u.contours),
+      );
+      const points = new Set(
+        item.contours.filter((c) => contours.has(c.id)).flatMap((c) => c.points),
+      );
+      for (const pt of item.points.filter((pt) => points.has(pt.id))) {
+        if (pt.position.locked || pt.position.source || pt.position.expression)
+          throw Error('Path unit position is locked or driven');
+        pt.position.value = pt.position.value.map((v, axis) => v + payload.delta[axis]);
+      }
+      validate(candidate);
+      return { candidate, result: {} };
+    }
+    if (type === 'bake-text-outline') {
+      const layer = before.layers.find((l) => l.id === payload.layerId);
+      const source = layer?.nodes.find((n) => n.id === payload.nodeId);
+      if (source?.type !== 'Text') throw Error('Select a Text node to bake');
+      if (source.locked === true) throw Error('Text node is locked');
+      if (
+        [...this.#textDrafts.values()].some(
+          (draft) => draft.nodeId === source.id && draft.revision === this.#history.revision,
+        )
+      )
+        throw Error('Finish or cancel the Text draft before baking');
+      if (layer.locked) throw Error('Composition is locked');
+      if (source.bypassed) throw Error('Enable Text before baking');
+      if (parameters(source).some(([, q]) => q.locked))
+        throw Error('Text has locked parameters; unlock before baking');
+      for (const other of layer.nodes) {
+        if (other.id === source.id) continue;
+        if (
+          nodeDependencies(other).some(
+            (dep) =>
+              dep.source === source.id &&
+              (dep.parameterKey !== undefined ||
+                dep.sourcePort !== undefined ||
+                other.type === 'Reference'),
+          )
+        )
+          throw Error(
+            'Text Position or parameter references are in use; disconnect them before baking',
+          );
+      }
+      const evaluated = evaluate(
+        { ...layer, output: source.id },
+        resolveFonts(before, this.#fonts()),
+        before.imageAssets,
+      );
+      if (evaluated.error) throw Error(evaluated.error);
+      const path = evaluated.path;
+      if (path.characterOccurrences?.some((o) => o.suspended))
+        throw Error('Character adjustments are suspended; repair them before baking');
+      if (!path.contours.some((c) => c.points.length)) throw Error('Text has no outlines to bake');
+      if (
+        path.contours.length > 10000 ||
+        path.contours.reduce((sum, c) => sum + c.points.length, 0) > 10000
+      )
+        throw Error('Text outline exceeds the 10000 vertex/contour budget');
+      const baked = {
+        ...node('Multi Path', ...source.position),
+        id: source.id,
+        name: source.name,
+        width: source.width,
+        collapsed: source.collapsed,
+        text: '',
+        font: '',
+        contours: path.contours.map(({ id, closed, group, points }) => ({
+          id,
+          closed,
+          ...(group !== undefined ? { group } : {}),
+          points: points.map((pt) => pt.id),
+        })),
+        units: clone(evaluated.textLayout(source.id).outlineUnits),
+        points: path.contours.flatMap((c) =>
+          c.points.map((pt) => ({
+            id: pt.id,
+            handleType: 'corner',
+            position: p('Vector2', clone(pt.position)),
+            handleA: p('Vector2', clone(pt.handleA)),
+            handleB: p('Vector2', clone(pt.handleB)),
+          })),
+        ),
+      };
+      const candidate = cloneDocument(before);
+      candidate.layers.find((l) => l.id === layer.id).nodes[layer.nodes.indexOf(source)] = baked;
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 22);
+      serialize(candidate); // Validate every reference and project-size limit before committing.
+      return { candidate, result: { nodeId: baked.id } };
+    }
+
     if (type === 'set-transform-control') {
       const base = cloneDocument(before),
         layer = base.layers.find((l) => l.id === payload.layerId),
@@ -5262,6 +5555,8 @@ export class CommandSession {
       item.name = payload.name.trim();
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      if (created.type === 'Multi Path')
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 22);
       target.nodes.push(created);
       if (created.type === 'Vector Transform')
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
@@ -5314,8 +5609,12 @@ export class CommandSession {
         connect(target, paint.id, target.output, 'path');
       } else connect(target, source.id, target.output, 'path');
     } else if (['create-point', 'delete-point', 'set-point-mode'].includes(type)) {
-      const item = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Curve');
-      if (!item) throw Error('Select a Curve node');
+      const item = target.nodes.find(
+        (node) => node.id === payload.nodeId && ['Curve', 'Multi Path'].includes(node.type),
+      );
+      if (!item) throw Error('Select an editable path node');
+      if (item.type === 'Multi Path' && type === 'create-point')
+        throw Error('Adding points to a Multi Path is not supported; use Subdivide Path');
       if (type === 'create-point') {
         const created = point(...(payload.position ?? [400, 300]));
         item.points.push(created);
@@ -5323,8 +5622,12 @@ export class CommandSession {
       } else {
         const pt = item.points.find((pt) => pt.id === payload.pointId);
         if (!pt) throw Error('Missing point');
-        if (type === 'delete-point') item.points = item.points.filter((p) => p !== pt);
-        else {
+        if (type === 'delete-point') {
+          item.points = item.points.filter((p) => p !== pt);
+          if (item.type === 'Multi Path')
+            for (const contour of item.contours)
+              contour.points = contour.points.filter((id) => id !== pt.id);
+        } else {
           if (!['corner', 'smooth', 'symmetric'].includes(payload.mode))
             throw Error('Invalid handle type');
           if (

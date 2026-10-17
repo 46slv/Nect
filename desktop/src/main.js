@@ -1492,7 +1492,7 @@ function textPathControls(n) {
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+  return `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
     history.doc.fontAssets || {},
   )
     .map(
@@ -1502,6 +1502,28 @@ function textControls(n) {
     .join(
       '',
     )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+}
+function unitPointIds(n, unit) {
+  return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
+}
+function multiPathControls(n) {
+  if (n.type !== 'Multi Path') return '';
+  return `<section aria-label="Contained path units"><h4>Path units</h4><p class="font-note">Select a unit, then drag its move marker or a selected anchor to move its outline and holes together. Shift selects additional units. Arrow buttons move one unit by 1 px. Edit individual anchors normally; Alt-click creates Bézier handles and Alt-drag pulls them out. Use Subdivide Path to add points.</p>${n.units
+    .map(
+      (unit, i) =>
+        `<div><button class="mini" data-path-unit="${unit.id}" data-node="${n.id}" aria-pressed="${unitPointIds(n, unit).every((id) => selectedPointIds(n).includes(id))}">Path ${i + 1}</button>${[
+          ['←', -1, 0],
+          ['→', 1, 0],
+          ['↑', 0, -1],
+          ['↓', 0, 1],
+        ]
+          .map(
+            ([label, x, y]) =>
+              `<button class="mini" data-move-path-unit="${unit.id}" data-node="${n.id}" data-delta="${x},${y}" aria-label="Move Path ${i + 1} ${label} 1 px" ${current().locked ? 'disabled' : ''}>${label}</button>`,
+          )
+          .join('')}</div>`,
+    )
+    .join('')}</section>`;
 }
 function positionReferenceControls(n) {
   if (!['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Image'].includes(n.type)) return '';
@@ -1703,14 +1725,14 @@ function operationControls(n) {
   return `<div class="field"><label>${n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${editorParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${multiPathControls(n)}${editorParameters(
     n,
   )
     .filter(([k]) => isTransform(n) || Object.hasOwn(n.params, k))
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${['Curve', 'Path Remap'].includes(n.type) ? '<p class="font-note">Alt-click an anchor to create Bézier handles; Alt-drag pulls out symmetric handles. Shift-click selects multiple anchors.</p>' : ''}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
@@ -1818,7 +1840,7 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${editorParameters(
+      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
           n,
         )
           .filter(
@@ -2517,7 +2539,7 @@ function canvasOverlay(n, result) {
   let out =
     `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
     nodeStageMoveMarker(n, path);
-  if (['Curve', 'Path Remap'].includes(n.type)) {
+  if (['Curve', 'Multi Path', 'Path Remap'].includes(n.type)) {
     const scale = canvasScale(),
       focused = [
         ...selectedPointIds(n),
@@ -2537,6 +2559,18 @@ function canvasOverlay(n, result) {
       out += `<circle class="point-hit" ${attrs} cx="${x}" cy="${y}" r="${target.radius / scale}"/><circle class="${key === 'position' ? 'vertex' : 'handle'} point-marker ${selected ? 'active' : ''}" ${attrs} cx="${x}" cy="${y}" r="${(key === 'position' ? 3 : 2.5) / scale}"><title>${key === 'position' ? 'Point' : key} · ${target.pointId}</title></circle>`;
     }
   }
+  if (n.type === 'Multi Path') {
+    const selectedIds = selectedPointIds(n);
+    for (const [index, unit] of n.units.entries()) {
+      if (!unitPointIds(n, unit).every((id) => selectedIds.includes(id))) continue;
+      const contours = path.contours.filter((c) => unit.contours.includes(c.id));
+      const bounds = pathBounds({ ...path, contours }),
+        x = bounds[0][1],
+        y = bounds[1][0] - 12 / canvasScale();
+      if (![x, y].every(Number.isFinite)) continue;
+      out += `<g class="node-stage-move" data-path-unit-move="${unit.id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move Path ${index + 1}"><title>Drag Path ${index + 1}, including its holes</title><rect x="-8" y="-8" width="16" height="16" rx="3"/><path d="M-5 0H5 M0-5V5"/></g>`;
+    }
+  }
   if (n.type === 'Transform') out += transformOverlay(n, result);
   out += objectResizeOverlay(n, result);
   return out;
@@ -2553,6 +2587,7 @@ function nodeStageMoveMarker(n, path) {
       'Star',
       'Text',
       'Curve',
+      'Multi Path',
       'Transform',
       'Image',
     ].includes(n.type)
@@ -4151,6 +4186,43 @@ app.addEventListener('click', async (e) => {
       selection = new Set(result.nodeIds);
       render();
     }
+  }
+  if (d.bakeTextOutline) {
+    const result = commandChange(
+      'bake-text-outline',
+      { nodeId: d.bakeTextOutline },
+      'Text converted to editable paths',
+    );
+    if (result) {
+      characterEdit = null;
+      pointSelection = { nodeId: null, ids: new Set() };
+      render();
+    }
+    return;
+  }
+  if (d.pathUnit) {
+    const n = current().nodes.find((n) => n.id === d.node),
+      unit = n?.units?.find((unit) => unit.id === d.pathUnit);
+    if (!unit) return;
+    const ids = unitPointIds(n, unit),
+      old = selectedPointIds(n),
+      remove = e.shiftKey && ids.every((id) => old.includes(id));
+    pointSelection = { nodeId: n.id, ids: new Set(e.shiftKey ? old : []) };
+    for (const id of ids) remove ? pointSelection.ids.delete(id) : pointSelection.ids.add(id);
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selected = n.id;
+    selection = new Set([n.id]);
+    render();
+    return;
+  }
+  if (d.movePathUnit) {
+    commandChange(
+      'translate-path-units',
+      { nodeId: d.node, unitIds: [d.movePathUnit], delta: d.delta.split(',').map(Number) },
+      'Path unit moved',
+    );
+    return;
   }
   if (d.addPoint) commandChange('create-point', { nodeId: d.addPoint }, 'Point added');
   if (d.deletePoint)
@@ -5968,7 +6040,7 @@ app.addEventListener('pointerdown', (e) => {
   }
   selectedGuide = null;
   const dedicated = e.target.closest(
-    '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-node-stage-move]',
+    '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-path-unit-move],[data-node-stage-move]',
   );
   if (tool === 'select' && !dedicated) {
     if (document.querySelector('dialog[open]')) return;
@@ -6102,6 +6174,20 @@ app.addEventListener('pointerdown', (e) => {
   }
   let pos = canvasPoint(e),
     n = selectedNode();
+  const pathUnit = e.target.closest('[data-path-unit-move]')?.dataset.pathUnitMove;
+  if (pathUnit && n?.type === 'Multi Path') {
+    drag = {
+      type: 'path-unit',
+      nodeId: n.id,
+      unitId: pathUnit,
+      start: pos,
+      before: cloneDocument(history.doc),
+      started: false,
+    };
+    captureArtworkPointer(e, stage);
+    e.preventDefault();
+    return;
+  }
   const resizeHandle = e.target.closest('[data-object-resize]');
   if (resizeHandle) {
     e.preventDefault();
@@ -6207,7 +6293,7 @@ app.addEventListener('pointerdown', (e) => {
     ? { pointId: e.target.dataset.point, key: e.target.dataset.handle || 'position' }
     : null;
   if (
-    ['Curve', 'Path Remap'].includes(n?.type) &&
+    ['Curve', 'Multi Path', 'Path Remap'].includes(n?.type) &&
     document.querySelector('.artboard')?.getScreenCTM
   ) {
     const path = evaluate(current(), fonts, history.doc.imageAssets).run(n.id);
@@ -6225,6 +6311,31 @@ app.addEventListener('pointerdown', (e) => {
   if (pointTarget) {
     pointFocus = { nodeId: n.id, pointId: pointTarget.pointId };
     if (!selectPointTarget(n, pointTarget, e)) return;
+  }
+  if (pointTarget?.key === 'position' && e.altKey) {
+    drag = {
+      type: 'point-handles',
+      nodeId: n.id,
+      pointId: pointTarget.pointId,
+      start: pos,
+      before: cloneDocument(history.doc),
+      started: false,
+    };
+    captureArtworkPointer(e, stage);
+    e.preventDefault();
+    if (
+      updateCanvasGesture(
+        {
+          kind: 'point-handles',
+          layerId: current().id,
+          nodeId: n.id,
+          pointId: pointTarget.pointId,
+        },
+        {},
+      )
+    )
+      updateCanvas(true);
+    return;
   }
   if (pointTarget && n?.type === 'Path Remap') {
     const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
@@ -6275,7 +6386,7 @@ app.addEventListener('pointerdown', (e) => {
     }
     return;
   }
-  if (pointTarget && n?.type === 'Curve') {
+  if (pointTarget && ['Curve', 'Multi Path'].includes(n?.type)) {
     let pt = n.points.find((p) => p.id === pointTarget.pointId),
       key = pointTarget.key,
       q = pt[key];
@@ -6322,22 +6433,29 @@ app.addEventListener('pointerdown', (e) => {
     !generators.some((n) => n.bypassed) &&
     ((generators.length === 1 && generators[0].type === 'Transform') ||
       generators.every((n) =>
-        ['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star', 'Text', 'Curve', 'Image'].includes(
-          n.type,
-        ),
+        [
+          'Circle',
+          'Ellipse',
+          'Rectangle',
+          'Polygon',
+          'Star',
+          'Text',
+          'Curve',
+          'Multi Path',
+          'Image',
+        ].includes(n.type),
       ))
   ) {
     const targets = generators.map((n) => {
-      const keys =
-        n.type === 'Curve'
-          ? n.points.map((p) => `${p.id}.position`)
-          : [
-              n.type === 'Transform'
-                ? 'offset'
-                : ['Text', 'Image'].includes(n.type)
-                  ? 'position'
-                  : 'center',
-            ];
+      const keys = ['Curve', 'Multi Path'].includes(n.type)
+        ? n.points.map((p) => `${p.id}.position`)
+        : [
+            n.type === 'Transform'
+              ? 'offset'
+              : ['Text', 'Image'].includes(n.type)
+                ? 'position'
+                : 'center',
+          ];
       return { nodeId: n.id, keys, original: keys.map((k) => clone(parameter(n, k).value)) };
     });
     if (
@@ -6374,7 +6492,7 @@ function movePointer(e) {
   if (
     !drag &&
     !wiring &&
-    ['Curve', 'Path Remap'].includes(selectedNode()?.type) &&
+    ['Curve', 'Multi Path', 'Path Remap'].includes(selectedNode()?.type) &&
     e.target.closest?.('.canvas-stage')
   ) {
     const n = selectedNode(),
@@ -6743,6 +6861,49 @@ function movePointer(e) {
   let pos = canvasPoint(e),
     delta = pos.map((v, i) => v - drag.start[i]),
     n = current().nodes.find((x) => x.id === drag.nodeId);
+  if (drag.type === 'path-unit') {
+    if (
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    drag.started = true;
+    delta = artworkDelta([[drag.start[0]], [drag.start[1]]], delta, e);
+    if (
+      updateCanvasGesture(
+        {
+          kind: 'path-units-translate',
+          layerId: current().id,
+          nodeId: drag.nodeId,
+          unitIds: [drag.unitId],
+        },
+        { delta },
+      )
+    )
+      updateCanvas();
+    return;
+  }
+  if (drag.type === 'point-handles') {
+    if (
+      !drag.started &&
+      Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) < 3
+    )
+      return;
+    drag.started = true;
+    if (
+      updateCanvasGesture(
+        {
+          kind: 'point-handles',
+          layerId: current().id,
+          nodeId: drag.nodeId,
+          pointId: drag.pointId,
+        },
+        { delta },
+      )
+    )
+      updateCanvas();
+    return;
+  }
   if (drag.type === 'guide') {
     const sources = [[], []];
     sources[drag.axis] = [drag.original];
@@ -7073,6 +7234,8 @@ document.addEventListener('keydown', (e) => {
       'remap',
       'transform',
       'object-resize',
+      'point-handles',
+      'path-unit',
     ].includes(drag?.type) &&
     e.key === 'Escape'
   ) {
@@ -7082,7 +7245,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (
     (artworkDrag() && e.key === 'Delete') ||
-    ['transform', 'object-resize'].includes(drag?.type)
+    ['transform', 'object-resize', 'point-handles', 'path-unit'].includes(drag?.type)
   ) {
     // A pending direct manipulation owns its document snapshot. Do not let
     // Delete interleave a second document action. Transform handles also block
