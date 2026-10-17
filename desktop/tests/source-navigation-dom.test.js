@@ -40,7 +40,7 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
       dirty:documents.dirty, viewers:structuredClone(viewerState), zoom, pan:[...pan], canvasFit, graphZoom,
       ticket:!!sourceReturn, picker:!!sourcePicker, points:structuredClone(pointSelection) }; },
     change(type,payload) { return commandChange(type,{layerId:current().id,...payload}); },
-    svg() { return exportSVG(structuredClone(history.doc),fonts); },
+    svg() { return window.nect.export(); },
     flags(value) { composing=value; }, gesture(value) { drag=value ? {type:'test'} : null; },
     point(id,pid) { pointSelection={nodeId:id,ids:new Set([pid])}; },
     graph(z) { graphZoom=z; render(); }, undo() { stepHistory(); },

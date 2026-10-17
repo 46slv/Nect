@@ -19,7 +19,7 @@
 
 `evaluate(layer, fonts)` returns `{ path, error, warnings, values, run }`. `run(nodeId)` evaluates another node in that composition; results are memoized within one evaluation. A per-composition weak cache records each node’s semantic inputs and upstream revision IDs. Only changed dependency chains recompute; moving a graph card does not invalidate geometry. Cached results are defensively copied. Evaluation depth is bounded to 256 nodes and expressions to 4096 characters.
 
-`pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts)` consume plain geometry. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths.
+`pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts)` consume plain geometry. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths. `exportScene` and `exportSVG` validate and migrate a detached document copy, leaving the caller’s authored state and asset metadata unchanged, including frozen Session views and legacy inputs. Scene layers belong to that detached copy; compare stable layer IDs rather than object identity. Export retains validation errors and does not commit migrations to the source document.
 
 `serialize(document)` creates JSON. `deserialize(text)` parses and validates a candidate before editor replacement. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes and 96 MB of distinct font bytes; immutable font assets are shared across snapshots. Pointer gestures are one change each.
 

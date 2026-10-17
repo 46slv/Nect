@@ -4347,8 +4347,12 @@ export function renderElement(
   }
   return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
+// Validation includes legacy migrations and asset freezing. Keep both private to
+// export, including for mutable callers; cloneDocument would freeze their assets.
 export function exportScene(doc, fonts = {}) {
-  validate(doc);
+  return exportValidatedScene(validate(clone(doc)), fonts);
+}
+function exportValidatedScene(doc, fonts) {
   fonts = resolveFonts(doc, fonts);
   assertVariableDocumentReady(doc, fonts);
   return doc.layers
@@ -4371,7 +4375,8 @@ export function exportScene(doc, fonts = {}) {
     });
 }
 export function exportSVG(doc, fonts = {}) {
-  const scene = exportScene(doc, fonts);
+  doc = validate(clone(doc));
+  const scene = exportValidatedScene(doc, fonts);
   let bytes = 512;
   const elements = [];
   for (const { layer, value } of scene) {
