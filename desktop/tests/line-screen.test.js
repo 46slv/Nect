@@ -140,10 +140,10 @@ test('Line Screen keeps the existing filled, ungrouped, closed vector source res
   });
 });
 
-test('Line Screen operations and schema-14 serialization round-trip with bypass and shared history', () => {
+test('Line Screen operations and schema-15 serialization round-trip with bypass and shared history', () => {
   const f = fixture({ color: '#bcbcbc' });
   validate(f.doc);
-  assert.equal(f.doc.schemaVersion, 14);
+  assert.equal(f.doc.schemaVersion, 15);
   assert.deepEqual(bypassContract(f.effect), {
     supported: true,
     input: 'path',
@@ -157,7 +157,7 @@ test('Line Screen operations and schema-14 serialization round-trip with bypass 
       session.dispatch({ ...session.state, type, payload: { layerId, ...payload } }),
     original = serialize(session.snapshot()),
     originalOutput = run(session.snapshot().layers[0], f.effect.id);
-  assert.equal(deserialize(original).schemaVersion, 14);
+  assert.equal(deserialize(original).schemaVersion, 15);
 
   dispatch('set-operation', { nodeId: f.effect.id, operation: 'vertical' });
   const vertical = serialize(session.snapshot());

@@ -280,16 +280,19 @@ export const definitions = {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
   },
   'Ordered Dither': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
   },
   'Line Screen': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
   },
   Stroke: {
     path: p('PaintedPath', null),
@@ -334,11 +337,18 @@ export function radialGradientSettings(read) {
 }
 export function luminanceModifierSettings(read) {
   const pitch = read('pitch'),
-    invert = read('invert');
+    invert = read('invert'),
+    gridOrigin = read('gridOrigin');
   if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
     throw Error('Luminance pitch must be from 1 to 1024 px');
   if (typeof invert !== 'boolean') throw Error('Luminance invert must be boolean');
-  return { pitch, invert };
+  if (
+    !Array.isArray(gridOrigin) ||
+    gridOrigin.length !== 2 ||
+    !gridOrigin.every((value) => Number.isFinite(value) && Math.abs(value) <= 100000)
+  )
+    throw Error('Luminance grid origin components must be finite and within ±100000 px');
+  return { pitch, invert, gridOrigin };
 }
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
 export function radialSettings(type, read) {
@@ -2645,7 +2655,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           if (inputVertices > 100000)
             throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
         }
-        const { pitch, invert } = luminanceModifierSettings(read),
+        const { pitch, invert, gridOrigin } = luminanceModifierSettings(read),
+          origin = { x: gridOrigin[0], y: gridOrigin[1] },
           mode =
             n.type === 'Halftone' ? 'halftone' : n.type === 'Ordered Dither' ? 'dither' : 'lines',
           orientation = mode === 'lines' ? n.operation : undefined;
@@ -2657,14 +2668,14 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           sampleLuminanceGrid(
             source.fill,
             { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-            { pitch, origin: { x: 0, y: 0 }, invert },
+            { pitch, origin, invert },
           );
           result = { contours: [], fill: { hex: '#000000', alpha: 1 } };
         } else {
           const mask = prepareLuminanceMask(source),
             field = sampleLuminanceGrid(source.fill, mask.bounds, {
               pitch,
-              origin: { x: 0, y: 0 },
+              origin,
               invert,
             }),
             generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation }),
@@ -2680,6 +2691,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             ...(mode === 'lines' ? [orientation] : []),
             pitch,
             invert,
+            // Preserve schema-14 provenance when the migrated default is unchanged.
+            // Non-default origins participate so downstream edits invalidate correctly.
+            ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
             source.fill,
             source.fingerprint || null,
             signature(source),
@@ -3202,9 +3216,12 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
+  // Apply every migration against the file's incoming version. A feature later in
+  // the node list must not advance the version before older nodes are backfilled.
+  const sourceSchemaVersion = doc.schemaVersion;
   text(doc.name);
   validateFontAssets(doc.fontAssets);
   validateImageAssets(doc.imageAssets);
@@ -3230,7 +3247,7 @@ export function validate(doc) {
       id(n.id);
       validateReference(n);
       text(n.name);
-      if (n.bypassed !== undefined && (typeof n.bypassed !== 'boolean' || doc.schemaVersion < 10))
+      if (n.bypassed !== undefined && (typeof n.bypassed !== 'boolean' || sourceSchemaVersion < 10))
         throw Error('Node bypass requires a boolean and schemaVersion 10');
       bypassInput(n);
       vec(n.position);
@@ -3252,13 +3269,13 @@ export function validate(doc) {
           !/^(origin|(left|center|right)-(top|middle|bottom))$/.test(n.positionReference))
       )
         throw Error('Invalid object Position reference');
-      if (n.characterPositions !== undefined && (n.type !== 'Text' || doc.schemaVersion < 3))
+      if (n.characterPositions !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 3))
         throw Error('Character positions require schemaVersion 3 and a Text node');
-      if (n.leading !== undefined && (n.type !== 'Text' || doc.schemaVersion < 6))
+      if (n.leading !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 6))
         throw Error('Explicit leading requires schemaVersion 6 and a Text node');
-      if (n.pathAttachment !== undefined && (n.type !== 'Text' || doc.schemaVersion < 7))
+      if (n.pathAttachment !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 7))
         throw Error('Type on Path requires schemaVersion 7 and a Text node');
-      if (n.textWrap !== undefined && (n.type !== 'Text' || doc.schemaVersion < 8))
+      if (n.textWrap !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 8))
         throw Error('Wrap width requires schemaVersion 8 and a Text node');
       if (n.type === 'Text') {
         validateTextWrap(n.textWrap, n.writingMode, n.pathAttachment);
@@ -3266,13 +3283,13 @@ export function validate(doc) {
         if (n.pathAttachment) validateTextPathMode(n.text, n.writingMode);
         validateLeading(n.leading);
         validateCharacterPositions(n.characterPositions);
-        if (n.characterPositions?.version >= 2 && doc.schemaVersion < 4)
+        if (n.characterPositions?.version >= 2 && sourceSchemaVersion < 4)
           throw Error('Character shape transforms require schemaVersion 4');
-        if (n.characterPositions?.version >= 3 && doc.schemaVersion < 5)
+        if (n.characterPositions?.version >= 3 && sourceSchemaVersion < 5)
           throw Error('Character typography requires schemaVersion 5');
-        if (n.characterPositions?.version >= 4 && doc.schemaVersion < 6)
+        if (n.characterPositions?.version >= 4 && sourceSchemaVersion < 6)
           throw Error('Character spacing requires schemaVersion 6');
-        if (n.characterPositions?.version >= 5 && doc.schemaVersion < 9)
+        if (n.characterPositions?.version >= 5 && sourceSchemaVersion < 9)
           throw Error('Pair kerning requires schemaVersion 9');
         for (const style of Object.values(n.characterPositions?.styles || {}))
           if (
@@ -3311,8 +3328,14 @@ export function validate(doc) {
         !Array.isArray(n.edits)
       )
         throw Error('Invalid node');
-      if (n.type === 'Line Screen' && doc.schemaVersion < 14) doc.schemaVersion = 14;
-      if (n.type === 'Resample Path' && doc.schemaVersion < 12) {
+      if (
+        ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
+        sourceSchemaVersion < 15
+      ) {
+        if (!Object.hasOwn(n.params, 'gridOrigin'))
+          n.params.gridOrigin = clone(definitions[n.type].gridOrigin);
+      }
+      if (n.type === 'Resample Path' && sourceSchemaVersion < 12) {
         if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
         if (operationOptions.Boolean.includes(n.operation)) n.operation = 'count';
         if (!Object.hasOwn(n.params, 'spacing'))
@@ -3321,10 +3344,9 @@ export function validate(doc) {
       // Instance on Points gains an opt-in local-tangent transform. Old files
       // load with the identity (translation-only) setting, then serialize using
       // the schema that records the new parameter.
-      if (n.type === 'Instance on Points' && doc.schemaVersion < 13 && n.params) {
+      if (n.type === 'Instance on Points' && sourceSchemaVersion < 13 && n.params) {
         if (!Object.hasOwn(n.params, 'alignTangent'))
           n.params.alignTangent = clone(definitions['Instance on Points'].alignTangent);
-        doc.schemaVersion = 13;
       }
       if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
         throw Error('Invalid operation');
@@ -3342,7 +3364,7 @@ export function validate(doc) {
       const extraTransform = isTransform(n)
         ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
         : [];
-      if ((extraTransform.length || n.type === 'Vector Transform') && doc.schemaVersion < 11)
+      if ((extraTransform.length || n.type === 'Vector Transform') && sourceSchemaVersion < 11)
         throw Error('Extended Transform requires schemaVersion 11');
       if (
         Object.keys(n.params).length !==
@@ -3527,6 +3549,17 @@ export function validate(doc) {
       }
     assertAcyclic(l);
   }
+  const hasNodeType = (type) =>
+    doc.layers.some((layer) => layer.nodes.some((n) => n.type === type));
+  if (hasNodeType('Instance on Points') && sourceSchemaVersion < 13)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 13);
+  if (hasNodeType('Line Screen') && sourceSchemaVersion < 14)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 14);
+  if (
+    ['Halftone', 'Ordered Dither', 'Line Screen'].some((type) => hasNodeType(type)) &&
+    sourceSchemaVersion < 15
+  )
+    doc.schemaVersion = Math.max(doc.schemaVersion, 15);
   return doc;
 }
 export function serialize(doc) {

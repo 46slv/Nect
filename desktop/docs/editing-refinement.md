@@ -564,8 +564,8 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 ### Halftone and Ordered Dither — luminance-to-geometry v1
 
 - These are PaintedPath→PaintedPath modifiers after a solid Fill or the existing two-stop
-  Linear / Radial Gradient Fill. Each has Cell Pitch 1–1024 px (default16) and Invert Luminance
-  (default off); the world-grid origin is fixed at (0,0). The paint source must have a solid
+  Linear / Radial Gradient Fill. Each has Cell Pitch 1–1024 px (default16), Invert Luminance
+  (default off), and Grid Origin (Vector2 default `[0,0]`, each component ±100000 px). The paint source must have a solid
   Color or supported gradient and an ungrouped collection of closed contours. Open contours,
   explicit groups, stroke-only paint and Image inputs fail explicitly. Source fill/stroke styling
   is replaced by opaque black output geometry; the upstream source stays unchanged.
@@ -599,8 +599,8 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 ### Line Screen — luminance-to-geometry v2
 
 - Line Screen adds another PaintedPath→PaintedPath map on the same supported filled vector source.
-  It reuses Cell Pitch 1–1024 px (default16), Invert Luminance (default off), fixed world-grid
-  origin (0,0), center sampling and opaque black output. The source must remain ungrouped and
+  It reuses Cell Pitch 1–1024 px (default16), Invert Luminance (default off), Grid Origin
+  (default `[0,0]`, each component ±100000 px), center sampling and opaque black output. The source must remain ungrouped and
   closed; open contours, explicit groups, stroke-only paint and images are rejected. The output
   intersects the source's existing compound mask, so holes remain empty.
 - Horizontal emits one centered rectangle per nonwhite cell: full pitch across X and
@@ -616,10 +616,30 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   [Adobe PLRM, §7.4.4](https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf#page=500)
 - Line Screen uses the existing 4096-cell sampling cap, 100,000 generated/output-vertex caps,
   2,000,000 vertex-pair mask-intersection budget, deterministic output identity, unstable
-  downstream-Remap provenance, typed bypass, schema-14 serialization, shared Undo/Redo and
+  downstream-Remap provenance, typed bypass, schema-15 serialization, shared Undo/Redo and
   transactional preflight. Invalid orientation or over-budget upstream edits reject atomically.
 - The [12-layer Line Screen playground](../examples/line-screen-playground.json) compares both
   directions against a shared gradient source and reopens with stable evaluated output. Its
   matching `scripts/line-screen-playground.js` builds and validates the editable JSON and SVG.
   Focused helper/core/DOM tests and one Web build are the bounded evidence for this addition;
   they do not establish native Windows input behavior or physical print output.
+
+### Shared luminance grid origin — schema 15
+
+- Halftone, Ordered Dither, and Line Screen expose a shared Vector2 Grid Origin. Its default
+  `[0,0]` keeps the existing texture phase; each finite component is limited to ±100000 px. In
+  Nect's document coordinates Y increases downward, so this is the top-left corner of grid cell
+  `(0,0)`. It sets the cell lattice and sample centers; it does not translate source geometry or
+  change source-mask coordinates. Shift it to phase-align multiple effects or move texture marks
+  relative to artwork.
+- The existing luminance sampler accepts an `{x,y}` origin. The core maps `[x,y]` to it and keeps
+  Halftone dots, Bayer 8×8 rank selection by integer grid indices, horizontal/vertical Line Screen
+  rectangles, compound-mask clipping and all existing limits unchanged. No rotation, image input,
+  or new mark mode was added. The schema-14 `[0,0]` default fingerprint is preserved; non-default
+  origins affect derived-output identity.
+- Schema 14 and earlier luminance nodes backfill `[0,0]` and upgrade to schema 15 on validation;
+  default output remains identical. New values serialize with the shared document and honor locks,
+  Undo/Redo, bypass and bounded edit preflight. Direct and driven origins outside the finite
+  bounds are rejected. The [12-layer grid-origin playground](../examples/luminance-grid-origin.json)
+  compares 0, quarter-cell and half-cell shifts on the same unchanged source paths and has a
+  serialized/reopened evaluation plus actual SVG/PNG review.

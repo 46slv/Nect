@@ -121,12 +121,170 @@ test('Halftone and Ordered Dither preserve all-white emptiness and cover small a
 });
 
 test('valid empty filled geometry stays empty through luminance modifiers', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
     const empty = fixture({ modifier, rawPath: '' }),
       result = coldRun(empty.layer, empty.effect.id);
     assert.deepEqual(result.contours, [], modifier);
     assert.deepEqual(result.fill, { hex: '#000000', alpha: 1 }, modifier);
     assert.ok(result.unstable, `${modifier} remains derived geometry`);
+  }
+});
+
+test('schema-14 luminance nodes backfill origin zero without changing evaluated output', () => {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const f = fixture({ modifier, color: '#bcbcbc', width: 64, height: 32 }),
+      expected = coldRun(f.layer, f.effect.id),
+      legacy = structuredClone(f.doc);
+    legacy.schemaVersion = 14;
+    const effect = legacy.layers[0].nodes.find((item) => item.id === f.effect.id);
+    delete effect.params.gridOrigin;
+
+    const loaded = deserialize(serialize(legacy)),
+      migrated = loaded.layers[0].nodes.find((item) => item.id === f.effect.id);
+    assert.equal(loaded.schemaVersion, 15, `${modifier} schema`);
+    assert.deepEqual(migrated.params.gridOrigin, {
+      type: 'Vector2',
+      value: [0, 0],
+      expression: '',
+      locked: false,
+    });
+    assert.deepEqual(coldRun(loaded.layers[0], f.effect.id), expected, `${modifier} output`);
+  }
+});
+
+test('schema migrations remain order-independent when a luminance node precedes older features', () => {
+  const f = fixture({ modifier: 'Halftone' }),
+    resample = node('Resample Path'),
+    instances = node('Instance on Points');
+  f.doc.schemaVersion = 11;
+  delete f.effect.params.gridOrigin;
+  delete resample.params.spacing;
+  delete instances.params.alignTangent;
+  f.layer.nodes.splice(f.layer.nodes.indexOf(f.out), 0, resample, instances);
+
+  const loaded = deserialize(serialize(f.doc)),
+    migrated = new Map(loaded.layers[0].nodes.map((item) => [item.id, item]));
+  assert.equal(loaded.schemaVersion, 15);
+  assert.deepEqual(migrated.get(f.effect.id).params.gridOrigin.value, [0, 0]);
+  assert.equal(migrated.get(resample.id).params.spacing.value, 24);
+  assert.equal(migrated.get(instances.id).params.alignTangent.value, false);
+});
+
+test('grid-origin phase shifts each luminance mode while keeping source geometry fixed', () => {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const f = fixture({ modifier, paint: 'linear', width: 64, height: 32 }),
+      originalSource = coldRun(f.layer, f.shape.id),
+      original = coldRun(f.layer, f.effect.id);
+    f.effect.params.gridOrigin.value = [8, 0];
+    const shiftedSource = coldRun(f.layer, f.shape.id),
+      shifted = coldRun(f.layer, f.effect.id);
+    assert.deepEqual(shiftedSource, originalSource, `${modifier} source geometry stays fixed`);
+    assert.notDeepEqual(shifted.contours, original.contours, `${modifier} texture phase shifts`);
+  }
+});
+
+test('negative-index edge cells, compound holes and empty geometry stay clipped in every mode', () => {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const edge = fixture({
+        modifier,
+        color: '#000000',
+        width: 32,
+        height: 16,
+        left: 0,
+        top: 0,
+      }),
+      donut = fixture({ modifier, color: '#000000', rawPath: 'M0 0H64V64H0Z M16 16V48H48V16Z' }),
+      empty = fixture({ modifier, color: '#000000', rawPath: '' });
+    edge.effect.params.gridOrigin.value = [8, 8];
+    donut.effect.params.gridOrigin.value = [8, 8];
+    empty.effect.params.gridOrigin.value = [8, 8];
+    assert.ok(Math.abs(area(coldRun(edge.layer, edge.effect.id)) - 32 * 16) < 0.001);
+    const ring = coldRun(donut.layer, donut.effect.id);
+    assert.ok(Math.abs(area(ring) - (64 * 64 - 32 * 32)) < 0.001, modifier);
+    assert.equal(ring.contours.length, 2, `${modifier} keeps the compound hole`);
+    assert.deepEqual(coldRun(empty.layer, empty.effect.id).contours, [], `${modifier} empty`);
+  }
+});
+
+test('grid-origin limits, lock, serialization/history, bypass, and transactional rollback hold', () => {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const f = fixture({ modifier, paint: 'linear', width: 64, height: 32 }),
+      session = new CommandSession(f.doc),
+      layerId = f.layer.id,
+      dispatch = (type, payload) =>
+        session.dispatch({ ...session.state, type, payload: { layerId, ...payload } }),
+      initial = serialize(session.snapshot());
+    for (const value of [
+      [NaN, 0],
+      [Infinity, 0],
+      [100001, 0],
+      [0, -100001],
+    ]) {
+      assert.throws(() =>
+        dispatch('set-parameter', { nodeId: f.effect.id, key: 'gridOrigin', value }),
+      );
+      assert.equal(serialize(session.snapshot()), initial, `${modifier} invalid edit rollback`);
+    }
+
+    dispatch('set-parameter-lock', { nodeId: f.effect.id, key: 'gridOrigin', locked: true });
+    const locked = serialize(session.snapshot());
+    assert.throws(
+      () => dispatch('set-parameter', { nodeId: f.effect.id, key: 'gridOrigin', value: [8, 0] }),
+      /locked/,
+    );
+    assert.equal(serialize(session.snapshot()), locked);
+    dispatch('set-parameter-lock', { nodeId: f.effect.id, key: 'gridOrigin', locked: false });
+    const before = coldRun(session.snapshot().layers[0], f.effect.id);
+    dispatch('set-parameter', { nodeId: f.effect.id, key: 'gridOrigin', value: [8, 0] });
+    const after = serialize(session.snapshot()),
+      moved = coldRun(session.snapshot().layers[0], f.effect.id);
+    assert.notDeepEqual(moved.contours, before.contours, `${modifier} changes phase`);
+    assert.deepEqual(
+      deserialize(after).layers[0].nodes.find((item) => item.id === f.effect.id).params.gridOrigin
+        .value,
+      [8, 0],
+    );
+    dispatch('undo');
+    assert.deepEqual(
+      session.snapshot().layers[0].nodes.find((item) => item.id === f.effect.id).params.gridOrigin
+        .value,
+      [0, 0],
+    );
+    dispatch('redo');
+    assert.equal(serialize(session.snapshot()), after);
+
+    const layer = session.snapshot().layers[0],
+      output = coldRun(layer, f.effect.id),
+      upstream = layer.nodes.find((item) => item.id === f.paintNode.id);
+    setNodeBypassed(layer, f.effect.id, true);
+    assert.deepEqual(coldRun(layer, f.effect.id), coldRun(layer, upstream.id));
+    assert.notDeepEqual(output.contours, coldRun(layer, f.effect.id).contours);
+  }
+});
+
+test('a driven grid origin is validated during transactional preflight', () => {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+    const f = fixture({ modifier }),
+      origin = node('Vector');
+    origin.params.value.value = [100001, 0];
+    f.layer.nodes.splice(f.layer.nodes.indexOf(f.effect), 0, origin);
+    const session = new CommandSession(f.doc),
+      stable = serialize(session.snapshot());
+    assert.throws(
+      () =>
+        session.dispatch({
+          ...session.state,
+          type: 'connect',
+          payload: {
+            layerId: f.layer.id,
+            sourceId: origin.id,
+            nodeId: f.effect.id,
+            key: 'gridOrigin',
+          },
+        }),
+      /grid origin components.*±100000/,
+    );
+    assert.equal(serialize(session.snapshot()), stable, `${modifier} driven edit rollback`);
   }
 });
 

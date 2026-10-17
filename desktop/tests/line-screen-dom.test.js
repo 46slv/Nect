@@ -70,6 +70,21 @@ test('Line Screen picker, direction, luminance fields and guidance are available
   assert.equal(field('path').dataset.type, 'PaintedPath');
   assert.ok(field('pitch').querySelector('[data-value]'));
   assert.ok(field('invert').querySelector('[data-value][type="checkbox"]'));
+  assert.equal(field('gridOrigin').dataset.type, 'Vector2');
+  assert.equal(
+    field('gridOrigin').querySelector('label').textContent,
+    'Grid origin · cell (0, 0) top-left',
+  );
+  assert.deepEqual(
+    [...field('gridOrigin').querySelectorAll('input[data-value]')].map((input) => [
+      input.min,
+      input.max,
+    ]),
+    [
+      ['-100000', '100000'],
+      ['-100000', '100000'],
+    ],
+  );
   const direction = () => query(`.graph [data-operation="${screen.id}"]`);
   assert.deepEqual(
     [...direction().options].map((option) => option.value),
@@ -84,19 +99,32 @@ test('Line Screen picker, direction, luminance fields and guidance are available
   );
   await change(direction(), 'vertical');
   assert.equal(savedNode().operation, 'vertical');
-  assert.equal(win.nect.document.schemaVersion, 14);
+  assert.equal(win.nect.document.schemaVersion, 15);
   await change(field('pitch').querySelector('[data-value]'), '8');
   assert.equal(savedNode().params.pitch.value, 8);
+  const originInputs = field('gridOrigin').querySelectorAll('input[data-value]');
+  await change(originInputs[0], '8');
+  await change(field('gridOrigin').querySelectorAll('input[data-value]')[1], '-4');
+  assert.deepEqual(savedNode().params.gridOrigin.value, [8, -4]);
+  assert.equal(win.nect.document.schemaVersion, 15);
   const invert = field('invert').querySelector('[data-value]');
   invert.checked = true;
   invert.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
   assert.equal(savedNode().params.invert.value, true);
   assert.match(query('.inspector-body').textContent, /cell-sampled rectangle/);
+  assert.match(
+    query('.inspector-body').textContent,
+    /top-left.*cell \(0, 0\).*Y increases downward/i,
+  );
   assert.match(query('.inspector-body').textContent, /not continuous engraving/);
 
   query('[data-action="undo"]').click();
   await tick();
   assert.equal(savedNode().params.invert.value, false);
+  assert.deepEqual(savedNode().params.gridOrigin.value, [8, -4]);
+  query('[data-action="undo"]').click();
+  await tick();
+  assert.deepEqual(savedNode().params.gridOrigin.value, [8, 0]);
   win.happyDOM.abort();
 });
