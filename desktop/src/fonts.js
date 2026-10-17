@@ -1,4 +1,7 @@
 import opentype from 'opentype.js';
+import { validateVariableBytes } from './variable-font/validate.js';
+import { VARIABLE_KIND } from './variable-font/document-bridge.js';
+import { freeze, reject } from './variable-font/contract.js';
 
 export const MAX_FONT_BYTES = 20_000_000;
 export const MAX_FONT_TOTAL_BYTES = 32_000_000;
@@ -183,10 +186,22 @@ function remember(data, font) {
   }
 }
 function assetFont(asset) {
-  let font = parsed.get(asset.data);
+  const key = asset.kind === VARIABLE_KIND ? `${VARIABLE_KIND}:${asset.data}` : asset.data;
+  let font = parsed.get(key);
   if (!font) {
-    font = parseFont(decode(asset.data));
-    remember(asset.data, font);
+    font =
+      asset.kind === VARIABLE_KIND
+        ? Object.freeze({
+            nectVariable: freeze({
+              ...validateVariableBytes(new Uint8Array(decode(asset.data))),
+              data: asset.data,
+            }),
+            readVariable() {
+              reject('PREPARATION_REQUIRED');
+            },
+          })
+        : parseFont(decode(asset.data));
+    remember(key, font);
   }
   return font;
 }
@@ -209,6 +224,7 @@ export function validateFontAssets(assets = {}) {
       asset.fileName.length > 256
     )
       fail('Invalid font asset name');
+    if (asset.kind !== undefined && asset.kind !== VARIABLE_KIND) fail('Invalid font asset kind');
     const data = asset.data;
     if (
       typeof data !== 'string' ||
@@ -242,6 +258,30 @@ export function makeFontAsset(bytes, fileName, existing = {}) {
 }
 export function resolveFonts(doc, supplied = {}) {
   const fonts = { ...supplied };
-  for (const [id, asset] of Object.entries(doc.fontAssets || {})) fonts[id] = assetFont(asset);
+  for (const [id, asset] of Object.entries(doc.fontAssets || {})) {
+    if (asset.kind === VARIABLE_KIND && supplied[id]?.nectVariable?.data === asset.data)
+      fonts[id] = supplied[id];
+    else fonts[id] = assetFont(asset);
+  }
   return fonts;
+}
+
+/** A validated immutable candidate asset; worker document preparation is required before use. */
+export function makeVariableFontAsset(bytes, fileName, existing = {}) {
+  if (!(bytes instanceof ArrayBuffer)) throw Error('Font bytes require an ArrayBuffer');
+  validateVariableBytes(new Uint8Array(bytes));
+  const data = encode(bytes);
+  const found = Object.entries(existing).find(
+    ([, asset]) => asset.kind === VARIABLE_KIND && asset.data === data,
+  );
+  if (found) return { id: found[0], asset: found[1] };
+  const id = `font-${globalThis.crypto.randomUUID()}`;
+  const asset = {
+    kind: VARIABLE_KIND,
+    name: String(fileName).slice(0, 256),
+    fileName: String(fileName).slice(0, 256),
+    data,
+  };
+  validateFontAssets({ ...existing, [id]: asset });
+  return { id, asset };
 }

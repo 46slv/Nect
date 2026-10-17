@@ -352,7 +352,13 @@ import {
   readSystemFont,
   DocumentLifecycle,
 } from './storage.js';
-import { parseFont, resolveFonts, MAX_FONT_BYTES, MAX_PROJECT_BYTES } from './fonts.js';
+import {
+  parseFont,
+  resolveFonts,
+  makeVariableFontAsset,
+  MAX_FONT_BYTES,
+  MAX_PROJECT_BYTES,
+} from './fonts.js';
 import {
   document as newDocument,
   blankDocument,
@@ -393,6 +399,7 @@ import {
   renderElement,
   History,
   CommandSession,
+  createVariableDocumentPreparer,
   constrainAxisDrag,
   scrubNumericValues,
   guideDefaults,
@@ -484,8 +491,141 @@ function editAlignmentSpacing(input, commit = false) {
         : `Fixed gap ${value} px; fixed leading edge`;
   }
 }
+// Opt-in variable fonts keep active prepared geometry separate from the next candidate.
+let bundledFont = null;
+let variableBridge = null,
+  variableAction = null,
+  variablePreviewFonts = null;
+const hasVariableFonts = (doc) =>
+  Object.values(doc.fontAssets || {}).some((a) => a.kind === 'variable-glyf-v1');
+const variableNode = (id) => current().nodes.find((n) => n.id === id)?.variation;
+const activeFonts = () => ({
+  ...(bundledFont ? { default: bundledFont } : {}),
+  ...(variableBridge?.fonts() || {}),
+});
+function cancelVariableAction() {
+  variableAction?.controller.abort();
+  variableAction?.owner.cancelPrepared(variableAction.bridge);
+  if (variableAction?.opening) variableAction.bridge.dispose();
+  variableAction = null;
+  variablePreviewFonts = null;
+  fontPreview = null;
+}
+function variableError(error) {
+  const reasons = {
+    VARIABLE_VERTICAL_UNSUPPORTED: 'Variable fonts support horizontal text only.',
+    VARIABLE_WRAP_UNSUPPORTED: 'Variable fonts do not support wrapping yet.',
+    VARIABLE_PATH_UNSUPPORTED: 'Variable fonts do not support text on a path yet.',
+    VARIABLE_ARRANGEMENT_UNSUPPORTED:
+      'Variable fonts do not support maintained character arrangements yet.',
+    VARIABLE_RANGE_UNSUPPORTED:
+      'Variable fonts support whole-text styling only; remove character adjustments first.',
+    INVALID_AXES: 'Enter a finite value within the advertised axis range.',
+    UNSUPPORTED_MAPPING:
+      'This experimental font path supports simple, single-line Latin text only. Complex scripts, combining marks, emoji and line breaks are unsupported.',
+    TEXT_LIMIT: 'Variable text must contain 1–1024 characters.',
+    TIMEOUT: 'Variable font preparation timed out; try a smaller text or another font.',
+    VARIABLE_FEATURES_UNSUPPORTED: 'Variable fonts currently require automatic kerning.',
+    UNSUPPORTED_FORMAT:
+      'Choose a supported monochrome glyf/gvar variable TTF. CFF2, color and extended variation tables are not supported.',
+  };
+  return reasons[error.code || error.message] || error.message;
+}
+async function preparedChange(
+  type,
+  payload,
+  text = 'Updated',
+  envelope = session.state,
+  preview = false,
+) {
+  cancelVariableAction();
+  variableBridge ||= createVariableDocumentPreparer();
+  const action = {
+    owner: session,
+    bridge: variableBridge,
+    revision: envelope.expectedRevision,
+    controller: new AbortController(),
+  };
+  variableAction = action;
+  notify('Preparing variable text… Escape cancels');
+  try {
+    const token = await action.owner.prepareCommand(
+      { ...envelope, type, payload: { layerId: current().id, ...payload } },
+      variableBridge,
+      { signal: action.controller.signal },
+    );
+    if (variableAction !== action || session !== action.owner) return null;
+    if (preview) {
+      const prepared = action.owner.preparedSnapshot(token);
+      fontPreview = prepared.document;
+      variablePreviewFonts = prepared.fonts;
+      updateCanvas(true);
+      notify('Variable axis preview · finish editing to apply; Escape cancels');
+      return token;
+    }
+    const result = action.owner.commitPrepared(token);
+    variableAction = null;
+    notify(text);
+    render();
+    return result;
+  } catch (error) {
+    if (variableAction === action) {
+      variableAction = null;
+      notify(
+        `Variable font edit rejected; current document preserved: ${variableError(error)}`,
+        true,
+      );
+      render();
+    }
+    return null;
+  }
+}
+async function prepareOpenDocument(next, options = {}) {
+  if (!hasVariableFonts(next)) {
+    replaceDocument(next, options);
+    return;
+  }
+  cancelVariableAction();
+  const bridge = createVariableDocumentPreparer();
+  const owner = session,
+    revision = session.state.expectedRevision;
+  const action = { owner, bridge, opening: true, revision, controller: new AbortController() };
+  variableAction = action;
+  notify('Preparing variable fonts before opening… Escape cancels');
+  try {
+    const ticket = await bridge.prepareDocument(next, { signal: action.controller.signal });
+    if (
+      variableAction !== action ||
+      session !== owner ||
+      session.state.expectedRevision !== revision
+    )
+      throw Error('Document changed while preparing; open the file again');
+    bridge.activate(ticket);
+    variableBridge?.dispose();
+    variableBridge = bridge;
+    variableAction = null;
+    replaceDocument(next, { ...options, prepared: true });
+  } catch (error) {
+    if (variableAction === action) variableAction = null;
+    bridge.dispose();
+    throw Error(variableError(error));
+  }
+}
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.key !== 'Escape' || (!variableAction && !fontRequest?.variable)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    cancelVariableAction();
+    if (fontRequest?.variable) fontRequest = null;
+    notify('Variable font preparation cancelled; current document preserved');
+    render();
+  },
+  true,
+);
 const sessionOptions = {
-  fonts: () => (bundledFont ? { default: bundledFont } : {}),
+  fonts: activeFonts,
   // A numeric pointer reservation first commits any typed value, before it
   // captures a gesture snapshot. Only its started phase owns an authored edit.
   busy: () =>
@@ -517,7 +657,6 @@ let history = session.historyView,
   message = 'Ready',
   error = false,
   fonts = {},
-  bundledFont = null,
   fontRequest = null,
   fontRequestId = 0,
   systemFonts = [],
@@ -551,7 +690,12 @@ const documents = new DocumentLifecycle({
       composing ||
       session.hasTextComposition ||
       session.hasGesture ||
-      [...textDrafts.values()].some((draft) => draft.state.changed)
+      [...textDrafts.values()].some((draft) => draft.state.changed) ||
+      [...app.querySelectorAll('textarea[data-text]')].some(
+        (el) =>
+          variableNode(el.dataset.text) &&
+          el.value !== current().nodes.find((n) => n.id === el.dataset.text)?.text,
+      )
     ),
 });
 let openRequest = 0,
@@ -587,6 +731,17 @@ function stepHistory(redo = false) {
   const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
+  const target = (redo ? history.future : history.past).at(-1);
+  if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
+    void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
+      if (result) {
+        activeLayer =
+          history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
+        render();
+      }
+    });
+    return;
+  }
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
   const state = selectionHistory.get(history.doc);
   if (state) {
@@ -802,6 +957,28 @@ function scheduleRender() {
     }, 0);
 }
 function commandChange(type, payload, text, deferRender = false, envelope = session.state) {
+  if (
+    type === 'set-text-settings' &&
+    (variableNode(payload.nodeId) ||
+      history.doc.fontAssets?.[payload.settings?.font]?.kind === 'variable-glyf-v1')
+  ) {
+    if (Object.hasOwn(payload.settings || {}, 'font'))
+      void preparedChange(
+        'set-variable-font',
+        {
+          nodeId: payload.nodeId,
+          fontId: payload.settings.font,
+          axes:
+            history.doc.fontAssets?.[payload.settings.font]?.kind === 'variable-glyf-v1'
+              ? {}
+              : null,
+        },
+        text,
+        envelope,
+      );
+    else void preparedChange(type, payload, text, envelope);
+    return null;
+  }
   let result = null;
   try {
     result = session.dispatch({
@@ -1554,6 +1731,21 @@ function flushArrangementText(nodeId, scope) {
     (!el || el.value === current().nodes.find((n) => n.id === nodeId)?.text)
   );
 }
+function variableControls(n) {
+  const axes = fonts[n.font]?.nectVariable?.axes;
+  return `<button class="mini" data-load-variable-font="${n.id}">Load variable TTF (experimental)…</button>${
+    axes
+      ? `<p class="font-note">Experimental variable font: whole, single-line horizontal Latin text only. No wrap, path, vertical, character overrides or maintained arrangement. Axis changes are prepared before commit; Escape cancels pending work.</p>${Object.entries(
+          axes,
+        )
+          .map(
+            ([tag, range]) =>
+              `<div class="field"><label>${esc(tag)} (${range.min}–${range.max}; default ${range.default})</label><input type="number" step="any" min="${range.min}" max="${range.max}" value="${n.variation?.axes[tag] ?? range.default}" data-variable-axis="${esc(tag)}" data-variable-node="${n.id}" aria-label="Variable axis ${esc(tag)}"></div>`,
+          )
+          .join('')}`
+      : ''
+  }`;
+}
 function textControls(n) {
   if (n.type !== 'Text') return '';
   return `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
@@ -1565,7 +1757,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
@@ -1805,6 +1997,11 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false, artworkResolution = null) {
+  if (
+    variableAction &&
+    (variableAction.owner !== session || variableAction.revision !== session.state.expectedRevision)
+  )
+    cancelVariableAction();
   if (composing || nameEdit?.composing) {
     needsRender = true;
     return;
@@ -1846,7 +2043,7 @@ function render(resetView = false, artworkResolution = null) {
     (characterEdit.node !== n?.id || characterEdit.layer !== l.id || l.locked || !layerShown(l))
   )
     characterEdit = null;
-  fonts = resolveFonts(doc, bundledFont ? { default: bundledFont } : {});
+  fonts = resolveFonts(doc, activeFonts());
   let results = canvasLayers().map((x) => [x, evaluate(x, fonts, history.doc.imageAssets)]),
     result = results.find(([x]) => x.id === l.id)[1];
   renderEvaluation = result;
@@ -2702,7 +2899,7 @@ function drawCanvas() {
   const svg = document.querySelector('.artboard');
   if (!svg) return;
   const display = displayDocument(),
-    fonts = resolveFonts(display, bundledFont ? { default: bundledFont } : {}),
+    fonts = resolveFonts(display, { ...activeFonts(), ...(variablePreviewFonts || {}) }),
     l =
       penDraft?.layer ||
       display.layers.find((layer) => layer.id === activeLayer) ||
@@ -2990,6 +3187,44 @@ function openFontPicker(control, query = '') {
   const nodeId = context?.n.id || control.dataset.font;
   if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason)))
     return;
+  if (hasVariableFonts(history.doc)) {
+    if (context) {
+      notify('Variable font documents currently support whole-text font selection only', true);
+      return;
+    }
+    editorPicker = openSearchPanel({
+      title: 'Font',
+      action: 'Apply font',
+      selectedId: current().nodes.find((n) => n.id === nodeId)?.font,
+      query,
+      items: [
+        { id: 'default', label: 'DejaVu Sans (Latin)' },
+        ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
+          id,
+          label: asset.name,
+        })),
+      ],
+      onCommit(item) {
+        if (!item) return;
+        const picker = editorPicker;
+        editorPicker = null;
+        picker.close();
+        void preparedChange(
+          'set-variable-font',
+          {
+            nodeId,
+            fontId: item.id,
+            axes: history.doc.fontAssets?.[item.id]?.kind === 'variable-glyf-v1' ? {} : null,
+          },
+          'Font updated',
+        );
+      },
+      onCancel() {
+        editorPicker = null;
+      },
+    });
+    return;
+  }
   const owner = session,
     envelope = session.state;
   let token;
@@ -3510,7 +3745,12 @@ function updateDocumentStatus() {
   const status = document.querySelector('[data-document-status]');
   if (status) status.textContent = documents.saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved';
 }
-function replaceDocument(next, { binding = null, saved = false } = {}) {
+function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
+  cancelVariableAction();
+  if (!prepared) {
+    variableBridge?.dispose();
+    variableBridge = null;
+  }
   resetTransient();
   session = new CommandSession(next, sessionOptions);
   history = session.historyView;
@@ -3883,7 +4123,7 @@ app.addEventListener('click', async (e) => {
                   serialize(history.doc) !== before
                 )
                   throw Error('Document changed while reading; open the file again');
-                replaceDocument(next, { binding: opened.binding, saved: true });
+                await prepareOpenDocument(next, { binding: opened.binding, saved: true });
                 render(true);
                 notify('Project restored');
               }
@@ -4045,7 +4285,7 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
-  if (d.loadFont || d.loadCharacterFont) {
+  if (d.loadFont || d.loadCharacterFont || d.loadVariableFont) {
     if (current().locked) {
       notify('Composition is locked', true);
       return;
@@ -4053,7 +4293,8 @@ app.addEventListener('click', async (e) => {
     fontRequest = {
       id: ++fontRequestId,
       layer: current().id,
-      node: d.loadFont || d.loadCharacterFont,
+      node: d.loadFont || d.loadCharacterFont || d.loadVariableFont,
+      variable: !!d.loadVariableFont,
       ...(d.loadCharacterFont ? { characters: [...(characterEdit?.selected || [])] } : {}),
       before: serialize(history.doc),
       commandState: session.state,
@@ -4347,6 +4588,10 @@ app.addEventListener('click', async (e) => {
     commandChange('edit-remap', { nodeId: d.clearEdits, action: 'clear' }, 'Vertex edits cleared');
 });
 function commitFont(bytes, name, request) {
+  if (variableNode(request.node))
+    throw Error(
+      'Switch to a static font in Default font before loading a static font. Use Load variable TTF for variable fonts.',
+    );
   if (fontRequest?.id !== request.id) return;
   if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
@@ -4416,7 +4661,7 @@ app.addEventListener(
 );
 function textDraft(el) {
   const n = current().nodes.find((n) => n.id === el.dataset.text);
-  if (!n) return null;
+  if (!n || n.variation) return null;
   let draft = textDrafts.get(n.id);
   if (
     draft &&
@@ -4769,6 +5014,23 @@ app.addEventListener('beforeinput', (e) => {
   };
 });
 app.addEventListener('input', (e) => {
+  if (e.target.dataset.variableAxis) {
+    const el = e.target,
+      n = current().nodes.find((n) => n.id === el.dataset.variableNode);
+    if (!n?.variation || !el.value.trim() || !Number.isFinite(Number(el.value))) return;
+    void preparedChange(
+      'set-variable-font',
+      {
+        nodeId: n.id,
+        fontId: n.font,
+        axes: { ...n.variation.axes, [el.dataset.variableAxis]: Number(el.value) },
+      },
+      undefined,
+      session.state,
+      true,
+    );
+    return;
+  }
   if (e.target.matches('[data-align-spacing]')) {
     editAlignmentSpacing(e.target);
     return;
@@ -4784,6 +5046,10 @@ app.addEventListener('input', (e) => {
   draft.capture = null;
 });
 app.addEventListener('compositionstart', (e) => {
+  if (e.target.dataset.text && variableNode(e.target.dataset.text)) {
+    composing = true;
+    return;
+  }
   if (e.target.matches('[data-rename-name]')) {
     if (nameEdit) nameEdit.composing = true;
     return;
@@ -4813,6 +5079,10 @@ app.addEventListener('compositionstart', (e) => {
   }
 });
 app.addEventListener('compositionend', (e) => {
+  if (e.target.dataset.text && variableNode(e.target.dataset.text)) {
+    composing = false;
+    return;
+  }
   if (e.target.matches('[data-rename-name]')) {
     if (nameEdit) {
       nameEdit.value = e.target.value;
@@ -5058,7 +5328,21 @@ app.addEventListener('change', async (e) => {
       if (file.size > MAX_FONT_BYTES) throw Error('Font exceeds 20 MB');
       if (!/\.(ttf|otf)$/i.test(file.name)) throw Error('Choose a static .ttf or .otf font');
       const bytes = await file.arrayBuffer();
-      commitFont(bytes, file.name, request);
+      if (request.variable) {
+        if (
+          fontRequest?.id !== request.id ||
+          serialize(history.doc) !== request.before ||
+          activeLayer !== request.layer
+        )
+          throw Error('Document changed while reading; load the font again');
+        const asset = makeVariableFontAsset(bytes, file.name, history.doc.fontAssets);
+        await preparedChange(
+          'set-variable-font',
+          { layerId: request.layer, nodeId: request.node, fontId: asset.id, axes: {}, asset },
+          'Variable font loaded · embedded once in saved JSON',
+          request.commandState,
+        );
+      } else commitFont(bytes, file.name, request);
     } catch (err) {
       notify(`Font rejected; current document preserved: ${err.message}`, true);
     }
@@ -5083,7 +5367,7 @@ app.addEventListener('change', async (e) => {
       if (request !== openRequest || generation !== documents.generation) return;
       if (documents.hasDraft() || serialize(history.doc) !== before)
         throw Error('Document changed while reading; open the file again');
-      if (el.id === 'open-file') replaceDocument(next, { saved: true });
+      if (el.id === 'open-file') await prepareOpenDocument(next, { saved: true });
       else {
         // Import is an undoable authored replacement; it has no source-file binding.
         resetTransient();
@@ -5142,6 +5426,28 @@ app.addEventListener('change', async (e) => {
       nodeId: field.dataset.node,
       key: field.dataset.key,
     });
+    return;
+  }
+  if (d.text && variableNode(d.text)) {
+    if (composing || e.isComposing) return;
+    await preparedChange('set-text-content', { nodeId: d.text, text: el.value }, 'Text updated');
+    return;
+  }
+  if (d.variableAxis) {
+    const n = current().nodes.find((n) => n.id === d.variableNode);
+    if (!n?.variation || !el.value.trim() || !Number.isFinite(Number(el.value))) {
+      notify('Enter a finite axis value', true);
+      return;
+    }
+    await preparedChange(
+      'set-variable-font',
+      {
+        nodeId: n.id,
+        fontId: n.font,
+        axes: { ...n.variation.axes, [d.variableAxis]: Number(el.value) },
+      },
+      'Variable axis updated',
+    );
     return;
   }
   if (d.text) {
@@ -7749,6 +8055,7 @@ window.nect = {
   },
   load(text) {
     const d = deserialize(text);
+    if (hasVariableFonts(d)) return prepareOpenDocument(d).then(() => render(true));
     replaceDocument(d);
     render(true);
   },

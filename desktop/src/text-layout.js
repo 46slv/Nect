@@ -1,3 +1,4 @@
+import { layoutPreparedVariable } from './variable-font/prepared-layout.js';
 import { arrangementEligibility, applyCharacterArrangement } from './character-arrangement.js';
 import opentype from 'opentype.js';
 import { validateTextWrap, hardTextLines, composeTextLines } from './text-wrap.js';
@@ -170,6 +171,7 @@ export function layoutText(
     pathAttachment,
     fonts = {},
     fontId = 'default',
+    variation,
   },
 ) {
   validateLeading(leading);
@@ -193,6 +195,26 @@ export function layoutText(
   if (!['horizontal-tb', 'vertical-rl'].includes(writingMode))
     throw Error('Unsupported writing mode');
   if (text.length > 10000) throw Error('Text exceeds 10000 characters');
+  if (font.nectVariable)
+    return layoutPreparedVariable(font, text, {
+      position,
+      size,
+      writingMode,
+      letterSpacing,
+      lineSpacing,
+      leading,
+      textWrap,
+      alignment,
+      kerning,
+      referenceBounds,
+      crossAlignment,
+      characterPositions,
+      characterArrangement,
+      pathAttachment,
+      fonts,
+      fontId,
+      variation,
+    });
   const normalized = normalizeCharacterText(text);
   if (textWrap && /[\u2028\u2029]/u.test(normalized))
     throw Error(

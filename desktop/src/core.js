@@ -1,3 +1,10 @@
+import {
+  createVariableDocumentPreparer as createVariableBridge,
+  assertVariableDocumentReady,
+  validateVariableText,
+  VARIABLE_KIND,
+} from './variable-font/document-bridge.js';
+import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
 import { validateTonePower } from './luminance-tone.js';
 import {
@@ -2167,6 +2174,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
                 n.characterArrangement,
                 n.pathAttachment,
                 n.font,
+                n.variation,
                 n.writingMode,
                 n.alignment,
                 n.referenceBounds,
@@ -2193,6 +2201,13 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             'OFFSET_LIMIT',
             'At most 8 nonzero Offset nodes per evaluated graph; simplify the graph',
           );
+      }
+      if (n.type === 'Text' && cacheFont?.nectVariable && !positionOutput) {
+        validateVariableText(n, { kind: VARIABLE_KIND });
+        cacheFont.readVariable({
+          text: n.text,
+          axes: canonicalAxes(cacheFont.nectVariable.axes, n.variation.axes).sparse,
+        });
       }
       const existing = cache.get(key);
       if (
@@ -2324,6 +2339,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           pathAttachment: attachment,
           fonts,
           fontId: n.font,
+          variation: n.variation,
           size: read('size'),
           writingMode: n.writingMode,
           alignment: attachment ? 'start' : n.alignment,
@@ -3335,16 +3351,19 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     }
   }
   let path = null,
-    error = null;
+    error = null,
+    errorCode;
   try {
     path = run(layer.output);
   } catch (e) {
     error = e.message;
+    errorCode = e.code;
   }
   for (const key of cache.keys()) if (!byId.has(key.split('\0')[0])) cache.delete(key);
   return {
     path,
     error,
+    ...(errorCode ? { errorCode } : {}),
     warnings,
     values,
     run,
@@ -3695,7 +3714,7 @@ export function validate(doc) {
   if (
     !doc ||
     ![
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3705,6 +3724,8 @@ export function validate(doc) {
   const sourceSchemaVersion = doc.schemaVersion;
   text(doc.name);
   validateFontAssets(doc.fontAssets);
+  if (Object.values(doc.fontAssets || {}).some((a) => a.kind === VARIABLE_KIND))
+    variableCheck(doc.schemaVersion >= 25, 'VARIABLE_SCHEMA');
   validateImageAssets(doc.imageAssets);
   validateGuides(doc.editor, id);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
@@ -3763,6 +3784,19 @@ export function validate(doc) {
         throw Error('Type on Path requires schemaVersion 7 and a Text node');
       if (n.textWrap !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 8))
         throw Error('Wrap width requires schemaVersion 8 and a Text node');
+      validateVariableText(n, doc.fontAssets?.[n.font], doc.schemaVersion);
+      if (n.variation) {
+        const sparse = canonicalAxes(
+          resolveFonts(doc)[n.font].nectVariable.axes,
+          n.variation.axes,
+        ).sparse;
+        if (JSON.stringify(n.variation.axes) !== JSON.stringify(sparse)) n.variation.axes = sparse;
+      }
+      for (const style of Object.values(n.characterPositions?.styles || {}))
+        variableCheck(
+          doc.fontAssets?.[style.font]?.kind !== VARIABLE_KIND,
+          'VARIABLE_RANGE_UNSUPPORTED',
+        );
       if (n.type === 'Text') {
         validateTextWrap(n.textWrap, n.writingMode, n.pathAttachment);
         validateTextPathAttachment(n.pathAttachment);
@@ -4266,6 +4300,7 @@ export function renderElement(
 export function exportScene(doc, fonts = {}) {
   validate(doc);
   fonts = resolveFonts(doc, fonts);
+  assertVariableDocumentReady(doc, fonts);
   return doc.layers
     .filter((l) => l.visible && !l.guide)
     .map((l) => {
@@ -4382,14 +4417,22 @@ export function updateTextTypography(target, ids, patch, doc, layer, fonts = {})
   if (layout.reason) throw Error(layout.reason);
 }
 
+export function createVariableDocumentPreparer(options = {}) {
+  return createVariableBridge({ ...options, resolveFonts, validate });
+}
+
 export class CommandSession {
   #history;
   #fonts;
   #busy;
   #textDrafts = new Map();
   #gesture = null;
+  #prepared = null;
+  #prepareSequence = 0;
   constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
     validate(doc);
+    if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
+      assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
     this.#history = new History(cloneDocument(doc));
     this.#fonts = fonts;
     this.#busy = busy;
@@ -5016,6 +5059,96 @@ export class CommandSession {
   snapshot() {
     return cloneDocument(this.#history.doc);
   }
+  async prepareCommand(envelope, bridge, options = {}) {
+    const { sessionId, expectedRevision, type, payload = {} } = envelope;
+    if (sessionId !== this.id || expectedRevision !== this.#history.revision)
+      throw Error('STALE_REVISION: document changed');
+    if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+      throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    if (
+      !['set-text-content', 'set-text-settings', 'set-variable-font', 'undo', 'redo'].includes(type)
+    )
+      throw Error('VARIABLE_COMMAND_UNSUPPORTED');
+    const target = this.#history.doc.layers
+      .find((l) => l.id === payload.layerId)
+      ?.nodes.find((n) => n.id === payload.nodeId);
+    if (target?.locked) throw Error('Text node is locked');
+    const sequence = ++this.#prepareSequence;
+    this.#prepared = null;
+    let candidate;
+    if (type === 'undo' || type === 'redo')
+      candidate = cloneDocument(
+        (type === 'undo' ? this.#history.past : this.#history.future).at(-1) || this.#history.doc,
+      );
+    else candidate = this.#commandCandidate(type, payload, this.#history.doc, true).candidate;
+    const ticket = await bridge.prepareDocument(candidate, options);
+    if (
+      sequence !== this.#prepareSequence ||
+      sessionId !== this.id ||
+      expectedRevision !== this.#history.revision
+    )
+      throw Error('STALE_REVISION: document changed');
+    const fonts = { ...this.#fonts(), ...bridge.preparedFonts(ticket) };
+    assertVariableDocumentReady(candidate, resolveFonts(candidate, fonts));
+    // Validate downstream bounded geometry against the prepared candidate, before changing history.
+    for (const layer of candidate.layers)
+      assertClosedOffsetChange(
+        layer,
+        this.#history.doc.layers.find((l) => l.id === layer.id),
+        resolveFonts(candidate, fonts),
+        candidate.imageAssets,
+        resolveFonts(this.#history.doc, this.#fonts()),
+      );
+    const token = Object.freeze({});
+    this.#prepared = { token, ticket, bridge, candidate, expectedRevision, type, sequence };
+    return token;
+  }
+  preparedSnapshot(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    p.bridge.assertFresh(p.ticket);
+    return {
+      document: cloneDocument(p.candidate),
+      fonts: { ...this.#fonts(), ...p.bridge.preparedFonts(p.ticket) },
+    };
+  }
+  commitPrepared(token) {
+    const p = this.#prepared;
+    if (
+      !p ||
+      p.token !== token ||
+      p.expectedRevision !== this.#history.revision ||
+      p.sequence !== this.#prepareSequence
+    )
+      throw Error('STALE_REVISION: document changed');
+    if (this.#busy() || this.#gesture || this.hasTextComposition || this.#textDrafts.size)
+      throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    p.bridge.assertFresh(p.ticket);
+    assertVariableDocumentReady(
+      p.candidate,
+      resolveFonts(p.candidate, p.bridge.preparedFonts(p.ticket)),
+    );
+    const revision = this.#history.revision;
+    if (p.type === 'undo' || p.type === 'redo') this.#history[p.type]();
+    else if (!sameDocument(this.#history.doc, p.candidate))
+      this.#history.apply(() => {
+        this.#history.doc = p.candidate;
+      });
+    p.bridge.activate(p.ticket);
+    this.#prepared = null;
+    return { ...this.state, changed: revision !== this.#history.revision };
+  }
+  cancelPrepared(bridge) {
+    this.#prepared = null;
+    this.#prepareSequence++;
+    bridge.cancel();
+  }
   dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
     // Cleanup can release the caller's exact token even after a legacy edit made
@@ -5136,6 +5269,7 @@ export class CommandSession {
       if (draft.update && draft.target.kind !== 'text-font')
         draft.candidate = this.#gestureCandidate(draft.base, draft.target, draft.update);
       validate(draft.candidate);
+      assertVariableDocumentReady(draft.candidate, resolveFonts(draft.candidate, this.#fonts()));
       const revision = this.#history.revision;
       if (!sameDocument(this.#history.doc, draft.candidate))
         this.#history.apply(() => {
@@ -5188,6 +5322,8 @@ export class CommandSession {
     if (this.#busy() || this.hasTextComposition)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (type === 'undo' || type === 'redo') {
+      const next = (type === 'undo' ? this.#history.past : this.#history.future).at(-1);
+      if (next) assertVariableDocumentReady(next, resolveFonts(next, this.#fonts()));
       this.#history[type]();
       return this.state;
     }
@@ -5217,6 +5353,7 @@ export class CommandSession {
       payload,
       commandBase,
     );
+    assertVariableDocumentReady(candidate, resolveFonts(candidate, this.#fonts()));
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate))
       this.#history.apply(() => {
@@ -5226,7 +5363,7 @@ export class CommandSession {
     if (committingDraft) this.#textDrafts.delete(payload.draftId);
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
-  #commandCandidate(type, payload, before) {
+  #commandCandidate(type, payload, before, deferVariable = false) {
     if (type === 'create-point-handles') {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId);
@@ -5347,7 +5484,11 @@ export class CommandSession {
         resolveFonts(before, this.#fonts()),
         before.imageAssets,
       );
-      if (evaluated.error) throw Error(evaluated.error);
+      if (evaluated.error)
+        throw Object.assign(
+          Error(evaluated.error),
+          evaluated.errorCode ? { code: evaluated.errorCode } : {},
+        );
       const path = evaluated.path;
       const arrangement = evaluated.textLayout(source.id).arrangementStatus;
       if (arrangement?.suspended)
@@ -5645,6 +5786,7 @@ export class CommandSession {
         'set-text-content',
         'commit-text-draft',
         'set-text-settings',
+        'set-variable-font',
         'set-character-arrangement',
         'clear-character-arrangement',
         'set-character-style',
@@ -5973,11 +6115,35 @@ export class CommandSession {
           throw Error(layout.arrangementStatus?.reason || 'Maintained ink gaps unavailable');
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 24);
       }
+    } else if (type === 'set-variable-font') {
+      const node = target.nodes.find((n) => n.id === payload.nodeId && n.type === 'Text');
+      if (!node) throw Error('Select a Text node');
+      if (node.locked) throw Error('Text node is locked');
+      if (payload.asset) {
+        const { id, asset } = payload.asset;
+        if (candidate.fontAssets?.[id] && candidate.fontAssets[id].data !== asset.data)
+          throw Error('VARIABLE_ASSET_CONFLICT');
+        candidate.fontAssets = { ...candidate.fontAssets, [id]: asset };
+      }
+      node.font = payload.fontId;
+      if (candidate.fontAssets?.[node.font]?.kind === VARIABLE_KIND) {
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 25);
+        const axes = resolveFonts(candidate)[node.font].nectVariable.axes;
+        node.variation = {
+          version: 1,
+          fontId: node.font,
+          axes: canonicalAxes(axes, payload.axes).sparse,
+        };
+      } else {
+        if (payload.axes !== null) throw Error('VARIABLE_FONT_MISMATCH');
+        delete node.variation;
+      }
     } else if (type === 'set-text-content' || type === 'commit-text-draft') {
       const node = target.nodes.find(
         (node) => node.id === (committingDraft?.nodeId ?? payload.nodeId) && node.type === 'Text',
       );
       if (!node) throw Error('Select a Text node');
+      if (node.variation && node.locked) throw Error('Text node is locked');
       let text, record;
       if (committingDraft) {
         if (payload.expectedDraftRevision !== committingDraft.version)
@@ -6079,6 +6245,7 @@ export class CommandSession {
     } else if (['set-text-settings', 'set-character-style', 'adopt-font'].includes(type)) {
       const node = target.nodes.find((node) => node.id === payload.nodeId && node.type === 'Text');
       if (!node) throw Error('Select a Text node');
+      if (node.variation && node.locked) throw Error('Text node is locked');
       const baseFonts = this.#fonts();
       if (type === 'set-text-settings') {
         const settings = payload.settings;
@@ -6226,6 +6393,7 @@ export class CommandSession {
       }
     }
     validate(candidate);
+    if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))
       evaluate(
         target,
