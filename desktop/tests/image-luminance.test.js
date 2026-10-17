@@ -126,26 +126,19 @@ function area(path) {
   return path.contours.length ? pathArea(path) : 0;
 }
 
-test('Image-typed inputs connect to all luminance effects and promote the saved contract to schema 17', () => {
+test('Image-typed inputs connect to all luminance effects and promote the saved tone contract to schema 21', () => {
   for (const mode of modes) {
     const f = fixture({ mode, size: [16, 16] });
     validate(f.doc);
-    assert.equal(f.doc.schemaVersion, mode === 'Error Diffusion Dither' ? 19 : 17, mode);
+    assert.equal(f.doc.schemaVersion, 21, mode);
     assert.equal(f.effect.params.path.source, f.image.id);
     assert.equal(area(evaluated(f)), 256, `${mode} black image geometry`);
 
     const oldVersion = structuredClone(f.doc);
     oldVersion.schemaVersion = 16;
-    assert.equal(
-      validate(oldVersion).schemaVersion,
-      mode === 'Error Diffusion Dither' ? 19 : 17,
-      `${mode} legacy edge promotion`,
-    );
+    assert.equal(validate(oldVersion).schemaVersion, 21, `${mode} legacy edge promotion`);
     const reopened = deserialize(serialize(oldVersion));
-    assert.equal(
-      reopened.schemaVersion,
-      reopened.layers[0].nodes.some((n) => n.type === 'Error Diffusion Dither') ? 19 : 17,
-    );
+    assert.equal(reopened.schemaVersion, 21);
     assert.equal(
       area(evaluate(reopened.layers[0], {}, reopened.imageAssets).run(f.effect.id)),
       256,
@@ -185,7 +178,7 @@ test('Image stays rejected by unrelated fill, stroke, boolean, transform, remap,
   );
 });
 
-test('Image → Halftone → Convert to Path → Transform → Fill composes and saves as schema 18', () => {
+test('Image → Halftone → Convert to Path → Transform → Fill composes and saves as schema 21', () => {
   const f = fixture({ size: [16, 16], pitch: 8 }),
     converter = node('Convert to Path'),
     transform = node('Transform'),
@@ -199,7 +192,7 @@ test('Image → Halftone → Convert to Path → Transform → Fill composes and
   connect(f.layer, fill.id, f.output.id, 'path');
 
   validate(f.doc);
-  assert.equal(f.doc.schemaVersion, 18);
+  assert.equal(f.doc.schemaVersion, 21);
   const result = evaluate(f.layer, {}, f.doc.imageAssets),
     marks = result.run(f.effect.id),
     converted = result.run(converter.id);
@@ -212,7 +205,7 @@ test('Image → Halftone → Convert to Path → Transform → Fill composes and
 
   const reopened = deserialize(serialize(f.doc)),
     cold = evaluate(reopened.layers[0], {}, reopened.imageAssets);
-  assert.equal(reopened.schemaVersion, 18);
+  assert.equal(reopened.schemaVersion, 21);
   assert.equal(cold.error, null);
   assert.deepEqual(cold.path, result.path);
 });
@@ -224,7 +217,7 @@ test('Image Output forwards its Image-typed descriptor to a luminance input', ()
   f.layer.nodes.splice(f.layer.nodes.indexOf(f.effect), 0, forwarded);
   connect(f.layer, forwarded.id, f.effect.id, 'path');
   validate(f.doc);
-  assert.equal(f.doc.schemaVersion, 17);
+  assert.equal(f.doc.schemaVersion, 21);
   assert.equal(area(evaluated(f)), 256);
 });
 
@@ -311,10 +304,7 @@ test('same-ID same-size asset replacement, Undo/Redo and cold JSON reopen invali
   );
   history.redo();
   const reopened = deserialize(serialize(history.doc));
-  assert.equal(
-    reopened.schemaVersion,
-    reopened.layers[0].nodes.some((n) => n.type === 'Error Diffusion Dither') ? 19 : 17,
-  );
+  assert.equal(reopened.schemaVersion, 21);
   assert.equal(
     area(evaluate(reopened.layers[0], {}, reopened.imageAssets).run(f.effect.id)),
     white,
@@ -420,5 +410,5 @@ test('vector luminance output and default fingerprint stay on the unchanged vect
     result.fingerprint,
     'sha256:85550975e61ac8b2b1fef571d2356555fdec3924cefa07f82ffeb4978322e3d0',
   );
-  assert.notEqual(validate(doc).schemaVersion, 17);
+  assert.equal(validate(doc).schemaVersion, 21);
 });

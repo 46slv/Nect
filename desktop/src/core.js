@@ -1,3 +1,4 @@
+import { validateTonePower } from './luminance-tone.js';
 import {
   luminanceInstanceSettings,
   luminanceInstancesGeometry,
@@ -262,6 +263,7 @@ export const definitions = {
     pitch: p('Scalar', 32),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
     minScale: p('Scalar', 0.2),
     maxScale: p('Scalar', 1),
     minRotation: p('Scalar', 0),
@@ -303,24 +305,28 @@ export const definitions = {
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
   },
   'Ordered Dither': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
   },
   'Error Diffusion Dither': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
   },
   'Line Screen': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
   },
   Stroke: {
     path: p('PaintedPath', null),
@@ -366,7 +372,8 @@ export function radialGradientSettings(read) {
 export function luminanceModifierSettings(read) {
   const pitch = read('pitch'),
     invert = read('invert'),
-    gridOrigin = read('gridOrigin');
+    gridOrigin = read('gridOrigin'),
+    tonePower = validateTonePower(read('tonePower'));
   if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
     throw Error('Luminance pitch must be from 1 to 1024 px');
   if (typeof invert !== 'boolean') throw Error('Luminance invert must be boolean');
@@ -376,7 +383,7 @@ export function luminanceModifierSettings(read) {
     !gridOrigin.every((value) => Number.isFinite(value) && Math.abs(value) <= 100000)
   )
     throw Error('Luminance grid origin components must be finite and within ±100000 px');
-  return { pitch, invert, gridOrigin };
+  return { pitch, invert, gridOrigin, tonePower };
 }
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
 export function radialSettings(type, read) {
@@ -2642,8 +2649,13 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!source || !motif) throw Error('Connect both Source fill and Motif inputs');
         const motifInfo = validateInstancePath(motif, 'Luminance Instances motif');
         const settings = luminanceInstanceSettings(read),
-          { pitch, invert, gridOrigin } = luminanceModifierSettings(read);
-        const options = { pitch, invert, origin: { x: gridOrigin[0], y: gridOrigin[1] } };
+          { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
+        const options = {
+          pitch,
+          invert,
+          tonePower,
+          origin: { x: gridOrigin[0], y: gridOrigin[1] },
+        };
         let field, mask;
         if (source.kind === 'image') {
           field = sampleImageLuminanceGrid(
@@ -2697,6 +2709,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             pitch,
             invert,
             gridOrigin,
+            ...(tonePower !== 1 ? [tonePower] : []),
             cells,
             signature(motif),
             signature(result),
@@ -2784,7 +2797,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
           }
         }
-        const { pitch, invert, gridOrigin } = luminanceModifierSettings(read),
+        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read),
           origin = { x: gridOrigin[0], y: gridOrigin[1] },
           mode =
             n.type === 'Halftone'
@@ -2802,7 +2815,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               imageAssets[source.asset],
               source.position,
               source.size,
-              { pitch, origin, invert },
+              { pitch, origin, invert, tonePower },
             ),
             [x, y] = source.position,
             [width, height] = source.size,
@@ -2838,7 +2851,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           sampleLuminanceGrid(
             source.fill,
             { minX: 0, minY: 0, maxX: 0, maxY: 0 },
-            { pitch, origin, invert },
+            { pitch, origin, invert, tonePower },
           );
           result = { contours: [], fill: { hex: '#000000', alpha: 1 } };
         } else {
@@ -2847,6 +2860,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               pitch,
               origin,
               invert,
+              tonePower,
             }),
             generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation }),
             polygons = generated.marks.map((mark) => mark.vertices);
@@ -2864,6 +2878,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             // Preserve schema-14 provenance when the migrated default is unchanged.
             // Non-default origins participate so downstream edits invalidate correctly.
             ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
+            ...(tonePower !== 1 ? [tonePower] : []),
             source.fill,
             source.fingerprint || null,
             source.kind === 'image'
@@ -3433,7 +3448,7 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].includes(
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].includes(
       doc.schemaVersion,
     )
   )
@@ -3554,6 +3569,10 @@ export function validate(doc) {
       ) {
         if (!Object.hasOwn(n.params, 'gridOrigin'))
           n.params.gridOrigin = clone(definitions[n.type].gridOrigin);
+      }
+      if (Object.hasOwn(definitions[n.type], 'tonePower') && sourceSchemaVersion < 21) {
+        if (!Object.hasOwn(n.params, 'tonePower'))
+          n.params.tonePower = clone(definitions[n.type].tonePower);
       }
       if (n.type === 'Expand Stroke' && sourceSchemaVersion < 16) {
         for (const key of ['startWidthMultiplier', 'endWidthMultiplier'])
@@ -3819,8 +3838,17 @@ export function validate(doc) {
   if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
     doc.schemaVersion = Math.max(doc.schemaVersion, 16);
   if (hasImageLuminanceConnection && doc.schemaVersion < 17) doc.schemaVersion = 17;
-  if (hasNodeType('Luminance Instances')) doc.schemaVersion = Math.max(doc.schemaVersion, 20);
-  if (hasNodeType('Error Diffusion Dither')) doc.schemaVersion = Math.max(doc.schemaVersion, 19);
+  if (
+    doc.schemaVersion < 21 &&
+    doc.layers.some((layer) =>
+      layer.nodes.some((n) => Object.hasOwn(definitions[n.type], 'tonePower')),
+    )
+  )
+    doc.schemaVersion = Math.max(doc.schemaVersion, 21);
+  if (hasNodeType('Luminance Instances') && doc.schemaVersion < 20)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 20);
+  if (hasNodeType('Error Diffusion Dither') && doc.schemaVersion < 19)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 19);
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   return doc;

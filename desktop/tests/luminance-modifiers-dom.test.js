@@ -69,6 +69,16 @@ test('Halftone and Ordered Dither are discoverable, wired as PaintedPath control
   );
   assert.equal(query(`.node[data-id="${effect.id}"] .field[data-key="pitch"] input`).min, '1');
   assert.equal(query(`.node[data-id="${effect.id}"] .field[data-key="pitch"] input`).max, '1024');
+  const tone = query(`.node[data-id="${effect.id}"] .field[data-key="tonePower"] input`);
+  assert.equal(tone.min, '0.1');
+  assert.equal(tone.max, '10');
+  assert.equal(tone.value, '1');
+  tone.value = '2';
+  tone.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === effect.id).params.tonePower.value,
+    2,
+  );
   const origin = query(`.node[data-id="${effect.id}"] .field[data-key="gridOrigin"]`);
   assert.equal(origin.dataset.type, 'Vector2');
   assert.equal(origin.querySelector('label').textContent, 'Grid origin · cell (0, 0) top-left');
@@ -91,7 +101,7 @@ test('Halftone and Ordered Dither are discoverable, wired as PaintedPath control
     query(`.node[data-id="${effect.id}"] .font-note`).textContent,
     /top-left.*cell \(0, 0\).*Y increases downward/i,
   );
-  assert.equal(win.nect.document.schemaVersion, 15);
+  assert.equal(win.nect.document.schemaVersion, 21);
   const bypass = query(`[data-bypass="${effect.id}"]`);
   assert.equal(bypass.disabled, false);
   bypass.click();

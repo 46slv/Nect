@@ -78,7 +78,7 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   selector.value = image.id;
   selector.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
-  assert.equal(win.nect.document.schemaVersion, 17);
+  assert.equal(win.nect.document.schemaVersion, 21);
   assert.equal(
     win.nect.document.layers[0].nodes.find((item) => item.id === effect.id).params.path.source,
     image.id,
@@ -107,7 +107,7 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   converterSelector.value = effect.id;
   converterSelector.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
-  assert.equal(win.nect.document.schemaVersion, 18);
+  assert.equal(win.nect.document.schemaVersion, 21);
   assert.equal(
     win.nect.document.layers[0].nodes.find((item) => item.id === converter.id).params.path.source,
     effect.id,

@@ -1,3 +1,4 @@
+import { validateTonePower, toneDarkness } from './luminance-tone.js';
 import { Inflate } from 'pako/browser/inflate';
 import { decodeImage, MAX_IMAGE_BYTES, pngSize } from './images.js';
 
@@ -300,8 +301,8 @@ function pixelLuminance(rgba, width, x, y) {
  * single RGBA image (max 16 MB); pixel data is never returned or serialized.
  */
 export function sampleImageLuminanceGrid(asset, position, size, options = {}) {
-  if (!hasOnlyKeys(options, ['pitch', 'origin', 'invert']))
-    throw Error('Grid options may contain only pitch, origin and invert');
+  if (!hasOnlyKeys(options, ['pitch', 'origin', 'invert', 'tonePower']))
+    throw Error('Grid options may contain only pitch, origin, invert and tonePower');
   if (
     !Array.isArray(position) ||
     position.length !== 2 ||
@@ -322,7 +323,8 @@ export function sampleImageLuminanceGrid(asset, position, size, options = {}) {
 
   const pitch = options.pitch === undefined ? GRID_DEFAULT_PITCH : options.pitch,
     origin = options.origin === undefined ? { x: 0, y: 0 } : copyOrigin(options.origin),
-    invert = options.invert === undefined ? false : options.invert;
+    invert = options.invert === undefined ? false : options.invert,
+    tonePower = validateTonePower(options.tonePower);
   if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
     throw Error('Grid pitch must be finite and from 1 to 1024');
   if (typeof invert !== 'boolean') throw Error('Grid invert option must be boolean');
@@ -374,7 +376,7 @@ export function sampleImageLuminanceGrid(asset, position, size, options = {}) {
                   ),
                 ),
         luminance = pixelLuminance(rgba, imageWidth, texelX, texelY);
-      cells.push({ i, j, x, y, luminance, darkness: invert ? luminance : 1 - luminance });
+      cells.push({ i, j, x, y, luminance, darkness: toneDarkness(luminance, invert, tonePower) });
     }
   }
   return { pitch, origin, bounds: { minX, minY, maxX, maxY }, cells };

@@ -158,11 +158,7 @@ test('all luminance outputs convert as PaintedPath geometry', () => {
     assert.equal(Object.hasOwn(converted, 'stroke'), false, `${type} stroke is dropped`);
     assert.match(converted.fingerprint, /^sha256:/, `${type} geometry has a fingerprint`);
     validate(doc);
-    assert.equal(
-      doc.schemaVersion,
-      type === 'Error Diffusion Dither' ? 19 : 18,
-      `${type} conversion schema`,
-    );
+    assert.equal(doc.schemaVersion, 21, `${type} conversion schema`);
   }
 });
 

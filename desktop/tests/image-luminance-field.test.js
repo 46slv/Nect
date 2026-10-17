@@ -405,3 +405,33 @@ test('invalid placement and grid inputs are rejected', () => {
   ])
     assert.throws(() => sampleImageLuminanceGrid(asset, [0, 0], [1, 1], options));
 });
+
+test('PNG tone power applies after alpha and invert without changing sampled luminance', () => {
+  const asset = makeAsset({
+    width: 3,
+    height: 1,
+    colorType: 6,
+    pixels: rgba([0, 0, 0, 0], [0, 0, 0, 128], [0, 0, 0, 255]),
+  });
+  for (const invert of [false, true]) {
+    const baseline = sampleImageLuminanceGrid(asset, [0, 0], [48, 16], { invert });
+    assert.deepEqual(
+      sampleImageLuminanceGrid(asset, [0, 0], [48, 16], { invert, tonePower: 1 }),
+      baseline,
+    );
+    for (const tonePower of [0.1, 0.5, 2, 10]) {
+      const result = sampleImageLuminanceGrid(asset, [0, 0], [48, 16], { invert, tonePower });
+      result.cells.forEach((cell, index) => {
+        assert.equal(cell.luminance, baseline.cells[index].luminance);
+        assert.equal(cell.darkness, Math.pow(baseline.cells[index].darkness, tonePower));
+      });
+      assert.equal(result.cells[0].darkness, invert ? 1 : 0);
+      assert.equal(result.cells[2].darkness, invert ? 0 : 1);
+    }
+  }
+  for (const tonePower of [0, NaN, Infinity, 11, null, '2'])
+    assert.throws(
+      () => sampleImageLuminanceGrid(asset, [0, 0], [48, 16], { tonePower }),
+      /tone power/,
+    );
+});

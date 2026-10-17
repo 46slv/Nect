@@ -1,3 +1,4 @@
+import { validateTonePower, toneDarkness } from './luminance-tone.js';
 import { validateLinearGradientFill } from './linear-gradient.js';
 import { validateRadialGradientFill } from './radial-gradient.js';
 
@@ -212,15 +213,16 @@ export function sampleLuminance(fill, x, y) {
  * any sample objects are allocated.
  */
 export function sampleLuminanceGrid(fill, bounds, options = {}) {
-  if (!hasOnlyKeys(options, ['pitch', 'origin', 'invert']))
-    throw Error('Grid options may contain only pitch, origin and invert');
+  if (!hasOnlyKeys(options, ['pitch', 'origin', 'invert', 'tonePower']))
+    throw Error('Grid options may contain only pitch, origin, invert and tonePower');
   const { minX, minY, maxX, maxY } = copyBounds(bounds),
     pitch = options.pitch === undefined ? 16 : options.pitch,
     origin = copyPoint(
       options.origin === undefined ? { x: 0, y: 0 } : options.origin,
       'grid origin',
     ),
-    invert = options.invert === undefined ? false : options.invert;
+    invert = options.invert === undefined ? false : options.invert,
+    tonePower = validateTonePower(options.tonePower);
   if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
     throw Error('Grid pitch must be finite and from 1 to 1024');
   if (typeof invert !== 'boolean') throw Error('Grid invert option must be boolean');
@@ -245,7 +247,7 @@ export function sampleLuminanceGrid(fill, bounds, options = {}) {
     for (let i = columns.first; i <= columns.last; i++) {
       const x = origin.x + (i + 0.5) * pitch,
         luminance = luminanceAtPreparedFill(preparedFill, x, y),
-        darkness = invert ? luminance : 1 - luminance;
+        darkness = toneDarkness(luminance, invert, tonePower);
       cells.push({ i, j, x, y, luminance, darkness });
     }
   }

@@ -87,7 +87,7 @@ test('new type alone promotes schema 19 and keeps exact cold reopen output', () 
   doc.schemaVersion = 18;
   const before = evaluate(layer).path,
     restored = deserialize(serialize(doc));
-  assert.equal(restored.schemaVersion, 19);
+  assert.equal(restored.schemaVersion, 21);
   assert.deepEqual(evaluate(restored.layers[0]).path, before);
   assert.equal(serialize(deserialize(serialize(restored))), serialize(restored));
   const old = document();

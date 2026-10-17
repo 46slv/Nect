@@ -161,7 +161,7 @@ test('core returns unpainted editable cubic Path, useful varying geometry and ex
   );
   assert.ok(widths[3] > widths[0]);
   const restored = deserialize(serialize(f.doc));
-  assert.equal(restored.schemaVersion, 20);
+  assert.equal(restored.schemaVersion, 21);
   assert.deepEqual(evaluate(restored.layers[0]).run(f.effect.id), result);
   const cold = execFileSync(
     process.execPath,

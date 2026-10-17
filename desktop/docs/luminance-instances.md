@@ -17,7 +17,7 @@ Implemented in the advancing development source, schema 20. This does not change
 
 The shared sampled grid cap remains 4096 cells. Mask center testing is capped at 2,000,000 edge/cell pairs. Existing Instance on Points output caps apply: 256 nonzero copies, 256 groups, 10,000 contours and 100,000 points; point-instance work stays below its existing 2,000,000 limit. Grouped motifs may reach the group cap before 256 copies. Source masks retain their existing contour/point/flattening budgets. Excessive output, malformed geometry and nonfinite arithmetic reject atomically, with transactional parameter edits rolled back. No truncated result or larger budget is introduced.
 
-Only documents containing this new node promote to schema 20. No parameters/defaults/geometry/fingerprints change for existing nodes. The existing Instance on Points translation-only and tangent modes retain their original arithmetic; a separate optional per-instance transform input powers this new consumer. This is not a generic Field system, arbitrary mapping curve, random distribution, density control, nested instancing, or Blender parity claim.
+Luminance Instances originally introduced schema 20. The shared [Tone power](luminance-tone-power.md) control now promotes luminance consumers to schema 21; old documents backfill power 1 with identical output and fingerprints. The existing Instance on Points translation-only and tangent modes retain their original arithmetic; a separate optional per-instance transform input powers this new consumer. This is not a generic Field system, arbitrary mapping curve, random distribution, density control, nested instancing, or Blender parity claim.
 
 ## Evidence
 
