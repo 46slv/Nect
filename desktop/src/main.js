@@ -707,6 +707,7 @@ let openRequest = 0,
   pngScale = 1,
   exportInFlight = false;
 let selection = new Set();
+let nodeContextMenu = null;
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
 function selectionSnapshot(withEditSelection = false) {
@@ -998,6 +999,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  closeNodeContextMenu();
   pointPanelViews.clear();
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
@@ -1752,7 +1754,7 @@ function bypassControl(n, compact = false) {
   return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(nodeDisplayName(n))}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
 }
 function nodeHeader(n) {
-  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(nodeDisplayName(n))} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(nodeDisplayName(n))}" title="Double-click or F2 to rename">${esc(nodeDisplayName(n))}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(nodeDisplayName(n))} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(nodeDisplayName(n))}" title="Double-click or F2 to rename; right-click for node actions">${esc(nodeDisplayName(n))}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
     n,
   )
     .map(
@@ -2108,6 +2110,7 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false, artworkResolution = null) {
+  closeNodeContextMenu();
   if (
     variableAction &&
     (variableAction.owner !== session || variableAction.revision !== session.state.expectedRevision)
@@ -4708,27 +4711,7 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
-  if (d.duplicate) {
-    const ids = selection.has(d.duplicate) && selection.size > 1 ? [...selection] : [d.duplicate],
-      result = commandChange(
-        'duplicate-nodes',
-        {
-          nodeIds: ids,
-          ...(ids.length === 1
-            ? { position: freePosition(current().nodes.find((n) => n.id === d.duplicate).type) }
-            : {}),
-        },
-        'Nodes duplicated',
-        true,
-      );
-    if (result) {
-      artworkTarget = null;
-      artworkSelection = new Set();
-      selected = result.nodeIds[0];
-      selection = new Set(result.nodeIds);
-      render();
-    }
-  }
+  if (d.duplicate) duplicateGraphNodes(d.duplicate);
   if (d.bakeTextOutline) {
     const result = commandChange(
       'bake-text-outline',
@@ -7823,10 +7806,201 @@ document.addEventListener('pointerup', (e) => {
     render(false, d.type === 'artwork' && !toggledArtwork ? artworkResolution : null);
   }
 });
+function duplicateGraphNodes(nodeId) {
+  const ids = selection.has(nodeId) && selection.size > 1 ? [...selection] : [nodeId],
+    result = commandChange(
+      'duplicate-nodes',
+      {
+        nodeIds: ids,
+        ...(ids.length === 1
+          ? { position: freePosition(current().nodes.find((n) => n.id === nodeId).type) }
+          : {}),
+      },
+      'Nodes duplicated',
+      true,
+    );
+  if (result) {
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selected = result.nodeIds[0];
+    selection = new Set(result.nodeIds);
+    render();
+  }
+}
+function closeNodeContextMenu(restore = false) {
+  if (!nodeContextMenu) return;
+  nodeContextMenu.remove();
+  nodeContextMenu = null;
+  if (restore) document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+}
+function openNodeContextMenu(nodeId, x, y) {
+  closeNodeContextMenu();
+  if (deletionBusy() || variableAction) {
+    notify('Finish or cancel the current edit before using node actions', true);
+    return;
+  }
+  const n = current().nodes.find((n) => n.id === nodeId);
+  if (!n) return;
+  if (!selection.has(nodeId)) selection = new Set([nodeId]);
+  selected = nodeId;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selectedGuide = null;
+  render();
+  const owner = session,
+    revision = session.state.expectedRevision,
+    layerId = current().id;
+  const nodes = current().nodes.filter((n) => selection.has(n.id));
+  const deletable = nodes.filter(
+    (n) => n.id !== current().output && !['Output', 'Image Output'].includes(n.type),
+  );
+  const output = current().nodes.find((n) => n.id === current().output);
+  const locked = current().locked ? 'Composition is locked' : '';
+  const outputReason =
+    locked ||
+    (['Output', 'Image Output'].includes(n.type) || n.id === current().output
+      ? 'This is already an Output node'
+      : !['Path', 'PaintedPath', 'Image'].includes(outputType(n))
+        ? 'This node has no artwork output'
+        : !output || !socketCompatibleFor(n, output, 'path')
+          ? 'Incompatible with this composition’s Output'
+          : output.params.path.locked
+            ? 'Output input is locked'
+            : '');
+  const duplicateReason =
+    locked ||
+    (current().nodes.length + nodes.length > 2000
+      ? 'Too many nodes'
+      : nodes.some(
+            (n) => n.type === 'Path Remap' && n.edits.length && selection.has(n.params.path.source),
+          )
+        ? 'Duplicate an edited Path Remap separately from its source'
+        : '');
+  const actions = [
+    ['output', 'Use as output', outputReason, 'Connect only this node to the composition Output'],
+    [
+      'duplicate',
+      nodes.length > 1 ? `Duplicate ${nodes.length} nodes` : 'Duplicate',
+      duplicateReason,
+      'Duplicate the selected nodes (one Undo)',
+    ],
+    [
+      'delete',
+      deletable.length > 1 ? `Delete ${deletable.length} nodes` : 'Delete',
+      locked || (!deletable.length ? 'Output nodes cannot be deleted' : ''),
+      nodes.length !== deletable.length
+        ? 'Delete selected nodes; Output nodes are retained'
+        : 'Delete the selected nodes (one Undo)',
+    ],
+  ];
+  const menu = document.createElement('div');
+  menu.className = 'node-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Node actions: ${nodeDisplayName(n)}`);
+  menu.tabIndex = -1;
+  menu.innerHTML = actions
+    .map(
+      ([id, label, reason, hint]) =>
+        `<button type="button" role="menuitem" data-node-context-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || hint)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
+    )
+    .join('');
+  menu.addEventListener('click', (event) => {
+    if (nodeContextMenu !== menu) return;
+    const button = event.target.closest('button');
+    if (!button || button.disabled) return;
+    const action = button.dataset.nodeContextAction;
+    closeNodeContextMenu(true);
+    if (
+      session !== owner ||
+      session.state.expectedRevision !== revision ||
+      current().id !== layerId ||
+      deletionBusy() ||
+      variableAction
+    )
+      return;
+    if (action === 'output')
+      commandChange('preview-node', { nodeId, position: freePosition('Fill') }, 'Output connected');
+    if (action === 'duplicate') duplicateGraphNodes(nodeId);
+    if (action === 'delete') {
+      const result = commandChange(
+        'delete-nodes',
+        { nodeIds: nodes.map((n) => n.id) },
+        'Selected nodes deleted',
+        true,
+      );
+      if (result) {
+        selection = new Set(result.retainedNodeIds);
+        selected = result.retainedNodeIds[0] || null;
+        pointSelection = { nodeId: null, ids: new Set() };
+        render();
+      }
+    }
+    document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+  });
+  document.body.append(menu);
+  nodeContextMenu = menu;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
+  (menu.querySelector('button:not(:disabled)') || menu).focus({ preventScroll: true });
+}
+document.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (nodeContextMenu && !nodeContextMenu.contains(event.target)) closeNodeContextMenu();
+  },
+  true,
+);
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (!nodeContextMenu) return;
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeNodeContextMenu(true);
+      return;
+    }
+    if (!nodeContextMenu.contains(event.target)) return;
+    // A menu owns its keyboard input; do not trigger graph/global shortcuts.
+    event.stopImmediatePropagation();
+    const buttons = [...nodeContextMenu.querySelectorAll('button:not(:disabled)')];
+    const index = buttons.indexOf(document.activeElement);
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      const next =
+        event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? buttons.length - 1
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    } else if (['Enter', ' '].includes(event.key)) {
+      event.preventDefault();
+      if (!event.repeat) buttons[index]?.click();
+    }
+  },
+  true,
+);
+window.addEventListener('resize', () => closeNodeContextMenu());
+document.addEventListener(
+  'scroll',
+  (event) => {
+    if (nodeContextMenu && !nodeContextMenu.contains(event.target)) closeNodeContextMenu();
+  },
+  true,
+);
 app.addEventListener('contextmenu', (e) => {
   // Keep native text editing menus, but never expose browser navigation/save
   // commands over the editor's graph or artwork surfaces.
-  if (e.target.closest('input,textarea,[contenteditable="true"]')) return;
+  if (editingControl(e.target)) return;
+  const head = e.target.closest('.graph .node-head');
+  if (head) {
+    e.preventDefault();
+    openNodeContextMenu(head.closest('.node').dataset.id, e.clientX, e.clientY);
+    return;
+  }
+  closeNodeContextMenu();
   if (e.target.closest('.graph-scroll,.canvas-stage')) e.preventDefault();
   let input = e.target.closest('.input');
   if (input) {
