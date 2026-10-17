@@ -81,6 +81,7 @@ export function snapTranslation(
   excludedGuide = null,
   layerBounds = [],
   artworkBounds = [],
+  extraCandidates = [],
 ) {
   const settings = guideSettings(doc),
     matches = [],
@@ -106,10 +107,26 @@ export function snapTranslation(
     if (settings.snapArtwork)
       for (const bounds of artworkBounds)
         for (const position of bounds[axis]) candidates.push({ position, kind: 'artwork' });
-    const priority = { guide: 0, 'guide-layer': 1, artboard: 2, artwork: 3, grid: 4 };
+    candidates.push(
+      ...extraCandidates.filter(
+        (candidate) => candidate.axis === axis && candidate.translation === undefined,
+      ),
+    );
+    const priority = {
+      guide: 0,
+      character: 1,
+      'character-gap': 2,
+      'guide-layer': 3,
+      artboard: 4,
+      artwork: 5,
+      grid: 6,
+    };
     let best = null;
     const consider = (source, candidate) => {
-      const correction = candidate.position - (source + delta[axis]);
+      const correction =
+        candidate.translation === undefined
+          ? candidate.position - (source + delta[axis])
+          : candidate.translation - delta[axis];
       if (
         Math.abs(correction) <= threshold &&
         (!best ||
@@ -121,6 +138,10 @@ export function snapTranslation(
     };
     for (const source of sources[axis])
       for (const candidate of candidates) consider(source, candidate);
+    if (sources[axis].length)
+      for (const candidate of extraCandidates)
+        if (candidate.axis === axis && Number.isFinite(candidate.translation))
+          consider(0, candidate);
     // Explicit alignment targets win over the background grid within the snap radius.
     if (!best && settings.snapGrid)
       for (const source of sources[axis])
@@ -133,6 +154,9 @@ export function snapTranslation(
       matches.push(best);
     }
   }
+  for (const match of matches)
+    if (match.kind === 'character-gap')
+      match.cross = Math.max(match.fixedCross, match.movingCross + result[1 - match.axis]);
   return { delta: result, matches };
 }
 

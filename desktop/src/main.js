@@ -1,3 +1,4 @@
+import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import './style.css';
@@ -2053,7 +2054,13 @@ function guidesOverlay() {
     layoutOverlay() +
     snapMatches
       .map((m) =>
-        guideLine(m.axis ? 'y' : 'x', m.position, `class="snap-match" data-snap-kind="${m.kind}"`),
+        m.kind === 'character-gap'
+          ? `<path class="snap-match" data-snap-kind="character-gap" d="${characterGapGuidePath(m, canvasScale())}" fill="none"/>`
+          : guideLine(
+              m.axis ? 'y' : 'x',
+              m.position,
+              `class="snap-match" data-snap-kind="${m.kind}"`,
+            ),
       )
       .join('')
   );
@@ -2096,6 +2103,7 @@ function snapped(sources, delta, event, excludedGuide = null) {
     excludedGuide,
     snapLayerBounds.guides,
     snapLayerBounds.artwork,
+    drag?.type === 'character' ? drag.snapCandidates : [],
   );
   snapMatches = result.matches;
   return result.delta;
@@ -5794,7 +5802,7 @@ app.addEventListener('pointerdown', (e) => {
     stage &&
     characterEdit &&
     !control &&
-    !e.target.closest('.character-floating') &&
+    !e.target.closest('.character-floating, .canvas-text-editor, [contenteditable]') &&
     e.button === 0
   ) {
     e.preventDefault();
@@ -5838,7 +5846,13 @@ app.addEventListener('pointerdown', (e) => {
     capture.focus({ preventScroll: true });
     if (!characterEdit.selected.size) return;
     const next = characterContext(),
-      points = next.selected.flatMap((g) => characterBoxPoints(g, hit.occurrence.matrix));
+      snapGeometry = collectCharacterSnapGeometry({
+        characters: next.layout.characters,
+        selectedIds: next.selected.map((g) => g.id),
+        occurrence: hit.occurrence,
+        lines: next.layout.lines,
+        writingMode: next.n.writingMode,
+      });
     drag = {
       type: 'character',
       toggleOnClick: toggleOnClick ? hit : null,
@@ -5848,12 +5862,8 @@ app.addEventListener('pointerdown', (e) => {
       start: pos,
       startClient: [e.clientX, e.clientY],
       originals: next.selected.map((g) => ({ id: g.id, offset: [...g.offset] })),
-      anchors: [0, 1].map((axis) => {
-        const values = points.map((p) => p[axis]),
-          low = Math.min(...values),
-          high = Math.max(...values);
-        return [low, (low + high) / 2, high];
-      }),
+      anchors: snapGeometry.sources,
+      snapCandidates: snapGeometry.candidates,
       before: cloneDocument(history.doc),
       pointerId: e.pointerId,
       capture,
@@ -6689,7 +6699,18 @@ function movePointer(e) {
       current().locked ||
       !layerShown(current()) ||
       characterEdit?.node !== drag.nodeId ||
-      selected !== drag.nodeId
+      selected !== drag.nodeId ||
+      characterEdit?.route !== drag.route ||
+      characterEdit.selected.size !== drag.originals.length ||
+      drag.originals.some((g) => !characterEdit.selected.has(g.id)) ||
+      !characterOccurrences(renderEvaluation?.path).some(
+        (o) =>
+          o.source === drag.nodeId &&
+          o.route === drag.route &&
+          !o.reason &&
+          !o.suspended &&
+          o.matrix.every((v, i) => v === drag.matrix[i]),
+      )
     ) {
       cancelInteraction();
       return;
