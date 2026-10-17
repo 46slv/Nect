@@ -38,8 +38,10 @@ try {
   await edit('Guide 1 position', 600);
   await page.getByRole('button', { name: '+ Horizontal', exact: true }).click();
   await edit('Guide 2 position', 200);
+  await page.getByRole('button', { name: 'Grid', exact: true }).click();
   await page.getByLabel('Show grid', { exact: true }).check();
   await edit('Grid spacing', 20);
+  await page.getByRole('button', { name: 'Grid', exact: true }).click();
   await page.getByRole('button', { name: 'Snap', exact: true }).click();
   assert.equal(await page.evaluate(() => window.nect.export()), originalSVG);
   await fs.mkdir('test-results', { recursive: true });

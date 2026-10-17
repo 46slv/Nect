@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   document,
+  blankDocument,
+  resolveGridOrigin,
   guideDefaults,
   guideSettings,
   snapTranslation,
@@ -227,4 +229,45 @@ test('visible guide layer bounds snap edges and centers with hidden and Alt bypa
   assert.deepEqual(snapTranslation(d, [[48], [98]], [0, 0], 1, true, null, bounds).delta, [0, 0]);
   d.editor.visible = false;
   assert.deepEqual(snapTranslation(d, [[48], [98]], [0, 0], 1, false, null, bounds).delta, [0, 0]);
+});
+
+test('centered grids use exact dynamic origins while legacy files retain their phase', () => {
+  const d = blankDocument();
+  Object.assign(d.editor, { snap: true, snapArtboard: false, gridSize: 40, gridOpacity: 0 });
+  for (const [width, height] of [
+    [960, 540],
+    [961, 541],
+    [960.5, 540.25],
+    [1000, 600],
+  ]) {
+    Object.assign(d, { width, height });
+    const origin = resolveGridOrigin(d);
+    assert.deepEqual(origin, [width / 2, height / 2]);
+    const sources = [[origin[0] - 3], [origin[1] + 4]];
+    assert.deepEqual(snapTranslation(d, sources, [0, 0]).delta, [3, -4]);
+    assert.deepEqual(snapTranslation(d, sources, [0, 0], 1, true).delta, [0, 0]);
+  }
+  Object.assign(d, { width: 960, height: 540 });
+  d.editor.guides.push({ id: 'priority-guide', axis: 'y', position: 274, locked: false });
+  assert.equal(snapTranslation(d, [[], [269]], [0, 0]).delta[1], 5);
+  d.editor.guides = [];
+  const svg = exportSVG(d);
+  assert.deepEqual(deserialize(serialize(d)), d);
+  assert.ok(!svg.includes('editing-grid'));
+  const old = document();
+  old.editor = guideDefaults();
+  delete old.editor.gridAnchor;
+  delete old.editor.gridOpacity;
+  const saved = serialize(old);
+  assert.equal(serialize(deserialize(saved)), saved);
+  assert.deepEqual(resolveGridOrigin(deserialize(saved)), [0, 0]);
+  delete old.editor;
+  assert.deepEqual(resolveGridOrigin(old), [0, 0]);
+  d.schemaVersion = 26;
+  assert.throws(() => deserialize(serialize(d)), /schemaVersion 27/);
+  d.schemaVersion = 27;
+  for (const value of [-0.01, 1.01, null, '0.5']) {
+    d.editor.gridOpacity = value;
+    assert.throws(() => deserialize(serialize(d)), /opacity/);
+  }
 });

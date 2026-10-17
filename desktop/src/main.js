@@ -405,6 +405,7 @@ import {
   scrubNumericValues,
   guideDefaults,
   guideSettings,
+  resolveGridOrigin,
   snapTranslation,
   collectSnapLayerBounds,
   pathBounds,
@@ -651,6 +652,9 @@ let history = session.historyView,
   composing = false,
   selectedGuide = null,
   guidesOpen = false,
+  gridOpen = false,
+  layoutOpen = false,
+  gridOpacityDraft = null,
   layoutDraft = null,
   layoutPreview = false,
   snapMatches = [],
@@ -999,6 +1003,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  gridOpacityDraft = null;
   closeNodeContextMenu();
   pointPanelViews.clear();
   pointFocus = null;
@@ -2110,6 +2115,7 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false, artworkResolution = null) {
+  gridOpacityDraft = null;
   closeNodeContextMenu();
   if (
     variableAction &&
@@ -2191,7 +2197,7 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -2363,7 +2369,7 @@ function layoutPanel() {
     )}</div><label><input type="checkbox" data-layout-preview ${layoutPreview ? 'checked' : ''}>Preview layout</label><p class="layout-grid-summary ${error ? 'warning' : ''}">${esc(error || `${lines.length} guides · artboard-based · margins on both sides`)}</p><div class="guide-add"><button data-layout-apply ${error || locked ? 'disabled' : ''}>${a.layoutGrid ? 'Update layout' : 'Create layout'}</button><button data-layout-cancel>Cancel</button><button data-layout-remove ${!a.layoutGrid || locked ? 'disabled' : ''}>Remove layout</button></div><p>Updates replace only layout guides. Manual guides stay. Unlock layout guides before updating.</p></div>`;
 }
 function layoutOverlay() {
-  if (!layoutPreview || !guidesOpen) return '';
+  if (!layoutPreview || !layoutOpen) return '';
   try {
     return layoutGridLines(history.doc, layoutConfig())
       .map((g) => guideLine(g.axis, g.position, 'class="layout-preview"'))
@@ -2378,10 +2384,8 @@ function guidesPanel() {
   return `<section class="guides-panel" aria-label="Guides and snapping"><div class="guide-toggles">${[
     ['visible', 'Show guides'],
     ['locked', 'Lock all guides'],
-    ['gridVisible', 'Show grid'],
     ['snapGuides', 'Snap guides'],
     ['snapArtboard', 'Snap artboard'],
-    ['snapGrid', 'Snap grid'],
     ['snapArtwork', 'Snap artwork'],
   ]
     .map(
@@ -2390,12 +2394,39 @@ function guidesPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label>${layoutPanel()}<div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.origin === 'layout' ? '▦ ' : ''}${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Snap artwork aligns to other visible layers’ geometry edges and centers (without stroke), including locked layers. The editing layer is excluded. Alt bypasses snapping.</p></section>`;
+    )}</div><div class="guide-add"><button data-add-guide="y" ${a.locked ? 'disabled' : ''}>+ Horizontal</button><button data-add-guide="x" ${a.locked ? 'disabled' : ''}>+ Vertical</button></div><div class="guide-list">${a.guides.map((g, i) => `<div class="guide-row ${selectedGuide === g.id ? 'selected' : ''}"><button data-select-guide="${g.id}" aria-label="Select guide ${i + 1}" aria-pressed="${selectedGuide === g.id}">${g.origin === 'layout' ? '▦ ' : ''}${g.axis === 'x' ? 'V · X' : 'H · Y'}</button><input type="number" step="any" min="-100000" max="100000" data-guide-position="${g.id}" aria-label="Guide ${i + 1} position" value="${g.position}" ${a.locked || g.locked ? 'disabled' : ''}><button data-lock-guide="${g.id}" aria-label="${g.locked ? 'Unlock' : 'Lock'} guide ${i + 1}" aria-pressed="${g.locked}" ${a.locked ? 'disabled' : ''}>${g.locked ? '🔒' : '○'}</button><button data-delete-guide="${g.id}" aria-label="Delete guide ${i + 1}" ${a.locked || g.locked ? 'disabled' : ''}>×</button></div>`).join('')}</div><p>Drag a guide to move it. Hidden guides do not snap; locked guides still snap. Snap artwork aligns to other visible layers’ geometry edges and centers (without stroke), including locked layers. The editing layer is excluded. Alt bypasses snapping.</p></section>`;
+}
+function gridPanel() {
+  if (!gridOpen) return '';
+  const a = guideSettings(history.doc);
+  return `<section class="guides-panel" aria-label="Grid"><div class="guide-toggles">${[
+    ['gridVisible', 'Show grid'],
+    ['snapGrid', 'Snap grid'],
+  ]
+    .map(
+      ([key, label]) =>
+        `<label><input type="checkbox" data-guide-setting="${key}" ${a[key] ? 'checked' : ''}>${label}</label>`,
+    )
+    .join(
+      '',
+    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>${a.gridAnchor === 'center' ? 'Origin: exact artboard center' : 'Origin: legacy top-left <button data-action="center-grid">Center grid</button>'}</p><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
   const a = guideSettings(history.doc);
   if (!a.gridVisible) return '';
-  return `<defs><pattern id="editing-grid" width="${a.gridSize}" height="${a.gridSize}" patternUnits="userSpaceOnUse"><path d="M ${a.gridSize} 0 H 0 V ${a.gridSize}" class="editing-grid-line"/></pattern></defs><rect width="${history.doc.width}" height="${history.doc.height}" fill="url(#editing-grid)" pointer-events="none"/>`;
+  const [x, y] = resolveGridOrigin(history.doc, a);
+  return `<defs><pattern id="editing-grid" patternTransform="translate(${x} ${y})" width="${a.gridSize}" height="${a.gridSize}" patternUnits="userSpaceOnUse"><path d="M ${a.gridSize} 0 H 0 V ${a.gridSize}" class="editing-grid-line"/></pattern></defs><rect data-grid-overlay width="${history.doc.width}" height="${history.doc.height}" opacity="${gridOpacityDraft ?? a.gridOpacity}" fill="url(#editing-grid)" pointer-events="none"/>`;
+}
+function previewGridOpacity(value) {
+  gridOpacityDraft = value;
+  app.querySelector('[data-grid-overlay]')?.setAttribute('opacity', value);
+  for (const input of app.querySelectorAll('[data-grid-opacity]'))
+    input.value = String(value * 100);
+}
+function cancelGridOpacity() {
+  if (gridOpacityDraft === null) return;
+  previewGridOpacity(guideSettings(history.doc).gridOpacity);
+  gridOpacityDraft = null;
 }
 function guideLine(axis, position, attributes) {
   return `<line ${axis === 'x' ? `x1="${position}" x2="${position}" y1="0" y2="${history.doc.height}"` : `y1="${position}" y2="${position}" x1="0" x2="${history.doc.width}"`} ${attributes}/>`;
@@ -4395,12 +4426,19 @@ app.addEventListener('click', async (e) => {
         case 'snap':
           editGuides('set-guide-setting', { key: 'snap', value: !guideSettings(history.doc).snap });
           break;
+        case 'center-grid':
+          editGuides('set-guide-setting', { key: 'gridAnchor', value: 'center' });
+          break;
+        case 'grid-panel':
+          gridOpen = !gridOpen;
+          render();
+          break;
+        case 'layout-panel':
+          layoutOpen = !layoutOpen;
+          render();
+          break;
         case 'guides-panel':
           guidesOpen = !guidesOpen;
-          if (!guidesOpen) {
-            layoutDraft = null;
-            layoutPreview = false;
-          }
           render();
           break;
         case 'fit':
@@ -5211,6 +5249,11 @@ app.addEventListener('beforeinput', (e) => {
   };
 });
 app.addEventListener('input', (e) => {
+  if (e.target.matches('[data-grid-opacity]')) {
+    const value = e.target.value.trim() ? Number(e.target.value) / 100 : NaN;
+    if (Number.isFinite(value) && value >= 0 && value <= 1) previewGridOpacity(value);
+    return;
+  }
   if (e.target.dataset.variableInstance) {
     void selectVariableInstance(e.target, true);
     return;
@@ -5584,6 +5627,13 @@ app.addEventListener('change', async (e) => {
     } catch (err) {
       notify(`Open rejected; current document preserved: ${err.message}`, true);
     }
+    return;
+  }
+  if (d.gridOpacity !== undefined) {
+    const value = el.value.trim() ? Number(el.value) / 100 : NaN;
+    gridOpacityDraft = null;
+    if (value !== guideSettings(history.doc).gridOpacity)
+      editGuides('set-guide-setting', { key: 'gridOpacity', value });
     return;
   }
   if (d.layoutField || d.layoutPreview !== undefined) {
@@ -8508,3 +8558,8 @@ window.nect = {
   },
   export: () => exportSVG(history.doc, fonts),
 };
+
+app.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && event.target.matches('[data-grid-opacity]')) cancelGridOpacity();
+});
+document.addEventListener('pointercancel', cancelGridOpacity);

@@ -21,28 +21,10 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   globalThis.fetch = async () => ({ ok: false });
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source.replace("import './style.css';", '');
-  for (const name of [
-    'core',
-    'artwork-creation',
-    'artwork-move-target',
-    'artwork-multi-move',
-    'artwork-alignment',
-    'artwork-distribution',
-    'artwork-gap-distribution',
-    'artwork-deletion',
-    'artwork-ordering',
-    'focus',
-    'layout',
-    'svg-import',
-    'storage',
-    'fonts',
-    'images',
-    'raster',
-  ])
-    source = source.replace(
-      `from './${name}.js'`,
-      `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
-    );
+  source = source.replace(
+    /from '(\.\/[^']+)'/g,
+    (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
+  );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const $ = (q) => document.querySelector(q),
     click = (q) => $(q).click(),
@@ -203,6 +185,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click('[data-add-guide="x"]');
   const manualId = get().editor.guides[0].id,
     initial = JSON.stringify(get());
+  click('[data-action="layout-panel"]');
   $('.guides-panel').scrollTop = 120;
   $('.guide-list').scrollTop = 20;
   edit('[data-layout-field="columns"]', 4);
@@ -253,7 +236,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(win.nect.export(), artwork);
   if (!$('[data-add-guide="x"]')) click('[data-action="guides-panel"]');
   click('[data-layout-preview]');
-  click('[data-action="guides-panel"]');
+  click('[data-action="layout-panel"]');
   assert.equal(document.querySelectorAll('.layout-preview').length, 0);
   const emptyTarget = newDocument();
   emptyTarget.editor = guideDefaults();
@@ -310,4 +293,51 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click('[data-action="undo"]');
   assert.equal(get().editor.guides[0].id, guideId);
   win.happyDOM.abort();
+  // Grid controls own a separate surface and preview opacity without replacing inputs.
+  const legacy = newDocument();
+  legacy.editor = guideDefaults();
+  legacy.editor.gridSize = 40;
+  legacy.editor.gridVisible = true;
+  delete legacy.editor.gridAnchor;
+  delete legacy.editor.gridOpacity;
+  win.nect.load(JSON.stringify(legacy));
+  const legacySaved = JSON.stringify(get()),
+    gridSvg = win.nect.export();
+  click('[data-action="grid-panel"]');
+  assert.equal($('#editing-grid').getAttribute('patternTransform'), 'translate(0 0)');
+  click('[data-action="center-grid"]');
+  assert.equal(get().schemaVersion, 27);
+  assert.equal($('#editing-grid').getAttribute('patternTransform'), 'translate(480 270)');
+  click('[data-action="undo"]');
+  assert.equal(JSON.stringify(get()), legacySaved);
+  click('[data-action="redo"]');
+  const centered = JSON.stringify(get());
+  let slider = $('[data-grid-opacity][type="range"]');
+  slider.focus();
+  for (const value of [30, 45, 70]) {
+    slider.value = String(value);
+    slider.dispatchEvent(new win.Event('input', { bubbles: true }));
+  }
+  assert.equal($('[data-grid-opacity][type="range"]'), slider);
+  assert.equal(document.activeElement, slider);
+  assert.equal($('[data-grid-overlay]').getAttribute('opacity'), '0.7');
+  assert.equal(JSON.stringify(get()), centered);
+  slider.dispatchEvent(new win.Event('change', { bubbles: true }));
+  assert.equal(get().editor.gridOpacity, 0.7);
+  click('[data-action="undo"]');
+  assert.equal(JSON.stringify(get()), centered);
+  click('[data-action="redo"]');
+  const opaque = JSON.stringify(get());
+  for (const cancel of ['Escape', 'pointercancel']) {
+    slider = $('[data-grid-opacity][type="range"]');
+    slider.value = '10';
+    slider.dispatchEvent(new win.Event('input', { bubbles: true }));
+    if (cancel === 'Escape') key(slider, cancel);
+    else pointer(document, cancel, 0, 0);
+    assert.equal($('[data-grid-overlay]').getAttribute('opacity'), '0.7');
+    assert.equal(JSON.stringify(get()), opaque);
+  }
+  win.nect.load(opaque);
+  assert.equal(JSON.stringify(get()), opaque);
+  assert.equal(win.nect.export(), gridSvg);
 });

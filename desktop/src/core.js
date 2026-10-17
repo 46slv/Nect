@@ -62,6 +62,7 @@ import { createRadialGradientFill, renderRadialGradientFill } from './radial-gra
 export {
   guideDefaults,
   guideSettings,
+  resolveGridOrigin,
   snapTranslation,
   collectSnapLayerBounds,
   layoutGridDefaults,
@@ -570,8 +571,9 @@ export function blankLayer(name = 'Composition 1') {
 }
 export function blankDocument() {
   return {
-    schemaVersion: 24,
+    schemaVersion: 27,
     name: 'Untitled composition',
+    editor: { ...guideDefaults(), gridAnchor: 'center' },
     width: 960,
     height: 540,
     layers: [blankLayer()],
@@ -3741,6 +3743,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+      27,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3754,6 +3757,8 @@ export function validate(doc) {
     variableCheck(doc.schemaVersion >= 25, 'VARIABLE_SCHEMA');
   validateImageAssets(doc.imageAssets);
   validateGuides(doc.editor, id);
+  if (doc.editor?.gridAnchor === 'center' && doc.schemaVersion < 27)
+    throw Error('Centered grid requires schemaVersion 27');
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
   for (const key of ['width', 'height'])
@@ -5819,6 +5824,8 @@ export class CommandSession {
           if (!Object.hasOwn(guideDefaults(), payload.key) || payload.key === 'guides')
             throw Error('Invalid guide setting');
           aids[payload.key] = clone(payload.value);
+          if (payload.key === 'gridAnchor' && payload.value === 'center')
+            candidate.schemaVersion = Math.max(candidate.schemaVersion, 27);
         } else if (type === 'set-layout-grid')
           setLayoutGrid(candidate, clone(payload.config), () => uid('guide'));
         else {

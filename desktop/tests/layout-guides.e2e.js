@@ -55,6 +55,8 @@ try {
   await edit('Guide 1 position', 720);
   const manual = (await model()).editor.guides[0].id,
     before = await snapshot();
+  if (!(await page.locator('[data-layout-field="columns"]').count()))
+    await click('[data-action="layout-panel"]');
   await edit('Layout Columns', 4);
   await edit('Layout Rows', 2);
   await edit('Layout Margin X', 48);
@@ -65,9 +67,12 @@ try {
   assert.equal(await page.locator('.layout-preview').count(), 12);
   assert.equal(await snapshot(), before);
   await fs.mkdir('test-results', { recursive: true });
-  await page.locator('.guides-panel').evaluate((el) => {
-    el.scrollTop = 0;
-  });
+  await page
+    .locator('.guides-panel')
+    .first()
+    .evaluate((el) => {
+      el.scrollTop = 0;
+    });
   await page.screenshot({ path: 'test-results/layout-grid-preview-1600x1000.png', fullPage: true });
   await click('[data-layout-cancel]');
   assert.equal(await page.locator('.layout-preview').count(), 0);
@@ -110,7 +115,7 @@ try {
   await undo();
   assert.equal((await model()).editor.guides.length, 9);
   await page.getByLabel('Preview layout', { exact: true }).check();
-  await click('[data-action="guides-panel"]');
+  await click('[data-action="layout-panel"]');
   assert.equal(await page.locator('.layout-preview').count(), 0);
   const saved = await snapshot();
   await page.evaluate((text) => window.nect.load(text), saved);

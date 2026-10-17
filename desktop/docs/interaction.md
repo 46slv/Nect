@@ -66,6 +66,14 @@ Snapping uses a six-screen-pixel threshold at every zoom. Visible guides and art
 
 Guides, visibility/lock settings, grid settings and snap toggles are saved in project JSON and participate in Undo/Redo. Older schema-v1 documents without editing-aid settings remain valid and start with snapping disabled and an 8-unit grid. Editing aids never appear in exported artwork SVG.
 
+### Centered grid
+
+Open **Grid** independently of **Guides** and **Layout Grid**. New blank documents use the exact artboard center as a grid intersection, including odd/fractional dimensions. Spacing is constant from that origin and follows artboard resize; drawing and snapping share the same origin. Existing documents without an anchor retain their top-left phase until **Center grid** is clicked. This is one Undo step and retains spacing.
+
+Grid opacity is directly adjustable from 0–100% with a slider or number field. Slider input previews without replacing the focused control; committing creates one Undo step. Escape/pointer cancellation restores the saved opacity. Lines retain the fixed 0.5 CSS-unit non-scaling stroke. Opacity and visibility do not disable snapping. Grid settings never enter SVG export.
+
+Centered grids require schemaVersion 27 (new blank documents and explicit centering); older readers reject this version rather than silently changing snap phase. Old files without a center anchor keep their incoming schema and settings on open. Optional editor.gridOpacity is a finite number from 0 to 1, default 0.25; editor.gridAnchor is center or top-left, default top-left when missing.
+
 ### Guide layers
 
 In Layers, click **◇** beside a composition to turn it into a guide layer. Its button becomes **Guide** and its canvas artwork becomes a faint cyan dashed reference. Click **Guide** again to restore ordinary artwork. This is undoable and saved in JSON. Guide layers keep their editable node graphs, names, fill, ordering, independent visibility, and layer locks. Unlock a layer before converting it. **Show guides** hides both guide lines and guide layers; **Lock all guides** locks guide lines, while guide layers use their own layer lock.
@@ -74,9 +82,9 @@ Visible guide layers provide edge/center snap targets for other compositions. Th
 
 ### Layout grids
 
-In **Guides → Layout grid**, set Columns, Rows, Margin X/Y and Gutter X/Y. Margins apply equally to both sides of the artboard. Columns/rows accept integers from 1 to 40; margins/gutters are nonnegative document units. Cells must have positive space after margins and gutters. Zero gutters share a single boundary guide.
+In **Layout Grid**, set Columns, Rows, Margin X/Y and Gutter X/Y. Margins apply equally to both sides of the artboard. Columns/rows accept integers from 1 to 40; margins/gutters are nonnegative document units. Cells must have positive space after margins and gutters. Zero gutters share a single boundary guide.
 
-Enable **Preview layout** for orange, non-exporting proposal lines. Preview and draft changes do not edit the document or add Undo steps. **Create layout** generates one set of guide lines in one Undo step; **Update layout** replaces that set, preserving every manual guide. **Remove layout** removes only the generated set. Cancel, closing Guides, loading a document, or Undo/Redo clears the proposal. Layout guides carry a ▦ marker in the list and can be moved like manual guides; updating regenerates their positions from the controls. Unlock individually locked generated guides before replacing/removing their set. The combined manual/layout limit is 200 guides.
+Enable **Preview layout** for orange, non-exporting proposal lines. Preview and draft changes do not edit the document or add Undo steps. **Create layout** generates one set of guide lines in one Undo step; **Update layout** replaces that set, preserving every manual guide. **Remove layout** removes only the generated set. Cancel, loading a document, or Undo/Redo clears the proposal. Closing a panel hides its preview without discarding the draft. Layout guides carry a ▦ marker in the list and can be moved like manual guides; updating regenerates their positions from the controls. Unlock individually locked generated guides before replacing/removing their set. The combined manual/layout limit is 200 guides.
 
 Generated guides are fixed document coordinates. After changing artboard dimensions, use Update layout to regenerate them for the new artboard. Layout grids are alignment references, not automatic object placement or responsive layout containers.
 

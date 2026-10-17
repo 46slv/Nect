@@ -5,13 +5,18 @@ export const guideDefaults = () => ({
   locked: false,
   gridVisible: false,
   gridSize: 8,
+  gridAnchor: 'top-left',
+  gridOpacity: 0.25,
   snap: false,
   snapGuides: true,
   snapArtboard: true,
   snapGrid: true,
   snapArtwork: false,
 });
-export const guideSettings = (doc) => doc.editor || guideDefaults();
+export const guideSettings = (doc) => ({ ...guideDefaults(), ...doc.editor });
+// Missing anchors retain the phase of previously saved documents.
+export const resolveGridOrigin = (doc, settings = guideSettings(doc)) =>
+  settings.gridAnchor === 'center' ? [doc.width / 2, doc.height / 2] : [0, 0];
 export function validateGuides(editor, validateId) {
   if (editor === undefined) return;
   if (!editor || typeof editor !== 'object' || Array.isArray(editor))
@@ -30,6 +35,13 @@ export function validateGuides(editor, validateId) {
     throw Error('Invalid artwork snap setting');
   if (!Number.isFinite(editor.gridSize) || editor.gridSize < 1 || editor.gridSize > 10000)
     throw Error('Grid spacing must be between 1 and 10000');
+  if (editor.gridAnchor !== undefined && !['center', 'top-left'].includes(editor.gridAnchor))
+    throw Error('Invalid grid anchor');
+  if (
+    editor.gridOpacity !== undefined &&
+    (!Number.isFinite(editor.gridOpacity) || editor.gridOpacity < 0 || editor.gridOpacity > 1)
+  )
+    throw Error('Grid opacity must be between 0 and 1');
   if (!Array.isArray(editor.guides) || editor.guides.length > 200)
     throw Error('Too many guides (maximum 200)');
   if (editor.layoutGrid !== undefined) validateLayoutGrid(editor.layoutGrid);
@@ -84,6 +96,7 @@ export function snapTranslation(
   extraCandidates = [],
 ) {
   const settings = guideSettings(doc),
+    origin = resolveGridOrigin(doc, settings),
     matches = [],
     result = [...delta];
   if (!settings.snap || bypass) return { delta: result, matches };
@@ -146,7 +159,10 @@ export function snapTranslation(
     if (!best && settings.snapGrid)
       for (const source of sources[axis])
         consider(source, {
-          position: Math.round((source + delta[axis]) / settings.gridSize) * settings.gridSize,
+          position:
+            origin[axis] +
+            Math.round((source + delta[axis] - origin[axis]) / settings.gridSize) *
+              settings.gridSize,
           kind: 'grid',
         });
     if (best) {

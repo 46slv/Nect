@@ -885,7 +885,6 @@ summary input[type='checkbox'] {
 }
 .editing-grid-line {
   stroke: #78909c;
-  stroke-opacity: 0.25;
   stroke-width: 0.5;
 }
 .guide-hit.locked {
