@@ -95,6 +95,7 @@ produce empty erosion.
 - Text/Path → Twist Points → Fill or Stroke for a center-weighted swirl; Resample first for finer deformation detail.
 - Source Path → Instance on Points ← Points Path → Fill for repeated ornaments; enable Align Tangent to rotate each source +X along the authored target tangent. Use Resample Path before Points when even spacing is wanted.
 - Linear / Radial Gradient Fill → Halftone for variable-size black dots; switch to Ordered Dither for a fixed Bayer texture.
+- Halftone / Ordered Dither / Line Screen → Convert to Path → Path Remap / Transform → Fill to edit generated marks as ordinary unpainted geometry. Convert to Path drops the source fill and stroke, keeps contour groups and handles, and does not trace direct Image inputs.
 - Halftone / Ordered Dither / Line Screen → move Grid Origin to phase-align the texture without moving its source. The [12-layer grid-origin playground](../examples/luminance-grid-origin.json) compares zero, quarter-cell, and half-cell offsets.
 - Linear / Radial Gradient Fill → Line Screen for cell-sampled horizontal or vertical black stripes whose thickness tracks darkness.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
@@ -108,6 +109,9 @@ examples, open the [12-layer luminance playground](../examples/luminance-playgro
 stores the evaluated Halftone and Ordered Dither outputs, or the [12-layer Line Screen playground](../examples/line-screen-playground.json), which compares horizontal and vertical mappings on the same gradient source. Rebuild the luminance playground with `node scripts/luminance-playground.js` or the Line Screen example with `node scripts/line-screen-playground.js`. Rebuild the main playground with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).
+
+To inspect an editable embedded-image pipeline through Halftone, Convert to Path, Path Remap,
+Transform and Fill, open the [image-pattern composition](../examples/image-pattern-composition.json).
 
 For Count versus Maximum spacing, open [the two-layer density example](../examples/resample-spacing.json) in a schema-v12-capable build. Select each downstream Path Remap to inspect anchors: Count6 yields6/6 samples on120/240px contours; Maximum spacing24px yields6/11. Rebuild with `node scripts/resample-spacing-example.js`. Old Count documents load in this build; old binaries are not promised to read the new format.
 

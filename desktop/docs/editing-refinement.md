@@ -693,7 +693,7 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   1-byte `sRGB` intent (0–3) and one 9-byte `pHYs` metadata chunk before IDAT; IHDR, contiguous
   IDAT and final IEND are required. Before decompression, existing PNG chunk/CRC checks and exact
   asset dimensions run; decoded output is streamed with pinned Pako 3.0.2 (MIT; [source and
-  license](https://github.com/nodeca/pako/tree/3.0.2)) through an 8 KiB reusable chunk buffer and
+  license (MIT AND Zlib)](https://github.com/nodeca/pako/tree/3.0.2)) through an 8 KiB reusable chunk buffer and
   capped to the IHDR-derived filtered-byte count. Per-image luminance processing is capped at 4
   megapixels, at most 4,096 grid cells are sampled, and a one-entry runtime RGBA cache retains at
   most 16 MB. One cold 4 MP Node 24 sample measured 301 ms, which is not a cross-device latency
@@ -715,3 +715,10 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   SVG/CLI parity, and the [Image luminance playground](../examples/image-luminance-playground.json).
   This bounded slice does not claim support for arbitrary PNG encodings, JPEG decoding in the core,
   native packaging, or physical print calibration.
+
+### Painted geometry conversion — schema 18
+
+- Convert to Path keeps its existing Path-to-Path identity behavior and now accepts PaintedPath only on its own `path` input. It returns a cloned, unpainted geometry value: contour and point IDs, groups, Bézier handles, character-edit occurrences and remap provenance are retained; fill and stroke descriptors are discarded. The source remains unchanged.
+- This target-scoped edge lets Halftone, Ordered Dither and Line Screen output feed Path Remap and ordinary Path modifiers without export/reimport. Convert to Path does not accept Image directly, and other PaintedPath-to-Path consumers remain incompatible. Because this edge changes the output contract, validation promotes only documents that contain it to schema 18; older Path-only documents retain their version and serialized shape.
+- PaintedPath conversion is intentionally not bypassable: passing the input through would return PaintedPath where the node promises Path. Bypass remains available for the existing Path-source identity case. The converted geometry receives a deterministic fingerprint over its contour geometry, stable IDs and graph provenance, independent of source paint; downstream Transform, Remap and repainting continue to use ordinary Path semantics.
+- Focused acceptance covers paint removal and source immutability, compatibility boundaries, a real embedded Image→Halftone→Convert to Path→Transform→Fill composition, serialization, locks, Undo/Redo, bypass refusal and downstream Path edits. This does not add automatic tracing of arbitrary images.

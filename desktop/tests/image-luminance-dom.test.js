@@ -87,5 +87,31 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   assert.equal(query(`[data-bypass="${effect.id}"]`).disabled, true);
   assert.match(win.nect.export(), /<path/);
   assert.doesNotMatch(win.nect.export(), /<image/);
+
+  const editable = structuredClone(win.nect.document),
+    editableLayer = editable.layers[0],
+    converter = node('Convert to Path');
+  editableLayer.nodes.splice(
+    editableLayer.nodes.findIndex((item) => item.id === output.id),
+    0,
+    converter,
+  );
+  win.nect.load(serialize(editable));
+  await tick();
+  const converterField = query(`.node[data-id="${converter.id}"] .field[data-key="path"]`),
+    converterSelector = converterField.querySelector('[data-path-source]');
+  assert.equal(converterField.dataset.type, 'Path');
+  assert.equal(converterSelector.options[0].textContent, 'Connect Path or PaintedPath…');
+  assert.ok(converterSelector.querySelector(`option[value="${effect.id}"]`));
+  assert.equal(converterSelector.querySelector(`option[value="${image.id}"]`), null);
+  converterSelector.value = effect.id;
+  converterSelector.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await tick();
+  assert.equal(win.nect.document.schemaVersion, 18);
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((item) => item.id === converter.id).params.path.source,
+    effect.id,
+  );
+  assert.equal(query(`[data-bypass="${converter.id}"]`).disabled, true);
   await win.happyDOM.close();
 });

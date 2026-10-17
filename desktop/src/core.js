@@ -646,6 +646,16 @@ export function bypassContract(n, layer) {
       reason:
         'Image luminance inputs must be converted to marks; they cannot be bypassed as PaintedPath.',
     };
+  if (
+    n.type === 'Convert to Path' &&
+    source &&
+    outputType(source, sourceParameter?.sourcePort) === 'PaintedPath'
+  )
+    return {
+      supported: false,
+      reason:
+        'Convert to Path changes PaintedPath into unpainted Path geometry and cannot be bypassed.',
+    };
   if (parameterType !== type)
     return {
       supported: false,
@@ -849,6 +859,10 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
   return (
     !!q &&
     (socketCompatible(sourceType, q.type) ||
+      (sourceType === 'PaintedPath' &&
+        target.type === 'Convert to Path' &&
+        key === 'path' &&
+        q.type === 'Path') ||
       (sourceType === 'Image' &&
         sourcePort === undefined &&
         imageLuminanceTargets.has(target.type) &&
@@ -2756,6 +2770,27 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           null,
           `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
         );
+      } else if (n.type === 'Convert to Path') {
+        const source = read('path');
+        if (!source) throw Error('Connect a Path or PaintedPath input');
+        result = clone(source);
+        if (
+          outputType(byId.get(n.params.path.source), n.params.path.sourcePort) === 'PaintedPath'
+        ) {
+          delete result.fill;
+          delete result.stroke;
+          result.fingerprint = fingerprint(
+            JSON.stringify([
+              'painted-path-geometry',
+              provenance(n.id),
+              signature(result),
+              result.contours.map((contour) => [
+                contour.id,
+                contour.points.map((point) => point.id),
+              ]),
+            ]),
+          );
+        }
       } else if (n.type === 'Closed Path Offset') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
@@ -3180,6 +3215,13 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     throw Error(
       'Image luminance inputs must be converted to marks; they cannot be connected while bypassed.',
     );
+  if (
+    to.bypassed &&
+    to.type === 'Convert to Path' &&
+    key === 'path' &&
+    outputType(from, sourcePort) === 'PaintedPath'
+  )
+    throw Error('Convert to Path cannot accept a PaintedPath input while bypassed.');
   if (!socketCompatibleFor(from, to, key, sourcePort))
     throw Error(`Cannot connect ${outputType(from, sourcePort)} to ${q.type}`);
   if (validating) {
@@ -3278,7 +3320,7 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(doc.schemaVersion)
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -3634,6 +3676,16 @@ export function validate(doc) {
         outputType(nodes.get(target.params.path.source), target.params.path.sourcePort) === 'Image',
     );
   });
+  const hasPaintedPathConversion = doc.layers.some((layer) => {
+    const nodes = new Map(layer.nodes.map((n) => [n.id, n]));
+    return layer.nodes.some(
+      (target) =>
+        target.type === 'Convert to Path' &&
+        target.params.path?.source &&
+        outputType(nodes.get(target.params.path.source), target.params.path.sourcePort) ===
+          'PaintedPath',
+    );
+  });
   if (hasNodeType('Instance on Points') && sourceSchemaVersion < 13)
     doc.schemaVersion = Math.max(doc.schemaVersion, 13);
   if (hasNodeType('Line Screen') && sourceSchemaVersion < 14)
@@ -3646,6 +3698,8 @@ export function validate(doc) {
   if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
     doc.schemaVersion = Math.max(doc.schemaVersion, 16);
   if (hasImageLuminanceConnection && doc.schemaVersion < 17) doc.schemaVersion = 17;
+  if (hasPaintedPathConversion && sourceSchemaVersion < 18)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   return doc;
 }
 export function serialize(doc) {

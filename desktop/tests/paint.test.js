@@ -13,6 +13,7 @@ import {
   History,
   outputType,
   socketCompatible,
+  socketCompatibleFor,
 } from '../src/core.js';
 import { importSVG } from '../src/svg-import.js';
 
@@ -80,7 +81,7 @@ test('paint order permits geometry then paint; typed compatibility is shared, an
   assert.equal(outputType(fill), 'PaintedPath');
   assert.equal(socketCompatible('Path', 'PaintedPath'), true);
   assert.equal(socketCompatible('PaintedPath', 'Path'), false);
-  for (const type of ['Transform', 'Path Remap', 'Convert to Path', 'Text to Path', 'Boolean']) {
+  for (const type of ['Transform', 'Path Remap', 'Text to Path', 'Boolean']) {
     const n = node(type);
     l.nodes.push(n);
     assert.throws(
@@ -88,6 +89,14 @@ test('paint order permits geometry then paint; typed compatibility is shared, an
       /Cannot connect PaintedPath to Path/,
     );
   }
+  const converter = node('Convert to Path');
+  l.nodes.push(converter);
+  assert.equal(socketCompatible('PaintedPath', 'Path'), false);
+  assert.equal(socketCompatibleFor(stroke, converter, 'path'), true);
+  connect(l, stroke.id, converter.id, 'path');
+  assert.deepEqual(evaluate(l).run(converter.id).contours, evaluate(l).run(stroke.id).contours);
+  assert.equal(Object.hasOwn(evaluate(l).run(converter.id), 'fill'), false);
+  assert.equal(Object.hasOwn(evaluate(l).run(converter.id), 'stroke'), false);
   connect(l, fill.id, out.id, 'path');
   assert.equal(evaluate(l).error, null);
   assert.throws(() => connect(l, out.id, stroke.id, 'path'), /cycle/);

@@ -44,7 +44,7 @@ unchanged. See [modifier reference](modifiers.md) and [implementation notes](edi
 ## Bounded synchronous PNG adapter
 
 - `src/image-luminance-field.js` lazily decodes only the asset referenced by a luminance node. It
-  uses pinned Pako 3.0.2 (MIT; [source and license](https://github.com/nodeca/pako/tree/3.0.2)) via
+  uses pinned Pako 3.0.2 (MIT AND Zlib; [source and license](https://github.com/nodeca/pako/tree/3.0.2)) via
   the browser ESM inflater with streaming output, an 8 KiB reusable output chunk and
   an IHDR-derived filtered-byte cap. Existing `pngSize()` checks the signature, chunk bounds/CRCs,
   dimensions and IEND before inflation; the adapter then validates supported PNG structure and

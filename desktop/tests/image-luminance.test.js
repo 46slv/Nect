@@ -154,6 +154,7 @@ test('Image stays rejected by unrelated fill, stroke, boolean, transform, remap,
     ['Boolean', 'a'],
     ['Transform', 'path'],
     ['Path Remap', 'path'],
+    ['Convert to Path', 'path'],
     ['Output', 'path'],
   ]) {
     const target = node(type);
@@ -166,6 +167,47 @@ test('Image stays rejected by unrelated fill, stroke, boolean, transform, remap,
   invalid.layer.nodes.push(invalidTarget);
   invalidTarget.params.path.source = invalid.image.id;
   assert.throws(() => deserialize(serialize(invalid.doc)), /Cannot connect Image to/);
+
+  const invalidConversion = fixture({ connectImage: false }),
+    converter = node('Convert to Path');
+  invalidConversion.layer.nodes.push(converter);
+  converter.params.path.source = invalidConversion.image.id;
+  assert.throws(
+    () => deserialize(serialize(invalidConversion.doc)),
+    /Cannot connect Image to Path/,
+  );
+});
+
+test('Image → Halftone → Convert to Path → Transform → Fill composes and saves as schema 18', () => {
+  const f = fixture({ size: [16, 16], pitch: 8 }),
+    converter = node('Convert to Path'),
+    transform = node('Transform'),
+    fill = node('Fill');
+  f.layer.nodes.splice(f.layer.nodes.indexOf(f.output), 0, converter, transform, fill);
+  connect(f.layer, f.effect.id, converter.id, 'path');
+  connect(f.layer, converter.id, transform.id, 'path');
+  transform.params.offset.value = [6, 4];
+  connect(f.layer, transform.id, fill.id, 'path');
+  fill.params.color.value = { hex: '#147c72', alpha: 1 };
+  connect(f.layer, fill.id, f.output.id, 'path');
+
+  validate(f.doc);
+  assert.equal(f.doc.schemaVersion, 18);
+  const result = evaluate(f.layer, {}, f.doc.imageAssets),
+    marks = result.run(f.effect.id),
+    converted = result.run(converter.id);
+  assert.equal(result.error, null);
+  assert.ok(marks.contours.length);
+  assert.equal(Object.hasOwn(converted, 'fill'), false);
+  assert.equal(Object.hasOwn(converted, 'stroke'), false);
+  assert.deepEqual(converted.contours, marks.contours);
+  assert.deepEqual(result.path.fill, fill.params.color.value);
+
+  const reopened = deserialize(serialize(f.doc)),
+    cold = evaluate(reopened.layers[0], {}, reopened.imageAssets);
+  assert.equal(reopened.schemaVersion, 18);
+  assert.equal(cold.error, null);
+  assert.deepEqual(cold.path, result.path);
 });
 
 test('Image Output forwards its Image-typed descriptor to a luminance input', () => {
