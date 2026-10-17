@@ -185,3 +185,11 @@ test('deleted or changed targets cannot be accepted; long replacements preserve 
   e.key('Tab');
   assert.equal(e.input.value.length, 4083);
 });
+
+test('value completion reports scalar or X/Y authored base without entering quoted strings', () => {
+  assert.equal(suggest('va')[0].text, 'value');
+  assert.match(suggest('va')[0].detail, /Authored base → Scalar/);
+  assert.match(expressionCompletions('va; 1', 2, 2, [], 'Vector2')[0].detail, /base X component/);
+  assert.match(expressionCompletions('1; va', 5, 5, [], 'Vector2')[0].detail, /base Y component/);
+  assert.deepEqual(suggest('ref("va'), []);
+});

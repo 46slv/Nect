@@ -29,10 +29,21 @@ export function expressionCompletionContext(value, start, end = start) {
   return { from, to, prefix };
 }
 
-export function expressionCompletions(value, start, end, targets = []) {
+export function expressionCompletions(value, start, end, targets = [], parameterType = 'Scalar') {
   const context = expressionCompletionContext(value, start, end);
   if (!context) return [];
+  const axis = value.slice(0, start).split(';').length === 1 ? 'X' : 'Y';
   const candidates = [
+    {
+      id: 'value',
+      label: 'value',
+      text: 'value',
+      terms: ['value'],
+      detail:
+        parameterType === 'Vector2'
+          ? `Authored base ${axis} component → Scalar`
+          : 'Authored base → Scalar',
+    },
     ...functions.map((name) => ({
       id: name,
       label: `${name}(…)`,
@@ -71,7 +82,7 @@ export function expressionCompletions(value, start, end, targets = []) {
 }
 
 let nextId = 0;
-export function attachExpressionCompletion(input, getTargets) {
+export function attachExpressionCompletion(input, getTargets, parameterType = 'Scalar') {
   const doc = input.ownerDocument;
   const list = doc.createElement('div');
   list.className = 'expression-completions';
@@ -95,7 +106,13 @@ export function attachExpressionCompletion(input, getTargets) {
     input.removeAttribute('aria-activedescendant');
   };
   const current = () =>
-    expressionCompletions(input.value, input.selectionStart, input.selectionEnd, getTargets());
+    expressionCompletions(
+      input.value,
+      input.selectionStart,
+      input.selectionEnd,
+      getTargets(),
+      parameterType,
+    );
   const paint = () => {
     list.replaceChildren();
     list.hidden = !items.length;

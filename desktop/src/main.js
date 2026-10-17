@@ -1545,9 +1545,31 @@ function field(n, key, q) {
     control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}><input type="number" data-scrub-step="0.01" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`;
   } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
-  else if (q.expression && !q.source)
-    control = `<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${q.locked ? 'disabled' : ''}>`;
-  else
+  else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
+    const baseLocked =
+      current().locked ||
+      q.locked ||
+      (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
+      (isTransform(n) &&
+        key === 'scaleWidth' &&
+        (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
+    const baseInputs = (q.type === 'Vector2' ? q.value : [q.value])
+      .map(
+        (v, i) =>
+          `<label class="base-component">${q.type === 'Vector2' ? (i ? 'Base Y' : 'Base X') : 'Base'}<input type="number" step="any" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + ' base' + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-base data-axis="${i}" value="${v * factor}" ${baseLocked ? 'disabled' : ''}></label>`,
+      )
+      .join('');
+    let result;
+    try {
+      const effective = renderEvaluation.parameterValue(n.id, key);
+      result = (q.type === 'Vector2' ? effective : [effective])
+        .map((v) => Number((v * factor).toFixed(3)))
+        .join(', ');
+    } catch {
+      result = '— Cannot evaluate';
+    }
+    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}</div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
+  } else
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
@@ -4606,11 +4628,13 @@ app.addEventListener('click', async (e) => {
     else {
       if (q.locked || current().locked) return;
       const dialog = document.createElement('dialog');
-      dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'Write X; Y expressions.' : 'Write a scalar expression.'} Type a function, node name, or parameter prefix for suggestions. ↑/↓ select; Tab/Enter insert; Escape dismisses. Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
+      dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'X; Y expressions: value reads Base X on the left, Base Y on the right.' : 'value reads this input’s authored base.'} Type a function, node name, or parameter prefix for suggestions. ↑/↓ select; Tab/Enter insert; Escape dismisses. Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
       const input = dialog.querySelector('input');
       input.value = q.expression || '';
-      const completion = attachExpressionCompletion(input, () =>
-        expressionReferenceTargets(current(), nn.id),
+      const completion = attachExpressionCompletion(
+        input,
+        () => expressionReferenceTargets(current(), nn.id),
+        q.type,
       );
       dialog.querySelector('[data-insert-reference]').onclick = () => {
         completion.hide();
@@ -5783,7 +5807,12 @@ app.addEventListener('change', async (e) => {
     }
     return;
   }
-  if (d.value !== undefined || d.expression !== undefined || d.color !== undefined) {
+  if (
+    d.base !== undefined ||
+    d.value !== undefined ||
+    d.expression !== undefined ||
+    d.color !== undefined
+  ) {
     const field = el.closest('.field'),
       n = current().nodes.find((node) => node.id === field?.dataset.node),
       q = n && parameter(n, field.dataset.key);
@@ -5799,6 +5828,7 @@ app.addEventListener('change', async (e) => {
         );
       } else {
         let value;
+        if (d.base !== undefined && !el.value.trim()) throw Error('Expected a finite number');
         if (d.color !== undefined) {
           value = { ...(q.value || { hex: current().fill, alpha: 1 }) };
           if (d.color === 'alpha') {
@@ -5821,7 +5851,11 @@ app.addEventListener('change', async (e) => {
             throw Error('Expected a finite number');
         }
         commandChange(
-          isTransform(n) ? 'set-transform-control' : 'set-parameter',
+          d.base !== undefined
+            ? 'set-parameter-base'
+            : isTransform(n)
+              ? 'set-transform-control'
+              : 'set-parameter',
           {
             ...payload,
             value,
@@ -6312,7 +6346,9 @@ app.addEventListener('pointerdown', (e) => {
     // Leave the native spinner hit area alone. A click elsewhere still focuses/selects text.
     if (
       (!current().locked || otherTarget?.localNumeric) &&
-      ((q && !q.locked && !q.source && !q.expression) || textTarget || otherTarget) &&
+      ((q && !q.locked && (numeric.dataset.base !== undefined || (!q.source && !q.expression))) ||
+        textTarget ||
+        otherTarget) &&
       (!rect.width || e.clientX < rect.right - 18)
     ) {
       drag = {
@@ -6324,6 +6360,7 @@ app.addEventListener('pointerdown', (e) => {
             axis: Number(numeric.dataset.axis || 0),
             alpha: numeric.dataset.color === 'alpha',
             factor: Number(numeric.dataset.valueFactor || 1),
+            authoredBase: numeric.dataset.base !== undefined,
           }),
         layerId: current().id,
         startX: e.clientX,
@@ -7413,7 +7450,7 @@ function movePointer(e) {
     }
     const n = current().nodes.find((n) => n.id === d.nodeId),
       q = n && parameter(n, d.key);
-    if (!q || current().locked || q.locked || q.source || q.expression) {
+    if (!q || current().locked || q.locked || (!d.authoredBase && (q.source || q.expression))) {
       cancelInteraction();
       return;
     }
@@ -7429,6 +7466,7 @@ function movePointer(e) {
         nodeId: d.nodeId,
         key: d.key,
         transformControl: isTransform(n),
+        authoredBase: d.authoredBase,
         ...(q.type === 'Vector2' ? { axis: d.axis } : {}),
         ...(d.alpha ? { alpha: true } : {}),
       });
@@ -7664,7 +7702,7 @@ document.addEventListener('pointerup', (e) => {
         ? false
         : drag.textKind
           ? !textNumericState(drag)
-          : !q || q.locked || q.source || q.expression)
+          : !q || q.locked || (!drag.authoredBase && (q.source || q.expression)))
     ) {
       cancelInteraction();
       return;
@@ -7881,6 +7919,19 @@ document.addEventListener('keydown', (e) => {
   if (drag?.type === 'numeric' && drag.started) {
     e.preventDefault();
     return;
+  }
+  if (e.target.matches?.('[data-base]') && !e.isComposing && e.keyCode !== 229) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.target.value = e.target.defaultValue;
+      e.target.blur();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.target.dispatchEvent(new window.Event('change', { bubbles: true }));
+      return;
+    }
   }
   if (['pan', 'graph-pan', 'graph-marquee'].includes(drag?.type) && e.key === 'Escape') {
     // Navigation is view-only: stop at the current offset without undo or selection changes.

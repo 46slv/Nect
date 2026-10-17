@@ -1835,3 +1835,33 @@ input[data-scrub-step].scrubbing {
 .canvas-wrap > .canvas-toolbar {
   top: 43px;
 }
+
+.authored-control {
+  width: 100%;
+  min-width: 0;
+}
+.base-inputs {
+  display: flex;
+  gap: 6px;
+}
+.base-component {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+}
+.base-component input {
+  width: 100%;
+}
+.parameter-result,
+.base-hint {
+  display: block;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.parameter-expression summary {
+  cursor: pointer;
+  font-size: 10px;
+}
+.parameter-expression input {
+  width: 100%;
+}

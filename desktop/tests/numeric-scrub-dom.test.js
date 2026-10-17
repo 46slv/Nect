@@ -139,7 +139,10 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
       } else n.params.center[protectedMode] = protectedMode === 'expression' ? '10; 20' : true;
     });
     const before = JSON.stringify(win.nect.document);
-    el = input(id, 'center');
+    // Authored Base now has its own editable control; effective inputs stay protected.
+    el = document.querySelector(
+      `.inspector-body .field[data-node="${id}"][data-key="center"] input[type="number"]:not([data-base])`,
+    );
     if (el) scrub(el, 24);
     assert.equal(JSON.stringify(win.nect.document), before);
     undoEmpty();

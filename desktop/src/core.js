@@ -1180,7 +1180,7 @@ export function translateRemapPoints(n, input, pointIds, delta) {
 export function parameter(n, key) {
   return parameters(n).find(([k]) => k === key)?.[1] || transformParameter(n, key);
 }
-export function expression(source, resolveReference, referencesOnly = false) {
+export function expression(source, resolveReference, referencesOnly = false, baseValue) {
   if (source.length > 4096) throw Error('Expression exceeds 4096 characters');
   const tokens =
     source.match(
@@ -1209,6 +1209,11 @@ export function expression(source, resolveReference, referencesOnly = false) {
     }
     if (t === 'pi') return Math.PI;
     if (t === 'e') return Math.E;
+    if (t === 'value') {
+      if (referencesOnly) return 0;
+      assertValue('Scalar', baseValue);
+      return baseValue;
+    }
     if (t === 'ref') {
       if (tokens[i++] !== '(') throw Error('Reference requires parentheses');
       const readString = () => {
@@ -1260,6 +1265,17 @@ export function expression(source, resolveReference, referencesOnly = false) {
   if (i !== tokens.length || (!referencesOnly && !Number.isFinite(result)))
     throw Error('Expression must produce a finite number');
   return result;
+}
+// Only bare value is new syntax; a quoted parameter key named "value" is not.
+function usesBaseValue(source) {
+  return /\bvalue\b/.test(source.replace(/"[^"]*"/g, ''));
+}
+function parameterExpression(q, resolveReference) {
+  return q.type === 'Vector2'
+    ? q.expression
+        .split(';')
+        .map((part, axis) => expression(part, resolveReference, false, q.value[axis]))
+    : expression(q.expression, resolveReference, false, q.value);
 }
 // IDs are deliberately restricted: no JavaScript, object access, or string evaluation.
 export function parameterReferenceExpression(nodeId, key, component) {
@@ -2099,9 +2115,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     let value = q.source
       ? run(q.source, q.sourcePort)
       : q.expression
-        ? q.type === 'Vector2'
-          ? q.expression.split(';').map((part) => expression(part, resolveExpressionReference))
-          : expression(q.expression, resolveExpressionReference)
+        ? parameterExpression(q, resolveExpressionReference)
         : n.type === 'Fill' && key === 'color' && q.value === null
           ? { hex: layer.fill, alpha: 1 }
           : clone(q.value);
@@ -3711,6 +3725,11 @@ export function validate(doc) {
     if (['Path', 'PaintedPath', 'Image'].includes(type) && q.value !== null)
       throw Error('Path fallback must be null');
     text(q.expression);
+    if (
+      usesBaseValue(q.expression) &&
+      (doc.schemaVersion < 26 || !['Scalar', 'Vector2'].includes(type))
+    )
+      throw Error('Authored value expressions require numeric parameters and schemaVersion 26');
     if (type === 'Color' && q.expression) throw Error('Color expressions are not supported');
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
@@ -3721,7 +3740,7 @@ export function validate(doc) {
   if (
     !doc ||
     ![
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -4965,7 +4984,11 @@ export class CommandSession {
       const value = target.alpha ? { ...q.value, alpha: update.value } : update.value;
       if (target.alpha && q.type !== 'Color') throw Error('Alpha requires a Color');
       return this.#commandCandidate(
-        target.transformControl && isTransform(node) ? 'set-transform-control' : 'set-parameter',
+        target.authoredBase
+          ? 'set-parameter-base'
+          : target.transformControl && isTransform(node)
+            ? 'set-transform-control'
+            : 'set-parameter',
         {
           layerId: target.layerId,
           nodeId: target.nodeId,
@@ -5832,6 +5855,7 @@ export class CommandSession {
         'disconnect',
         'set-operation',
         'set-parameter',
+        'set-parameter-base',
         'set-parameter-expression',
         'set-parameter-lock',
         'set-text-content',
@@ -5894,7 +5918,8 @@ export class CommandSession {
             Object.hasOwn(payload.patch || {}, 'tracking') &&
             payload.patch.tracking !== null) ||
           (type === 'set-text-settings' && Object.hasOwn(payload.settings || {}, 'kerning')) ||
-          (type === 'set-parameter' && payload.key === 'letterSpacing');
+          (['set-parameter', 'set-parameter-base'].includes(type) &&
+            payload.key === 'letterSpacing');
         if (blocked) throw Error('Maintained ink gaps control spacing; disable to edit');
       }
     }
@@ -6395,6 +6420,8 @@ export class CommandSession {
           if (!['Scalar', 'Vector2'].includes(q.type) || typeof payload.expression !== 'string')
             throw Error('Expected a numeric expression');
           q.expression = payload.expression;
+          if (usesBaseValue(q.expression))
+            candidate.schemaVersion = Math.max(candidate.schemaVersion, 26);
           if (payload.expression) {
             assertAcyclic(target);
             const evaluation = evaluate(
@@ -6407,14 +6434,13 @@ export class CommandSession {
               const value = evaluation.parameterValue(referenced.id, ref.key);
               return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
             };
-            const value =
-              q.type === 'Vector2'
-                ? payload.expression.split(';').map((part) => expression(part, resolve))
-                : expression(payload.expression, resolve);
+            const value = parameterExpression(q, resolve);
             assertValue(q.type, value);
           }
         } else {
-          if (q.source || q.expression)
+          if (type === 'set-parameter-base' && !['Scalar', 'Vector2'].includes(q.type))
+            throw Error('Authored base editing requires a numeric parameter');
+          if (type !== 'set-parameter-base' && (q.source || q.expression))
             throw Error(
               'Parameter is driven; disconnect input or clear expression before editing its fallback',
             );
@@ -6444,6 +6470,12 @@ export class CommandSession {
       }
     }
     validate(candidate);
+    if (type === 'set-parameter-base')
+      evaluate(
+        target,
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      ).parameterValue(payload.nodeId, payload.key);
     if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))
       evaluate(
