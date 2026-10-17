@@ -137,6 +137,39 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     assert.equal(win.nect.document.layers[0].nodes.length, 1);
     return saved();
   };
+  await t.test('launch is blank, has no demo UI, and preserves saved artwork when opened', () => {
+    const launch = saved();
+    assert.equal(win.nect.document.layers.length, 1);
+    assert.equal(win.nect.document.layers[0].nodes.length, 1);
+    assert.equal(win.nect.document.layers[0].nodes[0].type, 'Output');
+    assert.equal(win.nect.evaluate().error, null);
+    assert.equal($('.shape'), null);
+    assert.equal($('.warning'), null);
+    assert.equal(ui().selected, null);
+    assert.deepEqual(ui().selection, []);
+    assert.equal(ui().past, 0);
+    assert.match($('.inspector-body').textContent, /Empty composition/);
+    assert.equal($('[data-action="add-layer"]'), null);
+    click('[data-action="help"]');
+    assert.doesNotMatch($('dialog').textContent, /demo/i);
+    $('dialog button').click();
+    click('[data-tool="Circle"]');
+    const artwork = saved();
+    assert.equal(win.nect.document.layers.length, 2);
+    assert.ok($('.shape'));
+    click('[data-action="undo"]');
+    assert.equal(saved(), launch);
+    assert.equal($('.shape'), null);
+    click('[data-action="redo"]');
+    assert.equal(saved(), artwork);
+    load(JSON.parse(artwork));
+    assert.equal(saved(), artwork);
+    const existing = seed();
+    load(existing);
+    assert.equal(saved(), serialize(existing));
+    assert.equal(win.nect.document.layers[0].nodes.length, 6);
+    assert.ok($('.shape'));
+  });
   await t.test(
     'New creates an unsaved document with an independent empty Undo history',
     async () => {
@@ -253,39 +286,34 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
       }
     },
   );
-  await t.test(
-    '+Blank appends from locked hidden artwork and preserves both selection history and demo access',
-    () => {
-      const d = seed();
-      d.layers[0].locked = true;
-      d.layers[0].visible = false;
-      load(d);
-      const before = saved(),
-        prior = ui();
-      click('[data-action="add-blank-layer"]');
-      const after = saved(),
-        blank = win.nect.document.layers.at(-1);
-      assert.deepEqual(win.nect.document.layers[0], JSON.parse(before).layers[0]);
-      assert.equal(blank.nodes.length, 1);
-      assert.equal(blank.allowEmptyOutput, true);
-      assert.equal(blank.locked, false);
-      assert.equal(blank.visible, true);
-      assert.equal($('.shape'), null);
-      assert.equal(ui().selected, null);
-      assert.equal(ui().artworkTarget, null);
-      click(`[data-select-layer="${blank.id}"]`);
-      assert.equal(ui().artworkTarget, null);
-      assert.equal($('.artwork-selection'), null);
-      click('[data-action="undo"]');
-      assert.equal(saved(), before);
-      assert.equal(ui().selected, prior.selected);
-      click('[data-action="redo"]');
-      assert.equal(saved(), after);
-      click('[data-action="add-layer"]');
-      assert.equal(win.nect.document.layers.at(-1).nodes.length, 6);
-      assert.equal(win.nect.document.layers.length, 3);
-    },
-  );
+  await t.test('+Blank appends from locked hidden artwork and preserves selection history', () => {
+    const d = seed();
+    d.layers[0].locked = true;
+    d.layers[0].visible = false;
+    load(d);
+    const before = saved(),
+      prior = ui();
+    click('[data-action="add-blank-layer"]');
+    const after = saved(),
+      blank = win.nect.document.layers.at(-1);
+    assert.deepEqual(win.nect.document.layers[0], JSON.parse(before).layers[0]);
+    assert.equal(blank.nodes.length, 1);
+    assert.equal(blank.allowEmptyOutput, true);
+    assert.equal(blank.locked, false);
+    assert.equal(blank.visible, true);
+    assert.equal($('.shape'), null);
+    assert.equal(ui().selected, null);
+    assert.equal(ui().artworkTarget, null);
+    click(`[data-select-layer="${blank.id}"]`);
+    assert.equal(ui().artworkTarget, null);
+    assert.equal($('.artwork-selection'), null);
+    click('[data-action="undo"]');
+    assert.equal(saved(), before);
+    assert.equal(ui().selected, prior.selected);
+    click('[data-action="redo"]');
+    assert.equal(saved(), after);
+    assert.equal($('[data-action="add-layer"]'), null);
+  });
   await t.test(
     'blank graph creation remains disconnected until explicit Use as output',
     async () => {

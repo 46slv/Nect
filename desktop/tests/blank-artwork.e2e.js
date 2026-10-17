@@ -39,13 +39,18 @@ const download = async (action, ext) => {
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
-  const demo = await snapshot();
-  assert.equal(
-    JSON.parse(demo).layers[0].nodes.length,
-    6,
-    'launch demo remains explicit compatibility behavior',
-  );
+  await page.waitForSelector('.node');
+  const launch = JSON.parse(await snapshot());
+  assert.equal(launch.layers[0].nodes.length, 1);
+  assert.equal(launch.layers[0].nodes[0].type, 'Output');
+  assert.equal(await page.locator('.shape').count(), 0);
+  assert.equal(await page.locator('[data-action="add-layer"]').count(), 0);
+  // Existing demo-shaped documents remain valid user files and explicit fixtures.
+  const demo = await page.evaluate(async () => {
+    const { document, serialize } = await import('/src/core.js');
+    return serialize(document());
+  });
+  await load(demo);
   accept = false;
   await click('new');
   assert.equal(await snapshot(), demo);
@@ -183,8 +188,7 @@ try {
   assert.equal(await snapshot(), prior);
   await click('redo');
   assert.equal(await snapshot(), appended);
-  await click('add-layer');
-  assert.equal(JSON.parse(await snapshot()).layers.at(-1).nodes.length, 6);
+  assert.equal(await page.locator('[data-action="add-layer"]').count(), 0);
   // A keyboard-activated +Blank cannot carry a pressed old-layer drag into its new graph.
   await load(demo);
   const handle = page.locator('.node-stage-move rect'),

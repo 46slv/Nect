@@ -363,10 +363,8 @@ import {
   MAX_PROJECT_BYTES,
 } from './fonts.js';
 import {
-  document as newDocument,
   blankDocument,
   hasEmptyOutput,
-  layer,
   node,
   point,
   uid,
@@ -641,10 +639,10 @@ const sessionOptions = {
     ),
 };
 let viewerState = createViewerState();
-let session = new CommandSession(newDocument(), sessionOptions);
+let session = new CommandSession(blankDocument(), sessionOptions);
 let history = session.historyView,
   activeLayer = history.doc.layers[0].id,
-  selected = history.doc.layers[0].nodes[0].id,
+  selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
   tool = 'select',
@@ -708,7 +706,7 @@ let openRequest = 0,
   imagePick = null,
   pngScale = 1,
   exportInFlight = false;
-let selection = new Set([selected]);
+let selection = new Set();
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
 function selectionSnapshot(withEditSelection = false) {
@@ -2202,7 +2200,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -4383,17 +4381,6 @@ app.addEventListener('click', async (e) => {
           document.querySelector('.canvas-stage').focus({ preventScroll: true });
           break;
         }
-        case 'add-layer':
-          {
-            const created = session.dispatch({ ...session.state, type: 'create-demo-layer' });
-            activeLayer = created.layerId;
-            selected = created.nodeId;
-            artworkTarget = null;
-            artworkSelection = new Set();
-            selection = new Set([selected]);
-          }
-          render(true);
-          break;
         case 'zoom-in':
         case 'zoom-out':
         case 'actual-size':
@@ -4473,7 +4460,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;

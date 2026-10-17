@@ -48,7 +48,7 @@ test('blank factories keep the existing demo/model contract and create only one 
   const d = blankDocument(),
     l = d.layers[0],
     out = l.nodes[0];
-  assert.equal(d.schemaVersion, 2);
+  assert.equal(d.schemaVersion, document().schemaVersion);
   assert.equal(d.layers.length, 1);
   assert.equal(l.allowEmptyOutput, true);
   assert.equal(l.nodes.length, 1);
