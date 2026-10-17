@@ -229,3 +229,29 @@ It intentionally may shrink geometry; it will not claim topology preservation or
 
 Continue researching and adding useful geometry modifiers in coherent, focused slices. Finish
 concrete slices with focused verification, not merely a list of modifier ideas.
+
+### Expand Stroke and editable modifier playground
+
+- Converts the existing Stroke's PaintedPath to unpainted Path geometry for Boolean use;
+  width/cap/join/miter settings are read from Stroke. Existing fill, stroke color and alpha
+  do not paint the result. Add Fill after conversion. Bypass is disabled because the types differ.
+- Solid straight-edge input only; Resample Path before Stroke converts curved input explicitly.
+  All-zero dash patterns count as solid; any nonzero pattern rejects. Open caps support butt,
+  square and round. Closed contours use Clipper's
+  [EndType.Joined](https://angusj.com/clipper2/Docs/Units/Clipper/Types/EndType.htm) for centered
+  stroke bands with holes, not Polygon inflation. Earlier open-only research is superseded by
+  concrete Joined rectangle/reversed-winding probes and tests.
+- Independent source groups are processed independently; overlapping outlines within a group
+  are unioned by the pinned Clipper kernel. Width 0 is empty; nonzero width below 0.0002 px
+  rejects. Miter limit 1–100. Input32 contours/256points, output2048points, round-work4096.
+- Local integer grid 0.0001px; round-arc tolerance at most0.1px. Conservative coordinate/width
+  envelope prevents unsafe integer/world restoration. No exact SVG-stroke equivalence claim.
+- Evidence: kernel9/9 + graph/Session3/3 + DOM1/1, Web build pass. Closed rectangle band area,
+  hole winding, caps, Boolean input, groups, unsupported input and atomic dash rejection covered.
+- `scripts/modifier-playground.js` builds `examples/modifier-playground.json` (18 editable
+  layers, all evaluated after serialize/reopen) and a seven-modifier SVG preview. Fixed IDs
+  make repeated JSON/SVG generation byte-identical. The SVG was rasterized with PyMuPDF and
+  visually inspected; all seven examples and labels are present without clipping. This is a
+  shared-core export review, not native application GUI acceptance.
+
+See [modifier catalog](modifiers.md) for current controls, recipes and limitations.

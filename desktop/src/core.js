@@ -1,3 +1,4 @@
+import { expandStrokeGeometry } from './expand-stroke-geometry.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
@@ -166,6 +167,7 @@ export const definitions = {
     iterations: p('Scalar', 3),
     keepEndpoints: p('Boolean', true),
   },
+  'Expand Stroke': { path: p('PaintedPath', null) },
   'Trim Path': {
     path: p('Path', null),
     start: p('Scalar', 0),
@@ -1591,6 +1593,17 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Expand Stroke') {
+        const source = read('path');
+        result = expandStrokeGeometry(source, { prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Expand Stroke; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Trim Path') {
         const source = read('path'),
           start = read('start'),
@@ -2156,6 +2169,7 @@ export function assertClosedOffsetChange(
     'Roughen',
     'Smooth Path',
     'Trim Path',
+    'Expand Stroke',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
