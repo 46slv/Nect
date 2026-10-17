@@ -643,3 +643,26 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   bounds are rejected. The [12-layer grid-origin playground](../examples/luminance-grid-origin.json)
   compares 0, quarter-cell and half-cell shifts on the same unchanged source paths and has a
   serialized/reopened evaluation plus actual SVG/PNG review.
+
+### Bounded variable-width Expand Stroke — schema 16
+
+- Expand Stroke adds Start / End Width Multiplier, each finite and bounded to 0–4 with default
+  `1`. Unequal values linearly ramp the base Stroke width per open contour by normalized arc
+  length of the flattened centerline. Each contour uses the same local start/end rule; this is
+  endpoint control only, with no editable middle points, saved width profiles, or Illustrator
+  numeric-parity claim.
+- Equal multipliers use the existing constant-width expansion path, including closed contours;
+  default `1` / `1` preserves prior outline geometry and fingerprint. Unequal values reject any
+  closed contour. Zero at an endpoint collapses that tip independent of cap; both multipliers at
+  zero produce empty output. Existing Stroke paint/style descriptor and dash support are
+  unchanged; nonzero dash patterns remain unsupported.
+- Older-schema Expand Stroke nodes backfill `1` / `1` and validation upgrades the document to
+  schema 16. Direct, expression-driven, and source-driven multipliers are bounded in core
+  validation/preflight; invalid changes roll back. The bounded Inspector fields remain lockable
+  and use the ordinary history, serialization, and retained Path Remap semantics.
+- Focused geometry, core/Session, DOM, and shared parameter-validation checks pass **28/28**;
+  the Web build passes with the existing large-chunk warning. This is not a full-suite or native
+  Windows interaction claim. The next-step brief keeps arbitrary middle width points and reusable
+  profiles as a separate proposal. The [12-layer variable-stroke playground](../examples/variable-stroke-playground.json)
+  covers uniform, start-tip, and end-tip cubic examples; its editable file was serialized/reopened,
+  and its SVG/PNG were reviewed in Inkscape.

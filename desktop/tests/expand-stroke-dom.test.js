@@ -87,7 +87,33 @@ test('Expand Stroke is searchable and explains geometry conversion', async () =>
   assert.match(help, /upstream solid Stroke/);
   assert.match(help, /cubic centerlines.*0\.1 px tolerance/i);
   assert.match(help, /256 flattened vertices/);
+  assert.match(help, /normalized centerline arc length on open contours/i);
   assert.doesNotMatch(help, /straight-edge paths only/i);
   assert.ok(document.querySelector(`.graph .field[data-node="${expand}"][data-key="path"]`));
+  for (const [key, label] of [
+    ['startWidthMultiplier', 'Start width multiplier'],
+    ['endWidthMultiplier', 'End width multiplier'],
+  ]) {
+    const field = document.querySelector(
+        `.inspector-body .field[data-node="${expand}"][data-key="${key}"]`,
+      ),
+      input = field?.querySelector('input[type="number"][data-value]');
+    assert.ok(field, `${key} inspector field`);
+    assert.equal(field.querySelector('label').textContent, label);
+    assert.equal(input.min, '0');
+    assert.equal(input.max, '4');
+    assert.ok(input.hasAttribute('data-scrub-step'));
+    assert.equal(input.disabled, false);
+  }
+  const start = document.querySelector(
+    `.graph .field[data-node="${expand}"][data-key="startWidthMultiplier"] [data-value]`,
+  );
+  await change(start, '2.5');
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === expand).params.startWidthMultiplier
+      .value,
+    2.5,
+  );
+  assert.equal(win.nect.document.schemaVersion, 16);
   win.happyDOM.abort();
 });

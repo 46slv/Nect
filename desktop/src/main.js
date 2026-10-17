@@ -750,6 +750,8 @@ function numericLimits(n, key) {
     if (key === 'miterLimit') return [1, 10000];
     if (key === 'dashOffset') return [-100000, 100000];
   }
+  if (n.type === 'Expand Stroke' && ['startWidthMultiplier', 'endWidthMultiplier'].includes(key))
+    return [0, 4];
   if (n.type === 'Dash Path' && key === 'dashLength') return [0.0001, 100000];
   if (n.type === 'Dash Path' && key === 'gapLength') return [0, 100000];
   if (n.type === 'Dash Path' && key === 'offset') return [-100000, 100000];
@@ -783,7 +785,7 @@ function numericLimits(n, key) {
 }
 function numericAttributes(n, key) {
   const [min, max] = numericLimits(n, key);
-  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Auto Handles' && key === 'strength') || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Auto Handles' && key === 'strength') || (n.type === 'Expand Stroke' && ['startWidthMultiplier', 'endWidthMultiplier'].includes(key)) || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
 }
 function numericControlTarget(input) {
   const d = input.dataset,
@@ -1068,73 +1070,78 @@ function field(n, key, q) {
             rotation: 'Rotation',
             offset: 'Legacy Offset',
           }[key] || key
-        : n.type === 'Dash Path'
+        : n.type === 'Expand Stroke'
           ? {
-              dashLength: 'Dash Length (px)',
-              gapLength: 'Gap Length (px)',
-              offset: 'Pattern Offset (px)',
+              startWidthMultiplier: 'Start width multiplier',
+              endWidthMultiplier: 'End width multiplier',
             }[key] || key
-          : n.type === 'Simplify Path' && key === 'tolerance'
-            ? 'Tolerance (px)'
-            : n.type === 'Smooth Path'
-              ? { factor: 'Factor', iterations: 'Iterations', keepEndpoints: 'Keep Endpoints' }[
-                  key
-                ] || key
-              : n.type === 'Trim Path'
-                ? { start: 'Start (0–1)', end: 'End (0–1)' }[key] || key
-                : n.type === 'Set Path Start' && key === 'start'
-                  ? 'Start (0–1)'
-                  : n.type === 'Set Closure' && key === 'closed'
-                    ? 'Closed'
-                    : n.type === 'Roughen'
-                      ? {
-                          amount: 'Amount (px per axis)',
-                          seed: 'Seed',
-                          keepEndpoints: 'Keep Endpoints',
-                        }[key] || key
-                      : n.type === 'Resample Path' && key === 'count'
-                        ? 'Points per Contour'
-                        : n.type === 'Resample Path' && key === 'spacing'
-                          ? 'Maximum spacing (px)'
-                          : n.type === 'Wave Points'
-                            ? {
-                                amplitude: 'Amplitude (px)',
-                                wavelength: 'Wavelength (px)',
-                                phase: 'Phase (°)',
-                                keepEndpoints: 'Keep Endpoints',
-                              }[key] || key
-                            : n.type === 'Taper' && key === 'amount'
-                              ? 'Amount (%)'
-                              : n.type === 'Bend Points' && key === 'angle'
-                                ? 'Angle (°)'
-                                : n.type === 'Twist Points' && key === 'angle'
+          : n.type === 'Dash Path'
+            ? {
+                dashLength: 'Dash Length (px)',
+                gapLength: 'Gap Length (px)',
+                offset: 'Pattern Offset (px)',
+              }[key] || key
+            : n.type === 'Simplify Path' && key === 'tolerance'
+              ? 'Tolerance (px)'
+              : n.type === 'Smooth Path'
+                ? { factor: 'Factor', iterations: 'Iterations', keepEndpoints: 'Keep Endpoints' }[
+                    key
+                  ] || key
+                : n.type === 'Trim Path'
+                  ? { start: 'Start (0–1)', end: 'End (0–1)' }[key] || key
+                  : n.type === 'Set Path Start' && key === 'start'
+                    ? 'Start (0–1)'
+                    : n.type === 'Set Closure' && key === 'closed'
+                      ? 'Closed'
+                      : n.type === 'Roughen'
+                        ? {
+                            amount: 'Amount (px per axis)',
+                            seed: 'Seed',
+                            keepEndpoints: 'Keep Endpoints',
+                          }[key] || key
+                        : n.type === 'Resample Path' && key === 'count'
+                          ? 'Points per Contour'
+                          : n.type === 'Resample Path' && key === 'spacing'
+                            ? 'Maximum spacing (px)'
+                            : n.type === 'Wave Points'
+                              ? {
+                                  amplitude: 'Amplitude (px)',
+                                  wavelength: 'Wavelength (px)',
+                                  phase: 'Phase (°)',
+                                  keepEndpoints: 'Keep Endpoints',
+                                }[key] || key
+                              : n.type === 'Taper' && key === 'amount'
+                                ? 'Amount (%)'
+                                : n.type === 'Bend Points' && key === 'angle'
                                   ? 'Angle (°)'
-                                  : n.type === 'Pucker & Bloat'
-                                    ? {
-                                        amount: 'Amount (%)',
-                                        autoCenter: 'Automatic Center',
-                                        center: 'Center',
-                                      }[key] || key
-                                    : n.type === 'Subdivide Path' && key === 'segments'
-                                      ? 'Segments per Edge'
-                                      : n.type === 'Mirror'
-                                        ? {
-                                            center: 'Axis Center',
-                                            angle: 'Axis Angle (°)',
-                                            keepOriginal: 'Keep Original',
-                                          }[key] || key
-                                        : key === 'center' &&
-                                            [
-                                              'Circle',
-                                              'Ellipse',
-                                              'Rectangle',
-                                              'Polygon',
-                                              'Star',
-                                            ].includes(n.type)
-                                          ? 'Position'
-                                          : key.includes('.')
-                                            ? key.split('.').at(-1)
-                                            : key;
+                                  : n.type === 'Twist Points' && key === 'angle'
+                                    ? 'Angle (°)'
+                                    : n.type === 'Pucker & Bloat'
+                                      ? {
+                                          amount: 'Amount (%)',
+                                          autoCenter: 'Automatic Center',
+                                          center: 'Center',
+                                        }[key] || key
+                                      : n.type === 'Subdivide Path' && key === 'segments'
+                                        ? 'Segments per Edge'
+                                        : n.type === 'Mirror'
+                                          ? {
+                                              center: 'Axis Center',
+                                              angle: 'Axis Angle (°)',
+                                              keepOriginal: 'Keep Original',
+                                            }[key] || key
+                                          : key === 'center' &&
+                                              [
+                                                'Circle',
+                                                'Ellipse',
+                                                'Rectangle',
+                                                'Polygon',
+                                                'Star',
+                                              ].includes(n.type)
+                                            ? 'Position'
+                                            : key.includes('.')
+                                              ? key.split('.').at(-1)
+                                              : key;
   let control;
   let displayed = q.value;
   if (
@@ -1442,7 +1449,7 @@ function simplifyControls(n) {
 }
 function expandStrokeControls(n) {
   return n.type === 'Expand Stroke'
-    ? '<p class="font-note">Convert an upstream solid Stroke into editable outline geometry for Boolean operations. Width / cap / join come from that Stroke node; fill and paint color are not carried into the result. Add Fill after expansion. Cubic centerlines are flattened to polylines at 0.1 px tolerance when the bounds permit; endpoint caps follow the first / last tangent as represented by that flattening. Limits: 32 contours, 256 authored points, 256 flattened vertices, 4096 subdivision nodes and depth 24. This bounds centerline flattening, not total outline error. Nonzero dash patterns are unsupported. This type conversion cannot be bypassed as a same-type effect.</p>'
+    ? '<p class="font-note">Convert an upstream solid Stroke into editable outline geometry for Boolean operations. Width / cap / join come from that Stroke node; Start / End width multipliers (0–4) linearly scale width by normalized centerline arc length on open contours. Values of 1 keep constant width; unequal values reject closed contours. Fill and paint color are not carried into the result. Add Fill after expansion. Cubic centerlines are flattened to polylines at 0.1 px tolerance when the bounds permit; endpoint caps follow the first / last tangent as represented by that flattening. Limits: 32 contours, 256 authored points, 256 flattened vertices, 4096 subdivision nodes and depth 24. This bounds centerline flattening, not total outline error. Nonzero dash patterns are unsupported. This type conversion cannot be bypassed as a same-type effect.</p>'
     : '';
 }
 function trimControls(n) {

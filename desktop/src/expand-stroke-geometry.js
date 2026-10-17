@@ -1,4 +1,4 @@
-import { EndType, JoinType } from 'clipper2-ts';
+import { EndType, FillRule, JoinType, union } from 'clipper2-ts';
 import { NectClipperOffset } from './clipper-adapter.js';
 import { flattenCubicCenterline } from './closed-offset.js';
 
@@ -366,52 +366,303 @@ function prepareGroup(contours, { width, cap, join, miterLimit }) {
   return { origin, paths };
 }
 
+const cross = (a, b) => a.x * b.y - a.y * b.x;
+const dot = (a, b) => a.x * b.x + a.y * b.y;
+const subtract = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+const add = (a, b) => ({ x: a.x + b.x, y: a.y + b.y });
+const scale = (point, factor) => ({ x: point.x * factor, y: point.y * factor });
+
+function validateWidthMultipliers(options) {
+  const start = options.startWidthMultiplier === undefined ? 1 : options.startWidthMultiplier;
+  const end = options.endWidthMultiplier === undefined ? 1 : options.endWidthMultiplier;
+  if (
+    !Number.isFinite(start) ||
+    start < 0 ||
+    start > 4 ||
+    !Number.isFinite(end) ||
+    end < 0 ||
+    end > 4
+  )
+    fail('Expand Stroke start and end width multipliers must be finite and between 0 and 4');
+  return { start, end };
+}
+
+function roundStepAngle(radius) {
+  if (!(radius > 0) || !Number.isFinite(radius)) return null;
+  const tolerance = Math.min(0.1, radius / 4);
+  const stepAngle = Math.acos(1 - tolerance / radius);
+  if (!Number.isFinite(stepAngle) || stepAngle <= 0)
+    fail('Expand Stroke cannot estimate round join work at this width');
+  return stepAngle;
+}
+
+function appendRoundArc(output, center, radius, startAngle, sweep, work) {
+  if (radius === 0) return;
+  const stepAngle = roundStepAngle(radius);
+  const steps = Math.max(1, Math.ceil(Math.abs(sweep) / stepAngle));
+  work.count += steps;
+  if (work.count > MAX_ROUND_WORK)
+    fail(`Expand Stroke round joins exceed the ${MAX_ROUND_WORK}-vertex work budget`);
+  for (let step = 1; step <= steps; step++) {
+    const angle = startAngle + (sweep * step) / steps;
+    output.push({
+      x: center.x + Math.cos(angle) * radius,
+      y: center.y + Math.sin(angle) * radius,
+    });
+  }
+}
+
+function appendVariableSide(output, centers, radii, directions, side, stroke, work) {
+  const normal = (direction) => ({ x: -direction.y * side, y: direction.x * side });
+  const startOffset = scale(normal(directions[0]), radii[0]);
+  output.push(add(centers[0], startOffset));
+  for (let index = 1; index < centers.length - 1; index++) {
+    const center = centers[index];
+    const incoming = directions[index - 1];
+    const outgoing = directions[index];
+    const turn = cross(incoming, outgoing);
+    const alignment = dot(incoming, outgoing);
+    if (Math.abs(turn) < 1e-8) {
+      if (alignment < 0)
+        fail('Expand Stroke rejects a cusp that reverses the centerline direction');
+      const incomingPoint = add(center, scale(normal(incoming), radii[index]));
+      const outgoingPoint = add(center, scale(normal(outgoing), radii[index]));
+      output.push(incomingPoint, outgoingPoint);
+      continue;
+    }
+
+    const incomingPoint = add(center, scale(normal(incoming), radii[index]));
+    const outgoingPoint = add(center, scale(normal(outgoing), radii[index]));
+    const isOuter = turn * side < 0;
+    if (isOuter && stroke.join === 'bevel') {
+      output.push(incomingPoint, outgoingPoint);
+    } else if (isOuter && stroke.join === 'round') {
+      output.push(incomingPoint);
+      const startAngle = Math.atan2(incomingPoint.y - center.y, incomingPoint.x - center.x);
+      const endAngle = Math.atan2(outgoingPoint.y - center.y, outgoingPoint.x - center.x);
+      const sweepSign = -Math.sign(side);
+      let sweep = endAngle - startAngle;
+      if (sweepSign > 0) while (sweep <= 0) sweep += 2 * Math.PI;
+      else while (sweep >= 0) sweep -= 2 * Math.PI;
+      appendRoundArc(output, center, radii[index], startAngle, sweep, work);
+    } else {
+      const intersectionDistance = cross(subtract(outgoingPoint, incomingPoint), outgoing) / turn;
+      const intersection = add(incomingPoint, scale(incoming, intersectionDistance));
+      const miterReach = Math.hypot(intersection.x - center.x, intersection.y - center.y);
+      if (!Number.isFinite(miterReach))
+        fail('Expand Stroke variable-width join exceeds its bounded miter reach');
+      if (miterReach > radii[index] * stroke.miterLimit) output.push(incomingPoint, outgoingPoint);
+      else output.push(intersection);
+    }
+  }
+  const endOffset = scale(normal(directions.at(-1)), radii.at(-1));
+  output.push(add(centers.at(-1), endOffset));
+}
+
+function prepareVariableGroup(
+  contours,
+  stroke,
+  startMultiplier,
+  endMultiplier,
+  work = { count: 0 },
+) {
+  const origin = contours.origin ?? localOrigin(contours);
+  const coordinateOrigin = contours.origin ? { x: 0, y: 0 } : origin;
+  const maxWidth = stroke.width * Math.max(startMultiplier, endMultiplier);
+  const maxRadius = maxWidth / 2;
+  const reach = maxRadius * stroke.miterLimit + (stroke.cap === 'square' ? maxRadius : 0);
+  let maxLocal = 0;
+  for (const contour of contours)
+    for (const point of contour.points)
+      maxLocal = Math.max(
+        maxLocal,
+        Math.abs(point.x - coordinateOrigin.x),
+        Math.abs(point.y - coordinateOrigin.y),
+      );
+  if ((maxLocal + reach + GRID_SIZE) * GRID >= INTEGER_LIMIT)
+    fail('Expand Stroke local geometry and variable-width reach exceed the safe integer envelope');
+
+  const outlines = [];
+  for (const contour of contours) {
+    if (contour.closed) fail('Expand Stroke variable-width strokes support open contours only');
+    const quantized = contour.points.map((point) =>
+      pointToGrid(
+        { x: point.x - coordinateOrigin.x, y: point.y - coordinateOrigin.y },
+        { x: 0, y: 0 },
+      ),
+    );
+    if (
+      (contour.tangentStart && samePoint(quantized[0], quantized[1])) ||
+      (contour.tangentEnd && samePoint(quantized.at(-2), quantized.at(-1)))
+    )
+      fail('Expand Stroke endpoint tangent collapses at the 0.0001 px geometry grid');
+    const gridPoints = dropDuplicateGridPoints(quantized, false);
+    if (gridPoints.length < 2)
+      fail('Expand Stroke source edges collapse at the 0.0001 px geometry grid');
+    const centers = gridPoints.map((point) => ({ x: point.x / GRID, y: point.y / GRID }));
+    const directions = [];
+    const lengths = [];
+    let totalLength = 0;
+    for (let index = 0; index < centers.length - 1; index++) {
+      const dx = centers[index + 1].x - centers[index].x;
+      const dy = centers[index + 1].y - centers[index].y;
+      const length = Math.hypot(dx, dy);
+      if (!Number.isFinite(length) || length === 0)
+        fail('Expand Stroke source edges collapse at the 0.0001 px geometry grid');
+      directions.push({ x: dx / length, y: dy / length });
+      lengths.push(length);
+      totalLength += length;
+    }
+    if (!(totalLength > 0) || !Number.isFinite(totalLength))
+      fail('Expand Stroke centerline has no finite arc length');
+
+    const radii = [(stroke.width * startMultiplier) / 2];
+    let traveled = 0;
+    for (const length of lengths) {
+      traveled += length;
+      const fraction = traveled / totalLength;
+      const multiplier = startMultiplier + (endMultiplier - startMultiplier) * fraction;
+      radii.push((stroke.width * multiplier) / 2);
+    }
+
+    const left = [];
+    const right = [];
+    appendVariableSide(left, centers, radii, directions, 1, stroke, work);
+    appendVariableSide(right, centers, radii, directions, -1, stroke, work);
+    const outline = [...left];
+    if (stroke.cap === 'round') {
+      const endCenter = centers.at(-1);
+      const endNormal = { x: -directions.at(-1).y, y: directions.at(-1).x };
+      const startAngle = Math.atan2(endNormal.y, endNormal.x);
+      appendRoundArc(outline, endCenter, radii.at(-1), startAngle, -Math.PI, work);
+    } else if (stroke.cap === 'square') {
+      const extension = scale(directions.at(-1), radii.at(-1));
+      const normalExtension = scale(
+        { x: -directions.at(-1).y, y: directions.at(-1).x },
+        radii.at(-1),
+      );
+      outline.push(
+        add(add(centers.at(-1), extension), normalExtension),
+        add(add(centers.at(-1), extension), scale(normalExtension, -1)),
+      );
+    } else outline.push(right.at(-1));
+    for (let index = right.length - 2; index >= 0; index--) outline.push(right[index]);
+    if (stroke.cap === 'round') {
+      const startCenter = centers[0];
+      const startNormal = { x: -directions[0].y, y: directions[0].x };
+      const rightAngle = Math.atan2(-startNormal.y, -startNormal.x);
+      appendRoundArc(outline, startCenter, radii[0], rightAngle, -Math.PI, work);
+    } else if (stroke.cap === 'square') {
+      const extension = scale(directions[0], -radii[0]);
+      const normalExtension = scale({ x: -directions[0].y, y: directions[0].x }, radii[0]);
+      outline.push(
+        add(add(centers[0], extension), scale(normalExtension, -1)),
+        add(add(centers[0], extension), normalExtension),
+      );
+    }
+
+    const quantizedOutline = dropDuplicateGridPoints(
+      outline.map((point) => pointToGrid(point, { x: 0, y: 0 })),
+      true,
+    );
+    if (quantizedOutline.length < 3)
+      fail('Expand Stroke variable-width outline collapses at the 0.0001 px geometry grid');
+    outlines.push(quantizedOutline);
+  }
+  return { origin, outlines };
+}
+
 /**
  * Convert a solid Stroke result to unpainted filled geometry. Cubic centerlines
- * are flattened with bounded adaptive subdivision before offsetting. The fixed
- * 0.1 px tolerance applies to the centerline only; joins, offset cleanup and
- * grid conversion mean this is not a global final-outline error bound or exact
- * SVG stroke equivalence. Straight input retains its original fast path.
+ * are flattened with bounded adaptive subdivision before offsetting. Optional
+ * start/end multipliers linearly ramp widths by normalized flattened arc length
+ * on open contours; equal multipliers use the existing constant-width kernel.
+ * Unequal profiles reject closed contours; zero-radius caps collapse to tips,
+ * and an all-zero profile returns empty geometry. Input groups are cleaned
+ * independently. Reversing cusps reject, and joins fall back to bevel at the
+ * configured miter reach. Existing contour, flatten, round-work and output
+ * budgets remain in force. The 0.1 px tolerance applies to the centerline only,
+ * not the final outline. Straight default-width input retains its original fast path.
  */
 export function expandStrokeGeometry(source, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     fail('Expand Stroke needs valid options');
-  const { prefix = 'expandStroke' } = options;
+  const { prefix = 'expandStroke', startWidthMultiplier = 1, endWidthMultiplier = 1 } = options;
   if (typeof prefix !== 'string' || !prefix || prefix.length > 256)
     fail('Expand Stroke needs a nonempty output ID prefix of at most 256 characters');
+  const multipliers = validateWidthMultipliers({ startWidthMultiplier, endWidthMultiplier });
   const stroke = validateStroke(source?.stroke);
   const groups = flattenSourceGroups(validateSource(source));
-  if (stroke.width === 0 || groups.every((group) => group.length === 0)) return { contours: [] };
-  if (stroke.width * GRID < 2)
+  const uniformMultiplier = multipliers.start === multipliers.end;
+  if (!uniformMultiplier && groups.some((group) => group.some((contour) => contour.closed)))
+    fail('Expand Stroke variable-width strokes support open contours only');
+  const maxWidth = stroke.width * Math.max(multipliers.start, multipliers.end);
+  if (stroke.width === 0 || maxWidth === 0 || groups.every((group) => group.length === 0))
+    return { contours: [] };
+  if (maxWidth * GRID < 2)
     fail('Nonzero Expand Stroke width must be at least 0.0002 px at the 0.0001 px geometry grid');
 
-  const roundWork = groups.reduce(
-    (sum, contours) => sum + roundArcEstimate(contours, stroke.cap, stroke.join, stroke.width / 2),
-    0,
-  );
-  if (roundWork > MAX_ROUND_WORK)
-    fail(`Expand Stroke round joins exceed the ${MAX_ROUND_WORK}-vertex work budget`);
+  const expansionStroke =
+    uniformMultiplier && multipliers.start !== 1
+      ? { ...stroke, width: stroke.width * multipliers.start }
+      : stroke;
+
+  if (uniformMultiplier) {
+    const roundWork = groups.reduce(
+      (sum, contours) =>
+        sum +
+        roundArcEstimate(
+          contours,
+          expansionStroke.cap,
+          expansionStroke.join,
+          expansionStroke.width / 2,
+        ),
+      0,
+    );
+    if (roundWork > MAX_ROUND_WORK)
+      fail(`Expand Stroke round joins exceed the ${MAX_ROUND_WORK}-vertex work budget`);
+  }
 
   const joinTypes = { miter: JoinType.Miter, bevel: JoinType.Bevel, round: JoinType.Round };
   const endTypes = { butt: EndType.Butt, square: EndType.Butt, round: EndType.Round };
-  const preparedGroups = groups.map((group) => (group.length ? prepareGroup(group, stroke) : null));
+  const variableRoundWork = { count: 0 };
+  const preparedGroups = groups.map((group) =>
+    group.length
+      ? uniformMultiplier
+        ? prepareGroup(group, expansionStroke)
+        : prepareVariableGroup(group, stroke, multipliers.start, multipliers.end, variableRoundWork)
+      : null,
+  );
   const contours = [];
   let outputPointCount = 0;
   for (const [groupIndex, prepared] of preparedGroups.entries()) {
     if (!prepared) continue;
-    const { origin, paths } = prepared;
-    const engine = new NectClipperOffset(stroke.miterLimit, Math.min(0.1, stroke.width / 8) * GRID);
-    const openPaths = paths.filter((path) => !path.closed).map((path) => path.points);
-    const closedPaths = paths.filter((path) => path.closed).map((path) => path.points);
-    // Joined deliberately treats a closed source contour as a centered stroke,
-    // producing outer and inner boundaries. Polygon would expand only outward.
-    engine.addPaths(openPaths, joinTypes[stroke.join], endTypes[stroke.cap]);
-    engine.addPaths(closedPaths, joinTypes[stroke.join], EndType.Joined);
-    const solution = [];
-    try {
-      engine.execute((stroke.width / 2) * GRID, solution);
-    } catch {
-      fail('Expand Stroke offset kernel could not produce a result');
+    const { origin } = prepared;
+    let solution;
+    if (uniformMultiplier) {
+      const { paths } = prepared;
+      const engine = new NectClipperOffset(
+        expansionStroke.miterLimit,
+        Math.min(0.1, expansionStroke.width / 8) * GRID,
+      );
+      const openPaths = paths.filter((path) => !path.closed).map((path) => path.points);
+      const closedPaths = paths.filter((path) => path.closed).map((path) => path.points);
+      // Joined deliberately treats a closed source contour as a centered stroke,
+      // producing outer and inner boundaries. Polygon would expand only outward.
+      engine.addPaths(openPaths, joinTypes[expansionStroke.join], endTypes[expansionStroke.cap]);
+      engine.addPaths(closedPaths, joinTypes[expansionStroke.join], EndType.Joined);
+      solution = [];
+      try {
+        engine.execute((expansionStroke.width / 2) * GRID, solution);
+      } catch {
+        fail('Expand Stroke offset kernel could not produce a result');
+      }
+    } else {
+      try {
+        solution = union(prepared.outlines, FillRule.NonZero);
+      } catch {
+        fail('Expand Stroke variable-width outline cleanup could not produce a result');
+      }
     }
     for (const ring of solution) {
       outputPointCount += ring.length;

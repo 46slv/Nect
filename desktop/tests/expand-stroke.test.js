@@ -12,6 +12,7 @@ import {
   pathArea,
   bypassContract,
   outputType,
+  enableRemapPoint,
   point as curvePoint,
 } from '../src/core.js';
 function scene() {
@@ -30,6 +31,25 @@ function scene() {
   connect(l, fill.id, out.id, 'path');
   stroke.params.width.value = 4;
   return { doc, l, shape, stroke, expand, fill };
+}
+function openStrokeScene() {
+  const doc = document(),
+    l = doc.layers[0],
+    curve = node('Curve'),
+    stroke = node('Stroke'),
+    expand = node('Expand Stroke'),
+    fill = node('Fill'),
+    out = node('Output');
+  curve.params.closed.value = false;
+  curve.points = [curvePoint(100, 100), curvePoint(300, 100)];
+  l.nodes = [curve, stroke, expand, fill, out];
+  l.output = out.id;
+  connect(l, curve.id, stroke.id, 'path');
+  connect(l, stroke.id, expand.id, 'path');
+  connect(l, expand.id, fill.id, 'path');
+  connect(l, fill.id, out.id, 'path');
+  stroke.params.width.value = 10;
+  return { doc, l, curve, stroke, expand, fill };
 }
 test('Expand Stroke converts centered closed stroke to geometric band, retaining holes and JSON', () => {
   const { doc, l, shape, stroke, expand } = scene(),
@@ -114,4 +134,108 @@ test('a failed curved Expand Stroke edit rolls back through the ordinary command
     /safe integer envelope/i,
   );
   assert.deepEqual(session.snapshot(), before);
+});
+
+test('legacy constant-width Expand Stroke backfills schema 16 without changing fingerprints or remap edits', () => {
+  const { doc, l, expand, fill } = scene(),
+    remap = node('Path Remap');
+  l.nodes.push(remap);
+  connect(l, expand.id, remap.id, 'path');
+  connect(l, remap.id, fill.id, 'path');
+  const baseline = evaluate(l),
+    expanded = baseline.run(expand.id),
+    target = expanded.contours[0].points[0];
+  enableRemapPoint(remap, expanded, target.id).params.position.value = [1, 0];
+  assert.equal(evaluate(l).run(remap.id).remapSuspended, undefined);
+
+  const legacy = structuredClone(doc);
+  legacy.schemaVersion = 15;
+  delete legacy.layers[0].nodes.find((n) => n.id === expand.id).params.startWidthMultiplier;
+  delete legacy.layers[0].nodes.find((n) => n.id === expand.id).params.endWidthMultiplier;
+  const loaded = deserialize(serialize(legacy));
+  const loadedExpand = loaded.layers[0].nodes.find((n) => n.id === expand.id);
+  assert.equal(loaded.schemaVersion, 16);
+  assert.equal(loadedExpand.params.startWidthMultiplier.value, 1);
+  assert.equal(loadedExpand.params.endWidthMultiplier.value, 1);
+  const loadedEvaluation = evaluate(loaded.layers[0]);
+  assert.deepEqual(loadedEvaluation.run(expand.id), expanded);
+  assert.equal(loadedEvaluation.run(remap.id).remapSuspended, undefined);
+});
+
+test('open-path width multipliers change geometry and retain undo, redo, and serialized values', () => {
+  const { doc, l, expand } = openStrokeScene(),
+    session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({
+      ...session.state,
+      type,
+      payload: { layerId: l.id, nodeId: expand.id, ...payload },
+    });
+  const before = session.snapshot(),
+    beforePath = evaluate(before.layers[0]).run(expand.id);
+  send('set-parameter', { key: 'startWidthMultiplier', value: 0.5 });
+  const midpoint = session.snapshot();
+  send('set-parameter', { key: 'endWidthMultiplier', value: 2 });
+  const after = session.snapshot(),
+    afterPath = evaluate(after.layers[0]).run(expand.id);
+  assert.notDeepEqual(afterPath.contours, beforePath.contours);
+  assert.equal(afterPath.fingerprint === beforePath.fingerprint, false);
+  assert.equal(
+    after.layers[0].nodes.find((n) => n.id === expand.id).params.startWidthMultiplier.value,
+    0.5,
+  );
+  assert.equal(
+    after.layers[0].nodes.find((n) => n.id === expand.id).params.endWidthMultiplier.value,
+    2,
+  );
+  assert.equal(after.schemaVersion, 16);
+  assert.deepEqual(deserialize(serialize(after)), after);
+  send('undo');
+  assert.deepEqual(session.snapshot(), midpoint);
+  send('undo');
+  assert.deepEqual(session.snapshot(), before);
+  send('redo');
+  send('redo');
+  assert.deepEqual(session.snapshot(), after);
+});
+
+test('Expand Stroke rejects unequal closed-path widths, invalid driven values, and edits while locked atomically', () => {
+  const { doc, l, expand } = scene(),
+    source = node('Math');
+  source.params.a.value = 5;
+  l.nodes.push(source);
+  const session = new CommandSession(doc);
+  const send = (type, payload = {}) =>
+    session.dispatch({
+      ...session.state,
+      type,
+      payload: { layerId: l.id, nodeId: expand.id, ...payload },
+    });
+  const before = session.snapshot();
+  assert.throws(
+    () => send('set-parameter', { key: 'startWidthMultiplier', value: 2 }),
+    /open contours only/i,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.throws(() => send('set-parameter', { key: 'endWidthMultiplier', value: 4.01 }), /0 to 4/);
+  assert.deepEqual(session.snapshot(), before);
+  assert.throws(
+    () => send('set-parameter-expression', { key: 'startWidthMultiplier', expression: '5' }),
+    /between 0 and 4/i,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  assert.throws(
+    () =>
+      send('connect', {
+        nodeId: expand.id,
+        key: 'startWidthMultiplier',
+        sourceId: source.id,
+      }),
+    /between 0 and 4/i,
+  );
+  assert.deepEqual(session.snapshot(), before);
+  send('set-parameter-lock', { key: 'startWidthMultiplier', locked: true });
+  const locked = session.snapshot();
+  assert.throws(() => send('set-parameter', { key: 'startWidthMultiplier', value: 2 }), /locked/i);
+  assert.deepEqual(session.snapshot(), locked);
 });

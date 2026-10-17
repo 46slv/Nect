@@ -246,6 +246,289 @@ test('curved contours remain partitioned by input group', () => {
   }
 });
 
+test('default width multipliers preserve output exactly and equal values reuse constant-width expansion', () => {
+  const source = stroked([
+    contour('line', [
+      [0, 0],
+      [20, 0],
+    ]),
+    contour(
+      'closed',
+      [
+        [40, 0],
+        [60, 0],
+        [60, 20],
+        [40, 20],
+      ],
+      { closed: true },
+    ),
+  ]);
+  assert.deepEqual(
+    expandStrokeGeometry(source),
+    expandStrokeGeometry(source, { startWidthMultiplier: 1, endWidthMultiplier: 1 }),
+  );
+  assert.deepEqual(
+    expandStrokeGeometry(source, { startWidthMultiplier: 2, endWidthMultiplier: 2 }),
+    expandStrokeGeometry(stroked(source.contours, { width: 20 })),
+  );
+});
+
+test('tapers straight and cubic open paths by normalized flattened arc length', () => {
+  const straight = [
+    contour('line', [
+      [0, 0],
+      [20, 0],
+    ]),
+  ];
+  const profile = { startWidthMultiplier: 0, endWidthMultiplier: 2 };
+  const tapered = expandStrokeGeometry(stroked(straight), profile);
+  const hasPoint = (path, target, tolerance = 0.001) =>
+    path.contours.some((item) =>
+      item.points.some(
+        ({ position: [x, y] }) =>
+          Math.abs(x - target[0]) <= tolerance && Math.abs(y - target[1]) <= tolerance,
+      ),
+    );
+  assert.ok(hasPoint(tapered, [0, 0]), 'the zero-width start is a point tip');
+  assert.deepEqual(bounds(tapered), [0, -10, 20, 10]);
+
+  const resampledStraight = [
+    contour('line-resampled', [
+      [0, 0],
+      [5, 0],
+      [20, 0],
+    ]),
+  ];
+  const resampledTaper = expandStrokeGeometry(stroked(resampledStraight), profile);
+  assert.deepEqual(
+    bounds(resampledTaper),
+    bounds(tapered),
+    'collinear upstream resampling retains the same tapered envelope',
+  );
+  assert.equal(signedArea(resampledTaper.contours[0]), signedArea(tapered.contours[0]));
+
+  const cubic = [
+    contour(
+      'curve',
+      [
+        [0, 0],
+        [20, 20],
+      ],
+      {
+        handles: [
+          [undefined, [0, 10]],
+          [[-10, 0], undefined],
+        ],
+      },
+    ),
+  ];
+  const curvedTaper = expandStrokeGeometry(stroked(cubic), profile);
+  assert.ok(hasPoint(curvedTaper, [0, 0]), 'a cubic may end at a zero-width tip');
+  assert.ok(hasPoint(curvedTaper, [20, 10]), 'the end cap follows the horizontal endpoint tangent');
+  assert.ok(hasPoint(curvedTaper, [20, 30]));
+  assert.ok(curvedTaper.contours[0].points.every((p) => p.position.every(Number.isFinite)));
+});
+
+test('reversing an open path reverses which physical endpoint receives each width', () => {
+  const forward = [
+    contour('forward', [
+      [0, 0],
+      [20, 0],
+    ]),
+  ];
+  const reverse = [
+    contour('reverse', [
+      [20, 0],
+      [0, 0],
+    ]),
+  ];
+  const profile = { startWidthMultiplier: 0, endWidthMultiplier: 2 };
+  const forwardOutline = expandStrokeGeometry(stroked(forward), profile);
+  const reverseOutline = expandStrokeGeometry(stroked(reverse), profile);
+  const contains = (path, target) =>
+    path.contours.some((item) =>
+      item.points.some(
+        ({ position }) =>
+          Math.abs(position[0] - target[0]) < 1e-4 && Math.abs(position[1] - target[1]) < 1e-4,
+      ),
+    );
+  assert.ok(contains(forwardOutline, [0, 0]));
+  assert.ok(!contains(forwardOutline, [20, 0]));
+  assert.ok(contains(reverseOutline, [20, 0]));
+  assert.ok(!contains(reverseOutline, [0, 0]));
+});
+
+test('variable-width outlines honor cap and join styles', () => {
+  const line = [
+    contour('line', [
+      [0, 0],
+      [20, 0],
+    ]),
+  ];
+  const profile = { startWidthMultiplier: 1, endWidthMultiplier: 2 };
+  assert.deepEqual(
+    bounds(expandStrokeGeometry(stroked(line, { cap: 'butt' }), profile)),
+    [0, -10, 20, 10],
+  );
+  assert.deepEqual(
+    bounds(expandStrokeGeometry(stroked(line, { cap: 'square' }), profile)),
+    [-5, -10, 30, 10],
+  );
+  const roundBounds = bounds(expandStrokeGeometry(stroked(line, { cap: 'round' }), profile));
+  assert.ok(roundBounds.every((value, index) => Math.abs(value - [-5, -10, 30, 10][index]) <= 0.1));
+
+  const elbow = [
+    contour('elbow', [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+    ]),
+  ];
+  const miter = expandStrokeGeometry(stroked(elbow, { join: 'miter' }), profile);
+  const bevel = expandStrokeGeometry(stroked(elbow, { join: 'bevel' }), profile);
+  const round = expandStrokeGeometry(stroked(elbow, { join: 'round' }), profile);
+  const hasPoint = (path, target) =>
+    path.contours.some((item) =>
+      item.points.some(
+        ({ position }) =>
+          Math.abs(position[0] - target[0]) < 1e-4 && Math.abs(position[1] - target[1]) < 1e-4,
+      ),
+    );
+  assert.ok(hasPoint(miter, [27.5, -7.5]));
+  assert.ok(!hasPoint(bevel, [27.5, -7.5]));
+  assert.ok(round.contours[0].points.length > bevel.contours[0].points.length);
+  assert.deepEqual(
+    expandStrokeGeometry(stroked(elbow, { join: 'miter', miterLimit: 1 }), profile),
+    expandStrokeGeometry(stroked(elbow, { join: 'bevel', miterLimit: 1 }), profile),
+    'a bounded miter falls back to bevel at the configured limit',
+  );
+});
+
+test('zero-width tips, multiple contours, and closed-contour limits are explicit', () => {
+  const lines = [
+    contour(
+      'one',
+      [
+        [0, 0],
+        [20, 0],
+      ],
+      { group: 'first' },
+    ),
+    contour(
+      'two',
+      [
+        [0, 30],
+        [20, 30],
+      ],
+      { group: 'second' },
+    ),
+  ];
+  const profile = { startWidthMultiplier: 0, endWidthMultiplier: 2 };
+  const result = expandStrokeGeometry(stroked(lines), profile);
+  assert.equal(result.contours.length, 2);
+  assert.deepEqual(
+    result.contours.map((item) => item.group),
+    ['expandStroke:g0', 'expandStroke:g1'],
+  );
+  assert.deepEqual(bounds(result), [0, -10, 20, 40]);
+  for (const cap of ['butt', 'square', 'round']) {
+    const tip = expandStrokeGeometry(stroked(lines.slice(0, 1), { cap }), profile);
+    assert.ok(
+      tip.contours[0].points.some(
+        ({ position }) => Math.abs(position[0]) < 1e-4 && Math.abs(position[1]) < 1e-4,
+      ),
+      `${cap} caps collapse at a zero-width endpoint`,
+    );
+  }
+  assert.deepEqual(
+    expandStrokeGeometry(stroked(lines), { startWidthMultiplier: 0, endWidthMultiplier: 0 }),
+    { contours: [] },
+  );
+
+  const closed = [
+    contour(
+      'closed',
+      [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+        [0, 20],
+      ],
+      { closed: true },
+    ),
+  ];
+  assert.throws(
+    () => expandStrokeGeometry(stroked(closed), { startWidthMultiplier: 1, endWidthMultiplier: 2 }),
+    /open contours only/i,
+  );
+  assert.deepEqual(
+    expandStrokeGeometry(stroked(closed), { startWidthMultiplier: 2, endWidthMultiplier: 2 }),
+    expandStrokeGeometry(stroked(closed, { width: 20 })),
+    'closed contours retain centered constant-width expansion for equal multipliers',
+  );
+});
+
+test('variable-width geometry rejects invalid profiles, cusps, collapsed edges, and excess work', () => {
+  const line = [
+    contour('line', [
+      [0, 0],
+      [20, 0],
+    ]),
+  ];
+  for (const value of [-0.01, 4.01, Infinity, null])
+    assert.throws(
+      () => expandStrokeGeometry(stroked(line), { startWidthMultiplier: value }),
+      /multipliers must be finite and between 0 and 4/i,
+    );
+  assert.throws(
+    () =>
+      expandStrokeGeometry(
+        stroked([
+          contour('cusp', [
+            [0, 0],
+            [10, 0],
+            [0, 0],
+          ]),
+        ]),
+        { startWidthMultiplier: 1, endWidthMultiplier: 2 },
+      ),
+    /cusp/i,
+  );
+  assert.throws(
+    () =>
+      expandStrokeGeometry(
+        stroked([
+          contour('collapsed', [
+            [0, 0],
+            [0, 0],
+          ]),
+        ]),
+        { startWidthMultiplier: 1, endWidthMultiplier: 2 },
+      ),
+    /collapse/i,
+  );
+  assert.throws(
+    () =>
+      expandStrokeGeometry(
+        stroked(
+          [
+            contour('round-work-1', [
+              [0, 0],
+              [20, 0],
+            ]),
+            contour('round-work-2', [
+              [0, 30],
+              [20, 30],
+            ]),
+          ],
+          { width: 100000, cap: 'round', miterLimit: 1 },
+        ),
+        { startWidthMultiplier: 1, endWidthMultiplier: 2 },
+      ),
+    /4096-vertex work budget/i,
+  );
+});
+
 test('zero width returns empty geometry and all-zero dashes are treated as solid', () => {
   const line = [
     contour('line', [

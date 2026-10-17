@@ -189,7 +189,11 @@ export const definitions = {
     offset: p('Scalar', 0),
   },
   'Simplify Path': { path: p('Path', null), tolerance: p('Scalar', 1) },
-  'Expand Stroke': { path: p('PaintedPath', null) },
+  'Expand Stroke': {
+    path: p('PaintedPath', null),
+    startWidthMultiplier: p('Scalar', 1),
+    endWidthMultiplier: p('Scalar', 1),
+  },
   'Trim Path': {
     path: p('Path', null),
     start: p('Scalar', 0),
@@ -2184,7 +2188,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Expand Stroke') {
         const source = read('path');
-        result = expandStrokeGeometry(source, { prefix: fingerprint(n.id) });
+        result = expandStrokeGeometry(source, {
+          prefix: fingerprint(n.id),
+          startWidthMultiplier: read('startWidthMultiplier'),
+          endWidthMultiplier: read('endWidthMultiplier'),
+        });
         result.characterOccurrences = routeCharacters(
           source,
           n.id,
@@ -3216,7 +3224,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   // Apply every migration against the file's incoming version. A feature later in
@@ -3334,6 +3342,10 @@ export function validate(doc) {
       ) {
         if (!Object.hasOwn(n.params, 'gridOrigin'))
           n.params.gridOrigin = clone(definitions[n.type].gridOrigin);
+      }
+      if (n.type === 'Expand Stroke' && sourceSchemaVersion < 16) {
+        for (const key of ['startWidthMultiplier', 'endWidthMultiplier'])
+          if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions[n.type][key]);
       }
       if (n.type === 'Resample Path' && sourceSchemaVersion < 12) {
         if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
@@ -3495,6 +3507,13 @@ export function validate(doc) {
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
       if (
+        n.type === 'Expand Stroke' &&
+        ['startWidthMultiplier', 'endWidthMultiplier'].some(
+          (key) => n.params[key].value < 0 || n.params[key].value > 4,
+        )
+      )
+        throw Error('Expand Stroke width multipliers must be from 0 to 4');
+      if (
         n.type === 'Stroke' &&
         (n.params.miterLimit.value < 1 ||
           n.params.miterLimit.value > 10000 ||
@@ -3560,6 +3579,8 @@ export function validate(doc) {
     sourceSchemaVersion < 15
   )
     doc.schemaVersion = Math.max(doc.schemaVersion, 15);
+  if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
+    doc.schemaVersion = Math.max(doc.schemaVersion, 16);
   return doc;
 }
 export function serialize(doc) {

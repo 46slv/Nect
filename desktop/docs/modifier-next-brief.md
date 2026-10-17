@@ -1,12 +1,12 @@
 # Next modifier brief
 
-**Status:** The grid-origin slice below is implemented and verified in schema 15. Variable-width open-path strokes remain a proposal only; they are not implemented or approved by this brief.
+**Status:** Grid Origin is implemented and verified in schema 15. A bounded start/end width-multiplier slice for Expand Stroke is implemented and verified in schema 16; editable middle width points and saved profiles remain a proposal.
 
 ## Current baseline
 
 `docs/modifiers.md` catalogs 23 modifier additions, including tangent-aligned Instance on Points and three luminance-to-geometry effects. Instance on Points uses authored anchors, so Resample Path is already the documented route to more/evenly spaced targets. Halftone, Ordered Dither, and Line Screen share the same bounded field sampler and mask clipping; they accept solid/two-stop gradient vector fills, while images remain unsupported. Each effect now exposes a finite grid origin, default `(0, 0)`, without moving source geometry.
 
-Relevant seams: `src/luminance-field.js` samples a fill and accepts an `{x, y}` origin; `src/luminance-marks.js` makes dots, Bayer squares, or horizontal/vertical stripes; `src/luminance-mask.js` clips marks to source geometry. `src/core.js` maps the authored `Vector2` origin to the existing sampler. `Stroke` stores one width, and `Expand Stroke` converts its painted input using that width through `src/expand-stroke-geometry.js`.
+Relevant seams: `src/luminance-field.js` samples a fill and accepts an `{x, y}` origin; `src/luminance-marks.js` makes dots, Bayer squares, or horizontal/vertical stripes; `src/luminance-mask.js` clips marks to source geometry. `src/core.js` maps the authored `Vector2` origin to the existing sampler. `Stroke` retains one base width; `Expand Stroke` now applies bounded endpoint multipliers in `src/expand-stroke-geometry.js`.
 
 ## 1. Implemented: expose luminance grid origin
 
@@ -25,15 +25,19 @@ Relevant seams: `src/luminance-field.js` samples a fill and accepts an `{x, y}` 
 
 **Resolved risks:** Origins are bounded at ±100000, mask clipping still uses source/cell geometry in document space, Bayer ranks still use integer grid indices, and default schema-14 output remains unchanged. Existing 4096-cell / geometry / mask budgets remain unchanged.
 
-## 2. Proposal: variable-width open-path strokes
+## 2. Implemented: bounded variable-width Expand Stroke
 
 **User benefit:** Tapered line art and calligraphic strokes without manually outlining the centerline. This is a practical Illustrator-style gap: Adobe documents its Width tool for variable-width strokes and reusable width profiles ([official guide](https://helpx.adobe.com/illustrator/using/tool-techniques/width-tool.html)). Nect already has stroke expansion, so this can build on a familiar workflow rather than introducing a general deformation system.
 
-**Possible bounded version:** Extend Expand Stroke with start/end width multipliers, both defaulting to `1`, and a linear ramp by normalized arc length on open contours. Keep the current constant-width path unchanged at the defaults. Initially exclude editable mid-path width points, saved profiles, closed contours, and parity claims. A changed profile on unsupported contour input should fail clearly. Treat this as a proposal until its visual contract and bounds are accepted; nonuniform offsets need more than forwarding the current constant-width value.
+**Implemented contract:** Expand Stroke has Start / End Width Multiplier parameters, both defaulting to `1` and bounded from `0` to `4`. Unequal values ramp linearly per open contour by normalized flattened-centerline arc length. Equal values reuse constant-width expansion, including for closed contours; unequal values explicitly reject any closed contour. A zero endpoint collapses that tip independent of cap, and both zero multipliers produce empty output. Existing centerline flattening, joins/caps, output budgets, solid-stroke requirement and type-conversion bypass rules remain in force. This is a bounded endpoint ramp, not arbitrary per-point width editing or Illustrator numeric parity.
 
-**Dependency and ownership:** One writer owns the Expand Stroke settings/migration, `src/expand-stroke-geometry.js`, and focused geometry/core/DOM tests; no concurrent writer on that helper. Confirm how adaptive flattening, joins, caps, zero-width tips, multi-contour inputs, and output budgets behave before expanding scope. Do not implement by changing Closed Path Offset semantics or adding a new field type.
+**Implementation and migration:** `src/core.js` adds the two scalar settings, validates direct and evaluated values, bumps the project schema to 16, and backfills `1` / `1` for older Expand Stroke nodes. `src/main.js` exposes bounded, lockable Inspector and graph fields. Defaults preserve the previous geometry fingerprint, and existing Path Remap edits remain retained. Closed Path Offset semantics and the Stroke paint descriptor are unchanged.
 
-**Focused acceptance:** Uniform defaults preserve current outputs; a straight open line and cubic produce the expected taper at each end; reversing the path reverses the profile; equivalent curves with different upstream resampling retain a stable arc-length-based ramp; caps/joins and degenerate/cusp/over-budget inputs are covered, with unsupported cases rejected transactionally.
+**Focused acceptance:** Geometry tests cover the default/constant fast path, open-path start/end ramps, endpoint tips and empty output, closed-contour rejection, caps/joins and bounded failure cases. Core/Session tests cover schema-15 backfill with matching output fingerprint and retained remap, settings-sensitive output, Undo/Redo, JSON round-trip, invalid fallback/expression/source-driven values, locks and atomic rollback. DOM coverage verifies both bounded controls. The [12-layer playground](../examples/variable-stroke-playground.json) compares uniform, start-tip and end-tip cubic strokes and was serialized/reopened and visually reviewed. Focused results and one Web build are recorded in `docs/editing-refinement.md`; they do not establish native GUI interaction or full Illustrator parity.
+
+## 3. Proposal: advanced width editing
+
+Editable middle width points, reusable profiles, profile handles, closed-contour variation, and parity claims remain unimplemented proposals. Reassess them independently after trying the endpoint-ramp slice on representative drawings. Do not add a generic Field node or change Stroke's base-width semantics as part of this bounded feature.
 
 ## Explicitly deferred
 
