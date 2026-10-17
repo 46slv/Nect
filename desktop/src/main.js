@@ -335,6 +335,7 @@ import { artworkGapDistributions } from './artwork-gap-distribution.js';
 import { resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
+  adjacentNodeOffset,
   snapGraphNodes,
   fitScale,
   unionBounds,
@@ -4501,7 +4502,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -7857,24 +7858,26 @@ document.addEventListener('pointerup', (e) => {
   }
 });
 function duplicateGraphNodes(nodeId) {
-  const ids = selection.has(nodeId) && selection.size > 1 ? [...selection] : [nodeId],
-    result = commandChange(
-      'duplicate-nodes',
-      {
-        nodeIds: ids,
-        ...(ids.length === 1
-          ? { position: freePosition(current().nodes.find((n) => n.id === nodeId).type) }
-          : {}),
-      },
-      'Nodes duplicated',
-      true,
-    );
+  if (deletionBusy() || variableAction) return;
+  const ids = selection.has(nodeId) && selection.size > 1 ? [...selection] : [nodeId];
+  if (!ids.length || ids.some((id) => !current().nodes.some((n) => n.id === id))) return;
+  const measurements = {};
+  for (const el of document.querySelectorAll('.graph .node'))
+    measurements[el.dataset.id] = { width: el.offsetWidth, height: el.offsetHeight };
+  const result = commandChange(
+    'duplicate-nodes',
+    { nodeIds: ids, offset: adjacentNodeOffset(current().nodes, ids, measurements) },
+    'Nodes duplicated',
+    true,
+  );
   if (result) {
     artworkTarget = null;
     artworkSelection = new Set();
     selected = result.nodeIds[0];
     selection = new Set(result.nodeIds);
     render();
+    document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+    revealNode(selected);
   }
 }
 function closeNodeContextMenu(restore = false) {
@@ -8068,6 +8071,31 @@ app.addEventListener(
     }),
   true,
 );
+// Own this shortcut only inside the graph. Consume repeats and blocked edits
+// here as well, so a graph shortcut cannot become a browser bookmark command.
+document.addEventListener('keydown', (event) => {
+  if (
+    event.defaultPrevented ||
+    !(event.ctrlKey || event.metaKey) ||
+    event.shiftKey ||
+    event.altKey ||
+    event.key.toLowerCase() !== 'd' ||
+    navigationExcluded(event.target) ||
+    !event.target.closest?.('.graph-scroll,.graph-toolbar')
+  )
+    return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (
+    event.repeat ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    deletionBusy() ||
+    variableAction
+  )
+    return;
+  if (selected && selection.has(selected)) duplicateGraphNodes(selected);
+});
 document.addEventListener('keydown', (e) => {
   if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing) return;
   const viewport = e.target.closest('.canvas-stage,.canvas-toolbar,.graph-scroll,.graph-toolbar');

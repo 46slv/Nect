@@ -5983,7 +5983,21 @@ export class CommandSession {
         payload.nodeIds.some((id) => !target.nodes.some((node) => node.id === id))
       )
         throw Error('Select distinct nodes in this composition');
+      if (payload.offset !== undefined) {
+        if (payload.position !== undefined) throw Error('Choose position or offset');
+        if (
+          !Array.isArray(payload.offset) ||
+          payload.offset.length !== 2 ||
+          !payload.offset.every(Number.isFinite)
+        )
+          throw Error('Invalid duplicate offset');
+      }
+      const originals = target.nodes.filter((n) => payload.nodeIds.includes(n.id));
       const copies = duplicateNodes(target, payload.nodeIds);
+      if (payload.offset !== undefined)
+        copies.forEach((copy, index) => {
+          copy.position = originals[index].position.map((v, axis) => v + payload.offset[axis]);
+        });
       if (payload.position !== undefined) {
         if (copies.length !== 1) throw Error('Explicit position requires one node');
         copies[0].position = clone(payload.position);

@@ -12,7 +12,8 @@ remain available. The menu also works on collapsed headers.
   rewires the composition Output; it is distinct from the independent Viewers.
 - Duplicate uses the same helper and `duplicate-nodes` command as the existing
   button. A selected group is copied as one transaction with internal references
-  remapped. Single-node placement retains the existing free-position behavior.
+  remapped. The shared helper now places both single nodes and groups beside the
+  source selection; see [adjacent duplication](node-duplication.md).
 - Delete uses `delete-nodes` for the selection. Output and Image Output nodes,
   including the composition's designated output, are retained. References to
   deleted nodes are disconnected by the common Session command. One Undo restores

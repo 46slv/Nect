@@ -21,6 +21,27 @@ export function findFreeNodePosition(nodes, measurements = {}, size = { width: 2
   return [40, Math.max(0, ...boxes.map((b) => b.y + b.height)) + 40];
 }
 
+// Shift the entire selection to the right, preserving its internal arrangement.
+// A conservative group rectangle also protects empty space between selected cards.
+export function adjacentNodeOffset(nodes, ids, measurements = {}) {
+  const wanted = new Set(ids);
+  const boxes = nodes.map((n) => ({
+    id: n.id,
+    x: n.position[0],
+    y: n.position[1],
+    width: measurements[n.id]?.width || n.width || 264,
+    height: measurements[n.id]?.height || (n.collapsed ? 44 : n.type === 'Curve' ? 520 : 260),
+  }));
+  const group = unionBounds(boxes.filter((b) => wanted.has(b.id)));
+  if (!group) throw Error('Missing nodes to duplicate');
+  const candidate = { ...group, x: group.x + group.width + 24 };
+  // Sorted right edges allow a single bounded pass, even in a crowded graph.
+  for (const box of boxes.sort((a, b) => a.x + a.width - (b.x + b.width))) {
+    if (intersects(candidate, box)) candidate.x = box.x + box.width + 24;
+  }
+  return [candidate.x - group.x, 0];
+}
+
 // View geometry is in CSS pixels. None of these helpers mutate document coordinates.
 export function fitScale(bounds, viewport, padding = 32, limits = [0.05, 2]) {
   const available = viewport.map((size) => Math.max(1, size - padding * 2));

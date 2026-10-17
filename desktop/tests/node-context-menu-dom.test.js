@@ -152,6 +152,79 @@ test('node header context actions through real DOM handlers', async (t) => {
     key('z', $('.graph-scroll'), { ctrlKey: true });
     assert.equal(snapshot(), before);
   });
+  await t.test('Ctrl/Cmd+D duplicates beside the group, retains focus and repeats safely', () => {
+    reset();
+    const before = snapshot(),
+      past = state().past;
+    assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true }), false);
+    let copies = nodes().filter((n) => state().selection.includes(n.id));
+    assert.equal(copies.length, 2);
+    assert.ok(copies[0].position[0] >= 1564);
+    assert.deepEqual(
+      copies[1].position.map((v, i) => v - copies[0].position[i]),
+      [400, 0],
+    );
+    assert.equal(document.activeElement, $('.graph-scroll'));
+    assert.equal(state().past, past + 1);
+    assert.equal(key('d', document.activeElement, { ctrlKey: true, repeat: true }), false);
+    assert.equal(state().past, past + 1);
+    key('z', document.activeElement, { ctrlKey: true });
+    assert.equal(snapshot(), before);
+    reset();
+    assert.equal(key('D', $('.graph-scroll'), { metaKey: true }), false);
+    const first = state().selection;
+    assert.equal(key('d', document.activeElement, { metaKey: true }), false);
+    assert.equal(nodes().length, 8);
+    assert.ok(state().selection.every((id) => !first.includes(id)));
+  });
+  await t.test('duplication shortcut respects inputs, other views, IME, dialogs and locks', () => {
+    reset();
+    const before = snapshot(),
+      past = state().past;
+    for (const target of [card(a.id).querySelector('input'), $('.canvas-stage'), document.body])
+      assert.equal(key('d', target, { ctrlKey: true }), true);
+    for (const extra of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }])
+      assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true, ...extra }), false);
+    for (const extra of [{ shiftKey: true }, { altKey: true }])
+      assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true, ...extra }), true);
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('open', '');
+    document.body.append(dialog);
+    key('d', $('.graph-scroll'), { ctrlKey: true });
+    dialog.remove();
+    const field = card(a.id).querySelector('input');
+    field.dispatchEvent(new win.Event('compositionstart', { bubbles: true }));
+    key('d', $('.graph-scroll'), { ctrlKey: true });
+    field.dispatchEvent(new win.Event('compositionend', { bubbles: true }));
+    assert.equal(snapshot(), before);
+    assert.equal(state().past, past);
+    reset(true);
+    const locked = snapshot();
+    assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true }), false);
+    assert.equal(snapshot(), locked);
+  });
+  await t.test('single collapsed node, empty selection and active drag are safe', () => {
+    reset();
+    a.collapsed = true;
+    win.nect.load(serialize(doc));
+    for (const id of state().selection) clickNode(id, true);
+    assert.deepEqual(state().selection, []);
+    const empty = snapshot();
+    assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true }), false);
+    assert.equal(snapshot(), empty);
+    clickNode(a.id);
+    const before = snapshot();
+    fire(card(a.id).querySelector('.node-head .type-tag'), 'pointerdown');
+    assert.equal(key('d', $('.graph-scroll'), { ctrlKey: true }), false);
+    assert.equal(snapshot(), before);
+    fire(document, 'pointerup');
+    key('d', $('.graph-scroll'), { ctrlKey: true });
+    const copy = nodes().find((n) => state().selection.includes(n.id));
+    assert.equal(copy.collapsed, true);
+    assert.equal(copy.position[1], a.position[1]);
+    assert.ok(copy.position[0] >= a.position[0] + 264 + 24);
+    assert.notEqual(copy.id, a.id);
+  });
   await t.test('delete group protects Output, cleans wires, and undoes atomically', () => {
     reset();
     clickNode(output.id, true);
