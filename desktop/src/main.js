@@ -762,6 +762,7 @@ function numericLimits(n, key) {
   if (n.type === 'Roughen' && key === 'amount') return [0, 100000];
   if (n.type === 'Roughen' && key === 'seed') return [0, 2147483647];
   if (n.type === 'Resample Path' && key === 'count') return [2, 1024];
+  if (n.type === 'Resample Path' && key === 'spacing') return [0.0001, 100000];
   if (n.type === 'Subdivide Path' && key === 'segments') return [1, 32];
   if (n.type === 'Corner Round' && key === 'radius') return [0, 100000];
   if (n.type === 'Trim Path' && ['start', 'end'].includes(key)) return [0, 1];
@@ -777,7 +778,7 @@ function numericLimits(n, key) {
 }
 function numericAttributes(n, key) {
   const [min, max] = numericLimits(n, key);
-  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
+  return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
 }
 function numericControlTarget(input) {
   const d = input.dataset,
@@ -1078,45 +1079,47 @@ function field(n, key, q) {
                     }[key] || key
                   : n.type === 'Resample Path' && key === 'count'
                     ? 'Points per Contour'
-                    : n.type === 'Wave Points'
-                      ? {
-                          amplitude: 'Amplitude (px)',
-                          wavelength: 'Wavelength (px)',
-                          phase: 'Phase (°)',
-                          keepEndpoints: 'Keep Endpoints',
-                        }[key] || key
-                      : n.type === 'Taper' && key === 'amount'
-                        ? 'Amount (%)'
-                        : n.type === 'Bend Points' && key === 'angle'
-                          ? 'Angle (°)'
-                          : n.type === 'Twist Points' && key === 'angle'
+                    : n.type === 'Resample Path' && key === 'spacing'
+                      ? 'Maximum spacing (px)'
+                      : n.type === 'Wave Points'
+                        ? {
+                            amplitude: 'Amplitude (px)',
+                            wavelength: 'Wavelength (px)',
+                            phase: 'Phase (°)',
+                            keepEndpoints: 'Keep Endpoints',
+                          }[key] || key
+                        : n.type === 'Taper' && key === 'amount'
+                          ? 'Amount (%)'
+                          : n.type === 'Bend Points' && key === 'angle'
                             ? 'Angle (°)'
-                            : n.type === 'Pucker & Bloat'
-                              ? {
-                                  amount: 'Amount (%)',
-                                  autoCenter: 'Automatic Center',
-                                  center: 'Center',
-                                }[key] || key
-                              : n.type === 'Subdivide Path' && key === 'segments'
-                                ? 'Segments per Edge'
-                                : n.type === 'Mirror'
-                                  ? {
-                                      center: 'Axis Center',
-                                      angle: 'Axis Angle (°)',
-                                      keepOriginal: 'Keep Original',
-                                    }[key] || key
-                                  : key === 'center' &&
-                                      [
-                                        'Circle',
-                                        'Ellipse',
-                                        'Rectangle',
-                                        'Polygon',
-                                        'Star',
-                                      ].includes(n.type)
-                                    ? 'Position'
-                                    : key.includes('.')
-                                      ? key.split('.').at(-1)
-                                      : key;
+                            : n.type === 'Twist Points' && key === 'angle'
+                              ? 'Angle (°)'
+                              : n.type === 'Pucker & Bloat'
+                                ? {
+                                    amount: 'Amount (%)',
+                                    autoCenter: 'Automatic Center',
+                                    center: 'Center',
+                                  }[key] || key
+                                : n.type === 'Subdivide Path' && key === 'segments'
+                                  ? 'Segments per Edge'
+                                  : n.type === 'Mirror'
+                                    ? {
+                                        center: 'Axis Center',
+                                        angle: 'Axis Angle (°)',
+                                        keepOriginal: 'Keep Original',
+                                      }[key] || key
+                                    : key === 'center' &&
+                                        [
+                                          'Circle',
+                                          'Ellipse',
+                                          'Rectangle',
+                                          'Polygon',
+                                          'Star',
+                                        ].includes(n.type)
+                                      ? 'Position'
+                                      : key.includes('.')
+                                        ? key.split('.').at(-1)
+                                        : key;
   let control;
   let displayed = q.value;
   if (
@@ -1357,7 +1360,7 @@ function roughenControls(n) {
 }
 function resampleControls(n) {
   return n.type === 'Resample Path'
-    ? '<p class="font-note">Approximate each contour with equally spaced arc-length samples joined by straight segments. Count is per contour (2–1024; closed paths need 3). Open endpoints stay fixed; closed paths do not duplicate the seam point. Increase count for curved outlines. Corners and small features can change; this is not topology-preserving simplification. Edit upstream geometry or change count at any time.</p>'
+    ? '<p class="font-note">Approximate each contour with equally spaced arc-length samples joined by straight segments. Count is per contour (2–1024; closed paths need 3). Spacing uses a maximum arc-length gap (0.0001–100000 px): segments are rounded up to a whole number per contour, so spacing is approximate and each resulting gap is no larger than requested. Open endpoints stay fixed; closed paths do not duplicate the seam point. Curves become polylines; corners and small features can change. This is not topology-preserving simplification. Edit upstream geometry or either control at any time.</p>'
     : '';
 }
 function cornerRoundControls(n) {

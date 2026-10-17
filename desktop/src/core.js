@@ -219,7 +219,11 @@ export const definitions = {
     seed: p('Scalar', 1),
     keepEndpoints: p('Boolean', true),
   },
-  'Resample Path': { path: p('Path', null), count: p('Scalar', 32) },
+  'Resample Path': {
+    path: p('Path', null),
+    count: p('Scalar', 32),
+    spacing: p('Scalar', 24),
+  },
   'Corner Round': { path: p('Path', null), radius: p('Scalar', 12) },
   Mirror: {
     path: p('Path', null),
@@ -386,19 +390,21 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Taper' || type === 'Bend Points'
-        ? 'horizontal'
-        : type === 'Wave Points'
-          ? 'vertical'
-          : type === 'Mirror'
-            ? 'left-right'
-            : type === 'Closed Path Offset'
-              ? 'miter'
-              : type === 'Geometry Repeater'
-                ? 'linear'
-                : ['Math', 'Vector Math'].includes(type)
-                  ? 'add'
-                  : 'subtract',
+      type === 'Resample Path'
+        ? 'count'
+        : type === 'Taper' || type === 'Bend Points'
+          ? 'horizontal'
+          : type === 'Wave Points'
+            ? 'vertical'
+            : type === 'Mirror'
+              ? 'left-right'
+              : type === 'Closed Path Offset'
+                ? 'miter'
+                : type === 'Geometry Repeater'
+                  ? 'linear'
+                  : ['Math', 'Vector Math'].includes(type)
+                    ? 'add'
+                    : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -772,6 +778,7 @@ export const operationOptions = {
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
+  'Resample Path': ['count', 'spacing'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
   'Vector Math': [
@@ -798,6 +805,10 @@ export function activeParameters(n) {
         ? ['path', 'count', 'step']
         : ['path', 'count', 'center', 'startAngle', 'angle']
       ).includes(key),
+    );
+  if (n.type === 'Resample Path')
+    return entries.filter(
+      ([key]) => key === 'path' || key === (n.operation === 'spacing' ? 'spacing' : 'count'),
     );
   if (n.type === 'Vector Math') {
     const keys =
@@ -2273,35 +2284,66 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Resample Path') {
-        const source = read('path'),
-          count = read('count');
+        const source = read('path');
         if (!source) throw Error('Connect a Path input');
-        if (!Number.isInteger(count) || count < 2 || count > 1024)
-          throw Error('Resample count must be an integer from 2 to 1024');
-        if (count < 3 && source.contours.some((c) => c.closed))
-          throw Error('Closed contours require at least 3 samples');
+        if (!operationOptions['Resample Path'].includes(n.operation))
+          throw Error('Invalid Resample operation');
+        const count = n.operation === 'count' ? read('count') : null,
+          spacing = n.operation === 'spacing' ? read('spacing') : null,
+          sourcePoints = source.contours.reduce((sum, c) => sum + c.points.length, 0);
+        if (n.operation === 'count') {
+          if (!Number.isInteger(count) || count < 2 || count > 1024)
+            throw Error('Resample count must be an integer from 2 to 1024');
+          if (count < 3 && source.contours.some((c) => c.closed))
+            throw Error('Closed contours require at least 3 samples');
+        } else if (!Number.isFinite(spacing) || spacing < 0.0001 || spacing > 100000)
+          throw Error('Resample spacing must be from 0.0001 to 100000 px');
         if (
           source.contours.length > 10000 ||
-          source.contours.length * count > 100000 ||
-          source.contours.reduce((sum, c) => sum + c.points.length, 0) > 100000 ||
-          source.contours.reduce((sum, c) => sum + c.points.length * count, 0) > 2000000
+          sourcePoints > 100000 ||
+          (n.operation === 'count' &&
+            (source.contours.length * count > 100000 || sourcePoints * count > 2000000))
         )
           throw Error('Resample exceeds geometry budget');
         const item = toPaper(source),
           prefix = fingerprint(n.id);
         try {
+          const plans = source.contours.map((c, ci) => {
+            const path = item.children[ci],
+              length = path.length;
+            if (!Number.isFinite(length)) throw Error('Resample exceeds finite path length');
+            const samples =
+              n.operation === 'count'
+                ? count
+                : c.points.length === 0
+                  ? 0
+                  : c.closed
+                    ? Math.max(3, Math.ceil(length / spacing))
+                    : Math.max(2, Math.ceil(length / spacing) + 1);
+            if (
+              c.points.length > 0 &&
+              (!Number.isInteger(samples) || samples < (c.closed ? 3 : 2) || samples > 1024)
+            )
+              throw Error('Resample spacing requires more than 1024 samples for a contour');
+            return { path, length, samples };
+          });
+          const outputPoints = plans.reduce((sum, plan) => sum + plan.samples, 0),
+            work = plans.reduce(
+              (sum, plan, index) => sum + source.contours[index].points.length * plan.samples,
+              0,
+            );
+          if (outputPoints > 100000 || work > 2000000)
+            throw Error('Resample exceeds geometry budget');
           result = {
             contours: source.contours.map((c, ci) => {
-              const path = item.children[ci],
-                length = path.length;
-              if (!Number.isFinite(length)) throw Error('Resample exceeds finite path length');
+              const { path, length, samples } = plans[ci];
               return {
                 id: `${prefix}:c${ci}`,
                 closed: c.closed,
                 ...(c.group !== undefined ? { group: c.group } : {}),
                 points: c.points.length
-                  ? Array.from({ length: count }, (_, pi) => {
-                      const distance = length * (pi / (c.closed ? count : count - 1));
+                  ? Array.from({ length: samples }, (_, pi) => {
+                      const distance = length * (pi / (c.closed ? samples : samples - 1));
                       const sampled = path.getPointAt(distance);
                       const position = sampled
                         ? [sampled.x, sampled.y]
@@ -2930,7 +2972,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -3039,6 +3081,12 @@ export function validate(doc) {
         !Array.isArray(n.edits)
       )
         throw Error('Invalid node');
+      if (n.type === 'Resample Path' && doc.schemaVersion < 12) {
+        if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
+        if (operationOptions.Boolean.includes(n.operation)) n.operation = 'count';
+        if (!Object.hasOwn(n.params, 'spacing'))
+          n.params.spacing = clone(definitions['Resample Path'].spacing);
+      }
       if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
         throw Error('Invalid operation');
       // Older schema-v1 Text nodes omit spacing; migrate only the documented new fields.
@@ -3074,6 +3122,11 @@ export function validate(doc) {
           n.params.count.value > 1024)
       )
         throw Error('Resample count must be an integer from 2 to 1024');
+      if (
+        n.type === 'Resample Path' &&
+        (n.params.spacing.value < 0.0001 || n.params.spacing.value > 100000)
+      )
+        throw Error('Resample spacing must be from 0.0001 to 100000 px');
       if (
         n.type === 'Subdivide Path' &&
         (!Number.isInteger(n.params.segments.value) ||
@@ -4617,8 +4670,14 @@ export class CommandSession {
       const node = target.nodes.find((node) => node.id === payload.nodeId);
       if (!node) throw Error('Missing node');
       disconnect(node, payload.key);
-    } else if (type === 'set-operation') setOperation(target, payload.nodeId, payload.operation);
-    else if (type === 'set-text-content' || type === 'commit-text-draft') {
+    } else if (type === 'set-operation') {
+      setOperation(target, payload.nodeId, payload.operation);
+      if (
+        target.nodes.find((node) => node.id === payload.nodeId)?.type === 'Resample Path' &&
+        payload.operation === 'spacing'
+      )
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 12);
+    } else if (type === 'set-text-content' || type === 'commit-text-draft') {
       const node = target.nodes.find(
         (node) => node.id === (committingDraft?.nodeId ?? payload.nodeId) && node.type === 'Text',
       );

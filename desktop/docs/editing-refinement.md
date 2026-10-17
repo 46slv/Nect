@@ -153,10 +153,10 @@ modifiers in coherent slices instead of duplicating nodes or inventing a generic
 
 ### Continuing research sequence
 
-- Resample Path: count-controlled equally spaced samples along each contour, as a foundation
-  for deliberate point-density editing and later displacement. Curves become polylines; name
-  and docs must make approximation explicit. Reference:
-  [Blender Resample Curve](https://docs.blender.org/manual/en/5.0/modeling/geometry_nodes/curve/operations/resample_curve.html).
+- Resample Path: count-controlled or maximum-spacing equally spaced samples along each contour,
+  as a foundation for deliberate point-density editing and later displacement. Curves become
+  polylines; name and docs make approximation explicit. Reference:
+  [Blender Resample Curve](https://docs.blender.org/manual/en/5.2/modeling/geometry_nodes/curve/operations/resample_curve.html).
 - Simplify Path: error-tolerance-driven point reduction with explicit topology checks;
   [Blender Decimate](https://docs.blender.org/manual/en/4.4/modeling/modifiers/generate/decimate.html)
   is inspiration, not an implementation contract.
@@ -169,21 +169,31 @@ instruction, not a reason to rebuild existing Repeater/Offset/Mirror or run full
 
 ### Resample Path
 
-- Implements the count-based concept from the cited Blender Resample Curve reference as a
-  2D Path node: 2–1024 points per contour (closed contours require at least 3), default 32.
+- Provides Count (2–1024 points per contour; closed contours require at least 3), default 32,
+  and Maximum spacing (0.0001–100000 document px). Spacing chooses whole equal arc-length
+  intervals per contour: for open contours, `N = max(2, ceil(L / spacing) + 1)`; for closed
+  contours, `N = max(3, ceil(L / spacing))`. The actual gap is no larger than requested, but
+  generally differs because only whole segments are emitted. This is intentionally not
+  Blender's approximate Length mode contract.
 - Samples at equal intervals of the source's numerically evaluated arc length using the
-  existing Paper.js geometry engine; output handles are zero. Open endpoints retained;
-  closed paths avoid duplicating the seam. Zero-length contours remain finite.
+  existing Paper.js geometry engine; output handles are zero. Open endpoints are retained;
+  closed paths avoid duplicating the seam. Zero-length nonempty contours use their open/closed
+  minimum sample count and remain finite. Spacing mode activates schemaVersion 12; older count
+  documents load through a one-way migration that normalizes Resample's historical Boolean
+  operation and backfills the dormant spacing default.
 - This creates a polyline approximation. Low counts can remove corners/small features or
   alter shape topology; it is not tolerance-preserving Simplify. Source remains editable.
 - Preserves groups and closed state, namespaces deterministic generated IDs, and uses the
-  existing unstable fingerprint/remap protection. Output limits 10000 contours /100000
-  points plus a 2,000,000 source-points × samples work estimate across contours.
+  existing unstable fingerprint/remap protection. Output limits 10000 contours /100000 planned
+  points plus a 2,000,000 source-points × planned samples work estimate across contours; spacing
+  rejects a contour requiring more than 1024 output points before allocating its output.
 - The common bounded-modifier preflight now includes Mirror, Corner Round and Resample
   alongside Offset. Invalid newly introduced geometry errors roll back commands; missing
   wiring stays editable and pre-existing errors can be repaired.
-- Evidence: Resample core5/5 + DOM1/1, Corner Round Session3/3 and Offset pipeline12/12
-  passed. Native GUI and raster visual review remain open. Distributed EXE unchanged.
+- Evidence: Resample core11/11 + DOM1/1 + parameter-validation1/1 passed; Web build passed
+  (Vite 77 modules, with the existing large-chunk advisory). Earlier Corner Round Session3/3 and
+  Offset pipeline12/12 checks passed. Native GUI and raster visual review remain open.
+  Distributed EXE unchanged.
 
 Next: seeded Roughen for controlled irregular outlines, with Resample before it for
 predictable point density. Inspiration: [Blender Grease Pencil Noise](https://docs.blender.org/manual/en/3.3/grease_pencil/modifiers/deform/noise.html).
@@ -507,3 +517,5 @@ Twist checkpoint playground: all18 modifiers now have examples in47 serialized/r
 Expand Stroke now accepts bounded cubic centerlines directly using the existing adaptive subdivision core, without invoking Closed Path Offset region semantics. All-zero-handle inputs retain their prior fast path. Endpoint support vertices align open-cap tangent chords; curve/arc/grid components have explicit tolerances but no global final-boundary error guarantee. Focused Expand Stroke and Closed Offset checks pass49/49; formatting and Web build pass. The playground's Expand Stroke card now uses a cubic S-like path directly, and its actual filled outline SVG was inspected in Inkscape. The catalog remains18 modifiers and the example remains47 layers; this is an improvement of an existing node.
 
 Grouped Offset integration proof: `scripts/grouped-offset-playground.js` creates four validated/reopened editable layers in `examples/grouped-offset.json`. Two overlapping ellipse instances stay independent before/after +10px miter offset. Actual SVG paths retain separate groups/0.45 alpha; Inkscape white-background rendering shows the darker overlap (transparent PNG pixels carry alpha115 vs178). A round-join version exceeded the existing aggregate estimated-join budget and was correctly rejected; limits were not raised.
+
+Resample spacing example: two serialized/reopened editable layers are verified to produce6/6 samples in Count6 mode and6/11 samples at maximum spacing24px for120/240px open contours. Each includes a downstream Path Remap for inspecting anchors. The example explicitly uses schemaVersion12 and preserves dormant Count/Spacing controls.

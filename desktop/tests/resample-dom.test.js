@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
 import '../src/core.js';
-test('Resample Path controls expose draggable count with undo', async () => {
+test('Resample Path mode exposes bounded draggable controls with undo', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
@@ -84,6 +84,11 @@ test('Resample Path controls expose draggable count with undo', async () => {
   const resample = await add('Resample Path');
   const count = () =>
     document.querySelector(`.graph .field[data-node="${resample}"][data-key="count"] [data-value]`);
+  const mode = () => document.querySelector(`.graph [data-operation="${resample}"]`);
+  const spacing = () =>
+    document.querySelector(
+      `.graph .field[data-node="${resample}"][data-key="spacing"] [data-value]`,
+    );
   const read = () => win.nect.document.layers[0].nodes.find((n) => n.id === resample);
   assert.ok(count().hasAttribute('data-scrub-step'));
   assert.equal(count().min, '2');
@@ -93,6 +98,24 @@ test('Resample Path controls expose draggable count with undo', async () => {
   document.querySelector('[data-action="undo"]').click();
   await tick();
   assert.equal(read().params.count.value, 32);
-  assert.match(document.querySelector('.inspector-body').textContent, /Points per Contour/);
+  assert.equal(mode().value, 'count');
+  await change(mode(), 'spacing');
+  assert.equal(read().operation, 'spacing');
+  assert.equal(win.nect.document.schemaVersion, 12);
+  assert.equal(count(), null);
+  assert.ok(spacing().hasAttribute('data-scrub-step'));
+  assert.equal(spacing().min, '0.0001');
+  assert.equal(spacing().max, '100000');
+  await change(spacing(), '18.5');
+  assert.equal(read().params.spacing.value, 18.5);
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.equal(read().params.spacing.value, 24);
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.equal(read().operation, 'count');
+  assert.ok(count());
+  assert.equal(spacing(), null);
+  assert.match(document.querySelector('.inspector-body').textContent, /maximum arc-length gap/);
   win.happyDOM.abort();
 });

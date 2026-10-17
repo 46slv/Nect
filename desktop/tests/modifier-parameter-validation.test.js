@@ -5,6 +5,9 @@ test('disconnected modifier fallback ranges are rejected by commands and seriali
   for (const [type, key, value] of [
     ['Resample Path', 'count', 1.5],
     ['Resample Path', 'count', 1025],
+    ['Resample Path', 'spacing', 0],
+    ['Resample Path', 'spacing', 0.00009],
+    ['Resample Path', 'spacing', 100001],
     ['Roughen', 'amount', -1],
     ['Roughen', 'seed', -1],
     ['Smooth Path', 'factor', 2],
