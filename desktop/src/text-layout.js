@@ -1,3 +1,4 @@
+import { arrangementEligibility, applyCharacterArrangement } from './character-arrangement.js';
 import opentype from 'opentype.js';
 import { validateTextWrap, hardTextLines, composeTextLines } from './text-wrap.js';
 import {
@@ -165,6 +166,8 @@ export function layoutText(
     referenceBounds = 'advance',
     crossAlignment = 'origin',
     characterPositions,
+    characterArrangement,
+    pathAttachment,
     fonts = {},
     fontId = 'default',
   },
@@ -616,6 +619,12 @@ export function layoutText(
       characters: [],
       characterReason: mappingReason,
       characterSuspended: true,
+      arrangementEligibility: { eligible: false, reason: mappingReason },
+      arrangementStatus: {
+        active: false,
+        suspended: !!characterArrangement,
+        reason: characterArrangement ? mappingReason : null,
+      },
       warnings: [
         ...normal.warnings,
         `Character typography suspended: ${mappingReason}. Undo, restore text, or Reset all adjustments before export.`,
@@ -734,7 +743,30 @@ export function layoutText(
     for (const [key, value] of Object.entries(cmd))
       if (key !== 'type' && !Number.isFinite(value))
         throw Error('Font produced invalid outline coordinates');
+  const eligibility = arrangementEligibility({
+    text,
+    record: characterPositions,
+    characters,
+    glyphs,
+    reason,
+    textWrap,
+    pathAttachment,
+  });
+  const arrangementStatus = applyCharacterArrangement({
+    intent: characterArrangement,
+    eligibility,
+    record: characterPositions,
+    characters,
+    glyphs,
+    path,
+    position,
+    writingMode,
+  });
+  if (arrangementStatus.suspended)
+    warnings.add(`Maintained ink gaps suspended: ${arrangementStatus.reason}`);
   return {
+    arrangementEligibility: eligibility,
+    arrangementStatus,
     path,
     glyphs,
     advances,

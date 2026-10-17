@@ -284,7 +284,7 @@ test('shape edits retain paint, shared occurrences, downstream negative transfor
   const base = evaluate(l, fonts),
     position = base.run(t.id, 'position'),
     basePaint = exportSVG(doc, fonts);
-  doc.schemaVersion = 4;
+  // This is a current-schema geometry test, including expandable Join slots.
   t.characterPositions = setCharacterTransforms(t.text, undefined, {
     c2: { rotation: 22, scale: 1.3 },
   });

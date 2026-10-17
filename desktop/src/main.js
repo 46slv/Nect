@@ -966,7 +966,12 @@ function numericControlTarget(input) {
   } else if (d.textPathStart) {
     command = 'set-text-settings';
     payload.nodeId = d.textPathStart;
-  } else if (d.layoutField || d.batchAxis !== undefined || d.alignSpacing !== undefined)
+  } else if (
+    d.arrangementGap &&
+    !current().nodes.find((n) => n.id === d.arrangementGap)?.characterArrangement
+  )
+    return { localNumeric: true };
+  else if (d.layoutField || d.batchAxis !== undefined || d.alignSpacing !== undefined)
     return { localNumeric: true };
   return command
     ? { commandTarget: { kind: 'numeric-command', command, payload, initial: Number(input.value) } }
@@ -1025,6 +1030,10 @@ function moveOtherNumeric(d, e, dx) {
 // Resolve their real targets explicitly; the floating palette has no .field wrapper.
 function textNumericTarget(input) {
   const data = input.dataset;
+  if (data.arrangementGap) {
+    const n = current().nodes.find((n) => n.id === data.arrangementGap);
+    return n?.characterArrangement ? { textKind: 'arrangement-gap', nodeId: n.id } : null;
+  }
   if (data.textLeadingValue || data.textWrapWidth)
     return {
       textKind: data.textLeadingValue ? 'leading' : 'wrap',
@@ -1072,6 +1081,8 @@ function textNumericState(d) {
   const layer = displayLayer(),
     n = layer.nodes.find((n) => n.id === d.nodeId);
   if (n?.type !== 'Text' || (d.started && n.text !== d.sourceText)) return null;
+  if (d.textKind === 'arrangement-gap')
+    return n.characterArrangement ? { n, values: [n.characterArrangement.gap] } : null;
   if (d.textKind === 'leading')
     return n.leading?.mode === 'manual' ? { n, values: [n.leading.value] } : null;
   if (d.textKind === 'wrap') return n.textWrap ? { n, values: [n.textWrap.width] } : null;
@@ -1202,6 +1213,7 @@ function field(n, key, q) {
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
       q.locked ||
+      (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
       !!q.source ||
       (isTransform(n) &&
         key === 'scaleWidth' &&
@@ -1502,9 +1514,49 @@ function textPathControls(n) {
     disabled = current().locked ? 'disabled' : '';
   return `<section class="text-path-controls" aria-label="Type on Path"><h4>Type on Path</h4><label>Explicit path · contour<select data-text-path="${n.id}" aria-label="Type on Path contour" ${disabled}><option value="">Detached (ordinary text)</option>${missing ? `<option value="${esc(value)}" selected disabled>Unavailable: ${esc(attachment.contourId)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.contourId]))}" ${value === JSON.stringify([t.nodeId, t.contourId]) ? 'selected' : ''}>${esc(t.name)} · ${esc(t.contourId)} · ${t.closed ? 'closed' : 'open'}</option>`).join('')}</select></label>${attachment ? `<label>Start unit<select data-text-path-mode="${n.id}" aria-label="Type on Path start unit" ${disabled}>${['distance', 'normalized'].map((mode) => `<option value="${mode}" ${mode === attachment.startMode ? 'selected' : ''}>${mode === 'distance' ? 'Distance px' : 'Normalized (0–1)'}</option>`).join('')}</select></label><label>Start anchor<input type="number" step="any" data-text-path-start="${n.id}" aria-label="Type on Path start" value="${attachment.start}" ${disabled}></label><label class="text-path-reverse"><input type="checkbox" data-text-path-reversed="${n.id}" aria-label="Type on Path reverse" ${attachment.reversed ? 'checked' : ''} ${disabled}>Reverse traversal</label><p class="font-note">Alignment below anchors the full advance span at this start. Position and flat reference controls are retained for detach. Typography reflows advances; character rotation/scale and local XY are applied before tangent projection. Canvas character dragging is unavailable while attached.</p>` : ''}<p class="font-note">One horizontal line on one stable contour. Closed paths wrap once; overflow rejects the edit. Generated/unstable contours and suspended Path Remap edits are unavailable. Detach restores original flat Position, references and character adjustments.</p></section>`;
 }
+// This source arrangement is independent from transient canvas snap guides.
+function arrangementLayout(n) {
+  try {
+    return (
+      renderEvaluation || evaluate(displayLayer(), fonts, displayDocument().imageAssets)
+    ).textLayout(n.id);
+  } catch (error) {
+    return { arrangementEligibility: { eligible: false, reason: error.message } };
+  }
+}
+function maintainedAxis(n) {
+  return n?.characterArrangement && arrangementLayout(n)?.arrangementStatus?.active
+    ? n.characterArrangement.axis === 'y'
+      ? 1
+      : 0
+    : null;
+}
+function arrangementControls(n) {
+  const layout = arrangementLayout(n),
+    status = layout?.arrangementStatus,
+    eligibility = layout?.arrangementEligibility,
+    reason = current().locked ? 'Composition is locked' : eligibility?.reason,
+    disabled = current().locked || !eligibility?.eligible;
+  return `<section class="character-arrangement" aria-label="Maintain equal ink gaps"><h4>Maintain equal ink gaps</h4><label>Gap · Text-local px<input type="number" min="0" max="100000" step="any" data-scrub-step="1" data-arrangement-gap="${n.id}" aria-label="Maintained ink gap" value="${n.characterArrangement?.gap ?? 10}" ${current().locked ? 'disabled' : ''}></label><button data-arrangement-apply="${n.id}" ${disabled ? 'disabled' : ''}>${n.characterArrangement ? 'Reapply to current text' : 'Apply'}</button>${n.characterArrangement ? `<button data-arrangement-clear="${n.id}" ${current().locked ? 'disabled' : ''}>Disable maintained gaps</button>` : ''}<output data-arrangement-status role="status">${esc(status?.suspended ? 'Suspended: ' + status.reason : status?.active ? 'Active · equal ink gaps' : reason || 'Off · Apply to the whole line or column')}</output><p class="font-note">Text-local ink gaps; downstream effects may change visible spacing. Font and size remain editable. Maintained ink gaps control spacing; disable to edit tracking, kerning or axial positions. Disable restores authored positions and may move letters.</p></section>`;
+}
+function flushArrangementText(nodeId, scope) {
+  const draft = textDrafts.get(nodeId);
+  if (draft?.composition) {
+    notify('Finish or cancel text composition first', true);
+    return false;
+  }
+  const el = (scope || document).querySelector(`[data-text="${nodeId}"]`),
+    n = current().nodes.find((n) => n.id === nodeId);
+  if (el && (el.value !== n.text || draft?.state.changed))
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  return (
+    !textDrafts.get(nodeId)?.state.changed &&
+    (!el || el.value === current().nodes.find((n) => n.id === nodeId)?.text)
+  );
+}
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+  return `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
     history.doc.fontAssets || {},
   )
     .map(
@@ -1513,7 +1565,7 @@ function textControls(n) {
     )
     .join(
       '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button><p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
 }
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
@@ -2212,11 +2264,11 @@ function characterFields(context, floating = false) {
     .map((axis, i) => {
       const values = context.selected.map((g) => g.offset[i]),
         mixed = values.some((v) => v !== values[0]);
-      return `<label>Δ${axis}<input type="number" step="any" min="-100000" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-axis="${i}" aria-label="${floating ? 'Floating ' : ''}Character delta ${axis}" placeholder="${mixed ? 'Mixed' : '0'}" value="${mixed ? '' : (values[0] ?? 0)}" ${disabled ? 'disabled' : ''}></label>`;
+      return `<label>Δ${axis}<input type="number" step="any" min="-100000" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-axis="${i}" aria-label="${floating ? 'Floating ' : ''}Character delta ${axis}" placeholder="${mixed ? 'Mixed' : '0'}" value="${mixed ? '' : (values[0] ?? 0)}" ${disabled || maintainedAxis(context.n) === i ? 'disabled' : ''}></label>`;
     })
     .join(
       '',
-    )}<button data-character-reset="selected" ${disabled ? 'disabled' : ''} title="Reset selected XY offsets only">Reset XY</button></div><div class="character-values character-shape-values">${[
+    )}<button data-character-reset="selected" ${maintainedAxis(context.n) !== null || disabled ? 'disabled' : ''} title="Reset selected XY offsets only">Reset XY</button></div><div class="character-values character-shape-values">${[
     ['rotation', 'Rotate °', -36000, 36000, 0],
     ['scale', 'Scale ×', 0.01, 100, 1],
   ]
@@ -2292,7 +2344,7 @@ function matchesPairInput(input, context, pair) {
 }
 function pairKerningControls(context) {
   const pair = pairContext(context),
-    disabled = current().locked || !pair;
+    disabled = current().locked || !pair || maintainedAxis(context.n) !== null;
   const shown = pair
     ? pair.rows.map((g) => (g.whitespace ? '[space]' : esc(g.text))).join(' | ')
     : 'Select exactly two adjacent characters';
@@ -2326,7 +2378,7 @@ function typographyControls(context) {
       .map(([key, label, min, max, factor]) => {
         const vals = context.typographySelected.map((g) => g[key] * factor),
           isMixed = vals.some((v) => v !== vals[0]);
-        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${disabled ? 'disabled' : ''} title="Remove selected ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
+        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled || (key === 'tracking' && maintainedAxis(context.n) !== null) ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${(key === 'tracking' && maintainedAxis(context.n) !== null) || disabled ? 'disabled' : ''} title="Remove selected ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
       })
       .join(
         '',
@@ -2338,7 +2390,7 @@ function characterControls(n) {
   const context = characterContext();
   return `<section class="character-panel" aria-label="Character position"><div class="character-actions"><button data-character-mode="${n.id}" aria-pressed="${!!context}" ${current().locked ? 'disabled' : ''}>${context ? 'Finish character position' : 'Character position'}</button><button data-edit-text="${n.id}">Edit text</button></div>${
     context
-      ? `<p>Click a character, then drag. Shift-click selects several; Shift-drag locks horizontal or vertical. Arrows move 1 px; Shift moves 10 px.</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all adjustments.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
+      ? `<p>${maintainedAxis(n) !== null ? 'Maintained gaps: select characters normally. Only cross-axis numeric edits or cross-axis Shift-drag can move them; disable maintained gaps for axial movement.' : 'Click a character, then drag. Shift-click selects several; Shift-drag locks horizontal or vertical. Arrows move 1 px; Shift moves 10 px.'}</p>${context.layout.reason ? `<p class="warning">${esc(context.layout.reason)}. Undo, restore the prior text, or reset all adjustments.</p>` : ''}${!context.editable.length ? `<p class="warning">${esc(context.occurrences[0]?.reason || 'This Text does not reach the visible Output.')} Local numeric editing remains available when character mapping is valid.</p>` : ''}${context.occurrences.length > 1 ? `<p>Editing shared Text: affects ${context.occurrences.length} displayed instances.</p>` : ''}${
           context.editable.length > 1
             ? `<label>Displayed instance<select data-character-instance aria-label="Character displayed instance"><option value="">Choose an instance</option>${context.editable
                 .map(
@@ -2356,7 +2408,7 @@ function characterControls(n) {
                 )
                 .join('')}</select></label>`
             : ''
-        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.typographyCharacters.length))}" data-character-selection aria-label="Select characters">${context.typographyCharacters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.typographySelected.length} selected${context.typographySelected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${typographyControls(context)}${pairKerningControls(context)}${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. These shape controls preserve font size and advance. Position and Position OUT stay fixed.</p>`
+        }<label>Characters <select multiple size="${Math.min(6, Math.max(2, context.typographyCharacters.length))}" data-character-selection aria-label="Select characters">${context.typographyCharacters.map((g) => `<option value="${g.id}" ${characterEdit.selected.has(g.id) ? 'selected' : ''}>${g.sourceIndex + 1} · ${g.whitespace ? '[space]' : esc(g.text)}</option>`).join('')}</select></label><p>${context.typographySelected.length} selected${context.typographySelected.some((g) => g.whitespace) ? ' · Moving a space changes its visual position only. Use letterSpacing/kerning for spacing.' : ''}</p>${typographyControls(context)}${pairKerningControls(context)}${characterFields(context)}<button data-character-reset="all" ${current().locked ? 'disabled' : ''}>Reset all adjustments and maintained gaps</button><p class="font-note">Local X points right; Y points down. Rotation (clockwise) and uniform scale use each normal-layout advance-cell center, then XY is added, before downstream Transform. Selected characters receive the same absolute value around their own pivots. These shape controls preserve font size and advance. Position and Position OUT stay fixed.</p>`
       : ''
   }</section>`;
 }
@@ -2427,7 +2479,7 @@ function characterOverlay(result) {
             const [x1, y1, x2, y2] = g.bounds,
               chosen = characterEdit.selected.has(g.id),
               hovered = characterEdit.hover === `${o.route}:${g.id}`;
-            return `<rect class="character-hit ${chosen ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${g.whitespace ? 'whitespace' : ''}" data-character="${g.id}" data-character-instance-index="${instance}" x="${x1}" y="${y1}" width="${Math.max(0.01, x2 - x1)}" height="${Math.max(0.01, y2 - y1)}"/><path class="character-outline ${chosen ? 'selected' : ''}" d="${esc(g.path)}"/>${chosen ? `<path class="character-base" data-character-pivot="${g.id}" d="M${g.pivot[0] + g.offset[0] - 3} ${g.pivot[1] + g.offset[1]}h6 M${g.pivot[0] + g.offset[0]} ${g.pivot[1] + g.offset[1] - 3}v6"/>` : ''}`;
+            return `<rect class="character-hit ${chosen ? 'selected' : ''} ${hovered ? 'hovered' : ''} ${g.whitespace ? 'whitespace' : ''}" data-character="${g.id}" data-character-instance-index="${instance}" x="${x1}" y="${y1}" width="${Math.max(0.01, x2 - x1)}" height="${Math.max(0.01, y2 - y1)}"/><path class="character-outline ${chosen ? 'selected' : ''}" d="${esc(g.path)}"/>${chosen ? `<path class="character-base" data-character-pivot="${g.id}" d="M${g.pivot[0] + g.offset[0] + (g.arrangementOffset?.[0] || 0) - 3} ${g.pivot[1] + g.offset[1] + (g.arrangementOffset?.[1] || 0)}h6 M${g.pivot[0] + g.offset[0] + (g.arrangementOffset?.[0] || 0)} ${g.pivot[1] + g.offset[1] + (g.arrangementOffset?.[1] || 0) - 3}v6"/>` : ''}`;
           })
           .join('')}</g>`,
     )
@@ -3481,6 +3533,20 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.arrangementApply || d.arrangementClear) {
+    if (b.disabled) return;
+    const nodeId = d.arrangementApply || d.arrangementClear,
+      gap = Number(
+        b.closest('.character-arrangement')?.querySelector('[data-arrangement-gap]')?.value,
+      );
+    if (!flushArrangementText(nodeId, b.closest('.text-controls'))) return;
+    commandChange(
+      d.arrangementClear ? 'clear-character-arrangement' : 'set-character-arrangement',
+      { nodeId, ...(d.arrangementApply ? { mode: 'equal-ink-gap', gap } : {}) },
+      d.arrangementClear ? 'Authored character positions restored' : 'Maintained ink gaps applied',
+    );
+    return;
+  }
   if (d.action === 'align-panel') {
     alignmentPreferences.open = !alignmentPreferences.open;
     saveAlignmentPreferences();
@@ -4777,6 +4843,17 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.arrangementGap) {
+    const n = current().nodes.find((n) => n.id === d.arrangementGap);
+    if (!n?.characterArrangement) return;
+    if (!flushArrangementText(n.id, el.closest('.text-controls'))) return;
+    commandChange(
+      'set-character-arrangement',
+      { nodeId: n.id, gap: Number(el.value), updateGap: true },
+      'Maintained ink gap updated',
+    );
+    return;
+  }
   if (d.alignReference !== undefined || d.alignSpacing !== undefined) {
     if (d.alignSpacing !== undefined) {
       editAlignmentSpacing(el, true);
@@ -6728,6 +6805,16 @@ function movePointer(e) {
           e,
         ),
         local = inverseCharacterDelta(drag.matrix, displayed);
+      const controlledAxis = maintainedAxis(current().nodes.find((n) => n.id === drag.nodeId));
+      if (controlledAxis !== null && (!e.shiftKey || Math.abs(local[controlledAxis]) > 1e-8)) {
+        cancelInteraction();
+        notify(
+          'Maintained ink gaps control spacing; use cross-axis Shift-drag or disable to edit.',
+          true,
+        );
+        return;
+      }
+      if (controlledAxis !== null) local[controlledAxis] = 0;
       if (
         !updateCanvasGesture(
           {
@@ -7288,6 +7375,12 @@ document.addEventListener('keydown', (e) => {
     // history/tool shortcuts; artwork tools keep their existing cancel-and-switch behavior.
     e.preventDefault();
     e.stopImmediatePropagation();
+    return;
+  }
+  if (e.key === 'Escape' && e.target.dataset?.arrangementGap) {
+    const n = current().nodes.find((n) => n.id === e.target.dataset.arrangementGap);
+    e.target.value = String(n?.characterArrangement?.gap ?? 10);
+    e.preventDefault();
     return;
   }
   if (e.key === 'Escape' && e.target.dataset?.textWrapWidth) {

@@ -1,3 +1,4 @@
+import { validateCharacterArrangement } from './character-arrangement.js';
 import { validateTonePower } from './luminance-tone.js';
 import {
   luminanceInstanceSettings,
@@ -79,6 +80,7 @@ import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
 export { OFFSET_EDITOR_LIMITS } from './closed-offset.js';
 import { fingerprint } from './fingerprint.js';
 import {
+  createCharacterPositions,
   validateCharacterPositions,
   reconcileCharacterEdit,
   normalizeCharacterText,
@@ -531,7 +533,7 @@ export function layer(name = 'Composition 1') {
 }
 export function document() {
   return {
-    schemaVersion: 23,
+    schemaVersion: 24,
     name: 'Untitled composition',
     width: 960,
     height: 540,
@@ -554,7 +556,7 @@ export function blankLayer(name = 'Composition 1') {
 }
 export function blankDocument() {
   return {
-    schemaVersion: 23,
+    schemaVersion: 24,
     name: 'Untitled composition',
     width: 960,
     height: 540,
@@ -2162,6 +2164,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
                 n.edits,
                 n.text,
                 n.characterPositions,
+                n.characterArrangement,
                 n.pathAttachment,
                 n.font,
                 n.writingMode,
@@ -2317,6 +2320,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         let layout = layoutText(font, n.text, {
           position: attachment ? [0, 0] : read('position'),
           characterPositions: n.characterPositions,
+          characterArrangement: n.characterArrangement,
+          pathAttachment: attachment,
           fonts,
           fontId: n.font,
           size: read('size'),
@@ -2373,6 +2378,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             : [{ id: `${n.id}:u0`, contours: result.contours.map((c) => c.id) }];
         textLayouts.set(n.id, {
           outlineUnits,
+          arrangementStatus: layout.arrangementStatus,
+          arrangementEligibility: layout.arrangementEligibility,
           characters: layout.characters,
           glyphAdvances: Object.fromEntries(
             layout.glyphs.map((glyph) => [glyph.sourceIndex, glyph.advance]),
@@ -2395,6 +2402,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               (attachment
                 ? 'Canvas character dragging is unavailable on Type on Path; use numeric local XY/rotation/scale'
                 : null),
+            arrangementStatus: layout.arrangementStatus,
             suspended: layout.characterSuspended,
           },
         ];
@@ -3686,9 +3694,9 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(
-      doc.schemaVersion,
-    )
+    ![
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -3742,6 +3750,11 @@ export function validate(doc) {
           !/^(origin|(left|center|right)-(top|middle|bottom))$/.test(n.positionReference))
       )
         throw Error('Invalid object Position reference');
+      if (n.characterArrangement !== undefined) {
+        if (n.type !== 'Text' || sourceSchemaVersion < 24)
+          throw Error('Character arrangement requires schemaVersion 24 and a Text node');
+        validateCharacterArrangement(n.characterArrangement);
+      }
       if (n.characterPositions !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 3))
         throw Error('Character positions require schemaVersion 3 and a Text node');
       if (n.leading !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 6))
@@ -4258,6 +4271,13 @@ export function exportScene(doc, fonts = {}) {
     .map((l) => {
       const result = evaluate(l, fonts, doc.imageAssets);
       if (result.error) throw Error(`${l.name}: ${result.error}`);
+      const arrangedSuspension = result.path?.characterOccurrences?.find(
+        (o) => o.arrangementStatus?.suspended,
+      );
+      if (arrangedSuspension)
+        throw Error(
+          `${l.name}: Maintained ink gaps suspended: ${arrangedSuspension.arrangementStatus.reason}`,
+        );
       if (result.path?.characterOccurrences?.some((o) => o.suspended))
         throw Error(
           `${l.name}: Character positions are suspended; restore text/mapping or reset all adjustments before export`,
@@ -4456,6 +4476,20 @@ export class CommandSession {
       ),
       layout = result.textLayout(node.id);
     if (result.error || layout.reason) throw Error(result.error || layout.reason);
+    if (node.locked) throw Error('Text node is locked');
+    if (target.textKind === 'arrangement-gap') {
+      if (!layout.arrangementStatus?.active)
+        throw Error(layout.arrangementStatus?.reason || 'Apply maintained ink gaps first');
+      return [node.characterArrangement.gap];
+    }
+    if (
+      layout.arrangementStatus?.active &&
+      ((target.textKind === 'offset' &&
+        target.axis === (node.characterArrangement.axis === 'x' ? 0 : 1)) ||
+        target.textKind === 'kerning' ||
+        (target.textKind === 'style' && target.key === 'tracking'))
+    )
+      throw Error('Maintained ink gaps control spacing; disable to edit');
     if (target.textKind === 'leading') {
       if (node.leading?.mode !== 'manual') throw Error('Manual leading required');
       return [node.leading.value];
@@ -4591,7 +4625,14 @@ export class CommandSession {
         base,
       ).candidate;
     if (target.kind === 'character-translate') {
-      this.#textGestureValues(base, { ...target, textKind: 'offset', axis: 0 });
+      const draggedNode = base.layers
+        .find((l) => l.id === target.layerId)
+        ?.nodes.find((n) => n.id === target.nodeId);
+      this.#textGestureValues(base, {
+        ...target,
+        textKind: 'offset',
+        axis: draggedNode?.characterArrangement?.axis === 'x' ? 1 : 0,
+      });
       assertValue('Vector2', update.delta);
       if (update.delta.every((value) => value === 0)) return cloneDocument(base);
       const node = base.layers
@@ -4742,6 +4783,12 @@ export class CommandSession {
         throw Error('Invalid Text gesture values');
       if (values.every((value, index) => value === initial[index])) return cloneDocument(base);
       const payload = { layerId: target.layerId, nodeId: target.nodeId };
+      if (target.textKind === 'arrangement-gap')
+        return this.#commandCandidate(
+          'set-character-arrangement',
+          { ...payload, updateGap: true, gap: values[0] },
+          base,
+        ).candidate;
       if (target.textKind === 'leading' || target.textKind === 'wrap')
         return this.#commandCandidate(
           'set-text-settings',
@@ -5144,16 +5191,38 @@ export class CommandSession {
       this.#history[type]();
       return this.state;
     }
+    let commandBase = this.#history.doc;
+    const arrangementDrafts = ['set-character-arrangement', 'clear-character-arrangement'].includes(
+      type,
+    )
+      ? [...this.#textDrafts.entries()].filter(
+          ([, draft]) =>
+            draft.nodeId === payload.nodeId && draft.revision === this.#history.revision,
+        )
+      : [];
+    if (arrangementDrafts.length) {
+      commandBase = cloneDocument(commandBase);
+      for (const [, draft] of arrangementDrafts) {
+        const node = commandBase.layers
+          .find((l) => l.id === draft.layerId)
+          ?.nodes.find((n) => n.id === draft.nodeId);
+        draft.assertCurrent(node, this.#history.revision);
+        node.text = draft.state.changed ? draft.raw : draft.baseText;
+        if (draft.record) node.characterPositions = clone(draft.record);
+        else delete node.characterPositions;
+      }
+    }
     const { candidate, result, committingDraft } = this.#commandCandidate(
       type,
       payload,
-      this.#history.doc,
+      commandBase,
     );
     const revision = this.#history.revision;
     if (!sameDocument(this.#history.doc, candidate))
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
+    for (const [id] of arrangementDrafts) this.#textDrafts.delete(id);
     if (committingDraft) this.#textDrafts.delete(payload.draftId);
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
@@ -5280,6 +5349,9 @@ export class CommandSession {
       );
       if (evaluated.error) throw Error(evaluated.error);
       const path = evaluated.path;
+      const arrangement = evaluated.textLayout(source.id).arrangementStatus;
+      if (arrangement?.suspended)
+        throw Error(`Maintained ink gaps suspended: ${arrangement.reason}`);
       if (path.characterOccurrences?.some((o) => o.suspended))
         throw Error('Character adjustments are suspended; repair them before baking');
       if (!path.contours.some((c) => c.points.length)) throw Error('Text has no outlines to bake');
@@ -5573,6 +5645,8 @@ export class CommandSession {
         'set-text-content',
         'commit-text-draft',
         'set-text-settings',
+        'set-character-arrangement',
+        'clear-character-arrangement',
         'set-character-style',
         'set-character-offsets',
         'set-character-transforms',
@@ -5607,6 +5681,31 @@ export class CommandSession {
     if (!target) throw Error('Missing composition');
     if (target.locked) throw Error('Composition is locked');
     const transformNode = target.nodes.find((n) => n.id === payload.nodeId);
+    if (transformNode?.characterArrangement) {
+      const check = evaluate(
+        { ...target, output: transformNode.id },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      );
+      if (!check.error && check.textLayout(transformNode.id)?.arrangementStatus?.active) {
+        const axis = transformNode.characterArrangement.axis === 'x' ? 0 : 1;
+        const blocked =
+          (type === 'set-character-offsets' &&
+            Object.entries(payload.changes || {}).some(
+              ([id, v]) =>
+                v?.[axis] !== (transformNode.characterPositions?.offsets?.[id]?.[axis] || 0),
+            )) ||
+          (type === 'reset-character-adjustments' && payload.mode === 'offsets') ||
+          type === 'set-character-kerning' ||
+          (type === 'set-character-style' &&
+            Object.hasOwn(payload.patch || {}, 'tracking') &&
+            payload.patch.tracking !== null) ||
+          (type === 'set-text-settings' && Object.hasOwn(payload.settings || {}, 'kerning')) ||
+          (type === 'set-parameter' && payload.key === 'letterSpacing');
+        if (blocked) throw Error('Maintained ink gaps control spacing; disable to edit');
+      }
+    }
+
     if (
       isTransform(transformNode) &&
       Object.hasOwn(transformExtensions, payload.key) &&
@@ -5815,6 +5914,65 @@ export class CommandSession {
         payload.operation === 'spacing'
       )
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 12);
+    } else if (['set-character-arrangement', 'clear-character-arrangement'].includes(type)) {
+      const node = target.nodes.find((n) => n.id === payload.nodeId && n.type === 'Text');
+      if (!node) throw Error('Select a Text node');
+      if (node.locked) throw Error('Text node is locked');
+      if (type === 'clear-character-arrangement') delete node.characterArrangement;
+      else {
+        if (
+          Object.keys(payload).some(
+            (key) => !['layerId', 'nodeId', 'mode', 'gap', 'updateGap'].includes(key),
+          ) ||
+          (payload.updateGap !== undefined && payload.updateGap !== true) ||
+          (payload.updateGap === true && payload.mode !== undefined)
+        )
+          throw Error('Arrangement commands derive membership and anchor from current text');
+        if (!Number.isFinite(payload.gap) || payload.gap < 0 || payload.gap > 100000)
+          throw Error('Ink gap must be between 0 and 100000 px');
+        const evaluateCurrent = () => {
+          const result = evaluate(
+            { ...target, output: node.id },
+            resolveFonts(candidate, this.#fonts()),
+            candidate.imageAssets,
+          );
+          if (result.error) throw Error(result.error);
+          return { result, layout: result.textLayout(node.id) };
+        };
+        if (payload.updateGap === true) {
+          if (!node.characterArrangement) throw Error('Apply maintained ink gaps first');
+          const { layout } = evaluateCurrent();
+          if (!layout.arrangementStatus?.active)
+            throw Error(layout.arrangementStatus?.reason || 'Maintained ink gaps unavailable');
+          node.characterArrangement.gap = payload.gap;
+        } else {
+          if (payload.mode !== 'equal-ink-gap')
+            throw Error('Unsupported character arrangement mode');
+          // Capture the currently displayed edge, including a previous valid arrangement.
+          const { result, layout } = evaluateCurrent();
+          if (!layout.arrangementEligibility?.eligible)
+            throw Error(layout.arrangementEligibility?.reason || 'Character mapping unavailable');
+          if (!node.characterPositions)
+            node.characterPositions = createCharacterPositions(node.text);
+          const axis = node.writingMode === 'vertical-rl' ? 'y' : 'x',
+            index = axis === 'x' ? 0 : 1;
+          node.characterArrangement = {
+            version: 1,
+            mode: 'equal-ink-gap',
+            axis,
+            ids: node.characterPositions.units.map((u) => u.id),
+            gap: payload.gap,
+            anchorOffset:
+              layout.characters[0].bounds[index] -
+              result.parameterValue(node.id, 'position')[index],
+          };
+        }
+        validateCharacterArrangement(node.characterArrangement);
+        const { layout } = evaluateCurrent();
+        if (!layout.arrangementStatus?.active)
+          throw Error(layout.arrangementStatus?.reason || 'Maintained ink gaps unavailable');
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 24);
+      }
     } else if (type === 'set-text-content' || type === 'commit-text-draft') {
       const node = target.nodes.find(
         (node) => node.id === (committingDraft?.nodeId ?? payload.nodeId) && node.type === 'Text',
@@ -5886,6 +6044,7 @@ export class CommandSession {
       } else {
         if (!['all', 'offsets', 'transforms'].includes(payload.mode))
           throw Error('Invalid character reset mode');
+        if (payload.mode === 'all') delete node.characterArrangement;
         next =
           payload.mode === 'all'
             ? resetCharacterAdjustments(node.text, node.characterPositions)
