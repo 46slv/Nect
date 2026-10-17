@@ -11,6 +11,9 @@ test('disconnected modifier fallback ranges are rejected by commands and seriali
     ['Smooth Path', 'iterations', 0],
     ['Trim Path', 'start', 2],
     ['Corner Round', 'radius', -1],
+    ['Simplify Path', 'tolerance', -1],
+    ['Dash Path', 'dashLength', 0],
+    ['Dash Path', 'gapLength', -1],
   ]) {
     const doc = document(),
       l = doc.layers[0],

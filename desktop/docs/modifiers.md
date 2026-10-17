@@ -13,6 +13,8 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Smooth Path   | Factor 0–1; Iterations 1–50; Keep Endpoints                          | Neighbor-average positions; can shrink/collapse outlines; not curve fitting                     |
 | Trim Path     | Start / End fractions 0–1                                            | Per-contour length; Start ≤ End; equal values empty; partial closed inputs become open, no wrap |
 | Expand Stroke | Existing upstream Stroke width/cap/join                              | Solid straight-edge stroke → closed outline geometry; add Fill after; no type-preserving bypass |
+| Simplify Path | Tolerance in px                                                      | Straight-edge RDP reduction; fixed endpoints and valid-ring fallback; not topology repair       |
+| Dash Path     | Dash Length; Gap Length; Pattern Offset in px                        | Actual cubic dash geometry; positive dash length; closed-seam fragments rejoined                |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
@@ -27,6 +29,8 @@ Direct canvas text-character editing through these effects is unavailable; edit 
 - Curve → Trim Path → Stroke. A Fill on an open path uses an implicit closing edge; omit Fill
   when you want only the retained curve segment.
 - Curve → Resample Path → Stroke → Expand Stroke → Boolean → Fill
+- Curve → Dash Path → Stroke for actual separated path pieces.
+- Imported polyline or Resample Path → Simplify Path for point reduction.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 

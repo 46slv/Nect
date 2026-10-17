@@ -1,3 +1,5 @@
+import { dashIntervals } from './dash-intervals.js';
+import { simplifyGeometry } from './simplify-geometry.js';
 import { expandStrokeGeometry } from './expand-stroke-geometry.js';
 import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
@@ -167,6 +169,13 @@ export const definitions = {
     iterations: p('Scalar', 3),
     keepEndpoints: p('Boolean', true),
   },
+  'Dash Path': {
+    path: p('Path', null),
+    dashLength: p('Scalar', 12),
+    gapLength: p('Scalar', 6),
+    offset: p('Scalar', 0),
+  },
+  'Simplify Path': { path: p('Path', null), tolerance: p('Scalar', 1) },
   'Expand Stroke': { path: p('PaintedPath', null) },
   'Trim Path': {
     path: p('Path', null),
@@ -486,6 +495,8 @@ const bypassInputs = Object.freeze({
   Roughen: 'path',
   'Smooth Path': 'path',
   'Trim Path': 'path',
+  'Simplify Path': 'path',
+  'Dash Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -1163,6 +1174,69 @@ function trimPathGeometry(source, { start, end, prefix }) {
   }
 }
 
+function dashPathGeometry(source, options) {
+  dashIntervals(0, options);
+  if (!source?.contours) throw Error('Connect a Path input');
+  if (
+    source.contours.length > 128 ||
+    source.contours.reduce((sum, c) => sum + c.points.length, 0) > 2048
+  )
+    throw Error('Dash Path exceeds input geometry budget');
+  if (options.gapLength === 0) return clone(source);
+  const item = toPaper(source),
+    contours = [];
+  let segments = 0,
+    work = 0,
+    points = 0;
+  try {
+    for (const [ci, c] of source.contours.entries()) {
+      const length = item.children[ci].length;
+      const intervals = dashIntervals(length, options);
+      segments += intervals.length;
+      work += intervals.length * c.points.length;
+      if (segments > 512 || work > 200000) throw Error('Dash Path exceeds segment/work budget');
+      let pieces = intervals.map(([a, b], i) => {
+        const piece = trimPathGeometry(
+          { contours: [c] },
+          {
+            start: a / length,
+            end: b / length,
+            prefix: `${options.prefix}:c${ci}:d${i}`,
+          },
+        ).contours[0];
+        if (!piece?.points.length)
+          throw Error('Dash Path interval is too small at this coordinate scale');
+        return piece;
+      });
+      // A dash crossing a closed contour's stored seam remains one open segment.
+      if (
+        c.closed &&
+        pieces.length > 1 &&
+        intervals[0][0] === 0 &&
+        intervals.at(-1)[1] === length
+      ) {
+        const first = pieces[0],
+          last = pieces.at(-1);
+        last.points.at(-1).handleB = [...first.points[0].handleB];
+        last.points.push(...first.points.slice(1));
+        pieces = [last, ...pieces.slice(1, -1)];
+      }
+      for (const [di, piece] of pieces.entries()) {
+        points += piece.points.length;
+        if (points > 100000) throw Error('Dash Path exceeds output geometry budget');
+        piece.id = `${options.prefix}:c${ci}:d${di}`;
+        piece.points.forEach((p, pi) => {
+          p.id = `${piece.id}:p${pi}`;
+        });
+        contours.push(piece);
+      }
+    }
+    return { contours };
+  } finally {
+    item.remove();
+  }
+}
+
 export function parsePath(data, prefix = 'imported') {
   if (
     typeof data !== 'string' ||
@@ -1591,6 +1665,36 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ...routeCharacters(a, `${n.id}:a`),
           ...routeCharacters(b, `${n.id}:b`),
         ];
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Dash Path') {
+        const source = read('path');
+        result = dashPathGeometry(source, {
+          dashLength: read('dashLength'),
+          gapLength: read('gapLength'),
+          offset: read('offset'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Dash Path; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Simplify Path') {
+        const source = read('path');
+        result = simplifyGeometry(source, {
+          tolerance: read('tolerance'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Simplify Path; edit the source Text',
+        );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Expand Stroke') {
@@ -2170,6 +2274,8 @@ export function assertClosedOffsetChange(
     'Smooth Path',
     'Trim Path',
     'Expand Stroke',
+    'Simplify Path',
+    'Dash Path',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -2457,6 +2563,17 @@ export function validate(doc) {
           n.params.iterations.value > 50)
       )
         throw Error('Smooth Path needs factor 0–1 and integer iterations 1–50');
+      if (
+        n.type === 'Simplify Path' &&
+        (n.params.tolerance.value < 0 || n.params.tolerance.value > 100000)
+      )
+        throw Error('Simplify Path tolerance must be from 0 to 100000 px');
+      if (n.type === 'Dash Path')
+        dashIntervals(0, {
+          dashLength: n.params.dashLength.value,
+          gapLength: n.params.gapLength.value,
+          offset: n.params.offset.value,
+        });
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);

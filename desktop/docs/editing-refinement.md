@@ -255,3 +255,31 @@ concrete slices with focused verification, not merely a list of modifier ideas.
   shared-core export review, not native application GUI acceptance.
 
 See [modifier catalog](modifiers.md) for current controls, recipes and limitations.
+
+### Simplify Path and Dash Path
+
+- Simplify Path uses bounded iterative RDP on straight-edge contours with tolerance0–100000px
+  (default1). It preserves open endpoints, contour order/groups and a closed ring's winding;
+  if reduction collapses or reverses a valid ring it retains the original ring. Zero tolerance
+  clones geometry; positive tolerance requires zero Bézier handles (Resample first). It can
+  change small features/intersections and is not a topology-preserving cleanup. Input10000
+  contours/100000points; maximum2,000,000 distance checks. Inspiration:
+  [Blender adaptive Simplify](https://docs.blender.org/manual/en/4.3/grease_pencil/modifiers/generate/simplify.html).
+- Dash Path generates actual retained cubic pieces using arc length: Dash Length0.0001–100000px,
+  Gap0–100000px, Offset±100000px. Positive offset advances the periodic pattern; negative wraps.
+  Gap0 preserves the source. Closed-seam fragments from the same dash are joined into one open
+  piece. This is geometry before Stroke, unlike the existing paint-only dash style. Visual dots
+  still use Stroke's Dotted preset; dash geometry requires positive lengths. Inspiration:
+  [Blender Dot Dash](https://docs.blender.org/manual/en/3.6/grease_pencil/modifiers/generate/dash.html),
+  whose point-count controls differ from Nect's distance controls. Bounds128 input contours,
+  2048 input points,512 dash intervals,200000 point×interval work,100000 output points.
+- Focused evidence: Simplify helper10 + Session2 + DOM1; Dash interval planner5 + graph/Session3
+  - DOM1, total22/22, Web build pass. Common bypass/history/locks and editable JSON/SVG apply.
+- Modifier Playground now contains nine examples in20 evaluated editable layers. The actual SVG
+  raster was inspected for labels, clipping and shape output. Native application acceptance remains
+  unverified. The earlier seven-example proof sent in chat is preserved as that historical image.
+
+Next: Subdivide Path to add Bézier anchors without changing the curve shape, rather than converting
+it to a polyline. See [Blender Subdivide Curve](https://docs.blender.org/manual/nl/4.5/modeling/geometry_nodes/curve/operations/subdivide_curve.html).
+Use bounded per-edge cuts and retained cubic subsegments; preserve endpoints/closed seams and test
+sampled shape equivalence before adding it to the catalog.

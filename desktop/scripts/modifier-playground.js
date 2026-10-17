@@ -125,8 +125,31 @@ outlineStroke.strokeCap = 'round';
 outlineStroke.strokeJoin = 'round';
 chain('Geometric stroke outline', [curve, outlineStroke, node('Expand Stroke')], '#b05e3d');
 label('07  Expand Stroke', 65, 865);
-label('Try changing source shapes, amounts, seeds and order.', 415, 735, 17);
-label('Each layer is a separate editable node chain.', 415, 767, 17);
+chain(
+  'Simplified sampled curve',
+  [
+    circle(540, 750),
+    modifier('Resample Path', { count: 64 }),
+    modifier('Simplify Path', { tolerance: 4 }),
+  ],
+  '#40586b',
+);
+label('08  Simplify Path', 415, 865);
+const dashStroke = node('Stroke');
+dashStroke.params.width.value = 7;
+dashStroke.params.color.value = { hex: '#4b746d', alpha: 1 };
+dashStroke.strokeCap = 'round';
+chain(
+  'Real dash geometry',
+  [
+    circle(890, 750),
+    modifier('Dash Path', { dashLength: 16, gapLength: 12, offset: 4 }),
+    dashStroke,
+  ],
+  '#4b746d',
+  false,
+);
+label('09  Dash Path', 765, 865);
 const saved = serialize(doc),
   restored = deserialize(saved);
 for (const l of restored.layers) {
