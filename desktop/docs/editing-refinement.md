@@ -190,3 +190,25 @@ Compatibility: new node names require this development build. The previously dis
 Next slice: Smooth Path, a bounded position-only neighbor-average filter with repeat count
 and pinned open endpoints, following [Blender Smooth](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/smooth.html).
 It intentionally may shrink geometry; it will not claim topology preservation or curve fitting.
+
+### Smooth Path
+
+- Non-destructive point-position neighbor averaging, inspired by the cited Blender Smooth
+  modifier. Factor 0–1 (default 0.5; drag step 0.01), Iterations 1–50 (default 3), Keep
+  Endpoints on by default. Closed contours wrap their neighbors; unpinned open ends use
+  their sole neighbor. Each pass reads a simultaneous prior-position snapshot (Jacobi).
+- No added points. Relative Bézier handles, contour grouping and closed state remain;
+  output gets deterministic modifier IDs. Factor 0 is an independent geometry clone.
+- This can shrink/collapse silhouettes. It is not Bézier curve fitting or topology repair.
+  A useful stack is Resample Path → Roughen → Smooth Path → Fill / Stroke.
+- Bounds: 10000 contours,100000 points,2,000,000 point-iteration operations; finite results
+  and stable convex interpolation even for large finite coordinates.
+- Focused evidence: helper6/6, graph+Session2/2, DOM1/1 and Roughen graph regression2/2;
+  Web build passed. A worker accidentally invoked a broader test command; its final outcome
+  was not captured, so it is not counted as an aggregate pass. Future helper lanes must run
+  only their exact assigned test file; no npm test or full-suite command.
+
+Next research/addition: Trim Path, fractional arc-length start/end with exact retained Bézier
+segments where possible, explicit open partial paths and no silent wraparound; inspect the
+existing geometry engine's curve slicing APIs before implementing. Finish concrete slices
+with focused verification, not merely a list of modifier ideas.

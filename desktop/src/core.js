@@ -1,3 +1,4 @@
+import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
@@ -158,6 +159,12 @@ export const definitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
+  },
+  'Smooth Path': {
+    path: p('Path', null),
+    factor: p('Scalar', 0.5),
+    iterations: p('Scalar', 3),
+    keepEndpoints: p('Boolean', true),
   },
   Roughen: {
     path: p('Path', null),
@@ -470,6 +477,7 @@ const bypassInputs = Object.freeze({
   'Corner Round': 'path',
   'Resample Path': 'path',
   Roughen: 'path',
+  'Smooth Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -1421,6 +1429,22 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Smooth Path') {
+        const source = read('path');
+        result = smoothGeometry(source, {
+          factor: read('factor'),
+          iterations: read('iterations'),
+          keepEndpoints: read('keepEndpoints'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Smooth Path; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Roughen') {
         const source = read('path');
         result = roughenGeometry(source, {
@@ -1693,6 +1717,15 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             n.params.seed.value > 2147483647)
         )
           throw Error('Roughen needs amount 0–100000 px and integer seed 0–2147483647');
+        if (
+          n.type === 'Smooth Path' &&
+          (n.params.factor.value < 0 ||
+            n.params.factor.value > 1 ||
+            !Number.isInteger(n.params.iterations.value) ||
+            n.params.iterations.value < 1 ||
+            n.params.iterations.value > 50)
+        )
+          throw Error('Smooth Path needs factor 0–1 and integer iterations 1–50');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Stroke') {
@@ -1971,6 +2004,7 @@ export function assertClosedOffsetChange(
     'Corner Round',
     'Resample Path',
     'Roughen',
+    'Smooth Path',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
