@@ -166,6 +166,11 @@ export const definitions = {
     iterations: p('Scalar', 3),
     keepEndpoints: p('Boolean', true),
   },
+  'Trim Path': {
+    path: p('Path', null),
+    start: p('Scalar', 0),
+    end: p('Scalar', 1),
+  },
   Roughen: {
     path: p('Path', null),
     amount: p('Scalar', 3),
@@ -478,6 +483,7 @@ const bypassInputs = Object.freeze({
   'Resample Path': 'path',
   Roughen: 'path',
   'Smooth Path': 'path',
+  'Trim Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -999,6 +1005,162 @@ function fromPaper(item, prefix) {
   };
 }
 
+// Paper's getTimeAt() uses an absolute 1e-12 length tolerance. Normalize very
+// small curves around their first control point before finding t, then use that
+// same t to take the exact subcurve from the original curve.
+function curveTimeAtDistance(curve, distance, length) {
+  if (distance <= 0) return 0;
+  if (distance >= length) return 1;
+  if (length >= 1e-6) return curve.getTimeAt(distance);
+  const values = curve.values,
+    scale = 1 / length,
+    originX = values[0],
+    originY = values[1],
+    normalized = values.map((value, index) => (value - (index % 2 ? originY : originX)) * scale),
+    scaledCurve = new scope.Curve(normalized),
+    time = scaledCurve.getTimeAt(distance * scale);
+  return Number.isFinite(time) ? Math.min(1, Math.max(0, time)) : time;
+}
+
+function trimPathGeometry(source, { start, end, prefix }) {
+  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
+  if (!Number.isFinite(start) || start < 0 || start > 1)
+    throw Error('Trim Path start must be from 0 to 1');
+  if (!Number.isFinite(end) || end < 0 || end > 1) throw Error('Trim Path end must be from 0 to 1');
+  if (start > end) throw Error('Trim Path start must not exceed end');
+  if (typeof prefix !== 'string' || !prefix) throw Error('Trim Path needs a nonempty ID prefix');
+
+  let inputPoints = 0;
+  for (const contour of source.contours) {
+    if (!Array.isArray(contour?.points)) throw Error('Trim Path needs valid contours');
+    inputPoints += contour.points.length;
+    if (inputPoints > 100000) throw Error('Trim Path exceeds geometry budget');
+  }
+  if (source.contours.length > 10000) throw Error('Trim Path exceeds geometry budget');
+
+  const copyPoint = (point, contourIndex, pointIndex) => {
+    const position = [...point.position],
+      handleA = [...point.handleA],
+      handleB = [...point.handleB];
+    assertValue('Vector2', position);
+    assertValue('Vector2', handleA);
+    assertValue('Vector2', handleB);
+    return {
+      ...point,
+      id: `${prefix}:c${contourIndex}:p${pointIndex}`,
+      position,
+      handleA,
+      handleB,
+    };
+  };
+  const copyContour = (contour, contourIndex, closed = contour.closed) => ({
+    ...contour,
+    id: `${prefix}:c${contourIndex}`,
+    closed,
+    points: contour.points.map((point, pointIndex) => copyPoint(point, contourIndex, pointIndex)),
+  });
+
+  if (start === end) return { ...source, contours: [] };
+  if (start === 0 && end === 1)
+    return {
+      ...source,
+      contours: source.contours.map((contour, index) => copyContour(contour, index)),
+    };
+
+  const item = toPaper(source);
+  try {
+    let outputPointCount = 0;
+    const contours = source.contours.map((contour, contourIndex) => {
+      const path = item.children[contourIndex],
+        length = path.length;
+      if (!Number.isFinite(length) || length < 0)
+        throw Error('Trim Path exceeds finite path length');
+
+      // Arc length cannot distinguish positions on a degenerate contour. Keep
+      // its finite points as an open contour for any non-empty partial range.
+      if (length === 0) {
+        outputPointCount += contour.points.length;
+        if (outputPointCount > 100000) throw Error('Trim Path exceeds geometry budget');
+        return copyContour(contour, contourIndex, false);
+      }
+
+      const from = length * start,
+        to = length * end,
+        output = [];
+      if (![from, to].every(Number.isFinite)) throw Error('Trim Path exceeds finite path length');
+      const append = (values) => {
+        if (!Array.isArray(values) || values.length !== 8 || !values.every(Number.isFinite))
+          throw Error('Trim Path exceeds finite coordinates');
+        const addedPoints = output.length ? 1 : 2;
+        if (outputPointCount + addedPoints > 100000)
+          throw Error('Trim Path exceeds geometry budget');
+        const startPoint = [values[0], values[1]],
+          control1 = [values[2], values[3]],
+          control2 = [values[4], values[5]],
+          endPoint = [values[6], values[7]];
+        if (!output.length) {
+          output.push({
+            id: `${prefix}:c${contourIndex}:p0`,
+            position: startPoint,
+            handleA: [0, 0],
+            handleB: [control1[0] - startPoint[0], control1[1] - startPoint[1]],
+          });
+        } else {
+          const previous = output[output.length - 1];
+          previous.handleB = [
+            control1[0] - previous.position[0],
+            control1[1] - previous.position[1],
+          ];
+        }
+        const index = output.length;
+        output.push({
+          id: `${prefix}:c${contourIndex}:p${index}`,
+          position: endPoint,
+          handleA: [control2[0] - endPoint[0], control2[1] - endPoint[1]],
+          handleB: [0, 0],
+        });
+        outputPointCount += addedPoints;
+      };
+      let cursor = 0;
+      for (const curve of path.curves) {
+        const curveLength = curve.length,
+          next = cursor + curveLength;
+        if (!Number.isFinite(curveLength) || !Number.isFinite(next))
+          throw Error('Trim Path exceeds finite path length');
+        if (curveLength > 0) {
+          const localStart = Math.max(0, from - cursor),
+            localEnd = Math.min(curveLength, to - cursor);
+          if (localEnd > localStart) {
+            const t0 = curveTimeAtDistance(curve, localStart, curveLength),
+              t1 = curveTimeAtDistance(curve, localEnd, curveLength);
+            if (!Number.isFinite(t0) || !Number.isFinite(t1) || t0 < 0 || t1 > 1 || t0 > t1)
+              throw Error('Trim Path could not locate a finite curve segment');
+            if (t1 > t0) append(curve.getPart(t0, t1).values);
+          }
+        }
+        cursor = next;
+      }
+      if (output.length > 100000) throw Error('Trim Path exceeds geometry budget');
+      for (const point of output) {
+        assertValue('Vector2', point.position);
+        assertValue('Vector2', point.handleA);
+        assertValue('Vector2', point.handleB);
+      }
+      return {
+        ...contour,
+        id: `${prefix}:c${contourIndex}`,
+        closed: false,
+        points: output,
+      };
+    });
+    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
+      throw Error('Trim Path exceeds geometry budget');
+    return { ...source, contours };
+  } finally {
+    item.remove();
+  }
+}
+
 export function parsePath(data, prefix = 'imported') {
   if (
     typeof data !== 'string' ||
@@ -1429,6 +1591,19 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Trim Path') {
+        const source = read('path'),
+          start = read('start'),
+          end = read('end');
+        result = trimPathGeometry(source, { start, end, prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Trim Path; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Smooth Path') {
         const source = read('path');
         result = smoothGeometry(source, {
@@ -1701,31 +1876,6 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = clone(result);
         if (n.type === 'Fill') result.fill = read('color');
-        if (
-          n.type === 'Resample Path' &&
-          (!Number.isInteger(n.params.count.value) ||
-            n.params.count.value < 2 ||
-            n.params.count.value > 1024)
-        )
-          throw Error('Resample count must be an integer from 2 to 1024');
-        if (
-          n.type === 'Roughen' &&
-          (n.params.amount.value < 0 ||
-            n.params.amount.value > 100000 ||
-            !Number.isInteger(n.params.seed.value) ||
-            n.params.seed.value < 0 ||
-            n.params.seed.value > 2147483647)
-        )
-          throw Error('Roughen needs amount 0–100000 px and integer seed 0–2147483647');
-        if (
-          n.type === 'Smooth Path' &&
-          (n.params.factor.value < 0 ||
-            n.params.factor.value > 1 ||
-            !Number.isInteger(n.params.iterations.value) ||
-            n.params.iterations.value < 1 ||
-            n.params.iterations.value > 50)
-        )
-          throw Error('Smooth Path needs factor 0–1 and integer iterations 1–50');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Stroke') {
@@ -2005,6 +2155,7 @@ export function assertClosedOffsetChange(
     'Resample Path',
     'Roughen',
     'Smooth Path',
+    'Trim Path',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -2267,6 +2418,31 @@ export function validate(doc) {
         throw Error('Skew must be between -89.9 and 89.9 degrees');
       for (const [key, def] of Object.entries(definitions[n.type]))
         param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+      if (
+        n.type === 'Resample Path' &&
+        (!Number.isInteger(n.params.count.value) ||
+          n.params.count.value < 2 ||
+          n.params.count.value > 1024)
+      )
+        throw Error('Resample count must be an integer from 2 to 1024');
+      if (
+        n.type === 'Roughen' &&
+        (n.params.amount.value < 0 ||
+          n.params.amount.value > 100000 ||
+          !Number.isInteger(n.params.seed.value) ||
+          n.params.seed.value < 0 ||
+          n.params.seed.value > 2147483647)
+      )
+        throw Error('Roughen needs amount 0–100000 px and integer seed 0–2147483647');
+      if (
+        n.type === 'Smooth Path' &&
+        (n.params.factor.value < 0 ||
+          n.params.factor.value > 1 ||
+          !Number.isInteger(n.params.iterations.value) ||
+          n.params.iterations.value < 1 ||
+          n.params.iterations.value > 50)
+      )
+        throw Error('Smooth Path needs factor 0–1 and integer iterations 1–50');
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
@@ -2284,6 +2460,20 @@ export function validate(doc) {
         (n.params.radius.value < 0 || n.params.radius.value > 100000)
       )
         throw Error('Corner Round radius must be from 0 to 100000 px');
+      if (n.type === 'Trim Path') {
+        const start = n.params.start.value,
+          end = n.params.end.value;
+        if (start < 0 || start > 1) throw Error('Trim Path start must be from 0 to 1');
+        if (end < 0 || end > 1) throw Error('Trim Path end must be from 0 to 1');
+        if (
+          !n.params.start.source &&
+          !n.params.start.expression &&
+          !n.params.end.source &&
+          !n.params.end.expression &&
+          start > end
+        )
+          throw Error('Trim Path start must not exceed end');
+      }
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
       if (

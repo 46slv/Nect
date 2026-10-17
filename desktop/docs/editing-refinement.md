@@ -208,7 +208,24 @@ It intentionally may shrink geometry; it will not claim topology preservation or
   was not captured, so it is not counted as an aggregate pass. Future helper lanes must run
   only their exact assigned test file; no npm test or full-suite command.
 
-Next research/addition: Trim Path, fractional arc-length start/end with exact retained Bézier
-segments where possible, explicit open partial paths and no silent wraparound; inspect the
-existing geometry engine's curve slicing APIs before implementing. Finish concrete slices
-with focused verification, not merely a list of modifier ideas.
+### Trim Path
+
+- Path → Path modifier inspired by [Blender Trim Curve](https://docs.blender.org/manual/en/4.5/modeling/geometry_nodes/curve/operations/trim_curve.html).
+  Start and End are per-contour arc-length fractions from 0 to 1 (defaults 0 and 1),
+  and Start may not exceed End. A zero-width interval returns empty geometry.
+- Cubic Bézier slices retain their cubic geometry and relative handles; arc-length lookup is
+  numerical. Full 0–1 ranges preserve the source closure and geometry. Partial selections are
+  open contours, including partial selections from closed sources. The closed-path seam is the
+  fixed start/end boundary: there is no implicit wraparound. Edit upstream Text for direct
+  character editing.
+- Each contour is trimmed independently. Contour groups remain intact. Zero-length contours
+  remain finite and are emitted open for non-empty partial intervals. Modifier IDs are generated
+  deterministically from the node and output order; its unstable fingerprint suspends downstream
+  Remap edits when the retained geometry changes. The source graph stays editable.
+- Bounded to 10,000 contours and 100,000 input/output points, with finite lengths, positions and
+  handles. Bypass, common history, parameter locks, and transactional range validation apply.
+- Focused evidence: Trim Path core/DOM 11/11 plus disconnected modifier fallback validation 1/1 and Web build pass. Removed unreachable fallback-range checks from the paint evaluator and placed them in document validation, so disconnected invalid modifier values also reject atomically. No claim of native GUI review
+  or formal Blender feature parity.
+
+Continue researching and adding useful geometry modifiers in coherent, focused slices. Finish
+concrete slices with focused verification, not merely a list of modifier ideas.
