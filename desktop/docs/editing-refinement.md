@@ -456,7 +456,7 @@ The actual exported SVG was rasterized and visually inspected; this remains sour
   character editing remains upstream at Text.
 - No sampling is performed. Focused geometry, core/Session and DOM evidence is recorded with this
   change; this does not establish native GUI or any other application's behavior.
-- The current modifier catalog has 17 entries; the existing 41-layer playground remains unchanged
+- The current modifier catalog has 18 entries; the existing 41-layer playground remains unchanged
   and covers the previous 16. Focused Set Closure geometry/core/Session/DOM tests pass 9/9, the
   existing Join/Boolean regression passes 5/5, and the Web build succeeds with the existing large-
   chunk warning. This is source-level evidence, not native GUI acceptance.
@@ -464,3 +464,14 @@ The actual exported SVG was rasterized and visually inspected; this remains sour
 Root integration keeps the existing Boolean evaluator unchanged; Set Closure validates its own geometry. Updated the existing bypass contract test list for the implemented Path→Path modifiers instead of retaining stale unsupported-node expectations.
 
 Final Set Closure integration evidence: closure helper/core/DOM9 + refreshed existing bypass-contract40 =49/49 pass; final Web build passes. Existing Boolean evaluation semantics remain unchanged. The prior stale unsupported-Smooth-Path assertion is repaired by explicitly listing all implemented identity-bypass nodes; no production bypass guard was weakened.
+
+### Twist Points
+
+- Inspired by the effect category in [Adobe Illustrator's reshaping effects](https://helpx.adobe.com/illustrator/using/reshaping-objects-effects.html), which describes a stronger twist near its center. Nect's numeric mapping is its own smoothstep contract; Adobe numeric parity is not claimed.
+- Path → Path with one angle control, −360..360° (default0). One shared bounds box uses every anchor and absolute Bézier control endpoint across all contours. The automatic center is the bounds midpoint and `R = 0.5 × hypot(width, height)`; there are no manual center or radius controls.
+- For each absolute anchor/control point `p`, `u = clamp(distance(p, center) / R, 0, 1)`, `s = 3u² − 2u³`, and the original offset is rotated by `angle × (1 − s)`. Positive angle rotates clockwise in screen coordinates (Y down). Radial distance from the center is retained. Relative handles are reconstructed from their independently mapped absolute endpoints.
+- Empty input, zero radius and zero angle independently return a cloned geometry. Contour order, groups, closure and metadata remain. Derived contour / point IDs are deterministic; output provenance is unstable for downstream Remap. Input is capped at 10,000 contours and 100,000 points; non-finite vectors, absolute endpoints, intermediates or output reject the whole edit. Bounded Session preflight preserves authored state on failure. Standard Path bypass, history/locks, JSON/SVG and upstream Text editing restrictions apply.
+- This maps anchors and absolute Bézier controls separately, not the exact nonlinear interior of each cubic. Resample Path first to increase point density. A sparse rectangular outline whose corners all lie at R may show little or no visible change because points at R receive zero angle. No samples were added to the shared modifier playground.
+- Focused helper8 + graph/Session/text4 + DOM1 + disconnected validation1 + bypass41 =55/55 pass; the Web build passes with the existing >500 kB chunk warning. Native Windows GUI acceptance and exact Adobe numeric matching are not claimed.
+
+Twist checkpoint playground: all18 modifiers now have examples in47 serialized/reopened and evaluated layers. The final row compares a genuinely open stroke, Set Closure and a resampled twisted star. SVG path data distinguishes the first two by the closing z command; Inkscape PNG rendering confirms the open gap and closed edge. PyMuPDF incorrectly rendered the open polyline as closed in this case, so use Inkscape for this proof. Cloud Chromium launch was unavailable; no browser/native GUI acceptance is claimed.

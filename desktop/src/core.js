@@ -1,5 +1,6 @@
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
+import { twistGeometry } from './twist-geometry.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
@@ -195,6 +196,7 @@ export const definitions = {
   'Set Closure': { path: p('Path', null), closed: p('Boolean', true) },
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
+  'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
@@ -534,6 +536,7 @@ const bypassInputs = Object.freeze({
   'Pucker & Bloat': 'path',
   Taper: 'path',
   'Bend Points': 'path',
+  'Twist Points': 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
   'Dash Path': 'path',
@@ -2173,6 +2176,20 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Twist Points') {
+        const source = read('path');
+        result = twistGeometry(source, {
+          angle: read('angle'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Twist Points; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Wave Points') {
         const source = read('path');
         result = waveGeometry(source, {
@@ -2786,6 +2803,7 @@ export function assertClosedOffsetChange(
     'Wave Points',
     'Taper',
     'Bend Points',
+    'Twist Points',
   ]);
   const boundedInputs = (n) =>
     n.type === 'Boolean' ? ['a', 'b'].map((key) => n.params[key]?.source) : [n.params.path?.source];
@@ -3152,6 +3170,13 @@ export function validate(doc) {
           n.params.angle.value > 180)
       )
         throw Error('Bend Points angle must be finite and from -180 to 180 degrees');
+      if (
+        n.type === 'Twist Points' &&
+        (!Number.isFinite(n.params.angle.value) ||
+          n.params.angle.value < -360 ||
+          n.params.angle.value > 360)
+      )
+        throw Error('Twist Points angle must be finite and from -360 to 360 degrees');
       if (n.type === 'Set Path Start' && (n.params.start.value < 0 || n.params.start.value > 1))
         throw Error('Set Path Start start must be from 0 to 1');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))

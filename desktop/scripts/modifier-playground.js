@@ -22,7 +22,7 @@ const fonts = {
 const doc = document();
 doc.name = 'Modifier Playground';
 doc.width = 1080;
-doc.height = 1680;
+doc.height = 1940;
 doc.layers = [];
 function chain(name, nodes, color = '#40586b', paint = true) {
   const l = layer(name);
@@ -225,6 +225,28 @@ for (const [cx, title, effect] of [
   chain(title, [text, ...(effect ? [effect] : [])], '#40586b');
   label(title, cx - 125, 1645);
 }
+for (const [cx, title, close] of [
+  [180, 'Open reference', false],
+  [540, '17  Set Closure', true],
+]) {
+  const source = node('Imported Path');
+  source.rawPath = `M${cx - 70} 1830L${cx - 70} 1740L${cx + 70} 1740L${cx + 70} 1830`;
+  const stroke = node('Stroke');
+  stroke.params.width.value = 7;
+  stroke.params.color.value = { hex: '#b05e3d', alpha: 1 };
+  chain(title, [source, ...(close ? [node('Set Closure')] : []), stroke], '#b05e3d', false);
+  label(title, cx - 125, 1905);
+}
+const twistStar = node('Star');
+twistStar.params.center.value = [890, 1790];
+twistStar.params.outerRadius.value = 78;
+twistStar.params.innerRadius.value = 35;
+chain(
+  'Radial twist',
+  [twistStar, modifier('Resample Path', { count: 96 }), modifier('Twist Points', { angle: 180 })],
+  '#4b746d',
+);
+label('18  Twist Points', 765, 1905);
 const saved = serialize(doc),
   restored = deserialize(saved);
 for (const l of restored.layers) {

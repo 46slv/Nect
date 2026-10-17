@@ -71,6 +71,7 @@ const supported = [
   'Set Path Start',
   'Taper',
   'Bend Points',
+  'Twist Points',
   'Set Closure',
   'Boolean',
   'Join Geometry',
