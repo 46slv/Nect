@@ -133,6 +133,12 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   assert.equal(view(), 'translate(-20px,-40px)');
   wheel(stage(), { deltaX: 0, deltaY: 2, deltaMode: 1, shiftKey: true });
   assert.equal(view(), 'translate(-52px,-40px)');
+  click('actual-size');
+  assert.equal(wheel(stage(), { altKey: true, deltaY: -100 }), false);
+  assert.ok(parseFloat(scale('canvas')) > 100, 'Alt wheel increases artboard zoom');
+  assert.equal(JSON.stringify(win.nect.document), saved, 'Alt zoom is not an authored edit');
+  assert.equal(win.nect.export(), svg);
+  assert.equal(wheel(q('.inspector'), { altKey: true }), true);
   assert.equal(wheel(graph()), true, 'plain graph wheel retains native scrolling');
   assert.equal(wheel(q('.inspector'), { ctrlKey: true }), true);
   assert.equal(key(document.body, '+'), true);

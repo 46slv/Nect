@@ -108,6 +108,11 @@ try {
     before = await artPoint(p);
   await wheelAt(stage, 0, -110, 'Control');
   near(await artPoint(p), before, 0.01);
+  const beforeAltScale = await scale();
+  await wheelAt(stage, 0, -80, 'Alt');
+  assert.ok((await scale()) > beforeAltScale, 'Alt wheel zooms the artboard');
+  near(await artPoint(p), before, 0.01);
+  assert.deepEqual(await saved(), original, 'Alt zoom does not author document changes');
   assert.equal(await graphScale(), 1);
   await truthful();
   const rectBefore = await page.locator('.artboard').boundingBox();
