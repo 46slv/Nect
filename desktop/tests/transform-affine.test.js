@@ -66,7 +66,7 @@ test('Skew at zero rotation shares affine geometry, handles and character proven
     r = evaluate(l),
     p = r.run(f.tr.id).contours[0].points[0];
   near(p.position, [250 - Math.tan(Math.PI / 6) * 150, 150]);
-  assert.equal(doc.schemaVersion, 11);
+  assert.equal(doc.schemaVersion, original.schemaVersion);
   assert.equal(doc.layers[0].nodes.find((n) => n.id === f.tr.id).params.rotation.value, 0);
   assert.match(exportSVG(doc), /<svg/);
   assert.deepEqual(evaluate(deserialize(serialize(doc)).layers[0]).path, r.path);

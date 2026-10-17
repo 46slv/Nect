@@ -108,8 +108,15 @@ import {
   transformParameter,
   transformValues,
   transformVector,
+  repositionTransformAnchor,
+  anchorFromOutputDelta,
 } from './transform-affine.js';
-export { isTransform, transformExtensions, transformParameter } from './transform-affine.js';
+export {
+  isTransform,
+  transformExtensions,
+  transformParameter,
+  anchorFromOutputDelta,
+} from './transform-affine.js';
 import { identityMatrix, characterTransform, routeCharacters } from './character-geometry.js';
 export * from './character-identity.js';
 export * from './character-geometry.js';
@@ -4576,6 +4583,12 @@ export class CommandSession {
   }
   #gestureCandidate(base, target, update) {
     if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'transform-anchor')
+      return this.#commandCandidate(
+        'reposition-transform-anchor',
+        { ...target, delta: update.delta },
+        base,
+      ).candidate;
     if (target.kind === 'text-font') {
       const layer = base.layers.find((layer) => layer.id === target.layerId);
       const node = layer?.nodes.find((node) => node.id === target.nodeId && node.type === 'Text');
@@ -5201,6 +5214,7 @@ export class CommandSession {
           : target?.kind === 'text-values'
             ? { values: this.#textGestureValues(base, target) }
             : [
+                  'transform-anchor',
                   'graph-translate',
                   'artwork-translate',
                   'nodes-translate',
@@ -5531,6 +5545,43 @@ export class CommandSession {
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 22);
       serialize(candidate); // Validate every reference and project-size limit before committing.
       return { candidate, result: { nodeId: baked.id } };
+    }
+
+    if (type === 'reposition-transform-anchor') {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((l) => l.id === payload.layerId),
+        n = layer?.nodes.find((n) => n.id === payload.nodeId);
+      if (n?.type !== 'Transform' || n.bypassed) throw Error('Select an active Transform');
+      if (layer.locked) throw Error('Composition is locked');
+      for (const key of ['anchor', 'position']) {
+        const q = n.params[key];
+        if (q && (q.locked || q.source || q.expression))
+          throw Error('Anchor and Position must be unlocked and undriven');
+      }
+      const state = evaluate(
+        layer,
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      ).transformState(n.id);
+      if (!state.input?.contours.some((c) => c.points.length))
+        throw Error('Connect nonempty input geometry');
+      let anchor = payload.anchor;
+      if (payload.preset !== undefined) {
+        if (!Number.isInteger(payload.preset) || payload.preset < 0 || payload.preset > 8)
+          throw Error('Unknown anchor preset');
+        const bounds = pathBounds(state.input);
+        anchor = [bounds[0][payload.preset % 3], bounds[1][Math.floor(payload.preset / 3)]];
+      } else if (payload.delta !== undefined) anchor = anchorFromOutputDelta(state, payload.delta);
+      const next = repositionTransformAnchor(state, anchor);
+      if (next.anchor.every((v, i) => v === state.anchor[i])) return { candidate, result: {} };
+      n.params.anchor.value = next.anchor;
+      n.params.position = {
+        ...(n.params.position || clone(transformExtensions.position)),
+        value: next.position,
+      };
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
+      validate(candidate);
+      return { candidate, result: {} };
     }
 
     if (type === 'set-transform-control') {

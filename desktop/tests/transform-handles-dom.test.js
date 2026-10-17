@@ -339,6 +339,81 @@ test('Transform handles: source stage, scale/rotation, precise history, read-onl
   assert.equal(saved(), markerDocument);
   Object.assign(matrix, oldMatrix);
   document.querySelector('[data-action="zoom-out"]').click();
+  // Anchor reposition uses the same selected-output stage and actual screen CTM.
+  load();
+  const anchorBefore = saved(),
+    anchorState = win.nect.evaluate().transformState(t.id);
+  assert.ok(handle('anchor'));
+  document.querySelector('.inspector-body [data-anchor-preset="4"]').click();
+  flush();
+  assert.deepEqual(get().params.anchor.value, [300, 250]);
+  win.nect
+    .evaluate()
+    .transformState(t.id)
+    .matrix.forEach((v, i) => near(v, anchorState.matrix[i]));
+  undo();
+  assert.equal(saved(), anchorBefore);
+  matrix.a = 1.4;
+  matrix.b = 0.3;
+  matrix.c = -0.2;
+  matrix.d = 1.7;
+  const anchorPress = () => {
+    const p = geometry().pivot;
+    fire(handle('anchor'), 'pointerdown', xy(p));
+    return p;
+  };
+  p = anchorPress();
+  move([p[0] + 18, p[1] - 11]);
+  up();
+  const anchorAfter = saved(),
+    movedState = win.nect.evaluate().transformState(t.id);
+  movedState.matrix.forEach((v, i) => near(v, anchorState.matrix[i]));
+  movedState.pivot.forEach((v, i) => near(v, anchorState.pivot[i] + [18, -11][i]));
+  undo();
+  assert.equal(saved(), anchorBefore);
+  redo();
+  assert.equal(saved(), anchorAfter);
+  for (const event of ['pointercancel', 'blur', 'Escape']) {
+    p = anchorPress();
+    move([p[0] + 50, p[1] + 20]);
+    if (event === 'Escape')
+      document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    else if (event === 'blur') win.dispatchEvent(new win.Event('blur'));
+    else fire(document, event, xy(p));
+    flush();
+    up();
+    assert.equal(saved(), anchorAfter);
+  }
+  p = anchorPress();
+  move([p[0] + 30, p[1] + 15]);
+  move(p);
+  up();
+  assert.equal(saved(), anchorAfter);
+  Object.assign(matrix, oldMatrix);
+  d.layers[0].nodes[0].params.position = {
+    type: 'Vector2',
+    value: [0, 0],
+    expression: '',
+    locked: true,
+  };
+  load();
+  const lockedAnchor = saved();
+  p = anchorPress();
+  move([p[0] + 30, p[1] + 15]);
+  up();
+  assert.equal(saved(), lockedAnchor);
+  assert.equal(document.querySelector('.inspector-body [data-anchor-preset="4"]').disabled, true);
+  delete d.layers[0].nodes[0].params.position;
+  d.layers[0].nodes[0].params.scale.value = 0;
+  load();
+  const collapsedAnchor = saved();
+  p = anchorPress();
+  move([p[0] + 30, p[1] + 15]);
+  up();
+  assert.equal(saved(), collapsedAnchor);
+  document.querySelector('.inspector-body [data-anchor-preset="4"]').click();
+  flush();
+  assert.deepEqual(get().params.anchor.value, [300, 250]);
   // Multi-selection hides transform controls, hidden layers also hide them.
   fire(
     document.querySelector(`.node[data-id="${r.id}"] .node-head strong`),

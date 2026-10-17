@@ -430,6 +430,7 @@ import {
   createCharacterPositions,
   objectResizeHandles,
   resizedObjectValue,
+  anchorFromOutputDelta,
   transformHandleGeometry,
   scaleFromHandle,
   rotationHandleAngle,
@@ -2336,7 +2337,15 @@ function guidesOverlay() {
   );
 }
 function transformControls(n) {
-  return '';
+  if (n.type !== 'Transform') return '';
+  const disabled =
+    current().locked ||
+    n.bypassed ||
+    ['anchor', 'position'].some((key) => {
+      const q = n.params[key];
+      return q && (q.locked || q.source || q.expression);
+    });
+  return `<section aria-label="Reposition anchor"><h4>Reposition anchor</h4><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px">${['Top left', 'Top center', 'Top right', 'Middle left', 'Center', 'Middle right', 'Bottom left', 'Bottom center', 'Bottom right'].map((label, index) => `<button class="mini" data-anchor-preset="${index}" data-anchor-node="${n.id}" ${disabled ? 'disabled' : ''}>${label}</button>`).join('')}</div><p class="font-note">Keep artwork in place while moving its rotation/scale pivot. Presets use input path bounds. Drag the canvas Anchor marker for a custom pivot. Controls show selected Transform output before downstream nodes. Anchor and Position must be unlocked and undriven. Collapsed scales support presets only.</p></section>`;
 }
 
 function positionControllerControls(n) {
@@ -2768,7 +2777,13 @@ function transformOverlay(n, result) {
   if (!context) return '';
   const { geometry: g } = context;
   const size = 1 / canvasScale();
-  return `<g class="transform-overlay" data-transform-stage="${n.id}" aria-label="Selected Transform output before downstream nodes"><line x1="${g.pivot[0]}" y1="${g.pivot[1]}" x2="${g.rotation[0]}" y2="${g.rotation[1]}"/><g transform="translate(${g.pivot.join(' ')})"><g transform="scale(${size})"><path class="transform-pivot" d="M-7 0H7 M0-7V7"/><circle class="transform-pivot" r="3"/><text x="10" y="-12">Selected Transform output</text></g></g>${[
+  const anchorReadonly =
+    current().locked ||
+    ['anchor', 'position'].some((key) => {
+      const q = n.params[key];
+      return q && (q.locked || q.source || q.expression);
+    });
+  return `<g class="transform-overlay" data-transform-stage="${n.id}" aria-label="Selected Transform output before downstream nodes"><line x1="${g.pivot[0]}" y1="${g.pivot[1]}" x2="${g.rotation[0]}" y2="${g.rotation[1]}"/><g class="transform-control ${anchorReadonly ? 'readonly' : ''}" data-transform-handle="anchor" data-transform-node="${n.id}" aria-label="Reposition anchor" transform="translate(${g.pivot.join(' ')})"><title>${anchorReadonly ? 'Anchor or Position is locked or driven' : 'Drag Anchor without moving artwork'}</title><g transform="scale(${size})"><circle r="10" fill="transparent"/><text x="12" y="16">Anchor</text><path class="transform-pivot" d="M-7 0H7 M0-7V7"/><circle class="transform-pivot" r="3"/><text x="10" y="-12">Selected Transform output</text></g></g>${[
     'scale',
     'rotation',
   ]
@@ -3822,6 +3837,15 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.anchorPreset !== undefined) {
+    if (!b.disabled)
+      commandChange(
+        'reposition-transform-anchor',
+        { nodeId: d.anchorNode, preset: Number(d.anchorPreset) },
+        'Anchor repositioned; artwork preserved',
+      );
+    return;
+  }
   if (d.arrangementApply || d.arrangementClear) {
     if (b.disabled) return;
     const nodeId = d.arrangementApply || d.arrangementClear,
@@ -6696,13 +6720,25 @@ app.addEventListener('pointerdown', (e) => {
     n = selectedNode();
     const key = transformHandle.dataset.transformHandle,
       q = n?.params[key];
-    if (!['scale', 'rotation'].includes(key) || !q || q.locked || q.source || q.expression) {
+    if (
+      !['anchor', 'scale', 'rotation'].includes(key) ||
+      !q ||
+      q.locked ||
+      q.source ||
+      q.expression
+    ) {
       notify(`${key} is locked or driven by an input`, true);
       return;
     }
     try {
       const context = transformContext(n, evaluate(current(), fonts, history.doc.imageAssets));
       if (!context) return;
+      if (key === 'anchor') {
+        const position = n.params.position;
+        if (position && (position.locked || position.source || position.expression))
+          throw Error('Anchor and Position must be unlocked and undriven');
+        anchorFromOutputDelta(context.state, [0, 0]);
+      }
       const start = canvasPoint(e);
       drag = {
         type: 'transform',
@@ -7062,6 +7098,18 @@ function movePointer(e) {
     )
       return;
     const pos = canvasPoint(e);
+    if (drag.key === 'anchor') {
+      if (
+        !updateCanvasGesture(
+          { kind: 'transform-anchor', layerId: current().id, nodeId: drag.nodeId },
+          { delta: pos.map((v, i) => v - drag.start[i]) },
+        )
+      )
+        return;
+      drag.started = true;
+      updateCanvas();
+      return;
+    }
     let next;
     if (drag.type === 'object-resize')
       next = resizedObjectValue(

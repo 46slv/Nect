@@ -84,3 +84,33 @@ export function transformValues(n, read) {
   };
 }
 export const transformVector = (state, vector) => transformCharacterPoint(state.matrix, vector);
+
+// Rebase the pivot without changing the affine translation. Position is absolute;
+// retained Offset is deliberately never rewritten (it may have its own driver).
+export function repositionTransformAnchor(state, anchor) {
+  if (!Array.isArray(anchor) || anchor.length !== 2 || !anchor.every(Number.isFinite))
+    throw Error('Anchor requires finite XY coordinates');
+  const delta = anchor.map((v, i) => v - state.anchor[i]);
+  const [a, b, c, d] = state.matrix;
+  const position = [
+    state.position[0] + a * delta[0] + c * delta[1],
+    state.position[1] + b * delta[0] + d * delta[1],
+  ];
+  if (!position.every(Number.isFinite))
+    throw Error('Anchor compensation exceeds finite coordinates');
+  return { anchor: [...anchor], position };
+}
+export function anchorFromOutputDelta(state, delta) {
+  const [a, b, c, d] = state.matrix,
+    determinant = a * d - b * c;
+  const norm = Math.max(Math.abs(a), Math.abs(b), Math.abs(c), Math.abs(d));
+  if (!Number.isFinite(determinant) || !norm || Math.abs(determinant) <= 1e-12 * norm * norm)
+    throw Error('Collapsed Transform: use an anchor preset or restore scale before dragging');
+  if (!Array.isArray(delta) || delta.length !== 2 || !delta.every(Number.isFinite))
+    throw Error('Anchor drag requires finite XY coordinates');
+  if (Math.hypot(...delta) < 1e-12) return [...state.anchor];
+  return [
+    state.anchor[0] + (d * delta[0] - c * delta[1]) / determinant,
+    state.anchor[1] + (a * delta[1] - b * delta[0]) / determinant,
+  ];
+}
