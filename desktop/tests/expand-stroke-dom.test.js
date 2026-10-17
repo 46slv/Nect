@@ -83,7 +83,11 @@ test('Expand Stroke is searchable and explains geometry conversion', async () =>
   };
   const expand = await add('Expand Stroke');
   assert.equal(win.nect.document.layers[0].nodes.at(-1).type, 'Expand Stroke');
-  assert.match(document.querySelector('.inspector-body').textContent, /upstream solid Stroke/);
+  const help = document.querySelector('.inspector-body').textContent;
+  assert.match(help, /upstream solid Stroke/);
+  assert.match(help, /cubic centerlines.*0\.1 px tolerance/i);
+  assert.match(help, /256 flattened vertices/);
+  assert.doesNotMatch(help, /straight-edge paths only/i);
   assert.ok(document.querySelector(`.graph .field[data-node="${expand}"][data-key="path"]`));
   win.happyDOM.abort();
 });

@@ -1,11 +1,15 @@
 import { EndType, JoinType } from 'clipper2-ts';
 import { NectClipperOffset } from './clipper-adapter.js';
+import { flattenCubicCenterline } from './closed-offset.js';
 
 const GRID = 1e4;
 const GRID_SIZE = 1 / GRID;
 const INTEGER_LIMIT = 2 ** 30;
 const MAX_CONTOURS = 32;
 const MAX_SOURCE_POINTS = 256;
+const MAX_FLATTENED_VERTICES = 256;
+const MAX_SUBDIVISION_NODES = 4096;
+const CENTERLINE_TOLERANCE = 0.1;
 const MAX_OUTPUT_POINTS = 2048;
 const MAX_ROUND_WORK = 4096;
 
@@ -76,19 +80,17 @@ function validateSource(source) {
         !finiteVector(point.handleB)
       )
         fail('Expand Stroke needs stable point IDs and finite positions and handles');
-      if (
-        point.handleA[0] !== 0 ||
-        point.handleA[1] !== 0 ||
-        point.handleB[0] !== 0 ||
-        point.handleB[1] !== 0
-      )
-        fail('Expand Stroke supports straight-edge paths only. Connect a Resample Path first.');
       worldMagnitude = Math.max(
         worldMagnitude,
         Math.abs(point.position[0]),
         Math.abs(point.position[1]),
       );
-      prepared.push({ x: point.position[0], y: point.position[1] });
+      prepared.push({
+        x: point.position[0],
+        y: point.position[1],
+        handleA: [...point.handleA],
+        handleB: [...point.handleB],
+      });
     }
     if (prepared.length === 1 || (contour.closed && prepared.length === 2))
       fail(
@@ -108,6 +110,148 @@ function validateSource(source) {
   return [...groups.values()].map((contours) =>
     contours.filter((contour) => contour.points.length),
   );
+}
+
+const hasHandle = (handle) => handle[0] !== 0 || handle[1] !== 0;
+
+function controlPoint(anchor, handle) {
+  const control = { x: anchor.x + handle[0], y: anchor.y + handle[1] };
+  if (
+    !Number.isFinite(control.x) ||
+    !Number.isFinite(control.y) ||
+    (handle[0] !== 0 && control.x === anchor.x) ||
+    (handle[1] !== 0 && control.y === anchor.y)
+  )
+    fail('Expand Stroke cannot preserve a curve handle at the local coordinate precision');
+  return control;
+}
+
+function endpointTangentMarker(controls, start) {
+  if (start) {
+    for (const point of controls.slice(1)) if (!samePoint(point, controls[0])) return point;
+  } else {
+    for (const point of controls.slice(0, 3).reverse())
+      if (!samePoint(point, controls[3])) return point;
+  }
+  fail('Expand Stroke rejects a zero-length curve endpoint tangent');
+}
+
+function flattenSourceGroups(groups) {
+  const hasCurves = groups.some((contours) =>
+    contours.some((contour) =>
+      contour.points.some((point) => hasHandle(point.handleA) || hasHandle(point.handleB)),
+    ),
+  );
+  // Keep the established straight-input path, grid order and Clipper calls
+  // exactly unchanged when every authored handle is zero.
+  if (!hasCurves)
+    return groups.map((contours) =>
+      contours.map((contour) => ({
+        closed: contour.closed,
+        points: contour.points.map(({ x, y }) => ({ x, y })),
+      })),
+    );
+
+  let subdivisionNodes = 0;
+  let curvedLeaves = 0;
+  let flattenedVertices = 0;
+  const result = groups.map((contours) => {
+    const nonempty = contours.find((contour) => contour.points.length);
+    const origin = nonempty ? nonempty.points[0] : { x: 0, y: 0 };
+    const prepared = contours.map((contour) => {
+      const anchors = contour.points.map((point) => ({
+        x: point.x - origin.x,
+        y: point.y - origin.y,
+      }));
+      const segments = [];
+      let maxLocal = 0;
+      for (const anchor of anchors)
+        maxLocal = Math.max(maxLocal, Math.abs(anchor.x), Math.abs(anchor.y));
+      const edgeCount = contour.closed ? anchors.length : Math.max(0, anchors.length - 1);
+      for (let i = 0; i < edgeCount; i++) {
+        const nextIndex = (i + 1) % anchors.length;
+        const currentSource = contour.points[i];
+        const nextSource = contour.points[nextIndex];
+        const a = anchors[i];
+        const d = anchors[nextIndex];
+        const b = controlPoint(a, currentSource.handleB);
+        const c = controlPoint(d, nextSource.handleA);
+        for (const point of [b, c])
+          maxLocal = Math.max(maxLocal, Math.abs(point.x), Math.abs(point.y));
+        segments.push({
+          controls: [a, b, c, d],
+          curved: hasHandle(currentSource.handleB) || hasHandle(nextSource.handleA),
+        });
+      }
+      const floatGuard =
+        256 * Number.EPSILON * Math.max(1, maxLocal, Math.abs(origin.x), Math.abs(origin.y));
+      if (floatGuard >= CENTERLINE_TOLERANCE / 4)
+        fail('Expand Stroke world coordinates are too large for 0.1 px curve flattening');
+
+      const points = [];
+      let tangentStart = null;
+      let tangentEnd = null;
+      let firstMarker = null;
+      let lastMarker = null;
+      for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        if (!segment.curved) {
+          points.push(segment.controls[0]);
+          continue;
+        }
+        const remainingNodes = MAX_SUBDIVISION_NODES - subdivisionNodes;
+        const remainingVertices = MAX_FLATTENED_VERTICES - curvedLeaves;
+        // Tangent support points become vertices in the open endpoint leaves.
+        // Halving those leaves' flatness budget keeps the support polyline within
+        // the documented 0.1 px centerline tolerance as well.
+        const endpointSegment = !contour.closed && (i === 0 || i === segments.length - 1);
+        const flattenTolerance = CENTERLINE_TOLERANCE / (endpointSegment ? 2 : 1) - floatGuard;
+        let flattened;
+        try {
+          flattened = flattenCubicCenterline(segment.controls, {
+            tolerance: flattenTolerance,
+            floatGuard,
+            maxNodes: remainingNodes,
+            maxVertices: remainingVertices,
+          });
+        } catch (error) {
+          if (error?.code === 'OFFSET_LIMIT')
+            fail(
+              `Expand Stroke curve flattening exceeds its 256-vertex, 4096-node, or 24-level budget`,
+            );
+          throw error;
+        }
+        subdivisionNodes += flattened.subdivisionNodes;
+        curvedLeaves += flattened.flattenedVertices;
+        points.push(...flattened.leaves.map(({ controls: leaf }) => leaf[0]));
+        if (!contour.closed && i === 0) {
+          const marker = endpointTangentMarker(flattened.leaves[0].controls, true);
+          firstMarker = marker;
+          tangentStart = { x: marker.x - anchors[0].x, y: marker.y - anchors[0].y };
+        }
+        if (!contour.closed && i === segments.length - 1) {
+          const marker = endpointTangentMarker(flattened.leaves.at(-1).controls, false);
+          lastMarker = marker;
+          const endpoint = anchors.at(-1);
+          tangentEnd = { x: endpoint.x - marker.x, y: endpoint.y - marker.y };
+        }
+      }
+      if (!contour.closed && anchors.length) points.push(anchors.at(-1));
+      if (firstMarker && points.length > 1 && !samePoint(firstMarker, points[1]))
+        points.splice(1, 0, firstMarker);
+      if (lastMarker && points.length > 1 && !samePoint(lastMarker, points.at(-2)))
+        points.splice(points.length - 1, 0, lastMarker);
+      flattenedVertices += points.length;
+      if (flattenedVertices > MAX_FLATTENED_VERTICES)
+        fail(
+          `Expand Stroke flattened centerline exceeds the ${MAX_FLATTENED_VERTICES}-vertex budget`,
+        );
+      return { closed: contour.closed, points, tangentStart, tangentEnd };
+    });
+    prepared.origin = { x: origin.x, y: origin.y };
+    return prepared;
+  });
+  return result;
 }
 
 function localOrigin(contours) {
@@ -162,25 +306,34 @@ function roundArcEstimate(contours, cap, join, radius) {
 }
 
 function prepareGroup(contours, { width, cap, join, miterLimit }) {
-  const origin = localOrigin(contours);
+  const origin = contours.origin ?? localOrigin(contours);
+  const coordinateOrigin = contours.origin ? { x: 0, y: 0 } : origin;
   const radius = width / 2;
   const reach = radius * (join === 'miter' ? miterLimit : 1) + (cap === 'square' ? radius : 0);
   let maxLocal = 0;
   for (const contour of contours)
     for (const point of contour.points) {
-      maxLocal = Math.max(maxLocal, Math.abs(point.x - origin.x), Math.abs(point.y - origin.y));
+      maxLocal = Math.max(
+        maxLocal,
+        Math.abs(point.x - coordinateOrigin.x),
+        Math.abs(point.y - coordinateOrigin.y),
+      );
     }
   if ((maxLocal + reach + GRID_SIZE) * GRID >= INTEGER_LIMIT)
     fail('Expand Stroke local geometry and width/miter reach exceed the safe integer envelope');
 
   const paths = contours.map((contour) => {
     const points = contour.points.map((point) => ({
-      x: point.x - origin.x,
-      y: point.y - origin.y,
+      x: point.x - coordinateOrigin.x,
+      y: point.y - coordinateOrigin.y,
     }));
     if (!contour.closed && cap === 'square') {
-      const firstUnit = lineUnit(points[0], points[1]);
-      const lastUnit = lineUnit(points.at(-2), points.at(-1));
+      const firstUnit = contour.tangentStart
+        ? lineUnit({ x: 0, y: 0 }, contour.tangentStart)
+        : lineUnit(points[0], points[1]);
+      const lastUnit = contour.tangentEnd
+        ? lineUnit({ x: 0, y: 0 }, contour.tangentEnd)
+        : lineUnit(points.at(-2), points.at(-1));
       points[0] = {
         x: points[0].x - firstUnit.x * radius,
         y: points[0].y - firstUnit.y * radius,
@@ -190,10 +343,14 @@ function prepareGroup(contours, { width, cap, join, miterLimit }) {
         y: points.at(-1).y + lastUnit.y * radius,
       };
     }
-    let gridPoints = dropDuplicateGridPoints(
-      points.map((point) => pointToGrid(point, { x: 0, y: 0 })),
-      contour.closed,
-    );
+    const quantized = points.map((point) => pointToGrid(point, { x: 0, y: 0 }));
+    if (
+      !contour.closed &&
+      ((contour.tangentStart && samePoint(quantized[0], quantized[1])) ||
+        (contour.tangentEnd && samePoint(quantized.at(-2), quantized.at(-1))))
+    )
+      fail('Expand Stroke endpoint tangent collapses at the 0.0001 px geometry grid');
+    let gridPoints = dropDuplicateGridPoints(quantized, contour.closed);
     const minimum = contour.closed ? 3 : 2;
     if (gridPoints.length < minimum)
       fail('Expand Stroke source edges collapse at the 0.0001 px geometry grid');
@@ -210,13 +367,11 @@ function prepareGroup(contours, { width, cap, join, miterLimit }) {
 }
 
 /**
- * Convert a solid Stroke result to unpainted filled geometry. This v1 accepts
- * only straight-edge contours; curve handles must first be flattened with
- * Resample Path. It uses a local origin, a 0.0001 px integer grid, and Clipper's
- * polygonal round joins/caps with a configured arc tolerance no greater than
- * 0.1 px. Grid rounding adds up to 0.00005 px per coordinate at each input or
- * output. Integer cleanup can perturb final intersections; this is not a claim
- * of exact SVG stroke equivalence.
+ * Convert a solid Stroke result to unpainted filled geometry. Cubic centerlines
+ * are flattened with bounded adaptive subdivision before offsetting. The fixed
+ * 0.1 px tolerance applies to the centerline only; joins, offset cleanup and
+ * grid conversion mean this is not a global final-outline error bound or exact
+ * SVG stroke equivalence. Straight input retains its original fast path.
  */
 export function expandStrokeGeometry(source, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
@@ -225,7 +380,7 @@ export function expandStrokeGeometry(source, options = {}) {
   if (typeof prefix !== 'string' || !prefix || prefix.length > 256)
     fail('Expand Stroke needs a nonempty output ID prefix of at most 256 characters');
   const stroke = validateStroke(source?.stroke);
-  const groups = validateSource(source);
+  const groups = flattenSourceGroups(validateSource(source));
   if (stroke.width === 0 || groups.every((group) => group.length === 0)) return { contours: [] };
   if (stroke.width * GRID < 2)
     fail('Nonzero Expand Stroke width must be at least 0.0002 px at the 0.0001 px geometry grid');

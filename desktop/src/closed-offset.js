@@ -227,6 +227,34 @@ function flattenCubic(controls, tolerance, floatGuard, budget, leaves, depth = 0
   flattenCubic([m, bcd, cd, d], tolerance, floatGuard, budget, leaves, depth + 1);
 }
 
+/**
+ * Reuse the bounded curve-to-polyline numerical core for centerline consumers.
+ * The caller owns its aggregate budget; this one-cubic wrapper accepts the
+ * remaining limits and reports the work performed. It deliberately exposes no
+ * region, topology, or offset semantics from this module.
+ */
+export function flattenCubicCenterline(
+  controls,
+  { tolerance, floatGuard = 0, maxVertices, maxNodes },
+) {
+  const budget = {
+    limits: {
+      flattenedVertices: maxVertices,
+      subdivisionNodes: maxNodes,
+    },
+    nodes: 0,
+    vertices: 0,
+    maxError: 0,
+  };
+  const leaves = [];
+  flattenCubic(controls, tolerance, floatGuard, budget, leaves);
+  return {
+    leaves,
+    flattenedVertices: budget.vertices,
+    subdivisionNodes: budget.nodes,
+  };
+}
+
 // Adjacent Bezier leaves must admit a separating line through the common end.
 // This is conservative: uncertain near-cusps are rejected rather than silently
 // accepting an intersection hidden by flattening. Bernstein convexity supplies

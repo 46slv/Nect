@@ -12,6 +12,7 @@ import {
   pathArea,
   bypassContract,
   outputType,
+  point as curvePoint,
 } from '../src/core.js';
 function scene() {
   const doc = document(),
@@ -77,4 +78,40 @@ test('Stroke changes remain editable and invalid dash expansion rolls back atomi
   assert.deepEqual(session.snapshot(), changed);
   assert.throws(() => send('set-node-settings', { settings: { strokeDash: [3, 2] } }), /dash/i);
   assert.deepEqual(session.snapshot(), changed);
+});
+
+test('a failed curved Expand Stroke edit rolls back through the ordinary command path', () => {
+  const doc = document();
+  const l = doc.layers[0];
+  const curve = node('Curve');
+  const stroke = node('Stroke');
+  const expand = node('Expand Stroke');
+  const fill = node('Fill');
+  const out = node('Output');
+  curve.params.closed.value = false;
+  curve.points = [curvePoint(0, 0), curvePoint(20, 20)];
+  curve.points[0].handleB.value = [0, 10];
+  curve.points[1].handleA.value = [-10, 0];
+  l.nodes = [curve, stroke, expand, fill, out];
+  l.output = out.id;
+  connect(l, curve.id, stroke.id, 'path');
+  connect(l, stroke.id, expand.id, 'path');
+  connect(l, expand.id, fill.id, 'path');
+  connect(l, fill.id, out.id, 'path');
+  stroke.params.width.value = 4;
+  const session = new CommandSession(doc);
+  const before = session.snapshot();
+  const evaluated = evaluate(before.layers[0]);
+  assert.equal(evaluated.error, null);
+  assert.ok(evaluated.run(expand.id).contours.length > 0);
+  assert.throws(
+    () =>
+      session.dispatch({
+        ...session.state,
+        type: 'set-parameter',
+        payload: { layerId: l.id, nodeId: stroke.id, key: 'width', value: 100000 },
+      }),
+    /safe integer envelope/i,
+  );
+  assert.deepEqual(session.snapshot(), before);
 });

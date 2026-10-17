@@ -116,9 +116,8 @@ chain(
   false,
 );
 label('06  Trim Path', 765, 605);
-curve = node('Curve');
-curve.params.closed.value = false;
-curve.points = [point(90, 800), point(140, 710), point(200, 785), point(270, 710)];
+curve = node('Imported Path');
+curve.rawPath = 'M90 800C110 680 175 700 180 755S245 820 275 710';
 const outlineStroke = node('Stroke');
 outlineStroke.params.width.value = 18;
 outlineStroke.strokeCap = 'round';

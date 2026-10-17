@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { expandStrokeGeometry } from '../src/expand-stroke-geometry.js';
+import { flattenCubicCenterline } from '../src/closed-offset.js';
 import { NectClipperOffset } from '../src/clipper-adapter.js';
 
 const point = (id, position, handleA = [0, 0], handleB = [0, 0]) => ({
@@ -39,6 +40,20 @@ const signedArea = (item) => {
   }
   return sum / 2;
 };
+const circleContour = (id, radius, { group } = {}) => {
+  const handle = (4 * (Math.SQRT2 - 1) * radius) / 3;
+  return {
+    id,
+    closed: true,
+    ...(group === undefined ? {} : { group }),
+    points: [
+      point(`${id}-p0`, [radius, 0], [0, -handle], [0, handle]),
+      point(`${id}-p1`, [0, radius], [handle, 0], [-handle, 0]),
+      point(`${id}-p2`, [-radius, 0], [0, handle], [0, -handle]),
+      point(`${id}-p3`, [0, -radius], [-handle, 0], [handle, 0]),
+    ],
+  };
+};
 
 test('expands open lines with butt, square, and round cap bounds', () => {
   const source = [
@@ -61,6 +76,51 @@ test('expands open lines with butt, square, and round cap bounds', () => {
     ),
     [true, true, true, true],
   );
+});
+
+test('flattens bounded cubic centerlines and aligns open caps to endpoint tangents', () => {
+  const curve = [
+    contour(
+      'curve',
+      [
+        [0, 0],
+        [20, 20],
+      ],
+      {
+        handles: [
+          [undefined, [0, 10]],
+          [[-10, 0], undefined],
+        ],
+      },
+    ),
+  ];
+  const butt = expandStrokeGeometry(stroked(curve, { width: 10, cap: 'butt' }));
+  const square = expandStrokeGeometry(stroked(curve, { width: 10, cap: 'square' }));
+  const round = expandStrokeGeometry(stroked(curve, { width: 10, cap: 'round' }));
+  const hasPoint = (path, target, tolerance = 0.001) =>
+    path.contours.some((item) =>
+      item.points.some(
+        ({ position: [x, y] }) =>
+          Math.abs(x - target[0]) <= tolerance && Math.abs(y - target[1]) <= tolerance,
+      ),
+    );
+  assert.ok(
+    hasPoint(butt, [-5, 0]),
+    'butt start cap is perpendicular to the vertical start tangent',
+  );
+  assert.ok(hasPoint(butt, [5, 0]));
+  assert.ok(hasPoint(square, [-5, -5]), 'square start cap extends backward along the tangent');
+  assert.ok(hasPoint(square, [5, -5]));
+  assert.ok(hasPoint(square, [25, 15]), 'square end cap extends along the horizontal end tangent');
+  assert.ok(hasPoint(square, [25, 25]));
+  assert.ok(hasPoint(round, [5, 0]), 'round cap joins the same tangent-normal boundary');
+  assert.ok(
+    hasPoint(round, [0, -5], 0.2),
+    'round cap is a polygonal semicircle behind the tangent',
+  );
+  assert.deepEqual(bounds(butt), [-5, 0, 20, 25]);
+  assert.deepEqual(bounds(square), [-5, -5, 25, 25]);
+  assert.ok(bounds(round).every((value, i) => Math.abs(value - [-5, -5, 25, 25][i]) <= 0.1));
 });
 
 test('miter and bevel joins produce distinct corners on a straight-edge turn', () => {
@@ -108,6 +168,21 @@ test('closed rectangle stroke is a centered band with a correctly wound hole', (
   assert.deepEqual(bounds(expanded), [-1, -1, 21, 11]);
 });
 
+test('curved closed stroke remains a centered band with a correctly wound hole', () => {
+  const expanded = expandStrokeGeometry(stroked([circleContour('circle', 20)], { width: 2 }));
+  assert.equal(expanded.contours.length, 2);
+  assert.deepEqual(expanded.contours.map((item) => Math.sign(signedArea(item))).sort(), [-1, 1]);
+  assert.ok(
+    Math.abs(expanded.contours.reduce((sum, item) => sum + signedArea(item), 0) - 80 * Math.PI) <
+      1.5,
+  );
+  const limits = bounds(expanded);
+  assert.ok(Math.abs(limits[0] + 21) < 0.1);
+  assert.ok(Math.abs(limits[1] + 21) < 0.1);
+  assert.ok(Math.abs(limits[2] - 21) < 0.1);
+  assert.ok(Math.abs(limits[3] - 21) < 0.1);
+});
+
 test('independent input groups retain separate namespaced output groups', () => {
   const source = stroked([
     contour(
@@ -150,6 +225,27 @@ test('independent input groups retain separate namespaced output groups', () => 
   }
 });
 
+test('curved contours remain partitioned by input group', () => {
+  const second = circleContour('second-circle', 10, { group: 'second' });
+  second.points = second.points.map((item) => ({
+    ...item,
+    position: [item.position[0] + 60, item.position[1]],
+  }));
+  const expanded = expandStrokeGeometry(
+    stroked([circleContour('first-circle', 10, { group: 'first' }), second], { width: 2 }),
+    { prefix: 'curved-groups' },
+  );
+  assert.deepEqual(
+    [...new Set(expanded.contours.map((item) => item.group))],
+    ['curved-groups:g0', 'curved-groups:g1'],
+  );
+  for (const group of ['curved-groups:g0', 'curved-groups:g1']) {
+    const member = expanded.contours.filter((item) => item.group === group);
+    assert.equal(member.length, 2);
+    assert.deepEqual(member.map((item) => Math.sign(signedArea(item))).sort(), [-1, 1]);
+  }
+});
+
 test('zero width returns empty geometry and all-zero dashes are treated as solid', () => {
   const line = [
     contour('line', [
@@ -164,7 +260,7 @@ test('zero width returns empty geometry and all-zero dashes are treated as solid
   );
 });
 
-test('rejects dashes, curves, missing stroke, invalid style, and too-thin nonzero strokes', () => {
+test('rejects dashes, uncertifiable curves, missing stroke, invalid style, and too-thin strokes', () => {
   const line = [
     contour('line', [
       [0, 0],
@@ -181,7 +277,7 @@ test('rejects dashes, curves, missing stroke, invalid style, and too-thin nonzer
   ];
   invalidHandles[0].points[0].handleA = [Infinity, 0];
   assert.throws(() => expandStrokeGeometry(stroked(invalidHandles)), /finite/i);
-  const curve = [
+  const reversingCurve = [
     contour(
       'curve',
       [
@@ -191,7 +287,7 @@ test('rejects dashes, curves, missing stroke, invalid style, and too-thin nonzer
       { handles: [[], [[1, 0]]] },
     ),
   ];
-  assert.throws(() => expandStrokeGeometry(stroked(curve)), /Resample Path first/i);
+  assert.throws(() => expandStrokeGeometry(stroked(reversingCurve)), /flattening|curve/i);
   for (const stroke of [
     { width: -1 },
     { width: Infinity },
@@ -201,6 +297,22 @@ test('rejects dashes, curves, missing stroke, invalid style, and too-thin nonzer
     { width: 0.0001 },
   ])
     assert.throws(() => expandStrokeGeometry(stroked(line, stroke)), /Expand Stroke|stroke width/i);
+});
+
+test('shared cubic centerline flattener respects the caller subdivision-work budget', () => {
+  assert.throws(
+    () =>
+      flattenCubicCenterline(
+        [
+          { x: 0, y: 0 },
+          { x: 0, y: 10 },
+          { x: 10, y: 10 },
+          { x: 10, y: 0 },
+        ],
+        { tolerance: 0.1, floatGuard: 0, maxVertices: 256, maxNodes: 1 },
+      ),
+    /subdivision work limit exceeded/i,
+  );
 });
 
 test('enforces source, round-work, output, and coordinate budgets', () => {
@@ -216,6 +328,25 @@ test('enforces source, round-work, output, and coordinate budgets', () => {
         stroked(Array.from({ length: 33 }, (_, index) => contour(`c${index}`, []))),
       ),
     /32-contour input budget/i,
+  );
+  const complexCurve = [
+    contour(
+      'complex',
+      [
+        [0, 0],
+        [5000, 0],
+      ],
+      {
+        handles: [
+          [undefined, [500, 5000]],
+          [[-500, -5000], undefined],
+        ],
+      },
+    ),
+  ];
+  assert.throws(
+    () => expandStrokeGeometry(stroked(complexCurve, { width: 2, join: 'bevel' })),
+    /256-vertex|flattened centerline/i,
   );
   assert.throws(
     () =>
@@ -275,10 +406,19 @@ test('rejects kernel output over the 2048-point budget', () => {
       () =>
         expandStrokeGeometry(
           stroked([
-            contour('line', [
-              [0, 0],
-              [20, 0],
-            ]),
+            contour(
+              'curve',
+              [
+                [0, 0],
+                [20, 20],
+              ],
+              {
+                handles: [
+                  [undefined, [0, 10]],
+                  [[-10, 0], undefined],
+                ],
+              },
+            ),
           ]),
         ),
       /2048-point geometry budget/i,
@@ -309,6 +449,20 @@ test('does not mutate the source and deterministically namespaces output IDs', (
       {
         closed: true,
         group: 'source-group',
+      },
+    ),
+    contour(
+      'curve',
+      [
+        [50, 0],
+        [70, 20],
+      ],
+      {
+        group: 'source-group',
+        handles: [
+          [undefined, [0, 10]],
+          [[-10, 0], undefined],
+        ],
       },
     ),
   ]);

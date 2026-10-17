@@ -235,19 +235,26 @@ concrete slices with focused verification, not merely a list of modifier ideas.
 - Converts the existing Stroke's PaintedPath to unpainted Path geometry for Boolean use;
   width/cap/join/miter settings are read from Stroke. Existing fill, stroke color and alpha
   do not paint the result. Add Fill after conversion. Bypass is disabled because the types differ.
-- Solid straight-edge input only; Resample Path before Stroke converts curved input explicitly.
-  All-zero dash patterns count as solid; any nonzero pattern rejects. Open caps support butt,
-  square and round. Closed contours use Clipper's
+- Solid input accepts straight edges and bounded cubic centerlines; cubic segments are flattened
+  adaptively to a fixed 0.1 px centerline tolerance. The endpoint cap direction follows the first
+  or last cubic tangent as represented by the flattened polyline, including square-cap extension.
+  This is polygonal approximation: the flatten tolerance does not bound total outline error after
+  joins, offset construction, integer cleanup and output-grid rounding. All-zero dash patterns
+  count as solid; any nonzero pattern rejects. Open caps support butt, square and round. Closed
+  contours use Clipper's
   [EndType.Joined](https://angusj.com/clipper2/Docs/Units/Clipper/Types/EndType.htm) for centered
   stroke bands with holes, not Polygon inflation. Earlier open-only research is superseded by
   concrete Joined rectangle/reversed-winding probes and tests.
 - Independent source groups are processed independently; overlapping outlines within a group
   are unioned by the pinned Clipper kernel. Width 0 is empty; nonzero width below 0.0002 px
-  rejects. Miter limit 1–100. Input32 contours/256points, output2048points, round-work4096.
+  rejects. Miter limit 1–100. Input32 contours/256 authored points; flattened centerlines are
+  limited to 256 vertices, 4096 subdivision nodes and depth24. Output2048 points; round-work4096.
 - Local integer grid 0.0001px; round-arc tolerance at most0.1px. Conservative coordinate/width
   envelope prevents unsafe integer/world restoration. No exact SVG-stroke equivalence claim.
-- Evidence: kernel9/9 + graph/Session3/3 + DOM1/1, Web build pass. Closed rectangle band area,
-  hole winding, caps, Boolean input, groups, unsupported input and atomic dash rejection covered.
+- Evidence: focused geometry/core/DOM tests and Web build cover straight and curved caps, curved
+  closed-band hole winding, groups, flattening / output budgets, Boolean input, unsupported dash
+  input and transactional rollback. No exact SVG-stroke equivalence or global final-boundary
+  error guarantee.
 - `scripts/modifier-playground.js` builds `examples/modifier-playground.json` (18 editable
   layers, all evaluated after serialize/reopen) and a seven-modifier SVG preview. Fixed IDs
   make repeated JSON/SVG generation byte-identical. The SVG was rasterized with PyMuPDF and
@@ -475,3 +482,7 @@ Final Set Closure integration evidence: closure helper/core/DOM9 + refreshed exi
 - Focused helper8 + graph/Session/text4 + DOM1 + disconnected validation1 + bypass41 =55/55 pass; the Web build passes with the existing >500 kB chunk warning. Native Windows GUI acceptance and exact Adobe numeric matching are not claimed.
 
 Twist checkpoint playground: all18 modifiers now have examples in47 serialized/reopened and evaluated layers. The final row compares a genuinely open stroke, Set Closure and a resampled twisted star. SVG path data distinguishes the first two by the closing z command; Inkscape PNG rendering confirms the open gap and closed edge. PyMuPDF incorrectly rendered the open polyline as closed in this case, so use Inkscape for this proof. Cloud Chromium launch was unavailable; no browser/native GUI acceptance is claimed.
+
+### Direct curved Expand Stroke checkpoint
+
+Expand Stroke now accepts bounded cubic centerlines directly using the existing adaptive subdivision core, without invoking Closed Path Offset region semantics. All-zero-handle inputs retain their prior fast path. Endpoint support vertices align open-cap tangent chords; curve/arc/grid components have explicit tolerances but no global final-boundary error guarantee. Focused Expand Stroke and Closed Offset checks pass49/49; formatting and Web build pass. The playground's Expand Stroke card now uses a cubic S-like path directly, and its actual filled outline SVG was inspected in Inkscape. The catalog remains18 modifiers and the example remains47 layers; this is an improvement of an existing node.

@@ -2098,153 +2098,21 @@
       "nodes": [
         {
           "id": "sample-node-14-0",
-          "type": "Curve",
-          "name": "Curve",
+          "type": "Imported Path",
+          "name": "Imported Path",
           "position": [
             40,
             60
           ],
           "width": 264,
           "collapsed": false,
-          "params": {
-            "closed": {
-              "type": "Boolean",
-              "value": false,
-              "expression": "",
-              "locked": false
-            }
-          },
-          "points": [
-            {
-              "id": "sample-point-14-0-0",
-              "position": {
-                "type": "Vector2",
-                "value": [
-                  90,
-                  800
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleA": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleB": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleType": "corner"
-            },
-            {
-              "id": "sample-point-14-0-1",
-              "position": {
-                "type": "Vector2",
-                "value": [
-                  140,
-                  710
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleA": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleB": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleType": "corner"
-            },
-            {
-              "id": "sample-point-14-0-2",
-              "position": {
-                "type": "Vector2",
-                "value": [
-                  200,
-                  785
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleA": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleB": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleType": "corner"
-            },
-            {
-              "id": "sample-point-14-0-3",
-              "position": {
-                "type": "Vector2",
-                "value": [
-                  270,
-                  710
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleA": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleB": {
-                "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
-                "expression": "",
-                "locked": false
-              },
-              "handleType": "corner"
-            }
-          ],
+          "params": {},
+          "points": [],
           "operation": "subtract",
           "edits": [],
           "text": "Nect",
           "font": "default",
-          "rawPath": ""
+          "rawPath": "M90 800C110 680 175 700 180 755S245 820 275 710"
         },
         {
           "id": "sample-node-14-1",

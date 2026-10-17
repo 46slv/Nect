@@ -1402,7 +1402,7 @@ function simplifyControls(n) {
 }
 function expandStrokeControls(n) {
   return n.type === 'Expand Stroke'
-    ? '<p class="font-note">Convert an upstream solid Stroke into editable outline geometry for Boolean operations. Width / cap / join come from that Stroke node; fill and paint color are not carried into the result. Add Fill after expansion. Straight-edge paths only: use Resample Path before Stroke for curves. Nonzero dash patterns are unsupported. This type conversion cannot be bypassed as a same-type effect.</p>'
+    ? '<p class="font-note">Convert an upstream solid Stroke into editable outline geometry for Boolean operations. Width / cap / join come from that Stroke node; fill and paint color are not carried into the result. Add Fill after expansion. Cubic centerlines are flattened to polylines at 0.1 px tolerance when the bounds permit; endpoint caps follow the first / last tangent as represented by that flattening. Limits: 32 contours, 256 authored points, 256 flattened vertices, 4096 subdivision nodes and depth 24. This bounds centerline flattening, not total outline error. Nonzero dash patterns are unsupported. This type conversion cannot be bypassed as a same-type effect.</p>'
     : '';
 }
 function trimControls(n) {
