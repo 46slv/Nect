@@ -192,6 +192,60 @@ function openSearchPanel({
   return panel;
 }
 
+// Keep native select semantics for existing connection dialogs while adding search.
+function searchConnectionOptions(dialog) {
+  const select = dialog.querySelector('select'),
+    apply = dialog.querySelector('[data-confirm]');
+  const input = document.createElement('input');
+  input.type = 'search';
+  input.placeholder = 'Search nodes or output IDs';
+  input.setAttribute('aria-label', 'Search connection nodes');
+  select.before(input);
+  const currentOption = select.querySelector('option[selected]');
+  if (currentOption) select.value = currentOption.value;
+  const options = [...select.options].map((option) => option.cloneNode(true));
+  let selected = select.value;
+  select.addEventListener('change', () => {
+    selected = select.value;
+  });
+  input.addEventListener('input', () => {
+    const words = input.value.trim().normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
+    const matches = options.filter((option) =>
+      words.every((word) =>
+        `${option.textContent} ${option.value}`.normalize('NFKC').toLowerCase().includes(word),
+      ),
+    );
+    select.replaceChildren(...matches.map((option) => option.cloneNode(true)));
+    if (matches.some((option) => option.value === selected)) select.value = selected;
+    apply.disabled = !matches.some((option) => !option.disabled);
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (!apply.disabled) apply.click();
+    }
+    if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      event.preventDefault();
+      const options = [...select.options].filter((option) => !option.disabled);
+      if (!options.length) return;
+      const index = options.findIndex((option) => option.value === select.value);
+      select.value =
+        options[
+          (index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length
+        ].value;
+      selected = select.value;
+    }
+  });
+  dialog.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !event.isComposing) {
+      event.preventDefault();
+      closeEditorDialog(dialog);
+    }
+  });
+  input.focus();
+}
+
 import {
   resolveArtworkDuplicateTarget,
   resolveArtworkDuplicateSelection,
@@ -250,6 +304,7 @@ import {
   outputType,
   outputPorts,
   vectorReferenceTargets,
+  expressionReferenceTargets,
   referenceTarget,
   socketCompatibleFor,
   evaluate,
@@ -690,6 +745,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
 }
 function resetTransient() {
   pointFocus = null;
+  pointSelection = { nodeId: null, ids: new Set() };
   pointHover = null;
   for (const { face } of editorFonts.values()) document.fonts?.delete(face);
   editorFonts.clear();
@@ -1197,7 +1253,7 @@ function field(n, key, q) {
     } catch {}
   }
   if (['Path', 'PaintedPath', 'Image'].includes(q.type))
-    control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">${connectLabel}</option>${current()
+    control = `<button class="mini" data-search-source aria-label="Search ${esc(n.name + ' ' + name)} sources" ${q.locked || current().locked ? 'disabled' : ''}>Search…</button><select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">${connectLabel}</option>${current()
       .nodes.filter((x) => socketCompatibleFor(x, n, key) && x.id !== n.id)
       .map(
         (x) =>
@@ -1218,7 +1274,7 @@ function field(n, key, q) {
           `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression: Vector2 uses x; y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 function remapFields(n, result) {
   let input;
@@ -1411,7 +1467,7 @@ function referenceControls(n, result, compact = false) {
     ? `<button class="mini" data-reference-jump="${n.id}" title="Select and reveal the source node">Jump to source</button>`
     : '';
   if (compact) return status + jump;
-  return `<div class="field"><label>Vector2 source · same layer</label><select data-reference-target="${n.id}" aria-label="Reference source and output" ${current().locked ? 'disabled' : ''}><option value="" ${!n.reference ? 'selected' : ''}>Choose Vector2 output…</option>${n.reference && !target ? `<option value="${esc(value)}" selected disabled>Missing: ${esc(label)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.portId]))}" ${t === target ? 'selected' : ''}>${esc(t.name + ' · ' + t.label + ' · ' + t.nodeId)}</option>`).join('')}</select></div>${status}${jump}<p class="font-note">Read-only value reference by stable node and output IDs. Rename keeps the link; deleting the source leaves an explicit missing target. Text Position is before downstream Transform. Vector values keep their source meaning; no world-coordinate conversion.</p>`;
+  return `<div class="field"><label>Vector2 source · same layer</label><button class="mini" data-search-source ${current().locked ? 'disabled' : ''} aria-label="Search reference nodes">Search…</button><select data-reference-target="${n.id}" aria-label="Reference source and output" ${current().locked ? 'disabled' : ''}><option value="" ${!n.reference ? 'selected' : ''}>Choose Vector2 output…</option>${n.reference && !target ? `<option value="${esc(value)}" selected disabled>Missing: ${esc(label)}</option>` : ''}${targets.map((t) => `<option value="${esc(JSON.stringify([t.nodeId, t.portId]))}" ${t === target ? 'selected' : ''}>${esc(t.name + ' · ' + t.label + ' · ' + t.nodeId)}</option>`).join('')}</select></div>${status}${jump}<p class="font-note">Read-only value reference by stable node and output IDs. Rename keeps the link; deleting the source leaves an explicit missing target. Text Position is before downstream Transform. Vector values keep their source meaning; no world-coordinate conversion.</p>`;
 }
 function smoothControls(n) {
   return n.type === 'Smooth Path'
@@ -1677,7 +1733,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -2390,11 +2446,16 @@ function canvasOverlay(n, result) {
     nodeStageMoveMarker(n, path);
   if (['Curve', 'Path Remap'].includes(n.type)) {
     const scale = canvasScale(),
-      focused = [pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId);
+      focused = [
+        ...selectedPointIds(n),
+        ...[pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId),
+      ];
     for (const target of pointControlTargets(path, scale, focused)) {
       const [x, y] = target.position,
         key = target.key,
-        selected = focused.includes(target.pointId);
+        selected =
+          selectedPointIds(n).includes(target.pointId) ||
+          (pointFocus?.nodeId === n.id && pointFocus?.pointId === target.pointId);
       const attrs = `data-point="${target.pointId}"${key === 'position' ? '' : ` data-handle="${key}"`}`;
       if (key !== 'position') {
         const p = path.contours.flatMap((c) => c.points).find((p) => p.id === target.pointId);
@@ -2431,7 +2492,25 @@ function nodeStageMoveMarker(n, path) {
   return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move selected node before downstream nodes"><title>Move selected node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
 }
 let pointFocus = null,
-  pointHover = null;
+  pointHover = null,
+  pointSelection = { nodeId: null, ids: new Set() };
+function selectedPointIds(n) {
+  return pointSelection.nodeId === n?.id ? [...pointSelection.ids] : [];
+}
+function selectPointTarget(n, target, event) {
+  if (target.key !== 'position') return true;
+  if (pointSelection.nodeId !== n.id) pointSelection = { nodeId: n.id, ids: new Set() };
+  if (event.shiftKey && pointSelection.ids.has(target.pointId)) {
+    pointSelection.ids.delete(target.pointId);
+    pointFocus = null;
+    updateCanvas(true);
+    return false;
+  }
+  if (!event.shiftKey && !pointSelection.ids.has(target.pointId)) pointSelection.ids.clear();
+  pointSelection.ids.add(target.pointId);
+  updateCanvas(true);
+  return true;
+}
 let canvasFrame = null;
 function updateCanvas(immediate = false) {
   if (immediate) {
@@ -3650,6 +3729,45 @@ app.addEventListener('click', async (e) => {
         case 'fit':
           if (!navigationBusy()) fitArtboard();
           break;
+        case 'find-node': {
+          if (navigationBusy() || penDraft) break;
+          const layerId = current().id;
+          const panel = openSearchPanel({
+            title: 'Find node',
+            action: 'Go to node',
+            selectedId: selected,
+            items: current().nodes.map((n) => ({
+              id: n.id,
+              label: n.name,
+              detail: `${n.type} · ${n.id}`,
+            })),
+            onCommit(item) {
+              if (!item || current().id !== layerId) return;
+              const node = current().nodes.find((n) => n.id === item.id);
+              if (!node) return;
+              panel.close();
+              selected = node.id;
+              selection = new Set([node.id]);
+              artworkTarget = null;
+              artworkSelection.clear();
+              render();
+              const viewport = document.querySelector('.graph-scroll'),
+                card = document.querySelector(`.node[data-id="${node.id}"]`);
+              const scroll = [
+                (node.position[0] + (card?.offsetWidth || node.width || 264) / 2) * graphZoom -
+                  viewport.clientWidth / 2,
+                (node.position[1] + (card?.offsetHeight || 100) / 2) * graphZoom -
+                  viewport.clientHeight / 2,
+              ].map((value) => Math.max(0, value));
+              updateGraphBounds(scroll);
+              viewport.scrollLeft = scroll[0];
+              viewport.scrollTop = scroll[1];
+              viewport.focus({ preventScroll: true });
+              drawWires();
+            },
+          });
+          break;
+        }
         case 'graph-fit':
         case 'graph-fit-selection':
           if (!navigationBusy()) fitGraph(d.action === 'graph-fit-selection');
@@ -3668,7 +3786,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -3754,10 +3872,33 @@ app.addEventListener('click', async (e) => {
     commandChange('set-layer-state', { layerId, key, value: !l[key] });
     return;
   }
+  if (d.searchSource !== undefined) {
+    const select = b.closest('.field').querySelector('select');
+    if (select.disabled || current().locked) return;
+    const panel = openSearchPanel({
+      title: 'Connection nodes',
+      action: 'Apply',
+      selectedId: select.value,
+      items: [...select.options].map((option) => ({
+        id: option.value,
+        label: option.textContent,
+        detail: option.value,
+        disabled: option.disabled,
+      })),
+      onCommit(item) {
+        if (!item || !select.isConnected || current().locked) return;
+        select.value = item.id;
+        select.dispatchEvent(new window.Event('change', { bubbles: true }));
+        panel.close();
+      },
+    });
+    return;
+  }
   if (d.connectMenu !== undefined) {
     let f = b.closest('.field'),
       nn = current().nodes.find((x) => x.id === f.dataset.node),
       q = parameter(nn, f.dataset.key);
+    if (current().locked || q.locked) return;
     let dialog = document.createElement('dialog');
     dialog.innerHTML = `<h3>Connect ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>Choose a ${q.type} source. Disconnect restores the saved value or expression.</p><select aria-label="Input source"><option value="">Disconnected</option>${current()
       .nodes.filter((x) => x.id !== nn.id)
@@ -3766,7 +3907,7 @@ app.addEventListener('click', async (e) => {
           .filter((port) => socketCompatibleFor(x, nn, f.dataset.key, port.id))
           .map(
             (port) =>
-              `<option value="${esc(port.id ? JSON.stringify([x.id, port.id]) : x.id)}" ${q.source === x.id && q.sourcePort === port.id ? 'selected' : ''}>${esc(x.name + (port.label ? ' ' + port.label : ''))} · ${x.id.slice(-4)}</option>`,
+              `<option value="${esc(port.id ? JSON.stringify([x.id, port.id]) : x.id)}" ${q.source === x.id && (q.sourcePort || 'output') === (port.id || 'output') ? 'selected' : ''}>${esc(x.name + (port.label ? ' ' + port.label : ''))} · ${esc(x.id)} · ${esc(port.id || 'output')}</option>`,
           ),
       )
       .join(
@@ -3786,6 +3927,7 @@ app.addEventListener('click', async (e) => {
       closeEditorDialog(dialog);
     };
     showEditorDialog(dialog);
+    searchConnectionOptions(dialog);
     return;
   }
   if (d.lock !== undefined || d.fx !== undefined) {
@@ -3796,16 +3938,55 @@ app.addEventListener('click', async (e) => {
     if (d.lock !== undefined)
       commandChange('set-parameter-lock', { ...payload, locked: !q.locked }, 'Parameter updated');
     else {
-      const next = prompt(
-        'Expression (Vector2: x; y). Leave blank for direct values.',
-        q.expression || '',
-      );
-      if (next !== null)
-        commandChange(
-          'set-parameter-expression',
-          { ...payload, expression: next },
-          'Parameter updated',
-        );
+      if (q.locked || current().locked) return;
+      const dialog = document.createElement('dialog');
+      dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'Write X; Y expressions.' : 'Write a scalar expression.'} Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
+      const input = dialog.querySelector('input');
+      input.value = q.expression || '';
+      dialog.querySelector('[data-insert-reference]').onclick = () => {
+        const start = input.selectionStart ?? input.value.length,
+          end = input.selectionEnd ?? start;
+        const panel = openSearchPanel({
+          title: 'Parameter references',
+          action: 'Insert',
+          items: expressionReferenceTargets(current(), nn.id).map((target) => ({
+            id: target.expression,
+            label: target.label,
+            detail: target.nodeId + ' · ' + target.expression,
+          })),
+          onCommit(item) {
+            if (!item) return;
+            input.value = input.value.slice(0, start) + item.id + input.value.slice(end);
+            panel.close();
+            input.focus();
+            input.setSelectionRange(start + item.id.length, start + item.id.length);
+          },
+        });
+      };
+      dialog.querySelector('[data-cancel]').onclick = () => closeEditorDialog(dialog);
+      dialog.querySelector('[data-confirm]').onclick = () => {
+        if (
+          commandChange(
+            'set-parameter-expression',
+            { ...payload, expression: input.value },
+            'Parameter updated',
+          )
+        )
+          closeEditorDialog(dialog);
+      };
+      dialog.addEventListener('keydown', (event) => {
+        if (event.isComposing || event.keyCode === 229) return;
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          closeEditorDialog(dialog);
+        }
+        if (event.key === 'Enter' && event.target === input) {
+          event.preventDefault();
+          dialog.querySelector('[data-confirm]').click();
+        }
+      });
+      showEditorDialog(dialog);
+      input.focus();
     }
     return;
   }
@@ -5297,7 +5478,7 @@ app.addEventListener(
     }
     if (navigationExcluded(e.target)) return;
     const delta = wheelPixels(e, [viewport.clientWidth, viewport.clientHeight]);
-    if (e.ctrlKey || e.metaKey || (e.altKey && viewport.matches('.canvas-stage'))) {
+    if (e.ctrlKey || e.metaKey || e.altKey) {
       e.preventDefault();
       const factor = Math.exp(-Math.max(-1000, Math.min(1000, delta[1] || delta[0])) * 0.002);
       if (viewport.matches('.canvas-stage')) zoomCanvas(zoom * factor, e.clientX, e.clientY);
@@ -5937,7 +6118,10 @@ app.addEventListener('pointerdown', (e) => {
       return;
     }
   }
-  if (pointTarget) pointFocus = { nodeId: n.id, pointId: pointTarget.pointId };
+  if (pointTarget) {
+    pointFocus = { nodeId: n.id, pointId: pointTarget.pointId };
+    if (!selectPointTarget(n, pointTarget, e)) return;
+  }
   if (pointTarget && n?.type === 'Path Remap') {
     const input = evaluate(current(), fonts, history.doc.imageAssets).run(n.params.path.source),
       pointId = pointTarget.pointId,
@@ -5961,6 +6145,7 @@ app.addEventListener('pointerdown', (e) => {
     }
     const before = cloneDocument(history.doc);
     drag = {
+      pointIds: key === 'position' ? selectedPointIds(n) : undefined,
       type: 'remap',
       nodeId: n.id,
       pointId,
@@ -5995,6 +6180,7 @@ app.addEventListener('pointerdown', (e) => {
       return;
     }
     drag = {
+      pointIds: key === 'position' ? selectedPointIds(n) : undefined,
       type: 'point',
       nodeId: n.id,
       pointId: pt.id,
@@ -6470,7 +6656,9 @@ function movePointer(e) {
         : [
             {
               nodeId: drag.nodeId,
-              keys: [`${drag.type === 'remap' ? 'remap.' : ''}${drag.pointId}.${drag.key}`],
+              keys: (drag.pointIds || [drag.pointId]).map(
+                (id) => `${drag.type === 'remap' ? 'remap.' : ''}${id}.${drag.key}`,
+              ),
             },
           ];
     const editable = targets.every((target) => {
@@ -6512,6 +6700,7 @@ function movePointer(e) {
             layerId: current().id,
             nodeId: drag.nodeId,
             pointId: drag.pointId,
+            ...(drag.pointIds?.length > 1 ? { pointIds: drag.pointIds } : {}),
             key: drag.key,
           };
     if (!updateCanvasGesture(target, { delta })) return;
@@ -7011,6 +7200,27 @@ document.addEventListener('keydown', (e) => {
       if (artworkSelection.size > 1)
         notify('Select one artwork to delete, or use an explicit Delete layer row action.', true);
       else if (!e.repeat) deleteArtwork(artworkTarget);
+    }
+    return;
+  }
+  if (['Delete', 'Backspace'].includes(e.key) && e.target.closest?.('.graph-scroll')) {
+    e.preventDefault();
+    if (e.repeat || current().locked || deletionBusy()) return;
+    const nodeIds = current()
+      .nodes.filter((n) => selection.has(n.id) && !['Output', 'Image Output'].includes(n.type))
+      .map((n) => n.id);
+    if (!nodeIds.length) {
+      notify('Select a node other than Output to delete');
+      return;
+    }
+    if (
+      nodeIds.length &&
+      commandChange('delete-nodes', { nodeIds }, 'Selected nodes deleted', true)
+    ) {
+      selection.clear();
+      selected = null;
+      pointSelection = { nodeId: null, ids: new Set() };
+      render();
     }
     return;
   }

@@ -744,10 +744,21 @@ function referenceDependency(n) {
     ? { source: n.reference.nodeId, sourcePort: referencePort(n.reference) }
     : null;
 }
+function parameterDependencies(entries) {
+  return entries.flatMap(([, q]) =>
+    q.source
+      ? [q]
+      : q.expression
+        ? expressionReferences(q.expression).map((ref) => ({
+            source: ref.nodeId,
+            parameterKey: ref.key,
+            component: ref.component,
+          }))
+        : [],
+  );
+}
 export function nodeDependencies(n, activeOnly = false) {
-  const deps = (activeOnly ? evaluatedParameters(n) : parameters(n))
-    .filter(([, q]) => q.source)
-    .map(([, q]) => q);
+  const deps = parameterDependencies(activeOnly ? evaluatedParameters(n) : parameters(n));
   const reference = referenceDependency(n);
   if (reference) deps.push(reference);
   if (n.type === 'Text' && n.pathAttachment) deps.push({ source: n.pathAttachment.nodeId });
@@ -775,7 +786,8 @@ function assertAcyclic(layer) {
     if (!n) return;
     active.add(id);
     for (const dep of nodeDependencies(n)) {
-      if (!byId.has(dep.source) && n.type !== 'Reference') throw Error('Missing source node');
+      if (!byId.has(dep.source) && n.type !== 'Reference' && !dep.parameterKey)
+        throw Error('Missing source node');
       visit(dep.source);
     }
     active.delete(id);
@@ -839,7 +851,13 @@ export function duplicateNodes(layer, ids) {
     copy.name += ' copy';
     copy.position = copy.position.map((v) => v + 30);
     for (const pt of copy.points) pt.id = uid('point');
-    for (const [, q] of parameters(copy)) if (remap.has(q.source)) q.source = remap.get(q.source);
+    for (const [, q] of parameters(copy)) {
+      if (remap.has(q.source)) q.source = remap.get(q.source);
+      if (q.expression)
+        q.expression = q.expression.replace(/ref\(\s*"([a-zA-Z0-9:_-]+)"/g, (match, id) =>
+          remap.has(id) ? match.replace(`"${id}"`, `"${remap.get(id)}"`) : match,
+        );
+    }
     if (copy.pathAttachment && remap.has(copy.pathAttachment.nodeId)) {
       // Only remap a contour when the entire selected reference route reaches a
       // duplicated generator. A copied Curve outside an unselected Transform
@@ -1099,9 +1117,12 @@ export function translateRemapPoints(n, input, pointIds, delta) {
 export function parameter(n, key) {
   return parameters(n).find(([k]) => k === key)?.[1] || transformParameter(n, key);
 }
-export function expression(source) {
+export function expression(source, resolveReference, referencesOnly = false) {
   if (source.length > 4096) throw Error('Expression exceeds 4096 characters');
-  const tokens = source.match(/(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-zA-Z]+|[()+\-*/%,]/g) || [];
+  const tokens =
+    source.match(
+      /"[a-zA-Z0-9:_.-]+"|(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|[a-zA-Z]+|[()+\-*/%,]/g,
+    ) || [];
   if (tokens.join('') !== source.replace(/\s/g, '')) throw Error('Unsupported expression syntax');
   let i = 0;
   const funcs = {
@@ -1125,7 +1146,29 @@ export function expression(source) {
     }
     if (t === 'pi') return Math.PI;
     if (t === 'e') return Math.E;
-    if (t in funcs) {
+    if (t === 'ref') {
+      if (tokens[i++] !== '(') throw Error('Reference requires parentheses');
+      const readString = () => {
+        const token = tokens[i++];
+        if (!token || !/^"[a-zA-Z0-9:_.-]+"$/.test(token))
+          throw Error('Reference requires quoted IDs and parameter keys');
+        return token.slice(1, -1);
+      };
+      const nodeId = readString();
+      if (!nodeIdPattern.test(nodeId) || tokens[i++] !== ',') throw Error('Invalid reference');
+      const key = readString();
+      let component;
+      if (tokens[i] === ',') {
+        i++;
+        component = readString();
+      }
+      if (component !== undefined && !['x', 'y'].includes(component))
+        throw Error('Reference component must be x or y');
+      if (tokens[i++] !== ')') throw Error('Invalid reference arguments');
+      if (!resolveReference) throw Error('Reference requires a composition');
+      return resolveReference({ nodeId, key, component });
+    }
+    if (Object.hasOwn(funcs, t)) {
       if (tokens[i++] !== '(') throw Error('Function requires parentheses');
       let args = [parse(0)];
       while (tokens[i] === ',') {
@@ -1151,9 +1194,65 @@ export function expression(source) {
     return v;
   }
   let result = parse(0);
-  if (i !== tokens.length || !Number.isFinite(result))
+  if (i !== tokens.length || (!referencesOnly && !Number.isFinite(result)))
     throw Error('Expression must produce a finite number');
   return result;
+}
+// IDs are deliberately restricted: no JavaScript, object access, or string evaluation.
+export function parameterReferenceExpression(nodeId, key, component) {
+  const text = `ref(${JSON.stringify(nodeId)}, ${JSON.stringify(key)}${component ? `, ${JSON.stringify(component)}` : ''})`;
+  expression(text, () => 0, true);
+  return text;
+}
+export function expressionReferences(source) {
+  // Existing dormant literal expressions keep their prior import semantics.
+  if (!/\bref\b/.test(source)) return [];
+  const refs = [];
+  for (const part of source.split(';'))
+    expression(
+      part,
+      (ref) => {
+        refs.push(ref);
+        return 0;
+      },
+      true,
+    );
+  return refs;
+}
+function referenceParameter(layer, ref) {
+  const target = layer.nodes.find((n) => n.id === ref.nodeId);
+  if (!target) throw Error(`Expression reference target is missing: ${ref.nodeId}`);
+  const q = Object.hasOwn(target.params, ref.key)
+    ? target.params[ref.key]
+    : transformParameter(target, ref.key);
+  if (!q || (ref.component === undefined ? q.type !== 'Scalar' : q.type !== 'Vector2'))
+    throw Error('Expression reference requires a Scalar parameter or a Vector2 component');
+  return target;
+}
+export function expressionReferenceTargets(layer, nodeId) {
+  const reaches = (id, seen = new Set()) => {
+    if (id === nodeId) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    const n = layer.nodes.find((n) => n.id === id);
+    return n ? nodeDependencies(n).some((d) => reaches(d.source, seen)) : false;
+  };
+  return layer.nodes
+    .filter((n) => !reaches(n.id))
+    .flatMap((n) =>
+      Object.entries(n.params).flatMap(([key, q]) =>
+        (q.type === 'Scalar' ? [undefined] : q.type === 'Vector2' ? ['x', 'y'] : []).map(
+          (component) => ({
+            nodeId: n.id,
+            name: n.name,
+            key,
+            component,
+            label: `${n.name} · ${key}${component ? `.${component}` : ''}`,
+            expression: parameterReferenceExpression(n.id, key, component),
+          }),
+        ),
+      ),
+    );
 }
 function assertValue(type, value) {
   if (
@@ -1891,6 +1990,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             n.type,
             ...(n.bypassed ? ['bypassed'] : []),
             key !== id ? 'position' : null,
+            (key !== id ? [['position', n.params.position]] : evaluatedParameters(n))
+              .filter(([, q]) => q.expression && !q.source)
+              .map(([input, q]) => [input, expressionReferences(q.expression)]),
             deps.map(([input, q]) => [
               input,
               q.source,
@@ -1908,7 +2010,24 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   // and dependencies, so reading Position never requires font/outline generation.
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
+  const readingParameters = new Set();
+  function resolveExpressionReference(ref) {
+    const target = referenceParameter(layer, ref),
+      value = readParameter(target, ref.key);
+    return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+  }
   function readParameter(n, key) {
+    const id = `${n.id}\0${key}`;
+    if (readingParameters.has(id)) throw Error('Expression reference cycle detected');
+    if (readingParameters.size >= 256) throw Error('Expression reference depth exceeds 256');
+    readingParameters.add(id);
+    try {
+      return readParameterValue(n, key);
+    } finally {
+      readingParameters.delete(id);
+    }
+  }
+  function readParameterValue(n, key) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
     let q = parameter(n, key);
@@ -1918,8 +2037,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       ? run(q.source, q.sourcePort)
       : q.expression
         ? q.type === 'Vector2'
-          ? q.expression.split(';').map(expression)
-          : expression(q.expression)
+          ? q.expression.split(';').map((part) => expression(part, resolveExpressionReference))
+          : expression(q.expression, resolveExpressionReference)
         : n.type === 'Fill' && key === 'color' && q.value === null
           ? { hex: layer.fill, alpha: 1 }
           : clone(q.value);
@@ -1946,15 +2065,27 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     active.add(id);
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
-      const deps = positionOutput
-        ? inputs.filter(([, q]) => q.source).map(([, q]) => q)
-        : nodeDependencies(n, true);
+      const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
       if (n.type === 'Reference') referenceTarget(layer, n);
-      for (const dep of deps) run(dep.source, dep.sourcePort);
+      const parameterVersions = new Map();
+      for (const dep of deps) {
+        if (dep.parameterKey)
+          parameterVersions.set(
+            dep,
+            resolveExpressionReference({
+              nodeId: dep.source,
+              key: dep.parameterKey,
+              component: dep.component,
+            }),
+          );
+        else run(dep.source, dep.sourcePort);
+      }
       const dependencyVersions = deps.map((q) => [
         q.source,
         q.sourcePort,
-        versions.get(outputKey(q.source, q.sourcePort)),
+        q.parameterKey
+          ? [q.parameterKey, q.component, parameterVersions.get(q)]
+          : versions.get(outputKey(q.source, q.sourcePort)),
       ]);
       const cacheFont = positionOutput ? null : fonts[n.font];
       const styleFonts = positionOutput
@@ -3112,6 +3243,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     warnings,
     values,
     run,
+    parameterValue(id, key) {
+      const n = byId.get(id);
+      if (!n) throw Error('Missing node');
+      return readParameter(n, key);
+    },
     objectResizeState(id) {
       const n = byId.get(id);
       if (!['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n?.type))
@@ -3801,6 +3937,15 @@ export function validate(doc) {
         if (!target || outputType(target) !== 'Path')
           throw Error('TEXT_PATH_SOURCE: Select a Path output in the same layer');
       }
+    for (const n of l.nodes)
+      for (const [, q] of parameters(n))
+        if (q.expression) {
+          for (const ref of expressionReferences(q.expression)) {
+            if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
+              throw Error('Expression reference target must be in the same layer');
+            if (owners.has(ref.nodeId)) referenceParameter(l, ref);
+          }
+        }
     assertAcyclic(l);
   }
   const hasNodeType = (type) =>
@@ -4310,33 +4455,46 @@ export class CommandSession {
             n.type === (target.kind === 'curve-point' ? 'Curve' : 'Path Remap'),
         );
         if (!node || node.bypassed) throw Error('Missing editable point node');
+        const pointIds = target.pointIds ?? [target.pointId];
+        if (
+          !Array.isArray(pointIds) ||
+          !pointIds.length ||
+          new Set(pointIds).size !== pointIds.length ||
+          !pointIds.includes(target.pointId) ||
+          (pointIds.length > 1 && target.key !== 'position')
+        )
+          throw Error('Select distinct point anchors');
         if (target.kind === 'curve-point') {
-          const point = node.points.find((p) => p.id === target.pointId);
-          if (!point) throw Error('Missing point');
-          write(point[target.key]);
-          if (target.key !== 'position' && point.handleType !== 'corner') {
-            const other = point[target.key === 'handleA' ? 'handleB' : 'handleA'];
-            if (!other.locked && !other.source && !other.expression) {
-              const value = point[target.key].value,
-                length =
-                  point.handleType === 'symmetric'
-                    ? Math.hypot(...value)
-                    : Math.hypot(...other.value),
-                magnitude = Math.hypot(...value) || 1;
-              other.value = value.map((v) => (-v / magnitude) * length);
+          for (const pointId of pointIds) {
+            const point = node.points.find((p) => p.id === pointId);
+            if (!point) throw Error('Missing point');
+            write(point[target.key]);
+            if (target.key !== 'position' && point.handleType !== 'corner') {
+              const other = point[target.key === 'handleA' ? 'handleB' : 'handleA'];
+              if (!other.locked && !other.source && !other.expression) {
+                const value = point[target.key].value,
+                  length =
+                    point.handleType === 'symmetric'
+                      ? Math.hypot(...value)
+                      : Math.hypot(...other.value),
+                  magnitude = Math.hypot(...value) || 1;
+                other.value = value.map((v) => (-v / magnitude) * length);
+              }
             }
           }
         } else {
           const input = evaluate(
-              layer,
-              resolveFonts(candidate, this.#fonts()),
-              candidate.imageAssets,
-            ).run(node.params.path.source),
-            existing = node.edits.find((e) => e.pointId === target.pointId);
-          if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
-            throw Error('Retained edit is suspended; rebind before dragging');
-          const edit = enableRemapPoint(node, input, target.pointId);
-          write(edit.params[target.key]);
+            layer,
+            resolveFonts(candidate, this.#fonts()),
+            candidate.imageAssets,
+          ).run(node.params.path.source);
+          for (const pointId of pointIds) {
+            const existing = node.edits.find((e) => e.pointId === pointId);
+            if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
+              throw Error('Retained edit is suspended; rebind before dragging');
+            const edit = enableRemapPoint(node, input, pointId);
+            write(edit.params[target.key]);
+          }
         }
       }
       // Returning to the origin must retain sparse Remap edits and the redo branch.
@@ -5040,6 +5198,7 @@ export class CommandSession {
         'create-node',
         'duplicate-nodes',
         'delete-node',
+        'delete-nodes',
         'preview-node',
         'set-node-bypassed',
         'set-reference',
@@ -5117,13 +5276,27 @@ export class CommandSession {
         copies[0].position = clone(payload.position);
       }
       result = { nodeIds: copies.map((node) => node.id) };
-    } else if (type === 'delete-node') {
-      if (!target.nodes.some((node) => node.id === payload.nodeId)) throw Error('Missing node');
-      if (target.output === payload.nodeId) throw Error('Cannot delete the Output node');
-      target.nodes = target.nodes.filter((node) => node.id !== payload.nodeId);
+    } else if (type === 'delete-node' || type === 'delete-nodes') {
+      const ids = type === 'delete-node' ? [payload.nodeId] : payload.nodeIds;
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length)
+        throw Error('Select unique nodes to delete');
+      const selected = new Set(ids);
+      if (ids.some((id) => !target.nodes.some((node) => node.id === id)))
+        throw Error('Missing node');
+      const protectedIds = target.nodes
+        .filter((n) => n.id === target.output || ['Output', 'Image Output'].includes(n.type))
+        .map((n) => n.id);
+      if (type === 'delete-node' && protectedIds.some((id) => selected.has(id)))
+        throw Error('Cannot delete the Output node');
+      result = {
+        deletedNodeIds: ids.filter((id) => !protectedIds.includes(id)),
+        retainedNodeIds: ids.filter((id) => protectedIds.includes(id)),
+      };
+      for (const id of protectedIds) selected.delete(id);
+      target.nodes = target.nodes.filter((node) => !selected.has(node.id));
       for (const node of target.nodes)
         for (const [, q] of parameters(node))
-          if (q.source === payload.nodeId) {
+          if (selected.has(q.source)) {
             delete q.source;
             delete q.sourcePort;
           }
@@ -5445,19 +5618,43 @@ export class CommandSession {
         if (type === 'set-parameter-expression') {
           if (!['Scalar', 'Vector2'].includes(q.type) || typeof payload.expression !== 'string')
             throw Error('Expected a numeric expression');
+          q.expression = payload.expression;
           if (payload.expression) {
+            assertAcyclic(target);
+            const evaluation = evaluate(
+              target,
+              resolveFonts(candidate, this.#fonts()),
+              candidate.imageAssets,
+            );
+            const resolve = (ref) => {
+              const referenced = referenceParameter(target, ref);
+              const value = evaluation.parameterValue(referenced.id, ref.key);
+              return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+            };
             const value =
               q.type === 'Vector2'
-                ? payload.expression.split(';').map(expression)
-                : expression(payload.expression);
+                ? payload.expression.split(';').map((part) => expression(part, resolve))
+                : expression(payload.expression, resolve);
             assertValue(q.type, value);
           }
-          q.expression = payload.expression;
         } else {
           if (q.source || q.expression)
             throw Error(
               'Parameter is driven; disconnect input or clear expression before editing its fallback',
             );
+          if (
+            isTransform(node) &&
+            payload.key === 'uniformScale' &&
+            payload.value === false &&
+            !node.params.scaleWidth
+          ) {
+            const width = evaluate(
+              target,
+              resolveFonts(candidate, this.#fonts()),
+              candidate.imageAssets,
+            ).transformValues(node.id).scaleWidth;
+            node.params.scaleWidth = { ...clone(transformExtensions.scaleWidth), value: width };
+          }
           if (payload.axis !== undefined) {
             if (q.type !== 'Vector2' || ![0, 1].includes(payload.axis))
               throw Error('Invalid parameter axis');
