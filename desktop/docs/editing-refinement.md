@@ -33,9 +33,33 @@ followed by drag, local preference fields, document/guide numeric commands, cont
 menu routing, save/reload and SVG/PNG. Focus tests on these changes; preserve producer
 boundaries for browser, native Windows and physical Japanese IME evidence.
 
-## Known handoff limits
+## Current evidence and next work
 
-Base: 462828e614eb86fe85469eb58faadc1f22170d44. Prior WIP is incomplete. WS AE comparison
-produced no usable result; its owned process PID87612 remained after normal close.
-No remote process manipulation is authorized merely by this cloud implementation.
-Current cloud environment has Node/dependencies; Windows packaging is not yet proven.
+The initial implementation was delivered as development trial 7496aee on 2026-10-17
+07:28 JST. Offline Windows release build succeeded; the application was not launched
+for native acceptance in that verification task. Browser tests cover selected
+Transform handles, numeric gestures, Remap vertex operations and document guards.
+They do not establish physical IME, exact AE skew parity, Alt-wheel interaction feel
+or all tangent-handle affordances. These remain explicit acceptance obligations.
+
+On 2026-10-17 09:16 JST Shiro reopened independent dot-side fixes and Brief work.
+Inspect every editable numeric control category against drag/typing/Undo/cancel
+semantics and repair demonstrated gaps. Do not wait for subjective trial feedback
+before such independent repairs. Do not infer acceptance of deferred legacy features.
+
+A practical production checkpoint is editable horizontal/vertical text plus vector
+artwork, with transform/paint/alignment, save/cold reopen/re-edit and SVG/PNG export.
+Use a representative fixture and source-bound evidence; do not rebuild a new mock UI.
+Full Illustrator parity, legacy Qt format conversion and generic integrations remain
+outside the adopted first-delivery scope.
+
+## Numeric preference fix — 2026-10-17
+
+A locked active composition previously prevented all numeric dragging, including
+Alignment Spacing and layout drafts that remain editable by typing. Pointerdown,
+move and pointerup now distinguish local preferences from authored parameters.
+Local preference drags remain available; graph/text/command targets still honor
+composition locks. Cancel restores the preference and does not alter document
+history. The regression first failed (12 remained 12 rather than 32), then passed
+after the fix; numeric DOM and pure-unit tests pass 4/4. This is source-test evidence,
+not a new native trial qualification.

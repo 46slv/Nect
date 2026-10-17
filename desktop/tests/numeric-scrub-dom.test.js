@@ -278,5 +278,22 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
   assert.equal(win.nect.document.width, widthBefore + 100);
   undo();
   assert.equal(win.nect.document.width, widthBefore);
+  // Locking artwork does not lock local alignment preferences.
+  id = load('Rectangle', (_n, layer) => {
+    layer.locked = true;
+  });
+  const lockedDocument = JSON.stringify(win.nect.document);
+  el = document.querySelector('[data-align-spacing]');
+  await change(el, '12');
+  el = document.querySelector('[data-align-spacing]');
+  scrub(el, 24);
+  assert.equal(Number(document.querySelector('[data-align-spacing]').value), 32);
+  assert.equal(JSON.stringify(win.nect.document), lockedDocument);
+  undoEmpty();
+  el = document.querySelector('[data-align-spacing]');
+  scrub(el, 24, 'pointercancel');
+  assert.equal(Number(document.querySelector('[data-align-spacing]').value), 32);
+  assert.equal(JSON.stringify(win.nect.document), lockedDocument);
+  undoEmpty();
   win.happyDOM.abort();
 });

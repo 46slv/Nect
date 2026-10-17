@@ -5018,7 +5018,7 @@ app.addEventListener('pointerdown', (e) => {
   const control = editingControl(e.target);
   if (control && e.target.closest('.canvas-text-editor')) return;
   const numeric = e.target.closest('input[type="number"][data-scrub-step]');
-  if (numeric && e.button === 0 && !current().locked && !numeric.disabled && !numeric.readOnly) {
+  if (numeric && e.button === 0 && !numeric.disabled && !numeric.readOnly) {
     const field = numeric.closest('.field[data-node]'),
       n = field && current().nodes.find((n) => n.id === field.dataset.node),
       q = n && parameter(n, field.dataset.key),
@@ -5027,6 +5027,7 @@ app.addEventListener('pointerdown', (e) => {
       rect = numeric.getBoundingClientRect();
     // Leave the native spinner hit area alone. A click elsewhere still focuses/selects text.
     if (
+      (!current().locked || otherTarget?.localNumeric) &&
       ((q && !q.locked && !q.source && !q.expression) || textTarget || otherTarget) &&
       (!rect.width || e.clientX < rect.right - 18)
     ) {
@@ -5983,7 +5984,7 @@ function movePointer(e) {
     if (!d.started && Math.abs(dx) < 4) return;
     if (
       current().id !== d.layerId ||
-      current().locked ||
+      (current().locked && !d.localNumeric) ||
       !d.capture.isConnected ||
       d.capture.disabled ||
       d.capture.readOnly
@@ -6210,7 +6211,7 @@ document.addEventListener('pointerup', (e) => {
       q = !drag.textKind && n && parameter(n, drag.key);
     if (
       current().id !== drag.layerId ||
-      current().locked ||
+      (current().locked && !drag.localNumeric) ||
       !drag.capture.isConnected ||
       drag.capture.disabled ||
       drag.capture.readOnly ||

@@ -16,12 +16,12 @@ Coarse route: document lifetime → common command Session migration → represe
 
 ## ACTIVE CHECKPOINT
 
-Goal: Finish the approved practical editing fixes: AE-style Transform, usable Path Remap controls, Alt-wheel zoom, numeric scrubbing consistency and editor context menus.
-Current phase: dot cloud implementation. Former WS Owner released source/GUI at 2026-10-17 05:58:56 JST; checkpoint 462828e614eb86fe85469eb58faadc1f22170d44 independently materialized and Git-blob verified (328 files).
-Proven: Prior delivered d6223e9 native qualification remains separate. WIP focused unit slice 17/17 passes locally; combined UI acceptance is pending.
-Next task: Finish numeric transaction integration and test the real DOM/browser paths, then qualify Transform/Remap/zoom and exports. Update the compact specification with implementation decisions.
-Approach: Reuse existing Session and shared affine; preserve legacy files, connections, expressions and locks. No general Mission expansion. New user requests may be integrated while dot owns implementation; consolidate before any Codex handoff.
-Done for next: Approved fixes demonstrated, focused regressions and Web build passed, exact checkpoint preserved. Windows build/native testing and private trial delivery only when actually available; never equate browser proof to native proof.
-State: Local cloud snapshot nect-dot-takeover, base 462828e614eb86fe85469eb58faadc1f22170d44; not a full Git checkout. Root dot is sole source writer. WS Owner is stopped. See desktop/docs/editing-refinement.md.
-Authority: User 2026-10-16 20:34 approved Transform; 20:40–20:50 added interaction fixes and dot takeover, 20:51 approved handoff resend; 21:03 explicitly permits dot to revise implementation, Brief and specification. No main merge, release, force push, security or billing changes.
-Handoff: CONTINUE_CURRENT_TASK. Do not start remote status-only turns. Observe formal logs; send only new requirements or concrete corrective actions. EPHEMERA and Resolve remain stopped.
+Goal: Complete independently actionable editing consistency fixes and keep the adopted requirements executable while Shiro reviews the delivered trial.
+Current phase: dot-side implementation, reopened by Shiro on 2026-10-17 09:16 JST. Human trial review is a local acceptance dependency, not a stop for independent code or Brief work.
+Proven: Trial 7496aee0a9437a6f91eef72439a414a495840d31 delivered privately with EXE, README and license. Web build, Rust 21/21, offline Windows release and targeted browser flows passed. The earlier 703/709 aggregate at 768 MB had six OOM files; those passed individually at default heap (31/31). Do not call this a final aggregate pass. Native GUI, physical IME, Skew visual parity and Alt-wheel hands-on review remain open.
+Next task: Inspect numeric-control routing against the all-editable-numbers-drag requirement, repair demonstrated gaps and add focused regression tests. Reconcile stale acceptance and scope statements in the Brief. Preserve already verified evidence rather than rerunning all checks.
+Approach: Existing common Session, same stable identities and shared affine. Root dot owns source; bounded Luna read-only reviews have no writing authority. Verification is proportional to touched paths; batch any Windows Luna handoff only when a coherent candidate needs it.
+Done for next: Demonstrated numeric interaction gaps repaired with focused tests, current requirements and concrete next work saved, exact development commit verified remotely. Trial review does not block this checkpoint.
+State: Local cloud snapshot nect-dot-takeover (not a full Git checkout); development branch codex/desktop-production-20261016 remotely verified at 7496aee0a9437a6f91eef72439a414a495840d31 before edits. Former WS source owner remains released; last WS verification/delivery task completed.
+Authority: Shiro explicitly requested dot-side inspection, Brief creation and independently actionable fixes on 2026-10-17 09:16 JST. Prior code/test/doc/dev-branch/push/Draft PR permission remains. No main merge, formal release, force push, authentication, permissions or billing changes. Other stopped missions are not reopened by this Nect instruction.
+Handoff: CONTINUE_CURRENT_TASK. Read logs one-way; do not start status-only Codex turns. See desktop/docs/editing-refinement.md and requirements-crosswalk.md.
