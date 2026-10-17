@@ -47,6 +47,19 @@ These vector approximations are not print-calibrated. The bounded pipeline limit
 4096 cells, generated/output geometry to 100,000 vertices and mask-mark intersection work to
 2,000,000 vertex-pair units; curve-mask preflight has its own 32-contour / 256-authored-point /
 512-flattened-vertex caps. Exhausted work budgets reject edits transactionally.
+
+Line Screen adds a direct stripe mapping for the same sampled luminance field. Its default
+horizontal operation emits a centered black rectangle across each full cell width; its thickness
+is `darkness × pitch`. Vertical swaps those dimensions. Each cell is independent, so neighboring
+strips join into stepped variable-width lines; white samples emit nothing and black samples fill
+the whole cell. The fixed artboard grid, cell-center sampling and compound-mask intersection are
+unchanged. This is a cell-sampled vector texture, not continuous engraving or print-calibrated
+screening. Its stripe motif is conceptually related to the line-screen spot function in Adobe's
+[PostScript Language Reference, §7.4.4](https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf#page=500),
+which describes white pixels growing away from a line through the halftone-cell center; Nect's
+rectangle construction does not implement PostScript/RIP screening, screen angles, device frequency,
+or printed dot gain. Line Screen reuses the 4096-cell, 100,000-vertex, mask-intersection and
+transactional output budgets. Its `horizontal` / `vertical` operation is stored in schema 14.
 Closed Path Offset's 32-contour / 256-authored-point input caps and 256 flattened / 512 output
 vertex, 4096 subdivision-node, 300000 topology-check and 4096 estimated-join budgets are
 aggregate across groups, not multiplied per group; its existing eight-nonzero-node graph cap
@@ -73,6 +86,7 @@ produce empty erosion.
 - Text/Path → Twist Points → Fill or Stroke for a center-weighted swirl; Resample first for finer deformation detail.
 - Source Path → Instance on Points ← Points Path → Fill for repeated ornaments; enable Align Tangent to rotate each source +X along the authored target tangent. Use Resample Path before Points when even spacing is wanted.
 - Linear / Radial Gradient Fill → Halftone for variable-size black dots; switch to Ordered Dither for a fixed Bayer texture.
+- Linear / Radial Gradient Fill → Line Screen for cell-sampled horizontal or vertical black stripes whose thickness tracks darkness.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 
@@ -81,7 +95,7 @@ Open `examples/modifier-playground.json` in this development build for editable 
 and tangent-aligned Instance on Points, open the [11-layer tangent playground](../examples/instance-tangent-playground.json)
 or rebuild it with `node scripts/instance-tangent-playground.js`. For luminance-to-geometry
 examples, open the [12-layer luminance playground](../examples/luminance-playground.json), which
-stores the evaluated Halftone and Ordered Dither outputs. Rebuild the main playground with
+stores the evaluated Halftone and Ordered Dither outputs, or the [12-layer Line Screen playground](../examples/line-screen-playground.json), which compares horizontal and vertical mappings on the same gradient source. Rebuild the luminance playground with `node scripts/luminance-playground.js` or the Line Screen example with `node scripts/line-screen-playground.js`. Rebuild the main playground with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).
 

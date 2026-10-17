@@ -593,5 +593,33 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   black bounds, varying gradient dot area, Bayer density, compound holes/no-leak, unsupported
   inputs, budget rollback, deterministic identity, serialization/history, editor controls and
   bypass. These checks do not establish native Windows interaction or physical print behavior.
-  More general luminance mappings remain a possible follow-on; this slice intentionally adds no
-  generic Field port or extra mapping framework.
+  This v1 slice intentionally added no generic Field port or extra mapping framework; the separate
+  Line Screen mapping below reuses the same field and mask helpers.
+
+### Line Screen — luminance-to-geometry v2
+
+- Line Screen adds another PaintedPath→PaintedPath map on the same supported filled vector source.
+  It reuses Cell Pitch 1–1024 px (default16), Invert Luminance (default off), fixed world-grid
+  origin (0,0), center sampling and opaque black output. The source must remain ungrouped and
+  closed; open contours, explicit groups, stroke-only paint and images are rejected. The output
+  intersects the source's existing compound mask, so holes remain empty.
+- Horizontal emits one centered rectangle per nonwhite cell: full pitch across X and
+  `darkness × pitch` along Y. Vertical swaps the dimensions. Its area is therefore
+  `darkness × pitch²`; white samples are empty and black samples cover the full cell. Neighboring
+  marks join into stepped variable-width stripes on the fixed grid. It does not continuously
+  engrave a vector contour, and it is not a print-calibrated screen.
+- This stripe motif takes conceptual inspiration from the PostScript Language Reference §7.4.4:
+  Adobe describes a line-screen spot function based on distance from a line through a halftone
+  cell's center, with white pixels growing away from that line. Nect's implementation instead
+  directly sizes cell-sampled vector rectangles; it does not implement a PostScript/RIP spot
+  function, device frequency, screen angle or print behavior.
+  [Adobe PLRM, §7.4.4](https://www.adobe.com/jp/print/postscript/pdfs/PLRM.pdf#page=500)
+- Line Screen uses the existing 4096-cell sampling cap, 100,000 generated/output-vertex caps,
+  2,000,000 vertex-pair mask-intersection budget, deterministic output identity, unstable
+  downstream-Remap provenance, typed bypass, schema-14 serialization, shared Undo/Redo and
+  transactional preflight. Invalid orientation or over-budget upstream edits reject atomically.
+- The [12-layer Line Screen playground](../examples/line-screen-playground.json) compares both
+  directions against a shared gradient source and reopens with stable evaluated output. Its
+  matching `scripts/line-screen-playground.js` builds and validates the editable JSON and SVG.
+  Focused helper/core/DOM tests and one Web build are the bounded evidence for this addition;
+  they do not establish native Windows input behavior or physical print output.

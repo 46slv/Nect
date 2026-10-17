@@ -173,3 +173,65 @@ test('rejects invalid mode, pitch, indices, and coordinates', () => {
     /integer i\/j/,
   );
 });
+
+test('Line Screen maps darkness to centered, full-cell-span horizontal and vertical rectangles', () => {
+  const horizontal = generateLuminanceMarks({
+      cells: [cell(0), cell(0.25, { i: 1 }), cell(1, { i: 2 })],
+      pitch: 8,
+      mode: 'lines',
+      orientation: 'horizontal',
+    }),
+    vertical = generateLuminanceMarks({
+      cells: [cell(0), cell(0.25, { i: 1 }), cell(1, { i: 2 })],
+      pitch: 8,
+      mode: 'lines',
+      orientation: 'vertical',
+    });
+
+  assert.equal(horizontal.orientation, 'horizontal');
+  assert.equal(vertical.orientation, 'vertical');
+  assert.deepEqual(horizontal.marks[0].vertices, [
+    [8, -5],
+    [16, -5],
+    [16, -3],
+    [8, -3],
+  ]);
+  assert.deepEqual(vertical.marks[0].vertices, [
+    [11, -8],
+    [13, -8],
+    [13, 0],
+    [11, 0],
+  ]);
+  assert.equal(horizontal.marks.length, 2, 'white samples emit no geometry');
+  assert.equal(vertical.marks.length, 2, 'white samples emit no geometry');
+  const fullCell = [
+    [8, -8],
+    [16, -8],
+    [16, 0],
+    [8, 0],
+  ];
+  assert.deepEqual(horizontal.marks[1].vertices, fullCell);
+  assert.deepEqual(vertical.marks[1].vertices, fullCell);
+  for (const result of [horizontal, vertical])
+    for (const mark of result.marks) {
+      const source = mark.i === 1 ? 0.25 : 1;
+      assert.equal(area(mark.vertices), source * 8 * 8);
+    }
+});
+
+test('Line Screen rejects invalid orientation and non-finite output area before generation', () => {
+  assert.throws(
+    () => generateLuminanceMarks({ cells: [cell(0.5)], pitch: 2, mode: 'lines' }),
+    /orientation must be horizontal or vertical/,
+  );
+  assert.throws(
+    () =>
+      generateLuminanceMarks({
+        cells: [cell(0.5)],
+        pitch: 1e308,
+        mode: 'lines',
+        orientation: 'horizontal',
+      }),
+    /finite document range/,
+  );
+});

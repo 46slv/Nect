@@ -30,14 +30,16 @@ const positiveModulo = (value, divisor) => ((value % divisor) + divisor) % divis
 function validateOptions(options) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     throw Error('Luminance mark options must be an object');
-  const { cells, pitch, mode } = options;
+  const { cells, pitch, mode, orientation } = options;
   if (!Array.isArray(cells)) throw Error('Luminance mark cells must be an array');
   if (cells.length > MAX_CELLS)
     throw Error(`Luminance mark generation is limited to ${MAX_CELLS} cells`);
   if (!Number.isFinite(pitch) || pitch <= 0)
     throw Error('Luminance mark pitch must be a positive finite number');
-  if (mode !== 'halftone' && mode !== 'dither')
-    throw Error('Luminance mark mode must be halftone or dither');
+  if (!['halftone', 'dither', 'lines'].includes(mode))
+    throw Error('Luminance mark mode must be halftone, dither, or lines');
+  if (mode === 'lines' && !['horizontal', 'vertical'].includes(orientation))
+    throw Error('Line Screen orientation must be horizontal or vertical');
 
   for (const cell of cells) {
     if (
@@ -56,6 +58,12 @@ function validateOptions(options) {
       throw Error('Luminance cell coordinates exceed the finite document range');
     if (!Number.isFinite(cell.y - pitch / 2) || !Number.isFinite(cell.y + pitch / 2))
       throw Error('Luminance cell coordinates exceed the finite document range');
+    if (mode === 'lines' && cell.darkness > 0) {
+      const thickness = cell.darkness * pitch,
+        area = thickness * pitch;
+      if (!(thickness > 0) || !Number.isFinite(thickness) || !Number.isFinite(area))
+        throw Error('Line Screen mark area exceeds the finite document range');
+    }
   }
 }
 
@@ -136,8 +144,27 @@ function squareVertices(cell, pitch) {
   ];
 }
 
+function lineVertices(cell, pitch, orientation) {
+  const half = pitch / 2,
+    halfThickness = (cell.darkness * pitch) / 2;
+  return orientation === 'horizontal'
+    ? [
+        [cell.x - half, cell.y - halfThickness],
+        [cell.x + half, cell.y - halfThickness],
+        [cell.x + half, cell.y + halfThickness],
+        [cell.x - half, cell.y + halfThickness],
+      ]
+    : [
+        [cell.x - halfThickness, cell.y - half],
+        [cell.x + halfThickness, cell.y - half],
+        [cell.x + halfThickness, cell.y + half],
+        [cell.x - halfThickness, cell.y + half],
+      ];
+}
+
 function markable(cell, mode) {
   if (mode === 'halftone') return cell.darkness > 0;
+  if (mode === 'lines') return cell.darkness > 0;
   const rank = BAYER_8[positiveModulo(cell.j, 8)][positiveModulo(cell.i, 8)];
   return cell.darkness > (rank + 0.5) / 64;
 }
@@ -149,7 +176,8 @@ function preflight(options) {
   let maximumVertices = 0;
   for (const cell of cells) {
     if (!markable(cell, mode)) continue;
-    maximumVertices += mode === 'dither' || cell.darkness === 1 ? 4 : segments + 4;
+    maximumVertices +=
+      mode === 'dither' || mode === 'lines' || cell.darkness === 1 ? 4 : segments + 4;
     if (maximumVertices > MAX_VERTICES)
       throw Error(`Luminance mark output is limited to ${MAX_VERTICES} generated vertices`);
   }
@@ -163,11 +191,15 @@ function preflight(options) {
  */
 export function generateLuminanceMarks(options) {
   const segments = preflight(options);
-  const { cells, pitch, mode } = options;
+  const { cells, pitch, mode, orientation } = options;
   const marks = [];
 
   for (const cell of cells) {
     if (!markable(cell, mode)) continue;
+    if (mode === 'lines') {
+      marks.push({ i: cell.i, j: cell.j, vertices: lineVertices(cell, pitch, orientation) });
+      continue;
+    }
     if (mode === 'dither' || cell.darkness === 1) {
       marks.push({ i: cell.i, j: cell.j, vertices: squareVertices(cell, pitch) });
       continue;
@@ -177,5 +209,5 @@ export function generateLuminanceMarks(options) {
     marks.push({ i: cell.i, j: cell.j, vertices });
   }
 
-  return { mode, pitch, marks };
+  return { mode, pitch, ...(mode === 'lines' ? { orientation } : {}), marks };
 }

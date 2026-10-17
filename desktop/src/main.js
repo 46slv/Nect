@@ -732,7 +732,8 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
-  if (['Halftone', 'Ordered Dither'].includes(n.type) && key === 'pitch') return [1, 1024];
+  if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) && key === 'pitch')
+    return [1, 1024];
   if (n.type === 'Radial Gradient Fill') {
     if (key === 'center') return [-100000, 100000];
     if (key === 'radius') return [0.0001, 100000];
@@ -1044,7 +1045,7 @@ function field(n, key, q) {
         key === 'scaleWidth' &&
         (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name = ['Halftone', 'Ordered Dither'].includes(n.type)
+  const name = ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type)
     ? { path: 'Source fill', pitch: 'Cell pitch (px)', invert: 'Invert luminance' }[key] || key
     : n.type === 'Instance on Points'
       ? { path: 'Source', points: 'Points', alignTangent: 'Align Tangent' }[key] || key
@@ -1373,6 +1374,8 @@ function luminanceControls(n) {
     return '<p class="font-note">Convert a solid or two-stop gradient fill into black dots. Cell pitch sets a fixed artboard grid (origin 0, 0); luminance is sampled at each cell center after sRGB stop interpolation, conversion to linear light, and alpha compositing over white. Dot polygon area tracks darkness, then each dot is clipped to its cell and the closed source mask. Curves are flattened at about 0.1 document unit. Output is not print-calibrated. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
   if (n.type === 'Ordered Dither')
     return '<p class="font-note">Convert a solid or two-stop gradient fill to full-pitch black squares using a fixed Bayer 8×8 threshold pattern. Cell pitch sets a fixed artboard grid (origin 0, 0); luminance uses sRGB stop interpolation, conversion to linear light, and alpha compositing over white. Every square is clipped to the closed source mask. This is ordered thresholding, not error diffusion; output is not print-calibrated. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
+  if (n.type === 'Line Screen')
+    return '<p class="font-note">Map sampled darkness to centered black stripes on a fixed artboard grid (origin 0, 0). Horizontal makes full-cell-width strips; Vertical swaps them. Each strip is a cell-sampled rectangle with thickness darkness × cell pitch, so neighboring cells form stepped variable-width lines. White is empty and black fills the cell. Marks are clipped to the closed source mask. This is not continuous engraving or print-calibrated screening. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
   return '';
 }
 function roughenControls(n) {

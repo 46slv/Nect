@@ -91,6 +91,7 @@ const supported = [
   'Radial Gradient Fill',
   'Halftone',
   'Ordered Dither',
+  'Line Screen',
   'Stroke',
 ];
 for (const type of supported)
@@ -103,6 +104,7 @@ for (const type of supported)
         'Radial Gradient Fill',
         'Halftone',
         'Ordered Dither',
+        'Line Screen',
         'Stroke',
       ].includes(type),
     );

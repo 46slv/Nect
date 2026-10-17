@@ -286,6 +286,11 @@ export const definitions = {
     pitch: p('Scalar', 16),
     invert: p('Boolean', false),
   },
+  'Line Screen': {
+    path: p('PaintedPath', null),
+    pitch: p('Scalar', 16),
+    invert: p('Boolean', false),
+  },
   Stroke: {
     path: p('PaintedPath', null),
     color: p('Color', { hex: '#36434e', alpha: 1 }),
@@ -423,17 +428,19 @@ export function node(type, x = 40, y = 40) {
         ? 'count'
         : type === 'Taper' || type === 'Bend Points'
           ? 'horizontal'
-          : type === 'Wave Points'
-            ? 'vertical'
-            : type === 'Mirror'
-              ? 'left-right'
-              : type === 'Closed Path Offset'
-                ? 'miter'
-                : type === 'Geometry Repeater'
-                  ? 'linear'
-                  : ['Math', 'Vector Math'].includes(type)
-                    ? 'add'
-                    : 'subtract',
+          : type === 'Line Screen'
+            ? 'horizontal'
+            : type === 'Wave Points'
+              ? 'vertical'
+              : type === 'Mirror'
+                ? 'left-right'
+                : type === 'Closed Path Offset'
+                  ? 'miter'
+                  : type === 'Geometry Repeater'
+                    ? 'linear'
+                    : ['Math', 'Vector Math'].includes(type)
+                      ? 'add'
+                      : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -547,6 +554,7 @@ export function outputType(n, port) {
       'Radial Gradient Fill',
       'Halftone',
       'Ordered Dither',
+      'Line Screen',
       'Stroke',
       'Output',
     ].includes(n.type)
@@ -599,6 +607,7 @@ const bypassInputs = Object.freeze({
   'Radial Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
+  'Line Screen': 'path',
   Stroke: 'path',
 });
 export function bypassContract(n) {
@@ -825,6 +834,7 @@ export const operationOptions = {
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
   'Resample Path': ['count', 'spacing'],
+  'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
   Math: ['add', 'subtract', 'multiply', 'divide', 'min', 'max', 'abs', 'clamp'],
   'Vector Math': [
@@ -1765,6 +1775,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       'Output',
       'Halftone',
       'Ordered Dither',
+      'Line Screen',
     ].includes(sourceNode.type)
       ? hasImagePaintSource(sourceNode.params.path?.source, seen)
       : false;
@@ -1858,7 +1869,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
     if (
-      ['Halftone', 'Ordered Dither'].includes(n.type) &&
+      ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
       hasImagePaintSource(n.params.path.source)
     )
       throw Error(`${n.type} requires vector paint; image inputs are unsupported`);
@@ -2619,7 +2630,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             signature(result),
           ]),
         );
-      } else if (n.type === 'Halftone' || n.type === 'Ordered Dither') {
+      } else if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type)) {
         const source = read('path');
         if (!source) throw Error(`Connect a PaintedPath input to ${n.type}`);
         if (source.kind === 'image')
@@ -2635,7 +2646,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
         }
         const { pitch, invert } = luminanceModifierSettings(read),
-          mode = n.type === 'Halftone' ? 'halftone' : 'dither';
+          mode =
+            n.type === 'Halftone' ? 'halftone' : n.type === 'Ordered Dither' ? 'dither' : 'lines',
+          orientation = mode === 'lines' ? n.operation : undefined;
+        if (mode === 'lines' && !operationOptions[n.type].includes(orientation))
+          throw Error('Line Screen orientation must be horizontal or vertical');
         if (source.contours.length === 0) {
           // A valid empty painted path (for example, Boolean A−A) remains an
           // empty black fill. Still validate its paint and node settings.
@@ -2652,7 +2667,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
               origin: { x: 0, y: 0 },
               invert,
             }),
-            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode }),
+            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation }),
             polygons = generated.marks.map((mark) => mark.vertices);
           result = clipLuminanceMarks(mask, polygons, fingerprint(n.id));
           result.fill = { hex: '#000000', alpha: 1 };
@@ -2662,6 +2677,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           JSON.stringify([
             provenance(n.id),
             mode,
+            ...(mode === 'lines' ? [orientation] : []),
             pitch,
             invert,
             source.fill,
@@ -3050,6 +3066,7 @@ export function assertClosedOffsetChange(
     'Instance on Points',
     'Halftone',
     'Ordered Dither',
+    'Line Screen',
   ]);
   const boundedInputs = (n) =>
     n.type === 'Boolean'
@@ -3185,7 +3202,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -3294,6 +3311,7 @@ export function validate(doc) {
         !Array.isArray(n.edits)
       )
         throw Error('Invalid node');
+      if (n.type === 'Line Screen' && doc.schemaVersion < 14) doc.schemaVersion = 14;
       if (n.type === 'Resample Path' && doc.schemaVersion < 12) {
         if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
         if (operationOptions.Boolean.includes(n.operation)) n.operation = 'count';
@@ -3401,7 +3419,7 @@ export function validate(doc) {
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
-      if (['Halftone', 'Ordered Dither'].includes(n.type))
+      if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type))
         luminanceModifierSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
