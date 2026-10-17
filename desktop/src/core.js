@@ -463,11 +463,12 @@ export function node(type, x = 40, y = 40) {
   return {
     id: uid('node'),
     type,
-    name: type,
+    name: type === 'Join Geometry' ? 'Join Paths' : type,
     position: [x, y],
     width: 264,
     collapsed: false,
     params: clone(definitions[type]),
+    ...(type === 'Join Geometry' ? { joinInputOrder: ['a', 'b'] } : {}),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
       type === 'Resample Path'
@@ -530,7 +531,7 @@ export function layer(name = 'Composition 1') {
 }
 export function document() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 23,
     name: 'Untitled composition',
     width: 960,
     height: 540,
@@ -553,7 +554,7 @@ export function blankLayer(name = 'Composition 1') {
 }
 export function blankDocument() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 23,
     name: 'Untitled composition',
     width: 960,
     height: 540,
@@ -942,8 +943,39 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
         q.type === 'PaintedPath'))
   );
 }
+export const JOIN_SLOT_LIMIT = 1024;
+export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
+// Only command/migration paths call this; reads never allocate or renumber sockets.
+function normalizeJoinInputs(n, compact = false, migration = false) {
+  if (n.type !== 'Join Geometry') return;
+  n.joinInputOrder ??= ['a', 'b'];
+  if (compact) {
+    const last = n.joinInputOrder.at(-1);
+    n.joinInputOrder = n.joinInputOrder.filter((key) => {
+      if (
+        key === 'a' ||
+        key === 'b' ||
+        key === last ||
+        n.params[key].source ||
+        n.params[key].locked
+      )
+        return true;
+      delete n.params[key];
+      return false;
+    });
+  }
+  const last = n.params[n.joinInputOrder.at(-1)];
+  if ((last.source || last.locked) && n.joinInputOrder.length < JOIN_SLOT_LIMIT) {
+    const key = migration ? 'input_legacy_spare' : `input_${uid('slot')}`;
+    n.params[key] = p('Path', null);
+    n.joinInputOrder.push(key);
+  }
+}
 export function parameters(n) {
-  const entries = Object.entries(n.params);
+  const entries =
+    n.type === 'Join Geometry'
+      ? joinInputKeys(n).map((key) => [key, n.params[key]])
+      : Object.entries(n.params);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
@@ -2370,17 +2402,23 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.fingerprint = signature(result);
         item.remove();
       } else if (n.type === 'Join Geometry') {
-        const a = read('a'),
-          b = read('b');
-        if (!a || !b) throw Error('Connect both Join Geometry paths');
-        const contours = [...a.contours, ...b.contours];
-        if (
-          contours.length > 10000 ||
-          contours.reduce((sum, c) => sum + c.points.length, 0) > 100000
-        )
-          throw Error('Join exceeds geometry budget');
-        const groups = [...contourGroups(a), ...contourGroups(b)];
-        if (groups.length > 256) throw Error('Join exceeds 256 independent groups');
+        const inputs = joinInputKeys(n)
+          .filter((key) => n.params[key].source)
+          .map((key) => [key, read(key)]);
+        if (!inputs.length) throw Error('Connect a path to Join Geometry');
+        let contourCount = 0,
+          pointCount = 0;
+        const groups = [];
+        for (const [, path] of inputs) {
+          contourCount += path.contours.length;
+          for (const contour of path.contours) pointCount += contour.points.length;
+          if (contourCount > 10000 || pointCount > 100000)
+            throw Error('Join exceeds geometry budget');
+          const inputGroups = contourGroups(path);
+          if (groups.length + inputGroups.length > 256)
+            throw Error('Join exceeds 256 independent groups');
+          groups.push(...inputGroups);
+        }
         const prefix = fingerprint(n.id);
         result = {
           contours: groups.flatMap((group, gi) =>
@@ -2395,10 +2433,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             })),
           ),
         };
-        result.characterOccurrences = [
-          ...routeCharacters(a, `${n.id}:a`),
-          ...routeCharacters(b, `${n.id}:b`),
-        ];
+        result.characterOccurrences = inputs.flatMap(([key, path]) =>
+          routeCharacters(path, `${n.id}:${key}`),
+        );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Dash Path') {
@@ -3461,6 +3498,7 @@ export function assertClosedOffsetChange(
   assertTextPathChange(layer, previousLayer, fonts, imageAssets, previousFonts);
   // Keep bounded geometry modifiers transactional, including upstream edits.
   const bounded = new Set([
+    'Join Geometry',
     'Closed Path Offset',
     'Mirror',
     'Corner Round',
@@ -3490,13 +3528,15 @@ export function assertClosedOffsetChange(
     'Line Screen',
   ]);
   const boundedInputs = (n) =>
-    n.type === 'Boolean'
-      ? ['a', 'b'].map((key) => n.params[key]?.source)
-      : n.type === 'Luminance Instances'
-        ? Object.values(n.params).map((q) => q.source)
-        : n.type === 'Instance on Points'
-          ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
-          : [n.params.path?.source];
+    n.type === 'Join Geometry'
+      ? joinInputKeys(n).map((key) => n.params[key]?.source)
+      : n.type === 'Boolean'
+        ? ['a', 'b'].map((key) => n.params[key]?.source)
+        : n.type === 'Luminance Instances'
+          ? Object.values(n.params).map((q) => q.source)
+          : n.type === 'Instance on Points'
+            ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
+            : [n.params.path?.source];
   if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
@@ -3566,12 +3606,14 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     else delete q.sourcePort;
     throw e;
   }
+  normalizeJoinInputs(to);
 }
 export function disconnect(n, key) {
   const q = parameter(n, key);
   if (q.locked) throw Error('Parameter is locked');
   delete q.source;
   delete q.sourcePort;
+  normalizeJoinInputs(n, true);
 }
 // Upgrade on load/validation only; storage is never written by migration.
 export function migratePaint(doc) {
@@ -3644,7 +3686,7 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].includes(
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(
       doc.schemaVersion,
     )
   )
@@ -3800,6 +3842,49 @@ export function validate(doc) {
         for (const key of ['miterLimit', 'dashOffset'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions.Stroke[key]);
       }
+      if (n.type !== 'Join Geometry' && n.joinInputOrder !== undefined)
+        throw Error('Join input order requires Join Geometry');
+      if (n.type === 'Join Geometry') {
+        if (sourceSchemaVersion < 23) {
+          if (
+            n.joinInputOrder !== undefined ||
+            Object.keys(n.params).length !== 2 ||
+            !Object.hasOwn(n.params, 'a') ||
+            !Object.hasOwn(n.params, 'b')
+          )
+            throw Error('Expandable Join inputs require schemaVersion 23');
+          normalizeJoinInputs(n, false, true);
+        }
+        const keys = n.joinInputOrder;
+        if (
+          !Array.isArray(keys) ||
+          keys.length < 2 ||
+          keys.length > JOIN_SLOT_LIMIT ||
+          keys[0] !== 'a' ||
+          keys[1] !== 'b' ||
+          new Set(keys).size !== keys.length ||
+          Object.keys(n.params).length !== keys.length ||
+          keys.some(
+            (key, index) =>
+              typeof key !== 'string' ||
+              (index > 1 && !/^input_[A-Za-z0-9_-]{1,100}$/.test(key)) ||
+              !Object.hasOwn(n.params, key),
+          )
+        )
+          throw Error('Invalid Join input order');
+        for (const key of keys) {
+          const q = n.params[key];
+          param(q, 'Path');
+          if (
+            q.expression ||
+            Object.keys(q).some(
+              (field) =>
+                !['type', 'value', 'expression', 'locked', 'source', 'sourcePort'].includes(field),
+            )
+          )
+            throw Error('Invalid Join input parameter');
+        }
+      }
       const extraTransform = isTransform(n)
         ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
         : [];
@@ -3807,7 +3892,9 @@ export function validate(doc) {
         throw Error('Extended Transform requires schemaVersion 11');
       if (
         Object.keys(n.params).length !==
-        Object.keys(definitions[n.type]).length + extraTransform.length
+        Object.keys(definitions[n.type]).length +
+          extraTransform.length +
+          (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0)
       )
         throw Error('Unexpected parameter');
       for (const key of extraTransform) param(n.params[key], transformExtensions[key].type);
@@ -4106,6 +4193,7 @@ export function validate(doc) {
     doc.schemaVersion = Math.max(doc.schemaVersion, 19);
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
+  if (hasNodeType('Join Geometry')) doc.schemaVersion = Math.max(doc.schemaVersion, 23);
   return doc;
 }
 export function serialize(doc) {
@@ -5555,6 +5643,8 @@ export class CommandSession {
       item.name = payload.name.trim();
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      if (created.type === 'Join Geometry')
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 23);
       if (created.type === 'Multi Path')
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 22);
       target.nodes.push(created);
@@ -5599,6 +5689,7 @@ export class CommandSession {
             delete q.source;
             delete q.sourcePort;
           }
+      for (const node of target.nodes) normalizeJoinInputs(node, true);
     } else if (type === 'preview-node') {
       const source = target.nodes.find((node) => node.id === payload.nodeId);
       if (!source) throw Error('Missing node');
@@ -5920,6 +6011,7 @@ export class CommandSession {
       if (type === 'set-parameter-lock') {
         if (typeof payload.locked !== 'boolean') throw Error('Invalid lock state');
         q.locked = payload.locked;
+        normalizeJoinInputs(node, true);
       } else {
         if (q.locked) throw Error('Parameter is locked');
         if (type === 'set-parameter-expression') {

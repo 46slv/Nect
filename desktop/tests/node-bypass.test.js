@@ -318,6 +318,7 @@ test('bypassed A-route Type on Path duplication remaps source contour identities
     fonts,
   );
   doc.schemaVersion = 10;
+  delete join.joinInputOrder; // Authentic legacy a/b-only Join representation.
   const before = structuredClone(l);
   const copies = duplicateNodes(l, [curve.id, join.id, text.id]);
   const copiedText = copies.find((n) => n.type === 'Text'),

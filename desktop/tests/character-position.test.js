@@ -17,6 +17,7 @@ import {
   pathData,
   pathBounds,
   History,
+  CommandSession,
   enableRemapPoint,
   createCharacterPositions,
   setCharacterOffsets,
@@ -88,7 +89,7 @@ function scene(raw = 'ABC') {
   return { doc, layer, text, out, add };
 }
 function moveText(doc, text, index, delta) {
-  doc.schemaVersion = 3;
+  doc.schemaVersion = Math.max(doc.schemaVersion, 3);
   const current = text.characterPositions || createCharacterPositions(text.text);
   text.characterPositions = setCharacterOffsets(text.text, current, {
     [current.units[index].id]: delta,
@@ -621,7 +622,7 @@ test('character offset changes keep Text unstable and suspend downstream retaine
   assert.equal(remap.edits.length, 1);
 });
 
-test('schema 3 roundtrip, duplicate Text and undo/redo retain independent offsets without persistent runtime metadata', () => {
+test('character-offset roundtrip, duplicate Text and undo/redo retain independent offsets without persistent runtime metadata', () => {
   const { doc, layer, text, add, out } = scene();
   moveText(doc, text, 1, [12, -7]);
   const copied = structuredClone(text);
@@ -721,6 +722,7 @@ test('malformed records and feature-bearing old schemas fail transactionally wit
 test('old v1/v2 projects and zero-offset records preserve preexisting outline geometry', () => {
   const { doc, layer, text } = scene('AV B');
   const original = pathData(evaluate(layer, fonts).path);
+  doc.schemaVersion = 2; // Authentic legacy fixture, independent of current factory version.
   const version2 = deserialize(serialize(doc));
   assert.equal(version2.schemaVersion, 2);
   assert.equal(pathData(evaluate(version2.layers[0], fonts).path), original);
@@ -853,4 +855,29 @@ test('display provenance matches Paper rotation even at large finite angles', ()
       ),
     );
   }
+});
+
+test('expandable Join routes use stable extra keys after an earlier input is removed', () => {
+  const { doc, layer, text, add, out } = scene('AB');
+  const join = add('Join Geometry');
+  connect(layer, text.id, join.id, 'a');
+  connect(layer, text.id, join.id, 'b');
+  const third = join.joinInputOrder.at(-1);
+  connect(layer, text.id, join.id, third);
+  const fourth = join.joinInputOrder.at(-1);
+  connect(layer, text.id, join.id, fourth);
+  connect(layer, join.id, out.id, 'path');
+  const before = evaluate(layer, fonts).path.characterOccurrences;
+  assert.equal(new Set(before.map((x) => x.route)).size, 4);
+  const route = before.find((x) => x.route.includes(`${join.id}:${fourth}`)).route;
+  // Session disconnect also compacts empty extras in the same history transaction.
+  const session = new CommandSession(doc, { fonts: () => fonts });
+  session.dispatch({
+    ...session.state,
+    type: 'disconnect',
+    payload: { layerId: layer.id, nodeId: join.id, key: third },
+  });
+  const after = evaluate(session.snapshot().layers[0], fonts).path.characterOccurrences;
+  assert.equal(after.length, 3);
+  assert.ok(after.some((x) => x.route === route));
 });

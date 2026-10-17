@@ -22,7 +22,7 @@ Published source: 09900726d6ac0981bac716dcbdfb6fb26a0e723f (schema 22). The 25-m
 
 Verification: focused source/DOM checks and production Web builds pass for these slices. Native font-catalog Rust changes have not been compiled. Curved Corner Round is a bounded G1 blend with nominal strength and conservative diagnostics; it is not a certified arbitrary-topology circular fillet. Variable fonts, cluster-safe complex-script editing, RTL/fallback and broader font format parity remain staged work in desktop/docs/font-support-plan.md.
 
-Active ownership: expandable Join inputs owns core/main and focused tests. Character alignment/equal-gap snapping has a completed design and awaits the shared UI scope. Never start another writer for the same files. Keep the Join Geometry name until the proposed Combine Paths display name is accepted. Preserve legacy port IDs and existing geometry budgets.
+Active ownership: expandable Join inputs owns core/main and focused tests. Character alignment/equal-gap snapping has a completed design and awaits the shared UI scope. Never start another writer for the same files. The user chose Join Paths as the display/search name; retain the persisted Join Geometry type for compatibility. Preserve legacy port IDs and existing geometry budgets.
 
 Next concrete work: finish expandable Join with a trailing empty socket and transactional bounds; then add same-Text sibling ink-edge/center and equal-gap snapping using desktop/docs/character-alignment-snapping.md. Maintained equal spacing after font/size changes is a separate persistent arrangement requirement, not implied by transient drag snapping.
 

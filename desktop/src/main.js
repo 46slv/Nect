@@ -1177,6 +1177,10 @@ function moveTextNumeric(d, event, dx) {
 function mixedNumericDisplay(values) {
   return values.some((value) => value !== values[0]) ? '' : String(values[0]);
 }
+const nodeTypeLabel = (type) => (type === 'Join Geometry' ? 'Join Paths' : type);
+const nodeDisplayName = (n) =>
+  n.type === 'Join Geometry' && n.name === 'Join Geometry' ? 'Join Paths' : n.name;
+
 function editorParameters(n) {
   if (!isTransform(n)) return activeParameters(n);
   const keys = [
@@ -1202,111 +1206,118 @@ function field(n, key, q) {
         key === 'scaleWidth' &&
         (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name = [
-    'Halftone',
-    'Ordered Dither',
-    'Line Screen',
-    'Error Diffusion Dither',
-    'Luminance Instances',
-  ].includes(n.type)
-    ? {
-        path: 'Source fill',
-        motif: 'Motif',
-        minScale: 'Scale at white',
-        maxScale: 'Scale at black',
-        minRotation: 'Angle at white (°)',
-        maxRotation: 'Angle at black (°)',
-        pitch: 'Cell pitch (px)',
-        invert: 'Invert luminance',
-        tonePower: 'Tone power · darkness response',
-        gridOrigin: 'Grid origin · cell (0, 0) top-left',
-      }[key] || key
-    : n.type === 'Instance on Points'
-      ? { path: 'Source', points: 'Points', alignTangent: 'Align Tangent' }[key] || key
-      : isTransform(n)
+  const name =
+    n.type === 'Join Geometry'
+      ? !q.source && !q.locked && key === n.joinInputOrder.at(-1)
+        ? 'Add path'
+        : `Path ${n.joinInputOrder.indexOf(key) + 1}`
+      : [
+            'Halftone',
+            'Ordered Dither',
+            'Line Screen',
+            'Error Diffusion Dither',
+            'Luminance Instances',
+          ].includes(n.type)
         ? {
-            anchor: 'Anchor Point',
-            position: 'Position',
-            uniformScale: 'Uniform Scale',
-            scale: 'Scale Height (%)',
-            scaleWidth: 'Scale Width (%)',
-            skew: 'Skew',
-            skewAxis: 'Skew Axis',
-            rotation: 'Rotation',
-            offset: 'Legacy Offset',
+            path: 'Source fill',
+            motif: 'Motif',
+            minScale: 'Scale at white',
+            maxScale: 'Scale at black',
+            minRotation: 'Angle at white (°)',
+            maxRotation: 'Angle at black (°)',
+            pitch: 'Cell pitch (px)',
+            invert: 'Invert luminance',
+            tonePower: 'Tone power · darkness response',
+            gridOrigin: 'Grid origin · cell (0, 0) top-left',
           }[key] || key
-        : n.type === 'Expand Stroke'
-          ? {
-              startWidthMultiplier: 'Start width multiplier',
-              endWidthMultiplier: 'End width multiplier',
-            }[key] || key
-          : n.type === 'Dash Path'
+        : n.type === 'Instance on Points'
+          ? { path: 'Source', points: 'Points', alignTangent: 'Align Tangent' }[key] || key
+          : isTransform(n)
             ? {
-                dashLength: 'Dash Length (px)',
-                gapLength: 'Gap Length (px)',
-                offset: 'Pattern Offset (px)',
+                anchor: 'Anchor Point',
+                position: 'Position',
+                uniformScale: 'Uniform Scale',
+                scale: 'Scale Height (%)',
+                scaleWidth: 'Scale Width (%)',
+                skew: 'Skew',
+                skewAxis: 'Skew Axis',
+                rotation: 'Rotation',
+                offset: 'Legacy Offset',
               }[key] || key
-            : n.type === 'Simplify Path' && key === 'tolerance'
-              ? 'Tolerance (px)'
-              : n.type === 'Smooth Path'
-                ? { factor: 'Factor', iterations: 'Iterations', keepEndpoints: 'Keep Endpoints' }[
-                    key
-                  ] || key
-                : n.type === 'Trim Path'
-                  ? { start: 'Start (0–1)', end: 'End (0–1)' }[key] || key
-                  : n.type === 'Set Path Start' && key === 'start'
-                    ? 'Start (0–1)'
-                    : n.type === 'Set Closure' && key === 'closed'
-                      ? 'Closed'
-                      : n.type === 'Roughen'
-                        ? {
-                            amount: 'Amount (px per axis)',
-                            seed: 'Seed',
-                            keepEndpoints: 'Keep Endpoints',
-                          }[key] || key
-                        : n.type === 'Resample Path' && key === 'count'
-                          ? 'Points per Contour'
-                          : n.type === 'Resample Path' && key === 'spacing'
-                            ? 'Maximum spacing (px)'
-                            : n.type === 'Wave Points'
-                              ? {
-                                  amplitude: 'Amplitude (px)',
-                                  wavelength: 'Wavelength (px)',
-                                  phase: 'Phase (°)',
-                                  keepEndpoints: 'Keep Endpoints',
-                                }[key] || key
-                              : n.type === 'Taper' && key === 'amount'
-                                ? 'Amount (%)'
-                                : n.type === 'Bend Points' && key === 'angle'
-                                  ? 'Angle (°)'
-                                  : n.type === 'Twist Points' && key === 'angle'
-                                    ? 'Angle (°)'
-                                    : n.type === 'Pucker & Bloat'
-                                      ? {
-                                          amount: 'Amount (%)',
-                                          autoCenter: 'Automatic Center',
-                                          center: 'Center',
-                                        }[key] || key
-                                      : n.type === 'Subdivide Path' && key === 'segments'
-                                        ? 'Segments per Edge'
-                                        : n.type === 'Mirror'
+            : n.type === 'Expand Stroke'
+              ? {
+                  startWidthMultiplier: 'Start width multiplier',
+                  endWidthMultiplier: 'End width multiplier',
+                }[key] || key
+              : n.type === 'Dash Path'
+                ? {
+                    dashLength: 'Dash Length (px)',
+                    gapLength: 'Gap Length (px)',
+                    offset: 'Pattern Offset (px)',
+                  }[key] || key
+                : n.type === 'Simplify Path' && key === 'tolerance'
+                  ? 'Tolerance (px)'
+                  : n.type === 'Smooth Path'
+                    ? {
+                        factor: 'Factor',
+                        iterations: 'Iterations',
+                        keepEndpoints: 'Keep Endpoints',
+                      }[key] || key
+                    : n.type === 'Trim Path'
+                      ? { start: 'Start (0–1)', end: 'End (0–1)' }[key] || key
+                      : n.type === 'Set Path Start' && key === 'start'
+                        ? 'Start (0–1)'
+                        : n.type === 'Set Closure' && key === 'closed'
+                          ? 'Closed'
+                          : n.type === 'Roughen'
+                            ? {
+                                amount: 'Amount (px per axis)',
+                                seed: 'Seed',
+                                keepEndpoints: 'Keep Endpoints',
+                              }[key] || key
+                            : n.type === 'Resample Path' && key === 'count'
+                              ? 'Points per Contour'
+                              : n.type === 'Resample Path' && key === 'spacing'
+                                ? 'Maximum spacing (px)'
+                                : n.type === 'Wave Points'
+                                  ? {
+                                      amplitude: 'Amplitude (px)',
+                                      wavelength: 'Wavelength (px)',
+                                      phase: 'Phase (°)',
+                                      keepEndpoints: 'Keep Endpoints',
+                                    }[key] || key
+                                  : n.type === 'Taper' && key === 'amount'
+                                    ? 'Amount (%)'
+                                    : n.type === 'Bend Points' && key === 'angle'
+                                      ? 'Angle (°)'
+                                      : n.type === 'Twist Points' && key === 'angle'
+                                        ? 'Angle (°)'
+                                        : n.type === 'Pucker & Bloat'
                                           ? {
-                                              center: 'Axis Center',
-                                              angle: 'Axis Angle (°)',
-                                              keepOriginal: 'Keep Original',
+                                              amount: 'Amount (%)',
+                                              autoCenter: 'Automatic Center',
+                                              center: 'Center',
                                             }[key] || key
-                                          : key === 'center' &&
-                                              [
-                                                'Circle',
-                                                'Ellipse',
-                                                'Rectangle',
-                                                'Polygon',
-                                                'Star',
-                                              ].includes(n.type)
-                                            ? 'Position'
-                                            : key.includes('.')
-                                              ? key.split('.').at(-1)
-                                              : key;
+                                          : n.type === 'Subdivide Path' && key === 'segments'
+                                            ? 'Segments per Edge'
+                                            : n.type === 'Mirror'
+                                              ? {
+                                                  center: 'Axis Center',
+                                                  angle: 'Axis Angle (°)',
+                                                  keepOriginal: 'Keep Original',
+                                                }[key] || key
+                                              : key === 'center' &&
+                                                  [
+                                                    'Circle',
+                                                    'Ellipse',
+                                                    'Rectangle',
+                                                    'Polygon',
+                                                    'Star',
+                                                  ].includes(n.type)
+                                                ? 'Position'
+                                                : key.includes('.')
+                                                  ? key.split('.').at(-1)
+                                                  : key;
   let control;
   const connectLabel =
     n.type === 'Convert to Path' && key === 'path'
@@ -1457,10 +1468,10 @@ function nameClicked(layerId, nodeId, event) {
 function bypassControl(n, compact = false) {
   const contract = bypassContract(n, current()),
     label = n.bypassed ? 'Restore effect' : 'Bypass effect';
-  return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(n.name)}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
+  return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(nodeDisplayName(n))}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
 }
 function nodeHeader(n) {
-  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(n.name)} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(n.name)}" title="Double-click or F2 to rename">${esc(n.name)}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
+  return `<div class="node-head"><button class="node-collapse" data-collapse="${n.id}" aria-expanded="${!n.collapsed}" aria-label="Toggle ${esc(nodeDisplayName(n))} node details" title="${n.collapsed ? 'Expand' : 'Collapse'} node">${n.collapsed ? '▸' : '▾'}</button>${nameEdit?.nodeId === n.id && nameEdit.layerId === current().id ? nameInput('node', n.id) : `<strong data-rename-node="${n.id}" tabindex="0" role="button" aria-label="Rename ${esc(nodeDisplayName(n))}" title="Double-click or F2 to rename">${esc(nodeDisplayName(n))}</strong>`}${bypassControl(n, true)}<span class="type-tag">${outputType(n) || 'Scalar X/Y'}</span>${outputPorts(
     n,
   )
     .map(
@@ -1722,10 +1733,10 @@ function strokeControls(n) {
 function operationControls(n) {
   const options = operationOptions[n.type];
   if (!options) return '';
-  return `<div class="field"><label>${n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(n.name)} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
+  return `<div class="field"><label>${n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(nodeDisplayName(n))} operation">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${multiPathControls(n)}${editorParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${textControls(n)}${multiPathControls(n)}${editorParameters(
     n,
   )
     .filter(([k]) => isTransform(n) || Object.hasOwn(n.params, k))
@@ -1821,11 +1832,11 @@ function render(resetView = false, artworkResolution = null) {
     .map(([x, r]) => layerShape(x, r.path))
     .join(
       '',
-    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="visually-hidden">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Move artwork' : move.reason)}` : n ? `Node · ${esc(n.name)}${n.type === 'Transform' ? ' · Selected Transform output' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
+    )}${guidesOverlay()}${canvasOverlay(n, result)}</svg>${characterFloating()}</div><div class="hint"><span id="canvas-navigation-hint" class="visually-hidden">Space drag: pan · Ctrl/Cmd wheel: zoom</span><span>${tool === 'pen' ? 'Pen' : artworkTarget ? `Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)} · ${esc(move.supported ? 'Move artwork' : move.reason)}` : n ? `Node · ${esc(nodeDisplayName(n))}${n.type === 'Transform' ? ' · Selected Transform output' : ''}${selection.size > 1 ? ` + ${selection.size - 1} generators` : ``} · ${esc(l.name)}${l.locked ? ' · Locked' : ''}` : 'Select artwork'}</span></div></div><div class="splitter" role="separator" aria-label="Resize node graph" tabindex="0"></div><section class="graph-panel" style="height:${graphHeight}%"><div class="panel-head graph-toolbar" role="toolbar" aria-label="Node graph view"><strong>Node graph</strong><span class="muted graph-layer-name" title="${esc(l.name)}">${esc(l.name)}</span><span class="spacer"></span><select id="add-node" aria-label="Add node" ${penDraft ? 'disabled' : ''}><option value="">+ Add node</option>${Object.keys(
     definitions,
   )
     .filter((x) => !['Output', 'Image Output', 'Image'].includes(x))
-    .map((x) => `<option>${x}</option>`)
+    .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
     )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
@@ -1840,7 +1851,7 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(n.name)}</h3>${bypassControl(n)}<p>Node · ${esc(n.type)} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(n.type)} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? '<p class="font-note">Bundle A and B without cutting or welding. Shared transforms and paint apply to both; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>' : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
           n,
         )
           .filter(
@@ -2450,11 +2461,11 @@ function objectResizeContext(n, result) {
 function objectResizeOverlay(n, result) {
   const handles = objectResizeContext(n, result);
   if (!handles.length) return '';
-  return `<g class="object-resize-overlay" aria-label="Selected ${esc(n.type)} output before downstream nodes">${handles
+  return `<g class="object-resize-overlay" aria-label="Selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes">${handles
     .map((h, index) => {
       const q = n.params[h.key],
         readonly = current().locked || q.locked || q.source || q.expression;
-      return `<g class="object-resize-control ${readonly ? 'readonly' : ''}" data-object-resize="${index}" data-object-node="${n.id}" style="cursor:${readonly ? 'not-allowed' : h.axis ? 'ns-resize' : 'ew-resize'}" transform="translate(${h.point.join(' ')})"><title>${esc(h.label)} · selected ${esc(n.type)} output before downstream nodes${readonly ? ' · Locked or driven by an input' : ' · Drag to resize; position stays fixed'}</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/><text x="12" y="4">${esc(h.label)} · selected ${esc(n.type)}</text></g></g>`;
+      return `<g class="object-resize-control ${readonly ? 'readonly' : ''}" data-object-resize="${index}" data-object-node="${n.id}" style="cursor:${readonly ? 'not-allowed' : h.axis ? 'ns-resize' : 'ew-resize'}" transform="translate(${h.point.join(' ')})"><title>${esc(h.label)} · selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes${readonly ? ' · Locked or driven by an input' : ' · Drag to resize; position stays fixed'}</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/><text x="12" y="4">${esc(h.label)} · selected ${esc(nodeTypeLabel(n.type))}</text></g></g>`;
     })
     .join('')}</g>`;
 }
@@ -2491,7 +2502,7 @@ function transformOverlay(n, result) {
           q.source ||
           q.expression ||
           (key === 'scale' && !context.state.uniformScale);
-      return `<g class="transform-control ${readonly ? 'readonly' : ''}" data-transform-handle="${key}" data-transform-node="${n.id}" transform="translate(${g[key].join(' ')})" aria-label="${esc(n.name)} ${key}${readonly ? ' (read-only)' : ''}"><title>${key === 'scale' ? 'Uniform scale · drag along pivot ray' : 'Rotation · Shift snaps to 15°'}${readonly ? ' · Locked or driven by an input' : ''}</title><g class="transform-marker-size" transform="scale(${size})">${key === 'scale' ? '<rect x="-6" y="-6" width="12" height="12"/>' : '<circle r="7"/>'}<text x="11" y="4">${key === 'scale' ? 'Scale' : 'Rotate'}</text></g></g>`;
+      return `<g class="transform-control ${readonly ? 'readonly' : ''}" data-transform-handle="${key}" data-transform-node="${n.id}" transform="translate(${g[key].join(' ')})" aria-label="${esc(nodeDisplayName(n))} ${key}${readonly ? ' (read-only)' : ''}"><title>${key === 'scale' ? 'Uniform scale · drag along pivot ray' : 'Rotation · Shift snaps to 15°'}${readonly ? ' · Locked or driven by an input' : ''}</title><g class="transform-marker-size" transform="scale(${size})">${key === 'scale' ? '<rect x="-6" y="-6" width="12" height="12"/>' : '<circle r="7"/>'}<text x="11" y="4">${key === 'scale' ? 'Scale' : 'Rotate'}</text></g></g>`;
     })
     .join('')}</g>`;
 }
@@ -2528,7 +2539,7 @@ function canvasOverlay(n, result) {
     const { key, kind, label } = controller,
       q = n.params[key],
       readonly = current().locked || q.locked || q.source || q.expression;
-    return `<g class="position-marker ${kind}-marker ${readonly ? 'readonly' : ''}" data-position-handle="${n.id}" data-${kind}-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(n.name)} ${label} handle${readonly ? ' (read-only)' : ''}"><title>${esc(n.name)} · ${label}${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="position-marker-size ${kind}-marker-size">${kind === 'vector' ? '<polygon points="0,-12 12,0 0,12 -12,0"/><text x="16" y="-12">Vector XY</text>' : '<circle r="11"/>'}<path d="M-8 0H8 M0-8V8"/></g></g>`;
+    return `<g class="position-marker ${kind}-marker ${readonly ? 'readonly' : ''}" data-position-handle="${n.id}" data-${kind}-handle="${n.id}" transform="translate(${path[0]} ${path[1]})" aria-label="${esc(nodeDisplayName(n))} ${label} handle${readonly ? ' (read-only)' : ''}"><title>${esc(nodeDisplayName(n))} · ${label}${readonly ? ' · Locked or driven by an input' : ' · Drag to move; Alt bypasses snap'}</title><g class="position-marker-size ${kind}-marker-size">${kind === 'vector' ? '<polygon points="0,-12 12,0 0,12 -12,0"/><text x="16" y="-12">Vector XY</text>' : '<circle r="11"/>'}<path d="M-8 0H8 M0-8V8"/></g></g>`;
   }
   if (path?.kind === 'image')
     return (
@@ -2877,7 +2888,11 @@ function openNodePicker() {
     action: 'Add node',
     items: Object.keys(definitions)
       .filter((type) => !['Output', 'Image Output', 'Image'].includes(type))
-      .map((type) => ({ id: type, label: type })),
+      .map((type) => ({
+        id: type,
+        label: nodeTypeLabel(type),
+        detail: type === 'Join Geometry' ? 'Join Geometry · independent path groups' : '',
+      })),
     onCommit(item) {
       if (!item) return;
       const picker = editorPicker;
@@ -3877,7 +3892,7 @@ app.addEventListener('click', async (e) => {
             selectedId: selected,
             items: current().nodes.map((n) => ({
               id: n.id,
-              label: n.name,
+              label: nodeDisplayName(n),
               detail: `${n.type} · ${n.id}`,
             })),
             onCommit(item) {
