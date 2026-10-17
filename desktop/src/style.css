@@ -1694,3 +1694,41 @@ input[data-scrub-step].scrubbing {
 .expression-completions small {
   opacity: 0.8;
 }
+
+/* Point editing is selection-first; explicit browsing stays bounded. */
+.point-panel-summary {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.point-panel-rows {
+  position: relative;
+  max-height: 420px;
+  overflow: auto;
+}
+.point-panel-rows > details {
+  margin-top: 6px;
+  border-left: 3px solid transparent;
+  padding-left: 5px;
+}
+.point-panel-rows > .point-selected {
+  border-left-color: #6c9eff;
+  background: #6c9eff12;
+}
+.point-panel-rows > .point-active {
+  border-left-color: #ffd166;
+  background: #ffd16618;
+}
+.point-panel-pages {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.point-panel-hint {
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.8;
+}

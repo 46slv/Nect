@@ -30,45 +30,9 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
   source = source
     .replace("import './style.css';", '')
     .replace(
-      "from './artwork-gap-distribution.js'",
-      `from '${new URL('../src/artwork-gap-distribution.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-distribution.js'",
-      `from '${new URL('../src/artwork-distribution.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-alignment.js'",
-      `from '${new URL('../src/artwork-alignment.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-multi-move.js'",
-      `from '${new URL('../src/artwork-multi-move.js', import.meta.url)}'`,
-    )
-    .replace("from './images.js'", `from '${new URL('../src/images.js', import.meta.url)}'`)
-    .replace("from './raster.js'", `from '${new URL('../src/raster.js', import.meta.url)}'`)
-    .replace("from './focus.js'", `from '${new URL('../src/focus.js', import.meta.url)}'`)
-    .replace("from './layout.js'", `from '${new URL('../src/layout.js', import.meta.url)}'`)
-    .replace("from './core.js'", `from '${new URL('../src/core.js', import.meta.url)}'`)
-    .replace(
-      "from './artwork-creation.js'",
-      `from '${new URL('../src/artwork-creation.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-move-target.js'",
-      `from '${new URL('../src/artwork-move-target.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-deletion.js'",
-      `from '${new URL('../src/artwork-deletion.js', import.meta.url)}'`,
-    )
-    .replace(
-      "from './artwork-ordering.js'",
-      `from '${new URL('../src/artwork-ordering.js', import.meta.url)}'`,
-    )
-    .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
-    .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
-    .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
+      /from '(\.\/[^']+)'/g,
+      (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
+    );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
   const tick = () => new Promise((r) => setTimeout(r, 10));

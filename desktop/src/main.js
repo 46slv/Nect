@@ -998,6 +998,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  pointPanelViews.clear();
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
   pointHover = null;
@@ -1553,38 +1554,103 @@ function field(n, key, q) {
       .join('');
   return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
-function remapFields(n, result) {
+// Presentation-only state; Canvas selection remains the single point selection owner.
+const pointPanelViews = new Map();
+const POINT_PANEL_PAGE_SIZE = 24;
+function pointRowClass(n, id) {
+  return `${selectedPointIds(n).includes(id) ? 'point-selected' : ''} ${pointFocus?.nodeId === n.id && pointFocus.pointId === id ? 'point-active' : ''}`;
+}
+function pointPanel(n, entries, renderRows) {
+  const selectedIds = new Set(selectedPointIds(n));
+  const chosen = entries.filter(({ pt }) => selectedIds.has(pt.id));
+  const view = pointPanelViews.get(n.id) || { all: false, page: 0 };
+  const candidates = view.all ? entries : chosen;
+  const pages = Math.max(1, Math.ceil(candidates.length / POINT_PANEL_PAGE_SIZE));
+  const page = Math.min(view.page, pages - 1);
+  const rows = candidates.slice(page * POINT_PANEL_PAGE_SIZE, (page + 1) * POINT_PANEL_PAGE_SIZE);
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${entries.length} points · ${chosen.length} Canvas selected</p>${!chosen.length && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : 'Browse all points'}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+}
+function ownedPointFields(n) {
+  if (!n.points.length) return '';
+  return pointPanel(
+    n,
+    n.points.map((pt, index) => ({ pt, index })),
+    (rows) =>
+      rows
+        .map(
+          ({ pt, index: i }) =>
+            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="${pt.id}" open><summary><button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Point ${i + 1}</button> <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`,
+        )
+        .join(''),
+  );
+}
+function prepareNumericInputs(root) {
+  for (const input of root.querySelectorAll('input[type="number"]')) {
+    if (!input.dataset.scrubStep)
+      input.dataset.scrubStep = input.step && input.step !== 'any' ? input.step : '1';
+    input.title ||= 'Drag horizontally to adjust; click to type';
+  }
+}
+function revealActivePointRow() {
+  for (const row of document.querySelectorAll('.graph .point-panel-rows > .point-active')) {
+    row.open = true;
+    row.parentElement.scrollTop = row.offsetTop;
+  }
+}
+function refreshPointPanels() {
+  // Do not rebuild the stage or disturb an active numeric/IME edit.
+  if (composing) return;
+  const result = evaluate(
+    current(),
+    resolveFonts(history.doc, activeFonts()),
+    history.doc.imageAssets,
+  );
+  for (const panel of document.querySelectorAll('.graph [data-point-panel]')) {
+    if (panel.contains(document.activeElement)) continue;
+    const n = current().nodes.find((node) => node.id === panel.dataset.pointPanel);
+    if (!n) continue;
+    panel.outerHTML = n.type === 'Path Remap' ? remapFields(n, result, true) : ownedPointFields(n);
+  }
+  for (const panel of document.querySelectorAll('.graph [data-point-panel]'))
+    prepareNumericInputs(panel);
+  revealActivePointRow();
+  requestAnimationFrame(() => {
+    updateGraphBounds();
+    drawWires();
+  });
+}
+function remapFields(n, result, panelOnly = false) {
   let input;
   try {
     if (n.params.path.source) input = result.run(n.params.path.source);
   } catch {}
   if (!input) return '<p class="muted">Connect a path to edit its vertices.</p>';
   const batch = remapBatch(n.id);
-  return (
-    input.contours
+  const entries = input.contours.flatMap((c, ci) => c.points.map((pt, pi) => ({ pt, ci, pi })));
+  const panel = pointPanel(n, entries, (rows) =>
+    rows
       .map(
-        (c, ci) =>
-          `<details data-detail="contour-${c.id}"><summary>Contour ${ci + 1} · ${c.points.length} vertices</summary>${c.points
-            .map(
-              (pt, pi) =>
-                `<details data-detail="remap-${pt.id}"><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> Point ${pi + 1}</summary>${[
-                  'position',
-                  'handleA',
-                  'handleB',
-                ]
-                  .map((k) => {
-                    let edit = n.edits.find((e) => e.pointId === pt.id);
-                    if (edit?.params) return field(n, `remap.${pt.id}.${k}`, edit.params[k]);
-                    return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
-                  })
-                  .join(
-                    '',
-                  )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
-            )
-            .join('')}</details>`,
+        ({ pt, ci, pi }) =>
+          `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="remap-${pt.id}" open><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> <button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Contour ${ci + 1} · Point ${pi + 1}</button></summary>${[
+            'position',
+            'handleA',
+            'handleB',
+          ]
+            .map((k) => {
+              let edit = n.edits.find((e) => e.pointId === pt.id);
+              if (edit?.params) return field(n, `remap.${pt.id}.${k}`, edit.params[k]);
+              return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
+            })
+            .join(
+              '',
+            )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
       )
-      .join('') +
-    `<div class="batch-edit"><p>${batch.selected.size} points selected · Δ position</p><div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Deselect points</button></div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
+      .join(''),
+  );
+  if (panelOnly) return panel;
+  return (
+    panel +
+    `<div class="batch-edit"><p>${batch.selected.size} batch checked · Δ position</p>${batch.selected.size ? `<div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Clear batch selection</button>` : '<p class="point-panel-hint">Check points in the list for batch Δ editing.</p>'}</div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
   );
 }
 // A name edit belongs to stable document IDs, never the currently selected row.
@@ -2011,7 +2077,7 @@ function expandedNodeBody(n, result) {
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
-    )}${n.points.map((pt, i) => `<details data-detail="${pt.id}" ${i === 0 ? 'open' : ''}><summary>Point ${i + 1} <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`).join('')}${['Curve', 'Path Remap'].includes(n.type) ? '<p class="font-note">Alt-click an anchor to create Bézier handles; Alt-drag pulls out symmetric handles. Shift-click selects multiple anchors.</p>' : ''}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
+    )}${ownedPointFields(n)}${['Curve', 'Path Remap'].includes(n.type) ? '<p class="font-note">Alt-click an anchor to create Bézier handles; Alt-drag pulls out symmetric handles. Shift-click selects multiple anchors.</p>' : ''}${n.type === 'Curve' ? `<button class="mini" data-add-point="${n.id}">+ Point</button>` : ''}${n.type === 'Path Remap' ? remapFields(n, result) : ''}<div class="node-actions">${['Path', 'PaintedPath', 'Image'].includes(outputType(n)) && !['Output', 'Image Output'].includes(n.type) ? `<button class="mini" data-preview="${n.id}">Use as output</button>` : ''}<button class="mini" data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button class="mini danger" data-delete="${n.id}">Delete</button>` : ''}</div></div>`;
 }
 function nodeHTML(n, result) {
   const body = n.collapsed
@@ -2147,11 +2213,7 @@ function render(resetView = false, artworkResolution = null) {
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
-  for (const input of app.querySelectorAll('input[type="number"]')) {
-    if (!input.dataset.scrubStep)
-      input.dataset.scrubStep = input.step && input.step !== 'any' ? input.step : '1';
-    input.title ||= 'Drag horizontally to adjust; click to type';
-  }
+  prepareNumericInputs(app);
   // Keep controls and actionable states visible; put reference prose in
   // one optional help disclosure per editing region.
   for (const region of app.querySelectorAll('.node-body, .inspector-body')) {
@@ -2199,6 +2261,7 @@ function render(resetView = false, artworkResolution = null) {
     const key = `${el.closest('.node').dataset.id}/${el.dataset.detail}`;
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
+  revealActivePointRow();
   for (const select of app.querySelectorAll('[data-stroke-preset]'))
     select.value = select.querySelector('option[selected]').value;
   fitCanvas();
@@ -2911,16 +2974,37 @@ function selectedPointIds(n) {
   return pointSelection.nodeId === n?.id ? [...pointSelection.ids] : [];
 }
 function selectPointTarget(n, target, event) {
-  if (target.key !== 'position') return true;
+  if (target.key !== 'position') {
+    refreshPointPanels();
+    return true;
+  }
   if (pointSelection.nodeId !== n.id) pointSelection = { nodeId: n.id, ids: new Set() };
   if (event.shiftKey && pointSelection.ids.has(target.pointId)) {
     pointSelection.ids.delete(target.pointId);
     pointFocus = null;
+    pointPanelViews.delete(n.id);
+    refreshPointPanels();
     updateCanvas(true);
     return false;
   }
   if (!event.shiftKey && !pointSelection.ids.has(target.pointId)) pointSelection.ids.clear();
   pointSelection.ids.add(target.pointId);
+  pointPanelViews.delete(n.id);
+  // Keep the active point visible even when a large selection spans pages.
+  const ordered =
+    n.type === 'Path Remap'
+      ? evaluate(current(), resolveFonts(history.doc, activeFonts()), history.doc.imageAssets)
+          .run(n.params.path.source)
+          .contours.flatMap((c) => c.points)
+      : n.points;
+  const index = ordered
+    .filter((p) => pointSelection.ids.has(p.id))
+    .findIndex((p) => p.id === target.pointId);
+  pointPanelViews.set(n.id, {
+    all: false,
+    page: Math.max(0, Math.floor(index / POINT_PANEL_PAGE_SIZE)),
+  });
+  refreshPointPanels();
   updateCanvas(true);
   return true;
 }
@@ -3838,6 +3922,32 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.pointPanelMode || d.pointPanelPage) {
+    const id = d.pointPanelMode || d.pointPanelPage;
+    const view = pointPanelViews.get(id) || { all: false, page: 0 };
+    pointPanelViews.set(
+      id,
+      d.pointPanelMode
+        ? { all: !view.all, page: 0 }
+        : { ...view, page: Math.max(0, Number(d.page)) },
+    );
+    b.blur();
+    refreshPointPanels();
+    return;
+  }
+  if (d.selectPanelPoint) {
+    const n = current().nodes.find((n) => n.id === d.node);
+    if (!n) return;
+    selected = n.id;
+    selection = new Set([n.id]);
+    artworkTarget = null;
+    artworkSelection = new Set();
+    pointFocus = { nodeId: n.id, pointId: d.selectPanelPoint };
+    b.blur();
+    selectPointTarget(n, { pointId: d.selectPanelPoint, key: 'position' }, e);
+    render();
+    return;
+  }
   if (d.anchorPreset !== undefined) {
     if (!b.disabled)
       commandChange(
@@ -4615,6 +4725,8 @@ app.addEventListener('click', async (e) => {
     const ids = unitPointIds(n, unit),
       old = selectedPointIds(n),
       remove = e.shiftKey && ids.every((id) => old.includes(id));
+    pointPanelViews.delete(n.id);
+    pointFocus = null;
     pointSelection = { nodeId: n.id, ids: new Set(e.shiftKey ? old : []) };
     for (const id of ids) remove ? pointSelection.ids.delete(id) : pointSelection.ids.add(id);
     artworkTarget = null;

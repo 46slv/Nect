@@ -100,6 +100,181 @@ test('Text outline conversion, contained units and Alt handles through DOM', asy
   const snapshot = () => serialize(win.nect.document);
   const anchor = (p) => $(`.canvas-stage .point-hit[data-point="${p.id}"]:not([data-handle])`);
   const undo = () => key('z', $('.graph-scroll'), { ctrlKey: true });
+  const panel = (id = a.id) => $(`[data-point-panel="${id}"]`);
+  const rows = (id = a.id) => [...panel(id).querySelectorAll('[data-point-row]')];
+  const pick = (p, shiftKey = false) => {
+    fire(anchor(p), 'pointerdown', ...p.position.value, { shiftKey });
+    fire(document, 'pointerup');
+  };
+  await t.test(
+    'point panel starts empty, follows Canvas selection and highlights active ID',
+    () => {
+      reset('Curve');
+      const [p, q] = live().points;
+      assert.equal(rows().length, 0);
+      assert.equal(panel().querySelectorAll('input').length, 0);
+      pick(p);
+      assert.deepEqual(
+        rows().map((r) => r.dataset.pointRow),
+        [p.id],
+      );
+      assert.ok(rows()[0].classList.contains('point-active'));
+      pick(q, true);
+      assert.equal(rows().length, 2);
+      assert.equal(panel().querySelector('.point-active').dataset.pointRow, q.id);
+      pick(q, true);
+      assert.deepEqual(
+        rows().map((r) => r.dataset.pointRow),
+        [p.id],
+      );
+      pick(p, true);
+      assert.equal(rows().length, 0);
+      assert.equal(panel().querySelectorAll('input').length, 0);
+    },
+  );
+  await t.test('focused point input blurs before another Canvas point refreshes its panel', () => {
+    reset('Curve');
+    const [p, q] = live().points;
+    pick(p);
+    const input = panel().querySelector(`[data-key="${p.id}.position"] input[data-axis="0"]`);
+    input.focus();
+    assert.equal(document.activeElement, input);
+    const before = snapshot();
+    fire(anchor(q), 'pointerdown', ...q.position.value);
+    assert.ok(document.activeElement.classList.contains('canvas-stage'));
+    assert.deepEqual(
+      rows().map((row) => row.dataset.pointRow),
+      [q.id],
+    );
+    assert.equal(panel().querySelector('.point-active').dataset.pointRow, q.id);
+    fire(document, 'pointerup', ...q.position.value);
+    assert.deepEqual(
+      rows().map((row) => row.dataset.pointRow),
+      [q.id],
+    );
+    assert.equal(snapshot(), before);
+  });
+  await t.test('selected point numeric editing and scrub retain command history', async () => {
+    reset('Curve');
+    const p = live().points[1];
+    pick(p);
+    const positionInput = () =>
+      panel().querySelector(`[data-key="${p.id}.position"] input[data-axis="0"]`);
+    const before = snapshot(),
+      past = state().past;
+    assert.equal(positionInput().dataset.scrubStep, '1');
+    fire(positionInput(), 'pointerdown', 100, 100);
+    fire(document, 'pointermove', 124, 100);
+    fire(document, 'pointerup', 124, 100);
+    assert.equal(state().past, past + 1);
+    assert.notEqual(live().points[1].position.value[0], p.position.value[0]);
+    undo();
+    assert.equal(snapshot(), before);
+    pick(live().points[1]);
+    positionInput().value = String(p.position.value[0] + 7);
+    positionInput().dispatchEvent(new win.Event('change', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(live().points[1].position.value[0], p.position.value[0] + 7);
+    assert.equal(state().past, past + 1);
+    undo();
+    assert.equal(snapshot(), before);
+    pick(live().points[1]);
+    fire(positionInput(), 'pointerdown', 100, 100);
+    fire(document, 'pointermove', 124, 100);
+    fire(document, 'pointerup', 124, 100);
+    assert.equal(state().past, past + 1);
+    assert.notEqual(live().points[1].position.value[0], p.position.value[0]);
+    undo();
+    assert.equal(snapshot(), before);
+  });
+  await t.test('all-point browsing is explicit, bounded and reaches later stable IDs', () => {
+    reset();
+    $('[data-bake-text-outline]').click();
+    const n = live();
+    assert.ok(n.points.length > 24);
+    assert.equal(rows().length, 0);
+    panel().querySelector('[data-point-panel-mode]').click();
+    assert.equal(rows().length, 24);
+    panel().querySelector('[data-point-panel-page][data-page="1"]').click();
+    assert.equal(rows()[0].dataset.pointRow, n.points[24].id);
+    rows()[0].querySelector('[data-select-panel-point]').click();
+    assert.deepEqual(state().points, [n.points[24].id]);
+    assert.equal(rows().length, 1);
+    assert.ok(rows()[0].classList.contains('point-active'));
+    $(`[data-path-unit="${n.units[0].id}"]`).click();
+    assert.ok(rows().length <= 24);
+    assert.ok(panel().textContent.includes(`${state().points.length} Canvas selected`));
+  });
+  await t.test(
+    'generated Remap selection does not silently alter independent batch selection',
+    async () => {
+      reset('Text');
+      const doc = structuredClone(win.nect.document),
+        convert = node('Text to Path', 300, 100),
+        remap = node('Path Remap', 600, 100);
+      convert.params.path.source = a.id;
+      remap.params.path.source = convert.id;
+      doc.layers[0].nodes.splice(1, 0, convert, remap);
+      win.nect.load(serialize(doc));
+      clickNode(remap.id);
+      assert.equal(rows(remap.id).length, 0);
+      const targets = [
+        ...document.querySelectorAll('.canvas-stage .point-hit[data-point]:not([data-handle])'),
+      ];
+      const canvasPoint = targets.find((target) =>
+        targets.every(
+          (other) =>
+            other === target ||
+            Math.hypot(
+              Number(target.getAttribute('cx')) - Number(other.getAttribute('cx')),
+              Number(target.getAttribute('cy')) - Number(other.getAttribute('cy')),
+            ) > 0.5,
+        ),
+      );
+      assert.ok(canvasPoint, 'Choose a non-overlapping generated anchor');
+      const canvasId = canvasPoint.dataset.point;
+      const x = Number(canvasPoint.getAttribute('cx')),
+        y = Number(canvasPoint.getAttribute('cy'));
+      fire(canvasPoint, 'pointerdown', x, y);
+      fire(document, 'pointerup', x, y);
+      assert.deepEqual(
+        rows(remap.id).map((r) => r.dataset.pointRow),
+        [canvasId],
+      );
+      assert.ok(rows(remap.id)[0].classList.contains('point-active'));
+      fire(
+        $(`.canvas-stage .point-hit[data-point="${canvasId}"]:not([data-handle])`),
+        'pointerdown',
+        x,
+        y,
+        { shiftKey: true },
+      );
+      fire(document, 'pointerup', x, y);
+      assert.equal(rows(remap.id).length, 0);
+      panel(remap.id).querySelector('[data-point-panel-mode]').click();
+      assert.equal(rows(remap.id).length, 24);
+      const first = rows(remap.id)[0],
+        id = first.dataset.pointRow;
+      first.querySelector('[data-select-panel-point]').click();
+      assert.deepEqual(state().points, [id]);
+      assert.equal(rows(remap.id).length, 1);
+      assert.equal(panel(remap.id).querySelector('[data-batch-point]').checked, false);
+      const checkbox = panel(remap.id).querySelector('[data-batch-point]');
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new win.Event('change', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.deepEqual(state().points, [id]);
+      assert.ok(
+        card(remap.id).querySelector('.batch-edit').textContent.includes('1 batch checked'),
+      );
+      const button = panel(remap.id).querySelector('[data-select-panel-point]');
+      button.dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey: true }));
+      assert.equal(rows(remap.id).length, 0);
+      assert.ok(
+        card(remap.id).querySelector('.batch-edit').textContent.includes('1 batch checked'),
+      );
+    },
+  );
   await t.test('conversion is explicit, replaces Text and one Undo restores it', () => {
     reset();
     const before = snapshot(),
