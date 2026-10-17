@@ -314,7 +314,7 @@ test('compound holes remain empty, with no black leakage across the clipped mask
   assert.equal(result.contours.length, 2, 'one outer boundary and one hole boundary');
 });
 
-test('unsupported open, grouped, stroke-only and image sources fail with specific diagnostics', () => {
+test('unsupported open, grouped, and stroke-only vector sources fail with specific diagnostics', () => {
   const open = fixture({ modifier: 'Halftone' });
   open.shape.type = 'Curve';
   open.shape.params = structuredClone(node('Curve').params);
@@ -344,9 +344,6 @@ test('unsupported open, grouped, stroke-only and image sources fail with specifi
 
   const stroke = fixture({ modifier: 'Halftone', strokeOnly: true });
   assert.throws(() => coldRun(stroke.layer, stroke.effect.id), /stroke-only/);
-
-  const image = fixture({ modifier: 'Ordered Dither', image: true });
-  assert.throws(() => coldRun(image.layer, image.effect.id), /image inputs are unsupported/);
 });
 
 test('same-type bypass, deterministic identity, JSON round-trip, shared undo/redo and budget rollback work', () => {

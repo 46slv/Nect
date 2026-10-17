@@ -1,32 +1,81 @@
-# Image input for luminance effects: proposed next slice
+# Embedded image inputs for luminance effects
 
-**Status:** design proposal only. No decoder dependency, schema, code, UI or tests were changed. Existing image/luminance browser and native trials remain untouched.
+**Status:** integrated as the bounded first image-input slice. Halftone, Ordered Dither and Line
+Screen can consume the existing Image output; the other vector paint and geometry inputs remain
+unchanged. See [modifier reference](modifiers.md) and [implementation notes](editing-refinement.md).
 
-## What exists today
+## Existing image and luminance paths
 
-- `Image` evaluates to `{kind: 'image', asset, position, size}` and `Image Output` preserves the separate `Image` socket. SVG embeds the original PNG. Images cannot connect to vector paint or geometry nodes.
-- Halftone, Ordered Dither and Line Screen accept only `PaintedPath` (with the existing Path-to-PaintedPath widening). They sample solid/two-stop vector fill at artboard-aligned cell centers, then clip generated black marks to the closed vector mask. The grid is capped at 4,096 cells. Image ancestry is explicitly rejected.
-- `src/raster.js` is already the DOM boundary: import uses browser `Image.decode()` + Canvas to normalize PNG/JPEG files to PNG. `preflightImages()` currently decodes every stored image only to verify its dimensions; it does not read pixels. There is no existing `getImageData()` or RGBA cache. `src/core.js` evaluation/export is synchronous and DOM-free; `cli/export.js` uses that same core path.
-- File import accepts PNG and JPEG. PNG admission checks signature, chunk bounds/CRC, IHDR dimensions, IDAT and final IEND, and rejects APNG; it does not constrain PNG color type, bit depth or interlace itself. JPEG dimension probing recognizes SOF markers C0/C1/C2. Browser decoding decides which otherwise-valid source variants work. Imported JPEG/PNG becomes embedded PNG. Limits: 12 MB/file, 8,192 px/side, 16 MP/image; up to 100 image assets, 24 MB/32 MP aggregate, and 50 MB/project JSON. These are size limits, not a precise PNG-subformat guarantee.
+- An `Image` evaluates to `{kind: 'image', asset, position, size}`. `position` is its placed
+  top-left document coordinate (after the existing position-reference adjustment); `size` is its
+  positive display extent. `Image Output` keeps its independent Image-typed output. SVG embeds the
+  original PNG.
+- `src/raster.js` remains the DOM boundary: imported PNG/JPEG files are normalized to PNG by the
+  browser before persistence. The synchronous, DOM-free evaluator is shared by browser preview,
+  SVG export and `cli/export.js`.
+- Image import keeps its existing file/project limits: 12 MB per file, 8,192 px per side and
+  16 megapixels per asset; up to 100 image assets, 24 MB / 32 megapixels aggregate and 50 MB per
+  project. These are not a guarantee that every valid PNG encoding is supported by image-luminance
+  sampling.
 
-## Two small routes
+## Socket and sampling contract
 
-1. **Synchronous PNG decoder in the pure core (recommended).** Add a well-maintained pure-JS PNG decoder such as [`fast-png`](https://github.com/image-js/fast-png). Its official API accepts a typed array and exposes synchronous `decode()` with an optional CRC check; its project describes the codec as entirely JavaScript and MIT-licensed. It supports browser and Node consumers without importing DOM APIs. Lazy-decode only assets reached by a luminance node, cache decoded pixels by immutable asset-object identity, and give the evaluator the existing source dimensions/position/size. This preserves synchronous preview, SVG export and CLI parity. The project’s exact existing PNG acceptance is broader than a handful of common samples, so first verify decoder output normalization for grayscale, RGB, indexed/palette+tRNS, alpha, bit depths and interlace; either cover the accepted still-PNG set or reject unsupported encodings clearly. Do not advertise JPEG decoding: JPEG is already normalized to PNG before persistence. The official docs describe `decode` and CRC options but are not by themselves a complete compatibility matrix.
-2. **Browser decode plus runtime RGBA cache.** Extend the existing Image/Canvas adapter to call `getImageData()` on demand and pass the resulting pixels into synchronous `evaluate()`. This avoids a codec dependency and follows the browser’s current import decoder, but requires async warm-up: the editor needs a pending state and a redraw after decode; export must await all image sources used by effects. Never warm every asset into RGBA on open. CLI/core callers would still lack browser pixels and need another decoder or an explicitly incomplete export path, so this is not the smallest parity-preserving route.
+- The only new socket exception is an Image-typed output into the `path` input of Halftone, Ordered
+  Dither or Line Screen. Fill, Stroke, Boolean, Transform, Path Remap and ordinary vector Output
+  continue to reject Image. No generic Field or Image-to-Path conversion was added. `Image Output`
+  remains independent and can forward its Image-typed descriptor to a luminance effect.
+- Each effect reuses its existing cell pitch, grid origin, invert setting, mark generator and black
+  `PaintedPath` output. The source is sampled at grid-cell centers in document coordinates (Y-down).
+  Map a sample through the placed rectangle to intrinsic pixels with nearest-texel `floor`; no
+  implicit filtering or resampling is performed.
+- Only positive-area cells intersecting the image rectangle are generated. If an included partial
+  edge cell has its center outside the placed rectangle, use the nearest edge texel; do not include
+  wholly outside cells. Clip the resulting marks to the placed rectangle, including partial edge
+  cells. Alpha is not a silhouette mask.
+- Input RGB values are treated as sRGB, converted to linear light, then alpha-composited over white
+  before the existing relative-luminance/darkness rule. Transparency therefore changes tone; a
+  transparent black pixel is white paper in the non-inverted mapping. Invert remains the existing
+  luminance mapping.
+- Image bypass is disabled while its input is Image-typed: a same-type bypass would return Image
+  data from a node that promises `PaintedPath`. Generated geometry can flow through later vector
+  modifiers normally. Image pixels/RGBA are runtime-only; serialized projects store the original
+  embedded PNG and graph/settings only.
 
-The decoder API/source can be reviewed at the [official fast-png repository](https://github.com/image-js/fast-png); its README links the [PNG specification](https://www.w3.org/TR/PNG/). No package was installed or lockfile changed for this brief.
+## Bounded synchronous PNG adapter
 
-## Proposed contract for the first implementation
+- `src/image-luminance-field.js` lazily decodes only the asset referenced by a luminance node. It
+  uses pinned Pako 3.0.2 (MIT; [source and license](https://github.com/nodeca/pako/tree/3.0.2)) via
+  the browser ESM inflater with streaming output, an 8 KiB reusable output chunk and
+  an IHDR-derived filtered-byte cap. Existing `pngSize()` checks the signature, chunk bounds/CRCs,
+  dimensions and IEND before inflation; the adapter then validates supported PNG structure and
+  output dimensions.
+- The accepted pixel format is noninterlaced 8-bit RGB or RGBA. Required chunks are IHDR, one or
+  more contiguous IDAT chunks, and final IEND. Optional metadata is limited to one 1-byte `sRGB`
+  chunk (intent 0–3) and one 9-byte `pHYs` chunk, both before IDAT. Palette/grayscale, other bit
+  depths, interlace, `PLTE`, `tRNS`, `gAMA`, `cHRM`, `iCCP`, `sBIT` and unknown chunks fail
+  explicitly; no color-profile transform is applied. JPEG decoding is not added: imported JPEG
+  images have already been normalized to PNG by the browser.
+- A single runtime cache is keyed by exact immutable asset-object identity and retains at most 16 MB
+  of RGBA. The initial processing cap is 4 megapixels per image and the existing 4,096-cell cap
+  applies. Grid-count checks run before decoding. Unsupported/missing/corrupt data, dimension or
+  decompression mismatches and geometry-budget failures reject evaluation atomically; no partial
+  marks or fallback white samples are returned. One cold 4 MP Node 24 sample measured 301 ms; this
+  is a bounded local measurement, not a cross-device latency guarantee.
+- The Image evaluator cache now compares the actual asset object, in addition to existing identity
+  and dimensions. A same-ID/same-size replacement object changes the Image output version and
+  invalidates dependent luminance geometry. Clones reuse frozen asset references for history; cold
+  JSON reopen creates ordinary fresh asset objects. The RGBA cache is never placed in a document or
+  export result.
+- Schema 17 marks the persisted Image→luminance input contract. Validation promotes a document with
+  such an edge without adding a synthetic input field. Documents with only vector luminance sources
+  keep their existing schema and default fingerprints.
 
-- Keep the current three effect nodes and their saved settings/output types. Add a target-specific socket rule so only Halftone, Ordered Dither and Line Screen can accept an `Image` source. Leave Image rejected by Fill, Stroke, Boolean, Transform, Path Remap and ordinary Output. This is not a new Field type or a general Image-to-Path conversion.
-- Use each effect’s existing grid origin, pitch, invert, mark generator and black `PaintedPath` output. Sample at the existing grid-cell centers in document coordinates (Y-down). Map source coordinates through the Image node’s position and positive display size to intrinsic pixels; use nearest texel (`floor` after scaling), with no implicit resampling/filtering. Outside the placed image rectangle is white paper. Treat decoded color channels as sRGB, convert to linear light, composite alpha over white in linear light, then apply the existing relative-luminance/darkness rule. Alpha therefore affects sampled tone; it is not a separate silhouette mask. Clip generated marks to the placed image rectangle (including partial edge cells), not to an alpha-derived contour. Existing vector-source results and masking remain unchanged.
-- Keep saved JSON unchanged: it retains the PNG asset and graph/settings only. RGBA is runtime-only, never serialized. Do not decode unrelated images on load. Reject an invalid/missing/unsupported pixel buffer or over-budget source; never substitute white or emit partial geometry.
-- Stay synchronous. Decode lazily at first evaluation, with a conservative initial 4 MP per-image luminance-processing cap (the Image can still be displayed/exported normally above it) and the existing 4,096-cell limit. Check PNG dimensions/encoded limits before decompression, verify decoder dimensions and CRC, and benchmark cold 4 MP evaluation; if the target platform cannot keep that bounded, a worker/readiness redesign is a separate slice.
-- Cache invalidation must follow pixel bytes, not the current Image node cache key: today it contains asset ID/dimensions, while cached evaluation is per layer and same-ID/same-size byte replacement could otherwise retain stale downstream output. `validateImageAssets()` freezes asset objects and `cloneDocument()` reuses those immutable references. Use the exact asset-object identity as the lazy pixel-cache key and store/compare that identity in the Image evaluation cache entry. A replaced asset object then recomputes the Image node and bumps its output version; dependent luminance nodes invalidate through their existing dependency-version chain. New documents/reopened JSON get new layer caches. Do not key only by filename, ID or dimensions.
+## Verification target
 
-## Focused acceptance
-
-1. Exact unit fixtures for black/white/gray, partial alpha over white, sRGB-vs-linear distinction, source scaling/placement, all four image edges, outside bounds, grid phase, and stable repeated evaluation. Include PNG variants actually supported by the selected decoder; unsupported variants must fail explicitly.
-2. Typed-graph coverage: Image connects to each of the three luminance effects; it remains rejected by every unrelated vector paint/geometry consumer. Existing vector luminance fixtures, fingerprints, preview and exports remain byte-for-byte unchanged.
-3. Runtime/cache coverage: an unreferenced large image is not decoded; a same-ID/same-dimension replacement with different PNG bytes changes effect geometry; Undo/Redo and cold JSON reopen are correct; JSON contains no pixel buffer. Confirm sync core and CLI SVG export match the browser SVG for the image-effect sample.
-4. Work-limit/security coverage: malformed CRC/chunks, dimension mismatch, decompression/4 MP cap, 4,097 cells and geometry-budget overflow fail atomically with an actionable message. Benchmark the cold 4 MP path before raising the cap.
+The focused tests cover RGB/RGBA pixels, all PNG scanline filters, sRGB-versus-linear values,
+alpha-over-white, placement/scaling, edge clamping, grid phase, output clipping, unsupported and
+malformed PNGs, CRC/dimension/decompression/work limits, same-ID/same-size cache invalidation,
+Undo/Redo, cold JSON reopen, and absence of serialized pixel buffers. Core/export checks compare
+browser SVG and CLI SVG. The [Image luminance playground](../examples/image-luminance-playground.json)
+compares the original image with all three effects. This slice does not claim arbitrary PNG support,
+native-package acceptance or print/RIP calibration.

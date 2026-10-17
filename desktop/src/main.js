@@ -250,7 +250,7 @@ import {
   outputPorts,
   vectorReferenceTargets,
   referenceTarget,
-  socketCompatible,
+  socketCompatibleFor,
   evaluate,
   enableRemapPoint,
   pathData,
@@ -1158,7 +1158,7 @@ function field(n, key, q) {
   }
   if (['Path', 'PaintedPath', 'Image'].includes(q.type))
     control = `<select data-path-source aria-label="${esc(n.name + ' ' + name)}"><option value="">Connect ${q.type}…</option>${current()
-      .nodes.filter((x) => socketCompatible(outputType(x), q.type) && x.id !== n.id)
+      .nodes.filter((x) => socketCompatibleFor(x, n, key) && x.id !== n.id)
       .map(
         (x) =>
           `<option value="${x.id}" ${q.source === x.id ? 'selected' : ''}>${esc(x.name)} · ${x.id.slice(-4)}</option>`,
@@ -1286,7 +1286,7 @@ function nameClicked(layerId, nodeId, event) {
   return false;
 }
 function bypassControl(n, compact = false) {
-  const contract = bypassContract(n),
+  const contract = bypassContract(n, current()),
     label = n.bypassed ? 'Restore effect' : 'Bypass effect';
   return `<button class="mini node-bypass ${n.bypassed ? 'active' : ''}" data-bypass="${n.id}" aria-label="${label}: ${esc(n.name)}" aria-pressed="${!!n.bypassed}" title="${esc(contract.reason)}" ${current().locked || !contract.supported ? 'disabled' : ''}>${compact ? (n.bypassed ? 'Bypassed' : 'Bypass') : label}</button>`;
 }
@@ -1385,11 +1385,11 @@ function instancePointsControls(n) {
 }
 function luminanceControls(n) {
   if (n.type === 'Halftone')
-    return '<p class="font-note">Convert a solid or two-stop gradient fill into black dots. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Luminance is sampled at each cell center after sRGB stop interpolation, conversion to linear light, and alpha compositing over white. Dot polygon area tracks darkness, then each dot is clipped to its cell and the closed source mask. Curves are flattened at about 0.1 document unit. Output is not print-calibrated. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
+    return '<p class="font-note">Convert a solid or two-stop gradient fill, or an embedded Image, into black dots. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector luminance uses sRGB stop interpolation; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and generated marks are clipped to the placed image rectangle (transparent pixels do not define a contour). Dot polygon area tracks darkness, then each vector dot is clipped to its cell and the closed source mask. Curves are flattened at about 0.1 document unit. Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   if (n.type === 'Ordered Dither')
-    return '<p class="font-note">Convert a solid or two-stop gradient fill to full-pitch black squares using a fixed Bayer 8×8 threshold pattern. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Luminance uses sRGB stop interpolation, conversion to linear light, and alpha compositing over white. Every square is clipped to the closed source mask. This is ordered thresholding, not error diffusion; output is not print-calibrated. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
+    return '<p class="font-note">Convert a solid or two-stop gradient fill, or an embedded Image, to full-pitch black squares using a fixed Bayer 8×8 threshold pattern. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector gradients interpolate in sRGB; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and marks clip to the placed image rectangle (transparent pixels do not define a contour). Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Vector squares are clipped to the closed source mask. This is ordered thresholding, not error diffusion; output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   if (n.type === 'Line Screen')
-    return '<p class="font-note">Map sampled darkness to centered black stripes on the grid set by Grid origin, the top-left document-coordinate corner of cell (0, 0). Move it to shift texture phase without moving the source; document Y increases downward. Horizontal makes full-cell-width strips; Vertical swaps them. Each strip is a cell-sampled rectangle with thickness darkness × cell pitch, so neighboring cells form stepped variable-width lines. White is empty and black fills the cell. Marks are clipped to the closed source mask. This is not continuous engraving or print-calibrated screening. Requires an ungrouped, closed vector fill; stroke-only and image inputs are unsupported.</p>';
+    return '<p class="font-note">Map sampled darkness from a solid or two-stop gradient fill, or an embedded Image, to centered black stripes on the grid set by Grid origin, the top-left document-coordinate corner of cell (0, 0). Move it to shift texture phase without moving the source; document Y increases downward. Horizontal makes full-cell-width strips; Vertical swaps them. Each strip is a cell-sampled rectangle with thickness darkness × cell pitch, so neighboring cells form stepped variable-width lines. White is empty and black fills the cell. Image samples use nearest texels after sRGB-to-linear conversion and alpha compositing over white; partial image edge cells clamp to the closest texel, then marks clip to the placed rectangle. Only supported RGB/RGBA PNGs up to 4 megapixels are processed; the 4096-cell cap remains. Vector marks clip to the closed source mask. This is not continuous engraving or print-calibrated screening. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   return '';
 }
 function roughenControls(n) {
@@ -3713,7 +3713,7 @@ app.addEventListener('click', async (e) => {
       .nodes.filter((x) => x.id !== nn.id)
       .flatMap((x) =>
         outputPorts(x)
-          .filter((port) => socketCompatible(port.type, q.type))
+          .filter((port) => socketCompatibleFor(x, nn, f.dataset.key, port.id))
           .map(
             (port) =>
               `<option value="${esc(port.id ? JSON.stringify([x.id, port.id]) : x.id)}" ${q.source === x.id && q.sourcePort === port.id ? 'selected' : ''}>${esc(x.name + (port.label ? ' ' + port.label : ''))} · ${x.id.slice(-4)}</option>`,
@@ -5445,14 +5445,15 @@ app.addEventListener('pointerdown', (e) => {
       envelope: session.state,
       layerId: current().id,
     };
-    let type = outputType(
-      current().nodes.find((n) => n.id === id),
-      port,
-    );
     document.querySelectorAll('.graph .field').forEach((f) =>
       f.classList.toggle(
         'compatible',
-        socketCompatible(type, f.dataset.type) &&
+        socketCompatibleFor(
+          current().nodes.find((n) => n.id === id),
+          current().nodes.find((n) => n.id === f.dataset.node),
+          f.dataset.key,
+          port,
+        ) &&
           f.dataset.node !== id &&
           !parameter(
             current().nodes.find((n) => n.id === f.dataset.node),

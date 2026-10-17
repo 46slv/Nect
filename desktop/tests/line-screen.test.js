@@ -98,9 +98,6 @@ test('Line Screen clips black marks to the compound source mask and keeps valid 
 });
 
 test('Line Screen keeps the existing filled, ungrouped, closed vector source restrictions', () => {
-  const image = fixture({ image: true });
-  assert.throws(() => run(image.layer, image.effect.id), /image inputs are unsupported/);
-
   const strokeOnly = fixture({ strokeOnly: true });
   assert.throws(
     () => run(strokeOnly.layer, strokeOnly.effect.id),

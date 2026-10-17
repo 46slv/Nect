@@ -15,6 +15,7 @@ import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
+import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { generateLuminanceMarks } from './luminance-marks.js';
 import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
@@ -624,7 +625,7 @@ const bypassInputs = Object.freeze({
   'Line Screen': 'path',
   Stroke: 'path',
 });
-export function bypassContract(n) {
+export function bypassContract(n, layer) {
   const input = bypassInputs[n?.type];
   if (!input)
     return {
@@ -633,6 +634,18 @@ export function bypassContract(n) {
     };
   const type = outputType(n),
     parameterType = n.params?.[input]?.type;
+  const source = layer?.nodes?.find((item) => item.id === n.params?.[input]?.source),
+    sourceParameter = n.params?.[input];
+  if (
+    ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
+    source &&
+    outputType(source, sourceParameter?.sourcePort) === 'Image'
+  )
+    return {
+      supported: false,
+      reason:
+        'Image luminance inputs must be converted to marks; they cannot be bypassed as PaintedPath.',
+    };
   if (parameterType !== type)
     return {
       supported: false,
@@ -645,9 +658,9 @@ export function bypassContract(n) {
     reason: `Pass ${input === 'a' ? 'A' : input} through unchanged; keep all settings and connections.`,
   };
 }
-function bypassInput(n) {
+function bypassInput(n, layer) {
   if (!n.bypassed) return null;
-  const contract = bypassContract(n);
+  const contract = bypassContract(n, layer);
   if (!contract.supported) throw Error(`Cannot bypass ${n.type}: ${contract.reason}`);
   return contract.input;
 }
@@ -662,7 +675,7 @@ export function setNodeBypassed(layer, nodeId, bypassed) {
   const n = layer.nodes.find((n) => n.id === nodeId);
   if (!n || typeof bypassed !== 'boolean') throw Error('Invalid bypass target or state');
   if (layer.locked) throw Error('Composition is locked');
-  if (bypassed && !bypassContract(n).supported) throw Error(bypassContract(n).reason);
+  if (bypassed && !bypassContract(n, layer).supported) throw Error(bypassContract(n, layer).reason);
   assertAcyclic(layer);
   if (bypassed) n.bypassed = true;
   else delete n.bypassed;
@@ -828,6 +841,20 @@ export function duplicateNodes(layer, ids) {
 }
 export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
+}
+const imageLuminanceTargets = new Set(['Halftone', 'Ordered Dither', 'Line Screen']);
+export function socketCompatibleFor(source, target, key, sourcePort) {
+  const q = target && parameter(target, key),
+    sourceType = source && outputType(source, sourcePort);
+  return (
+    !!q &&
+    (socketCompatible(sourceType, q.type) ||
+      (sourceType === 'Image' &&
+        sourcePort === undefined &&
+        imageLuminanceTargets.has(target.type) &&
+        key === 'path' &&
+        q.type === 'PaintedPath'))
+  );
 }
 export function parameters(n) {
   const entries = Object.entries(n.params);
@@ -1775,34 +1802,15 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
-  const hasImagePaintSource = (nodeId, seen = new Set()) => {
-    if (!nodeId || seen.has(nodeId)) return false;
-    seen.add(nodeId);
-    const sourceNode = byId.get(nodeId);
-    if (!sourceNode) return false;
-    if (['Image', 'Image Output'].includes(sourceNode.type)) return true;
-    return [
-      'Fill',
-      'Linear Gradient Fill',
-      'Radial Gradient Fill',
-      'Stroke',
-      'Output',
-      'Halftone',
-      'Ordered Dither',
-      'Line Screen',
-    ].includes(sourceNode.type)
-      ? hasImagePaintSource(sourceNode.params.path?.source, seen)
-      : false;
-  };
   let storedGraphError = null;
   if (layer.nodes.some((n) => n.bypassed)) {
     try {
       // A bypass skips computation, never structural cycle/type validation.
       assertAcyclic(layer);
       for (const n of layer.nodes) {
-        bypassInput(n);
-        for (const [, q] of parameters(n))
-          if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
+        bypassInput(n, layer);
+        for (const [key, q] of parameters(n))
+          if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
             throw Error('Incompatible socket types');
       }
     } catch (error) {
@@ -1862,7 +1870,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         : n.type === 'Fill' && key === 'color' && q.value === null
           ? { hex: layer.fill, alpha: 1 }
           : clone(q.value);
-    if (q.source && !socketCompatible(outputType(byId.get(q.source), q.sourcePort), q.type))
+    if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
       throw Error('Incompatible socket types');
     assertValue(q.type, value);
     return value;
@@ -1882,11 +1890,6 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
-    if (
-      ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
-      hasImagePaintSource(n.params.path.source)
-    )
-      throw Error(`${n.type} requires vector paint; image inputs are unsupported`);
     active.add(id);
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
@@ -1912,42 +1915,43 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ]
             .sort()
             .map((id) => fonts[id]);
-      const cacheKey = JSON.stringify(
-        positionOutput
-          ? [inputs, dependencyVersions]
-          : [
-              n.type,
-              !!n.bypassed,
-              n.reference,
-              inputs,
-              n.type === 'Fill' ? layer.fill : null,
-              n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
-              n.points,
-              n.operation,
-              n.edits,
-              n.text,
-              n.characterPositions,
-              n.pathAttachment,
-              n.font,
-              n.writingMode,
-              n.alignment,
-              n.referenceBounds,
-              n.crossAlignment,
-              n.positionReference,
-              n.kerning,
-              n.leading,
-              n.textWrap,
-              n.strokeCap,
-              n.strokeJoin,
-              n.strokeDash,
-              n.rawPath,
-              n.asset,
-              n.asset && imageAssets[n.asset]
-                ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
-                : null,
-              dependencyVersions,
-            ],
-      );
+      const imageAsset = n.type === 'Image' ? imageAssets[n.asset] : undefined,
+        cacheKey = JSON.stringify(
+          positionOutput
+            ? [inputs, dependencyVersions]
+            : [
+                n.type,
+                !!n.bypassed,
+                n.reference,
+                inputs,
+                n.type === 'Fill' ? layer.fill : null,
+                n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
+                n.points,
+                n.operation,
+                n.edits,
+                n.text,
+                n.characterPositions,
+                n.pathAttachment,
+                n.font,
+                n.writingMode,
+                n.alignment,
+                n.referenceBounds,
+                n.crossAlignment,
+                n.positionReference,
+                n.kerning,
+                n.leading,
+                n.textWrap,
+                n.strokeCap,
+                n.strokeJoin,
+                n.strokeDash,
+                n.rawPath,
+                n.asset,
+                n.asset && imageAssets[n.asset]
+                  ? [imageAssets[n.asset].width, imageAssets[n.asset].height]
+                  : null,
+                dependencyVersions,
+              ],
+        );
       if (!n.bypassed && n.type === 'Closed Path Offset' && readParameter(n, 'amount') !== 0) {
         offsetComputations.add(n.id);
         if (offsetComputations.size > 8)
@@ -1961,6 +1965,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         existing &&
         existing.key === cacheKey &&
         existing.font === cacheFont &&
+        (n.type !== 'Image' || existing.imageAsset === imageAsset) &&
         styleFonts.length === (existing.styleFonts || []).length &&
         styleFonts.every((font, i) => font === existing.styleFonts[i])
       ) {
@@ -2651,17 +2656,17 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       } else if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type)) {
         const source = read('path');
         if (!source) throw Error(`Connect a PaintedPath input to ${n.type}`);
-        if (source.kind === 'image')
-          throw Error(`${n.type} requires vector paint; image inputs are unsupported`);
-        if (source.fill === null || source.fill === undefined)
+        if (source.kind !== 'image' && (source.fill === null || source.fill === undefined))
           throw Error(`${n.type} requires a filled source; stroke-only inputs are unsupported`);
-        if (!Array.isArray(source.contours) || source.contours.length > 10000)
-          throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
-        let inputVertices = 0;
-        for (const contour of source.contours) {
-          inputVertices += Array.isArray(contour?.points) ? contour.points.length : 0;
-          if (inputVertices > 100000)
+        if (source.kind !== 'image') {
+          if (!Array.isArray(source.contours) || source.contours.length > 10000)
             throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
+          let inputVertices = 0;
+          for (const contour of source.contours) {
+            inputVertices += Array.isArray(contour?.points) ? contour.points.length : 0;
+            if (inputVertices > 100000)
+              throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
+          }
         }
         const { pitch, invert, gridOrigin } = luminanceModifierSettings(read),
           origin = { x: gridOrigin[0], y: gridOrigin[1] },
@@ -2670,7 +2675,42 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           orientation = mode === 'lines' ? n.operation : undefined;
         if (mode === 'lines' && !operationOptions[n.type].includes(orientation))
           throw Error('Line Screen orientation must be horizontal or vertical');
-        if (source.contours.length === 0) {
+        if (source.kind === 'image') {
+          const field = sampleImageLuminanceGrid(
+              imageAssets[source.asset],
+              source.position,
+              source.size,
+              { pitch, origin, invert },
+            ),
+            [x, y] = source.position,
+            [width, height] = source.size,
+            mask = prepareLuminanceMask({
+              contours: [
+                {
+                  id: `${n.id}:image-mask`,
+                  closed: true,
+                  points: [
+                    [x, y],
+                    [x + width, y],
+                    [x + width, y + height],
+                    [x, y + height],
+                  ].map((position, index) => ({
+                    id: `${n.id}:image-mask:${index}`,
+                    position,
+                    handleA: [0, 0],
+                    handleB: [0, 0],
+                  })),
+                },
+              ],
+            }),
+            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation });
+          result = clipLuminanceMarks(
+            mask,
+            generated.marks.map((mark) => mark.vertices),
+            fingerprint(n.id),
+          );
+          result.fill = { hex: '#000000', alpha: 1 };
+        } else if (source.contours.length === 0) {
           // A valid empty painted path (for example, Boolean A−A) remains an
           // empty black fill. Still validate its paint and node settings.
           sampleLuminanceGrid(
@@ -2704,7 +2744,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
             source.fill,
             source.fingerprint || null,
-            signature(source),
+            source.kind === 'image'
+              ? JSON.stringify([source.kind, source.asset, source.position, source.size])
+              : signature(source),
             signature(result),
           ]),
         );
@@ -2887,6 +2929,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         key: cacheKey,
         font: cacheFont,
         styleFonts,
+        imageAsset,
         value: clone(result),
         version,
         warnings: warnings.slice(warningStart),
@@ -3128,7 +3171,16 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     q = to && parameter(to, key);
   if (!from || !q) throw Error('Missing socket');
   if (q.locked && !validating) throw Error('Parameter is locked');
-  if (!socketCompatible(outputType(from, sourcePort), q.type))
+  if (
+    to.bypassed &&
+    imageLuminanceTargets.has(to.type) &&
+    key === 'path' &&
+    outputType(from, sourcePort) === 'Image'
+  )
+    throw Error(
+      'Image luminance inputs must be converted to marks; they cannot be connected while bypassed.',
+    );
+  if (!socketCompatibleFor(from, to, key, sourcePort))
     throw Error(`Cannot connect ${outputType(from, sourcePort)} to ${q.type}`);
   if (validating) {
     assertAcyclic(layer);
@@ -3224,7 +3276,10 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].includes(doc.schemaVersion))
+  if (
+    !doc ||
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17].includes(doc.schemaVersion)
+  )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   // Apply every migration against the file's incoming version. A feature later in
@@ -3257,7 +3312,7 @@ export function validate(doc) {
       text(n.name);
       if (n.bypassed !== undefined && (typeof n.bypassed !== 'boolean' || sourceSchemaVersion < 10))
         throw Error('Node bypass requires a boolean and schemaVersion 10');
-      bypassInput(n);
+      bypassInput(n, l);
       vec(n.position);
       if (n.width !== undefined && (!Number.isFinite(n.width) || n.width < 220 || n.width > 550))
         throw Error('Invalid node width');
@@ -3570,6 +3625,15 @@ export function validate(doc) {
   }
   const hasNodeType = (type) =>
     doc.layers.some((layer) => layer.nodes.some((n) => n.type === type));
+  const hasImageLuminanceConnection = doc.layers.some((layer) => {
+    const nodes = new Map(layer.nodes.map((n) => [n.id, n]));
+    return layer.nodes.some(
+      (target) =>
+        imageLuminanceTargets.has(target.type) &&
+        target.params.path?.source &&
+        outputType(nodes.get(target.params.path.source), target.params.path.sourcePort) === 'Image',
+    );
+  });
   if (hasNodeType('Instance on Points') && sourceSchemaVersion < 13)
     doc.schemaVersion = Math.max(doc.schemaVersion, 13);
   if (hasNodeType('Line Screen') && sourceSchemaVersion < 14)
@@ -3581,6 +3645,7 @@ export function validate(doc) {
     doc.schemaVersion = Math.max(doc.schemaVersion, 15);
   if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
     doc.schemaVersion = Math.max(doc.schemaVersion, 16);
+  if (hasImageLuminanceConnection && doc.schemaVersion < 17) doc.schemaVersion = 17;
   return doc;
 }
 export function serialize(doc) {

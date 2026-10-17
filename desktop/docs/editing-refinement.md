@@ -566,9 +566,11 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - These are PaintedPath→PaintedPath modifiers after a solid Fill or the existing two-stop
   Linear / Radial Gradient Fill. Each has Cell Pitch 1–1024 px (default16), Invert Luminance
   (default off), and Grid Origin (Vector2 default `[0,0]`, each component ±100000 px). The paint source must have a solid
-  Color or supported gradient and an ungrouped collection of closed contours. Open contours,
-  explicit groups, stroke-only paint and Image inputs fail explicitly. Source fill/stroke styling
-  is replaced by opaque black output geometry; the upstream source stays unchanged.
+  Color or supported gradient and an ungrouped collection of closed contours. In this original
+  vector-only slice, open contours, explicit groups, stroke-only paint and Image inputs fail
+  explicitly. Image support was added later as a separate source-specific adapter (below). Source
+  fill/stroke styling is replaced by opaque black output geometry; the upstream source stays
+  unchanged.
 - Luminance is sampled at centers of every pitch-sized world-grid cell with positive-area
   intersection against the flattened source bounds. Centers can fall outside the mask; generated
   geometry is clipped afterward. Existing gradient paint interpolates encoded sRGB stop values;
@@ -601,7 +603,8 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - Line Screen adds another PaintedPath→PaintedPath map on the same supported filled vector source.
   It reuses Cell Pitch 1–1024 px (default16), Invert Luminance (default off), Grid Origin
   (default `[0,0]`, each component ±100000 px), center sampling and opaque black output. The source must remain ungrouped and
-  closed; open contours, explicit groups, stroke-only paint and images are rejected. The output
+  closed; open contours, explicit groups and stroke-only paint are rejected for the vector route.
+  Image support was added later as a separate source-specific adapter (below). The vector output
   intersects the source's existing compound mask, so holes remain empty.
 - Horizontal emits one centered rectangle per nonwhite cell: full pitch across X and
   `darkness × pitch` along Y. Vertical swaps the dimensions. Its area is therefore
@@ -634,8 +637,9 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   relative to artwork.
 - The existing luminance sampler accepts an `{x,y}` origin. The core maps `[x,y]` to it and keeps
   Halftone dots, Bayer 8×8 rank selection by integer grid indices, horizontal/vertical Line Screen
-  rectangles, compound-mask clipping and all existing limits unchanged. No rotation, image input,
-  or new mark mode was added. The schema-14 `[0,0]` default fingerprint is preserved; non-default
+  rectangles, compound-mask clipping and all existing limits unchanged. This grid-origin slice
+  added no rotation or new mark mode; image inputs were added later under schema 17 below. The
+  schema-14 `[0,0]` default fingerprint is preserved; non-default
   origins affect derived-output identity.
 - Schema 14 and earlier luminance nodes backfill `[0,0]` and upgrade to schema 15 on validation;
   default output remains identical. New values serialize with the shared document and honor locks,
@@ -666,3 +670,48 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   profiles as a separate proposal. The [12-layer variable-stroke playground](../examples/variable-stroke-playground.json)
   covers uniform, start-tip, and end-tip cubic examples; its editable file was serialized/reopened,
   and its SVG/PNG were reviewed in Inkscape.
+
+### Embedded Image inputs for luminance effects — schema 17
+
+- Halftone, Ordered Dither and Line Screen can now accept either their existing filled PaintedPath
+  source or an Image-typed output on the `path` socket. The exception is target-scoped: Fill,
+  Stroke, Boolean, Transform, Path Remap and ordinary vector Output still reject Image. This is
+  not a general Image-to-Path conversion or a new Field type. `Image Output` remains an independent
+  image output and can also pass its Image-typed descriptor to these effects.
+- Image evaluation already provides the display descriptor `{kind: 'image', asset, position, size}`.
+  Position is the placed rectangle's top-left document coordinate, including the existing Image
+  position-reference adjustment; size is its positive display extent. Sampling maps world grid
+  cell centers through that rectangle to intrinsic pixels with nearest-texel `floor`, no filtering.
+  Cells with positive-area intersection are included; for a partial edge cell whose center falls
+  outside, sampling clamps to the nearest edge texel, and generated marks are clipped to the placed
+  rectangle. Alpha is composited over white in linear light, so transparency changes tone but never
+  defines an alpha-contour mask. Existing pitch, origin, invert, mark generation and black output
+  are shared with the vector route.
+- The pure synchronous core lazily samples embedded canonical PNGs. The bounded decoder accepts
+  noninterlaced 8-bit RGB/RGBA PNG only; it explicitly rejects palette/grayscale, other
+  bit-depth/interlace, `tRNS`, `PLTE`, color profiles/transforms, and unknown chunks. It permits one
+  1-byte `sRGB` intent (0–3) and one 9-byte `pHYs` metadata chunk before IDAT; IHDR, contiguous
+  IDAT and final IEND are required. Before decompression, existing PNG chunk/CRC checks and exact
+  asset dimensions run; decoded output is streamed with pinned Pako 3.0.2 (MIT; [source and
+  license](https://github.com/nodeca/pako/tree/3.0.2)) through an 8 KiB reusable chunk buffer and
+  capped to the IHDR-derived filtered-byte count. Per-image luminance processing is capped at 4
+  megapixels, at most 4,096 grid cells are sampled, and a one-entry runtime RGBA cache retains at
+  most 16 MB. One cold 4 MP Node 24 sample measured 301 ms, which is not a cross-device latency
+  guarantee. Unrelated images are not decoded. Browser preview, SVG export and CLI use this same
+  evaluator; source PNG assets remain saved normally, but pixels/RGBA are never serialized.
+- The Image evaluation cache compares the exact immutable asset-object identity, not just asset ID
+  and dimensions. Replacing bytes under a same-ID/same-size asset recomputes the Image node version
+  and invalidates dependent luminance geometry. Cloned documents preserve immutable object identity
+  for Undo/Redo, while cold JSON reopen reconstructs assets normally. Direct Image bypass is
+  explicitly disabled because it would return Image data where the effect promises PaintedPath;
+  once marks are generated, those PaintedPath results can flow downstream as usual.
+- Schema 17 marks the new saved Image→luminance edge contract. Existing vector-only documents and
+  their default fingerprints stay unchanged; validation promotes documents containing an
+  Image-typed connection to one of the three luminance effects without adding synthetic fields.
+  Malformed/unsupported PNGs, dimension mismatches, decoder/cell/geometry budget failures and
+  invalid bypassed Image edges reject the complete edit rather than emitting partial geometry.
+- Focused acceptance covers RGB/RGBA fixtures, placement and edge clamping, alpha-over-white,
+  cache replacement, history and cold reopen, JSON pixel-data exclusion, typed socket rejections,
+  SVG/CLI parity, and the [Image luminance playground](../examples/image-luminance-playground.json).
+  This bounded slice does not claim support for arbitrary PNG encodings, JPEG decoding in the core,
+  native packaging, or physical print calibration.
