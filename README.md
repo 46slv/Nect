@@ -1,5 +1,7 @@
 # Nect
 
+Production Desktop development is in [desktop/](desktop/README.md), based on Nect-SVG with Tauri/WebView2. See [the current Mission checkpoint](CURRENT_GOAL.md) and [document-lifecycle verification](desktop/docs/document-lifecycle.md). The legacy C++/Qt implementation below is preserved; the formats are distinct.
+
 > **Fresh implementation agent:** start with [START_HERE.md](START_HERE.md).  
 > A repo link plus that file is intended to be enough to resume current work without old chat history.
 

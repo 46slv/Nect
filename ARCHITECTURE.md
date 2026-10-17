@@ -4,6 +4,16 @@ Status: M0 engineering baseline. Notion owns product requirements/decisions; thi
 
 ## Owners
 
+### Production Desktop lane (2026-10-16)
+
+The separate Desktop Mission lives under `desktop/`, with its adopted Brief in this worktree's CURRENT_GOAL.md. It uses Tauri/WebView2 and the imported Nect-SVG typed graph. Its common editing Session is JavaScript, independent of the DOM; Rust owns filesystem bindings and staged writes only. Supported GUI/headless/API adapters must share that Session's commands and history. Legacy C++/Qt and native formats remain preserved, separate implementations; no format/command equivalence is claimed. The imported callback History and UI direct edits are an explicit migration obligation, not a completed command architecture. DocumentLifecycle coordinates file lifetime and is not itself the editing Session.
+
+For migrated Text editing, CommandSession also owns temporary text drafts, stable character reconciliation and bounded native-input Undo snapshots. The UI captures observed text/selection/composition intent and renders provisional input; it cannot install authored character maps. Text/font commits validate private candidates and share the Session History. See `desktop/docs/nect-integration.md` for the remaining direct-edit migration debt.
+
+Graph layout, numeric/Text scrubs and Canvas gestures use one exclusive Session-private gesture candidate. Fixed stable targets and an independent preview revision protect updates; detached previews are output-only display projections. Committed snapshots/History remain unchanged until one validated commit, and cancellation discards the draft without restoring over newer authored state. Pen shares that slot and separates pressed-point rollback from whole-path cancellation. GUI retains pointer/snap/view/selection state. SVG adapters lower XML to portable syntax data; the DOM-free Session validates the supported subset and generates the authored graph and identities. The UI reads frozen History states for selection identity, while public debug reads/evaluation use detached snapshots. Authored mutation stays inside typed Session commands.
+
+The baseline owners below continue to describe the legacy implementation.
+
 | Owner | Responsibility | Must not own |
 |---|---|---|
 | `nect_core` | Authored document, identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary codec internals |
