@@ -21,3 +21,13 @@ Changes to referenced values invalidate numeric dependencies, including Text's i
 - Splitting Transform scale materializes the current evaluated X scale before Y can change; existing linked/locked Y descriptors remain intact.
 - `delete-nodes` accepts `nodeIds`, preserves Output nodes, disconnects surviving input sockets, and commits once. Returned `deletedNodeIds` and `retainedNodeIds` support a clear UI notice. Existing Reference and expression targets remain explicitly dangling.
 - Curve/Path Remap `position` gestures accept `pointIds` containing the primary `pointId`. Every anchor receives the same delta in one transaction. Relative handles stay unchanged. Missing, locked, or driven anchors reject the whole group.
+
+## Inline predictive completion
+
+In the ƒ expression dialog, type the beginning of a function, node name (or a word in its name), or numeric parameter key. Up/Down selects a suggestion; Enter or Tab inserts it. A function inserts parentheses and puts the caret inside. Parameter suggestions insert the same stable-ID `ref(...)` syntax as the searchable reference picker, with Scalar or Vector2 X/Y labels and the source node ID to distinguish duplicate names. Typing `ref` also lists eligible references. Only the first 12 matching choices appear; type a longer prefix or use “Insert parameter reference…” for broader searching.
+
+Suggestions use the actual arithmetic grammar: `sin`, `cos`, `tan`, `abs`, `sqrt`, `min`, `max`, `round`, `pi`, and `e`. They do not add JavaScript, property access, time variables, or whole-vector operands. A Vector2 destination still uses separate `X; Y` scalar expressions. Targets are resolved from the current composition when suggesting and again before insertion, excluding self/downstream nodes.
+
+Completion only edits the draft. Apply (or Enter with no active suggestion) commits through the existing command and Undo history; Cancel leaves the document untouched. Escape first dismisses suggestions, then closes the dialog. Shift+Tab and Tab without suggestions retain normal focus navigation. Suggestions stay hidden inside quoted strings, for selected text, and during IME composition. The original searchable insertion button remains available.
+
+Focused checks: `node --test tests/expression-completion.test.js tests/expression-completion-dom.test.js tests/parameter-reference-expressions.test.js`.

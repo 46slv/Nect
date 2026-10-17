@@ -1669,3 +1669,28 @@ input[data-scrub-step].scrubbing {
 .search-panel > .font-note {
   padding: 0 12px;
 }
+
+.expression-completions {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid #596070;
+  border-radius: 4px;
+  margin-top: 4px;
+}
+.expression-completions[hidden] {
+  display: none;
+}
+.expression-completions [role='option'] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.expression-completions [aria-selected='true'] {
+  background: #344b70;
+  color: #fff;
+}
+.expression-completions small {
+  opacity: 0.8;
+}

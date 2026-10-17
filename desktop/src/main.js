@@ -1,3 +1,4 @@
+import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
@@ -4482,10 +4483,14 @@ app.addEventListener('click', async (e) => {
     else {
       if (q.locked || current().locked) return;
       const dialog = document.createElement('dialog');
-      dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'Write X; Y expressions.' : 'Write a scalar expression.'} Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
+      dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'Write X; Y expressions.' : 'Write a scalar expression.'} Type a function, node name, or parameter prefix for suggestions. ↑/↓ select; Tab/Enter insert; Escape dismisses. Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
       const input = dialog.querySelector('input');
       input.value = q.expression || '';
+      const completion = attachExpressionCompletion(input, () =>
+        expressionReferenceTargets(current(), nn.id),
+      );
       dialog.querySelector('[data-insert-reference]').onclick = () => {
+        completion.hide();
         const start = input.selectionStart ?? input.value.length,
           end = input.selectionEnd ?? start;
         const panel = openSearchPanel({
@@ -4517,7 +4522,7 @@ app.addEventListener('click', async (e) => {
           closeEditorDialog(dialog);
       };
       dialog.addEventListener('keydown', (event) => {
-        if (event.isComposing || event.keyCode === 229) return;
+        if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
         if (event.key === 'Escape') {
           event.preventDefault();
           closeEditorDialog(dialog);

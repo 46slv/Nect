@@ -14,7 +14,7 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-17 14:01 UTC
+## ACTIVE CHECKPOINT — 2026-10-17 14:07 UTC
 
 Goal: Prioritize Shiro's hands-on feedback and font/path usability. The explicit October 17 full-font request broadens the historical mission; support remains staged and must not be described as universally complete.
 
@@ -30,7 +30,9 @@ Named instances: actual validated fvar presets now use the existing asynchronous
 
 Anchor reposition: Transform now offers nine input-bounds presets and a draggable Anchor crosshair. Compensated absolute Position preserves the evaluated affine; Offset and source geometry are retained. Presets support zero scale; singular drag refuses. Locked/driven Anchor or Position refuses atomically. Twenty-seven focused core/DOM checks and one production build pass; real host acceptance remains open.
 
-Ownership: core, UI, CLI, mixed-picker, named-instance and anchor-reposition workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
+Expression completion: inline supported-function/constants and live numeric-reference prefix suggestions now edit the draft only, with arrows/Tab/Enter, type/target labels, IME and stale/cursor/quoted-string guards. Apply remains the sole authored commit. Fifteen focused tests and one production build pass.
+
+Ownership: all implementation workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
 
 Next concrete work: accept the frozen integrated slice in a real supported browser/WebView, then compile/package on authorized shiro-WS when connected. Check existing task and environment first. Do not bypass the previously denied cloud-browser sandbox or switch to unauthorized computers. Independent approved development can continue without treating native wait as a global stop.
 
