@@ -22,7 +22,7 @@ import {
 } from '../src/core.js';
 
 const SIGNATURE = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
-const modes = ['Halftone', 'Ordered Dither', 'Line Screen'];
+const modes = ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'];
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -130,15 +130,22 @@ test('Image-typed inputs connect to all luminance effects and promote the saved 
   for (const mode of modes) {
     const f = fixture({ mode, size: [16, 16] });
     validate(f.doc);
-    assert.equal(f.doc.schemaVersion, 17, mode);
+    assert.equal(f.doc.schemaVersion, mode === 'Error Diffusion Dither' ? 19 : 17, mode);
     assert.equal(f.effect.params.path.source, f.image.id);
     assert.equal(area(evaluated(f)), 256, `${mode} black image geometry`);
 
     const oldVersion = structuredClone(f.doc);
     oldVersion.schemaVersion = 16;
-    assert.equal(validate(oldVersion).schemaVersion, 17, `${mode} legacy edge promotion`);
+    assert.equal(
+      validate(oldVersion).schemaVersion,
+      mode === 'Error Diffusion Dither' ? 19 : 17,
+      `${mode} legacy edge promotion`,
+    );
     const reopened = deserialize(serialize(oldVersion));
-    assert.equal(reopened.schemaVersion, 17);
+    assert.equal(
+      reopened.schemaVersion,
+      reopened.layers[0].nodes.some((n) => n.type === 'Error Diffusion Dither') ? 19 : 17,
+    );
     assert.equal(
       area(evaluate(reopened.layers[0], {}, reopened.imageAssets).run(f.effect.id)),
       256,
@@ -304,7 +311,10 @@ test('same-ID same-size asset replacement, Undo/Redo and cold JSON reopen invali
   );
   history.redo();
   const reopened = deserialize(serialize(history.doc));
-  assert.equal(reopened.schemaVersion, 17);
+  assert.equal(
+    reopened.schemaVersion,
+    reopened.layers[0].nodes.some((n) => n.type === 'Error Diffusion Dither') ? 19 : 17,
+  );
   assert.equal(
     area(evaluate(reopened.layers[0], {}, reopened.imageAssets).run(f.effect.id)),
     white,

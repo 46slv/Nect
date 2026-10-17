@@ -732,9 +732,15 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
-  if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) && key === 'pitch')
+  if (
+    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
+    key === 'pitch'
+  )
     return [1, 1024];
-  if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) && key === 'gridOrigin')
+  if (
+    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
+    key === 'gridOrigin'
+  )
     return [-100000, 100000];
   if (n.type === 'Radial Gradient Fill') {
     if (key === 'center') return [-100000, 100000];
@@ -1049,7 +1055,9 @@ function field(n, key, q) {
         key === 'scaleWidth' &&
         (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name = ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type)
+  const name = ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(
+    n.type,
+  )
     ? {
         path: 'Source fill',
         pitch: 'Cell pitch (px)',
@@ -1392,6 +1400,8 @@ function luminanceControls(n) {
     return '<p class="font-note">Convert a solid or two-stop gradient fill, or an embedded Image, into black dots. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector luminance uses sRGB stop interpolation; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and generated marks are clipped to the placed image rectangle (transparent pixels do not define a contour). Dot polygon area tracks darkness, then each vector dot is clipped to its cell and the closed source mask. Curves are flattened at about 0.1 document unit. Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   if (n.type === 'Ordered Dither')
     return '<p class="font-note">Convert a solid or two-stop gradient fill, or an embedded Image, to full-pitch black squares using a fixed Bayer 8×8 threshold pattern. Grid origin sets the top-left document-coordinate corner of cell (0, 0); move it to shift the texture phase without moving the source. Document Y increases downward. Vector gradients interpolate in sRGB; image samples use nearest texels. Both convert to linear light and composite alpha over white. Partial image edge cells clamp to the nearest image texel, and marks clip to the placed image rectangle (transparent pixels do not define a contour). Image processing is limited to supported RGB/RGBA PNGs up to 4 megapixels and the 4096-cell grid cap. Vector squares are clipped to the closed source mask. This is ordered thresholding, not error diffusion; output is not print-calibrated. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
+  if (n.type === 'Error Diffusion Dither')
+    return '<p class="font-note">Floyd–Steinberg error diffusion of a solid or two-stop gradient fill, or an embedded Image, into black cell squares. Scan left-to-right, top-to-bottom; darkness ≥ 0.5 is black. Residual error goes right 7/16, down-left 3/16, down 5/16, down-right 1/16. Missing neighbors discard error without renormalizing. All bounds cells participate before clipping, including cells outside a vector mask or inside holes. Grid origin sets the top-left corner of cell (0, 0); document Y increases downward. sRGB samples convert to linear light and composite alpha over white. Images use nearest texels, edge clamping and rectangle clipping; supported RGB/RGBA PNGs up to 4 megapixels only. The 4096-cell and existing geometry/work caps apply. Vector inputs must be filled, ungrouped and closed. Output is not print-calibrated.</p>';
   if (n.type === 'Line Screen')
     return '<p class="font-note">Map sampled darkness from a solid or two-stop gradient fill, or an embedded Image, to centered black stripes on the grid set by Grid origin, the top-left document-coordinate corner of cell (0, 0). Move it to shift texture phase without moving the source; document Y increases downward. Horizontal makes full-cell-width strips; Vertical swaps them. Each strip is a cell-sampled rectangle with thickness darkness × cell pitch, so neighboring cells form stepped variable-width lines. White is empty and black fills the cell. Image samples use nearest texels after sRGB-to-linear conversion and alpha compositing over white; partial image edge cells clamp to the closest texel, then marks clip to the placed rectangle. Only supported RGB/RGBA PNGs up to 4 megapixels are processed; the 4096-cell cap remains. Vector marks clip to the closed source mask. This is not continuous engraving or print-calibrated screening. Vector inputs must be ungrouped and closed; stroke-only inputs are unsupported.</p>';
   return '';

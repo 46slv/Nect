@@ -353,7 +353,7 @@ test('gradients stay selection-only even if a later solid Fill would replace the
 });
 
 test('valid paint effects evaluate normally while whole-artwork Move gives graph-edit guidance', () => {
-  for (const type of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const type of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const f = fixture(),
       effect = node(type);
     f.layer.nodes.push(effect);

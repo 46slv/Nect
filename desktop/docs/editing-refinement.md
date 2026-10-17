@@ -722,3 +722,20 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - This target-scoped edge lets Halftone, Ordered Dither and Line Screen output feed Path Remap and ordinary Path modifiers without export/reimport. Convert to Path does not accept Image directly, and other PaintedPath-to-Path consumers remain incompatible. Because this edge changes the output contract, validation promotes only documents that contain it to schema 18; older Path-only documents retain their version and serialized shape.
 - PaintedPath conversion is intentionally not bypassable: passing the input through would return PaintedPath where the node promises Path. Bypass remains available for the existing Path-source identity case. The converted geometry receives a deterministic fingerprint over its contour geometry, stable IDs and graph provenance, independent of source paint; downstream Transform, Remap and repainting continue to use ordinary Path semantics.
 - Focused acceptance covers paint removal and source immutability, compatibility boundaries, a real embedded Image→Halftone→Convert to Path→Transform→Fill composition, serialization, locks, Undo/Redo, bypass refusal and downstream Path edits. This does not add automatic tracing of arbitrary images.
+
+
+### Error Diffusion Dither — bounded Floyd–Steinberg, schema 19
+
+- A distinct Error Diffusion Dither node shares painted-vector / PNG sampling, mask clipping,
+  grid controls and existing budgets. The forward raster kernel and missing-neighbor policy are
+  specified in `docs/modifiers.md`; bounds cells are diffused before clipping, including holes.
+- Only documents containing this node promote to schema 19. Existing Bayer paths and fingerprints
+  were compared byte-for-byte with a pre-edit snapshot of the grid-origin example and stayed equal.
+- Focused helper, core, migration, image/socket, bypass, conversion, move-target and DOM tests pass
+  (122 tests across eight files). This is not a full-suite or native Windows acceptance claim.
+- `scripts/error-diffusion-playground.js` produces the 12-layer editable comparison JSON and SVG;
+  a fresh Node process reloads the actual saved file and matches exact evaluated paths and SVG.
+  Inkscape rendered the SVG with opaque white background to PNG, and the proof was visually
+  checked: all three panels and labels are visible and the Bayer/diffusion patterns differ.
+- One production Web build passed (84 modules); the existing large-chunk advisory remains.
+  No frozen trial/package edits, publication, release, or native GUI validation were performed.

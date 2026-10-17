@@ -130,8 +130,8 @@ test('source recolor leaves converted geometry and its fingerprint unchanged', (
   assert.equal(Object.hasOwn(converted, 'stroke'), false);
 });
 
-test('all three luminance outputs convert as PaintedPath geometry', () => {
-  for (const type of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+test('all luminance outputs convert as PaintedPath geometry', () => {
+  for (const type of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const doc = blankDocument(),
       layer = doc.layers[0],
       shape = node('Rectangle'),
@@ -158,7 +158,11 @@ test('all three luminance outputs convert as PaintedPath geometry', () => {
     assert.equal(Object.hasOwn(converted, 'stroke'), false, `${type} stroke is dropped`);
     assert.match(converted.fingerprint, /^sha256:/, `${type} geometry has a fingerprint`);
     validate(doc);
-    assert.equal(doc.schemaVersion, 18, `${type} conversion edge is schema 18`);
+    assert.equal(
+      doc.schemaVersion,
+      type === 'Error Diffusion Dither' ? 19 : 18,
+      `${type} conversion schema`,
+    );
   }
 });
 

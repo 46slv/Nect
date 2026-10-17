@@ -293,6 +293,12 @@ export const definitions = {
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
   },
+  'Error Diffusion Dither': {
+    path: p('PaintedPath', null),
+    pitch: p('Scalar', 16),
+    invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
+  },
   'Line Screen': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
@@ -569,6 +575,7 @@ export function outputType(n, port) {
       'Radial Gradient Fill',
       'Halftone',
       'Ordered Dither',
+      'Error Diffusion Dither',
       'Line Screen',
       'Stroke',
       'Output',
@@ -622,6 +629,7 @@ const bypassInputs = Object.freeze({
   'Radial Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
+  'Error Diffusion Dither': 'path',
   'Line Screen': 'path',
   Stroke: 'path',
 });
@@ -637,7 +645,7 @@ export function bypassContract(n, layer) {
   const source = layer?.nodes?.find((item) => item.id === n.params?.[input]?.source),
     sourceParameter = n.params?.[input];
   if (
-    ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
+    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
     source &&
     outputType(source, sourceParameter?.sourcePort) === 'Image'
   )
@@ -852,7 +860,12 @@ export function duplicateNodes(layer, ids) {
 export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
 }
-const imageLuminanceTargets = new Set(['Halftone', 'Ordered Dither', 'Line Screen']);
+const imageLuminanceTargets = new Set([
+  'Halftone',
+  'Ordered Dither',
+  'Line Screen',
+  'Error Diffusion Dither',
+]);
 export function socketCompatibleFor(source, target, key, sourcePort) {
   const q = target && parameter(target, key),
     sourceType = source && outputType(source, sourcePort);
@@ -2667,7 +2680,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             signature(result),
           ]),
         );
-      } else if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type)) {
+      } else if (
+        ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
+      ) {
         const source = read('path');
         if (!source) throw Error(`Connect a PaintedPath input to ${n.type}`);
         if (source.kind !== 'image' && (source.fill === null || source.fill === undefined))
@@ -2685,7 +2700,13 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         const { pitch, invert, gridOrigin } = luminanceModifierSettings(read),
           origin = { x: gridOrigin[0], y: gridOrigin[1] },
           mode =
-            n.type === 'Halftone' ? 'halftone' : n.type === 'Ordered Dither' ? 'dither' : 'lines',
+            n.type === 'Halftone'
+              ? 'halftone'
+              : n.type === 'Ordered Dither'
+                ? 'dither'
+                : n.type === 'Error Diffusion Dither'
+                  ? 'error-diffusion'
+                  : 'lines',
           orientation = mode === 'lines' ? n.operation : undefined;
         if (mode === 'lines' && !operationOptions[n.type].includes(orientation))
           throw Error('Line Screen orientation must be horizontal or vertical');
@@ -3166,6 +3187,7 @@ export function assertClosedOffsetChange(
     'Instance on Points',
     'Halftone',
     'Ordered Dither',
+    'Error Diffusion Dither',
     'Line Screen',
   ]);
   const boundedInputs = (n) =>
@@ -3320,7 +3342,7 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].includes(doc.schemaVersion)
+    ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -3434,7 +3456,7 @@ export function validate(doc) {
       )
         throw Error('Invalid node');
       if (
-        ['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type) &&
+        ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type) &&
         sourceSchemaVersion < 15
       ) {
         if (!Object.hasOwn(n.params, 'gridOrigin'))
@@ -3550,7 +3572,7 @@ export function validate(doc) {
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
-      if (['Halftone', 'Ordered Dither', 'Line Screen'].includes(n.type))
+      if (['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type))
         luminanceModifierSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
@@ -3691,13 +3713,16 @@ export function validate(doc) {
   if (hasNodeType('Line Screen') && sourceSchemaVersion < 14)
     doc.schemaVersion = Math.max(doc.schemaVersion, 14);
   if (
-    ['Halftone', 'Ordered Dither', 'Line Screen'].some((type) => hasNodeType(type)) &&
+    ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].some((type) =>
+      hasNodeType(type),
+    ) &&
     sourceSchemaVersion < 15
   )
     doc.schemaVersion = Math.max(doc.schemaVersion, 15);
   if (hasNodeType('Expand Stroke') && sourceSchemaVersion < 16)
     doc.schemaVersion = Math.max(doc.schemaVersion, 16);
   if (hasImageLuminanceConnection && doc.schemaVersion < 17) doc.schemaVersion = 17;
+  if (hasNodeType('Error Diffusion Dither')) doc.schemaVersion = Math.max(doc.schemaVersion, 19);
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   return doc;

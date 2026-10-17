@@ -36,8 +36,8 @@ function validateOptions(options) {
     throw Error(`Luminance mark generation is limited to ${MAX_CELLS} cells`);
   if (!Number.isFinite(pitch) || pitch <= 0)
     throw Error('Luminance mark pitch must be a positive finite number');
-  if (!['halftone', 'dither', 'lines'].includes(mode))
-    throw Error('Luminance mark mode must be halftone, dither, or lines');
+  if (!['halftone', 'dither', 'lines', 'error-diffusion'].includes(mode))
+    throw Error('Luminance mark mode must be halftone, dither, lines, or error-diffusion');
   if (mode === 'lines' && !['horizontal', 'vertical'].includes(orientation))
     throw Error('Line Screen orientation must be horizontal or vertical');
 
@@ -65,6 +65,41 @@ function validateOptions(options) {
         throw Error('Line Screen mark area exceeds the finite document range');
     }
   }
+}
+
+// Fixed forward raster scan. Missing cells absorb their share of the error;
+// the field is sampled over full bounds, and shape masks are applied afterward.
+function errorDiffusionMarks(cells, pitch) {
+  const ordered = cells.slice().sort((a, b) => a.j - b.j || a.i - b.i),
+    key = (i, j) => `${i},${j}`,
+    errors = new Map();
+  for (const cell of ordered) {
+    if (!Number.isSafeInteger(cell.i) || !Number.isSafeInteger(cell.j))
+      throw Error('Error diffusion cell indices must be safe integers');
+    const id = key(cell.i, cell.j);
+    if (errors.has(id)) throw Error('Error diffusion cell indices must be unique');
+    errors.set(id, 0);
+  }
+  const marks = [];
+  for (const cell of ordered) {
+    const value = cell.darkness + errors.get(key(cell.i, cell.j)),
+      black = value >= 0.5,
+      residual = value - (black ? 1 : 0);
+    if (black) marks.push({ i: cell.i, j: cell.j, vertices: squareVertices(cell, pitch) });
+    for (const [di, dj, weight] of [
+      [1, 0, 7],
+      [-1, 1, 3],
+      [0, 1, 5],
+      [1, 1, 1],
+    ]) {
+      const i = cell.i + di,
+        j = cell.j + dj;
+      if (!Number.isSafeInteger(i) || !Number.isSafeInteger(j)) continue;
+      const target = key(i, j);
+      if (errors.has(target)) errors.set(target, errors.get(target) + (residual * weight) / 16);
+    }
+  }
+  return marks;
 }
 
 function segmentCount(pitch) {
@@ -190,6 +225,15 @@ function preflight(options) {
  * Halftone area calibration describes vector geometry, not printed appearance.
  */
 export function generateLuminanceMarks(options) {
+  // Four vertices per cell is bounded by the unchanged 4096-cell cap.
+  if (options?.mode === 'error-diffusion') {
+    validateOptions(options);
+    return {
+      mode: options.mode,
+      pitch: options.pitch,
+      marks: errorDiffusionMarks(options.cells, options.pitch),
+    };
+  }
   const segments = preflight(options);
   const { cells, pitch, mode, orientation } = options;
   const marks = [];

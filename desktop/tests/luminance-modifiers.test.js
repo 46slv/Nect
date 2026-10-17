@@ -88,7 +88,7 @@ const area = (path) => (path.contours.length ? pathArea(path) : 0);
 const coldRun = (layer, id) => evaluate(layer).run(id);
 
 test('Halftone and Ordered Dither preserve all-white emptiness and cover small and nonaligned black regions', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Error Diffusion Dither']) {
     const white = fixture({ modifier, color: '#ffffff' });
     assert.equal(coldRun(white.layer, white.effect.id).contours.length, 0, `${modifier} white`);
 
@@ -121,7 +121,7 @@ test('Halftone and Ordered Dither preserve all-white emptiness and cover small a
 });
 
 test('valid empty filled geometry stays empty through luminance modifiers', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const empty = fixture({ modifier, rawPath: '' }),
       result = coldRun(empty.layer, empty.effect.id);
     assert.deepEqual(result.contours, [], modifier);
@@ -171,7 +171,7 @@ test('schema migrations remain order-independent when a luminance node precedes 
 });
 
 test('grid-origin phase shifts each luminance mode while keeping source geometry fixed', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const f = fixture({ modifier, paint: 'linear', width: 64, height: 32 }),
       originalSource = coldRun(f.layer, f.shape.id),
       original = coldRun(f.layer, f.effect.id);
@@ -184,7 +184,7 @@ test('grid-origin phase shifts each luminance mode while keeping source geometry
 });
 
 test('negative-index edge cells, compound holes and empty geometry stay clipped in every mode', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const edge = fixture({
         modifier,
         color: '#000000',
@@ -207,7 +207,7 @@ test('negative-index edge cells, compound holes and empty geometry stay clipped 
 });
 
 test('grid-origin limits, lock, serialization/history, bypass, and transactional rollback hold', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const f = fixture({ modifier, paint: 'linear', width: 64, height: 32 }),
       session = new CommandSession(f.doc),
       layerId = f.layer.id,
@@ -263,7 +263,7 @@ test('grid-origin limits, lock, serialization/history, bypass, and transactional
 });
 
 test('a driven grid origin is validated during transactional preflight', () => {
-  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen']) {
+  for (const modifier of ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither']) {
     const f = fixture({ modifier }),
       origin = node('Vector');
     origin.params.value.value = [100001, 0];

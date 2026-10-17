@@ -30,13 +30,15 @@ Instance on Points. Native Windows interaction acceptance for this advancing sou
 | Halftone           | Source Fill or Image; Cell Pitch 1–1024 px; Invert Luminance; Grid Origin X/Y ±100000 px (default 0,0)                        | PaintedPath→PaintedPath; black, cell-clipped polygon dots whose area follows sampled darkness. Grid Origin is the top-left document-coordinate corner of cell (0,0); document Y increases downward                                                                                                                                                                                                      |
 | Ordered Dither     | Source Fill or Image; Cell Pitch 1–1024 px; Invert Luminance; Grid Origin X/Y ±100000 px (default 0,0)                        | PaintedPath→PaintedPath; black, clipped cell squares selected by a fixed Bayer 8×8 threshold; ordered thresholding, not error diffusion; Grid Origin is the top-left document-coordinate corner of cell (0,0)                                                                                                                                                                                           |
 | Line Screen        | Source Fill or Image; Cell Pitch 1–1024 px; Invert Luminance; Horizontal / Vertical; Grid Origin X/Y ±100000 px (default 0,0) | PaintedPath→PaintedPath; cell-sampled black stripes whose thickness follows darkness, clipped to the source mask or placed image rectangle; Grid Origin is the top-left document-coordinate corner of cell (0,0)                                                                                                                                                                                        |
+| Error Diffusion Dither | Source Fill or Image; Cell Pitch 1–1024 px; Invert Luminance; Grid Origin X/Y ±100000 px (default 0,0) | PaintedPath output; Floyd–Steinberg forward raster error diffusion into clipped black cell squares; threshold darkness ≥0.5; schema 19. |
+
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
 preserve authored state. Output/work budgets fail explicitly rather than freezing on huge input.
 Derived geometry is marked unstable so downstream Path Remap edits suspend on changed input.
 Direct canvas text-character editing through these effects is unavailable; edit upstream Text.
-Halftone, Ordered Dither and Line Screen are paint-to-geometry effects: each accepts a filled,
+Halftone, Ordered Dither, Line Screen and Error Diffusion Dither are paint-to-geometry effects: each accepts a filled,
 ungrouped path made of closed contours with a solid or existing two-stop linear/radial gradient
 fill, or an embedded Image. Open, grouped and stroke-only vector inputs fail explicitly. A source
 stroke is not carried into the black output. Grid Origin shifts the grid phase while source geometry stays fixed; it is
@@ -117,3 +119,30 @@ For Count versus Maximum spacing, open [the two-layer density example](../exampl
 
 - Path → Auto Handles → Stroke preserves anchor positions while generating smooth tangent handles. Strength0 clears handles; bypass restores the source.
 - For the reverse direction, [the angularization example](../examples/angularize.json) compares the same curve with24/8/4 Resample points; source geometry remains editable. Rebuild with `node scripts/angularize-example.js`.
+
+### Error Diffusion Dither
+
+A separate node retains the shared field, image support, mask clipping, controls and budgets.
+It sorts cells by ascending row `j`, then column `i` (left-to-right, top-to-bottom; no serpentine
+scan). The accumulated darkness is quantized at `>= 0.5`; residual `value - output` is passed
+to right / down-left / down / down-right with weights 7/16, 3/16, 5/16, 1/16. Accumulated
+values are not clamped before quantization. Missing/out-of-bounds neighbors discard their share
+without renormalization, wrapping, or jumping across gaps. Every sampled bounds cell participates
+before mask clipping, including cells in holes or outside the vector contour. This is deliberately
+a bounds-field policy, not shape-aware diffusion; boundary coverage is not area-compensated.
+
+The kernel is documented in [Frank Pfenning’s CMU lecture 15](https://www.cs.cmu.edu/~fp/courses/graphics/pdf-color/15-image.pdf),
+Floyd–Steinberg Error Diffusion slide, and the forward-scan implementation was cross-checked against
+[Pillow’s conversion source](https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Convert.c).
+Nect uses existing linear-light darkness rather than Pillow’s encoded grayscale conversion.
+This is monochrome black geometry on the existing white-composite sampling model, not color
+diffusion or print calibration. No randomness, rotation, generic Field socket, or larger budget
+is introduced. Changing source bounds can change the error history.
+
+Only documents containing this node promote to schema 19; older Bayer output and default
+fingerprints remain unchanged. Image input retains the target-scoped socket exception and
+disables bypass; filled-vector bypass remains type-preserving. Convert to Path can consume the
+output. Rebuild the editable [comparison JSON](../examples/error-diffusion-playground.json) and
+[SVG proof](../artifacts/error-diffusion-playground.svg) with
+`node scripts/error-diffusion-playground.js`. It compares source / Bayer / error diffusion
+on identical local grid phases and verifies exact paths and SVG in a fresh Node process.
