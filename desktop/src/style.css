@@ -1970,3 +1970,21 @@ input[data-scrub-step].scrubbing {
   flex-basis: 100%;
   overflow-wrap: anywhere;
 }
+
+.source-navigation {
+  border-bottom: 1px solid #d8dde2;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+.source-navigation h4 {
+  margin: 0 0 8px;
+}
+.source-navigation small {
+  display: block;
+  color: #53606a;
+}
+.source-navigation button {
+  max-width: 100%;
+  white-space: normal;
+}

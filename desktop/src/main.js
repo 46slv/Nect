@@ -1,3 +1,4 @@
+import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { attachExpressionCompletion } from './expression-completion.js';
@@ -702,6 +703,9 @@ const sessionOptions = {
       composing
     ),
 };
+let sourceEpoch = 0,
+  sourcePicker = null,
+  sourceReturn = null;
 let viewerState = createViewerState();
 let session = new CommandSession(blankDocument(), sessionOptions);
 let history = session.historyView,
@@ -1701,13 +1705,17 @@ function refreshPointPanels() {
     resolveFonts(history.doc, activeFonts()),
     history.doc.imageAssets,
   );
-  for (const panel of document.querySelectorAll('.graph [data-point-panel]')) {
+  for (const panel of document.querySelectorAll(
+    '.graph [data-point-panel], .inspector [data-point-panel]',
+  )) {
     if (panel.contains(document.activeElement)) continue;
     const n = current().nodes.find((node) => node.id === panel.dataset.pointPanel);
     if (!n) continue;
     panel.outerHTML = n.type === 'Path Remap' ? remapFields(n, result, true) : ownedPointFields(n);
   }
-  for (const panel of document.querySelectorAll('.graph [data-point-panel]'))
+  for (const panel of document.querySelectorAll(
+    '.graph [data-point-panel], .inspector [data-point-panel]',
+  ))
     prepareNumericInputs(panel);
   revealActivePointRow();
   requestAnimationFrame(() => {
@@ -2294,9 +2302,9 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${n.type === 'Geometry Repeater' ? '<p class="font-note">Geometry only; place before Fill / Stroke. Linear: step per copy. Radial: rotate source around center; angle is total arc (fit) or per-copy step. ±360° fit closes the ring without duplicate endpoints. Count includes the first copy (1–256).</p>' : ''}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${n.type === 'Curve' ? ownedPointFields(n) : ''}${editorParameters(
           n,
         )
           .filter(
@@ -3387,6 +3395,272 @@ function freePosition(type) {
     height: type === 'Curve' ? 520 : 260,
   });
 }
+// Source navigation is editor-local. It never dispatches a document command.
+function sourceRoot() {
+  const l = current();
+  const id =
+    artworkTarget && artworkSelection.size === 1
+      ? l.output
+      : !artworkTarget && selection.size === 1 && selection.has(selected)
+        ? selected
+        : null;
+  const n = l.nodes.find((item) => item.id === id);
+  return n && ['Path', 'PaintedPath'].includes(outputType(n))
+    ? { documentEpoch: sourceEpoch, layerId: l.id, nodeId: n.id, port: undefined }
+    : null;
+}
+function sameSourceRoot(a, b) {
+  return (
+    a &&
+    b &&
+    a.documentEpoch === b.documentEpoch &&
+    a.layerId === b.layerId &&
+    a.nodeId === b.nodeId &&
+    a.port === b.port
+  );
+}
+function sourceNavigationBusy() {
+  // Conservatively require leaving an editor control explicitly, even for a clean value.
+  // This runs on pointerdown, BEFORE a button could blur/commit that control.
+  return !!(
+    navigationBusy() ||
+    penDraft ||
+    nameEdit ||
+    canvasTextEdit ||
+    editorPicker ||
+    variableAction ||
+    session.hasGesture ||
+    session.hasTextComposition ||
+    layoutDraft ||
+    gridOpacityDraft ||
+    document.querySelector('dialog[open]') ||
+    editingControl(document.activeElement) ||
+    [...textDrafts.values()].some((draft) => draft.state.changed)
+  );
+}
+function sourceNavigationPanel() {
+  const root = sourceRoot();
+  if (sourcePicker && !sameSourceRoot(sourcePicker.root, root)) sourcePicker = null;
+  const n = selectedNode();
+  let html =
+    '<section class="source-navigation" aria-label="Source editing"><h4 data-source-heading tabindex="-1">Source editing</h4>';
+  if (sourceReturn) {
+    html += `<button data-source-nav="back">Back: ${esc(sourceReturn.label)}</button><p>Back restores selection and graph view, not edits.</p>`;
+    if (n && ['Text', 'Curve'].includes(n.type)) {
+      const uses = directGeometryUses(current(), n.id);
+      html += `<p>Source: ${esc(n.type)} · ${esc(nodeDisplayName(n))}. Editing original-stage values; downstream effects may change the final result.</p><p>${uses.directInputs} saved direct geometry inputs (${uses.directNodes} nodes), same composition. Shared uses also follow edits. This is not a visible instance count.</p>${current().locked ? '<p>Locked composition · read-only source.</p>' : ''}`;
+    }
+  }
+  if (!root) html += '<p>Select one artwork or shape-output node to find its source.</p>';
+  else if (
+    ['Text', 'Curve'].includes(current().nodes.find((item) => item.id === root.nodeId)?.type)
+  )
+    html += '<p>This node is already a source. Use its existing fields below.</p>';
+  else html += '<button data-source-nav="open">Edit source…</button>';
+  if (sourcePicker) {
+    const result = sourcePicker.result;
+    html += `<div role="group" aria-label="Shape-content source candidates"><p role="status">${result.candidates.length} distinct Text / Curve sources. ${result.complete ? 'Known geometry routes searched.' : 'Incomplete search: other routes are unconfirmed. Choose explicitly.'}</p>`;
+    for (const candidate of result.candidates) {
+      const route = candidate.route
+        .map((edge) => {
+          const owner = current().nodes.find((item) => item.id === edge.nodeId);
+          return `${owner?.name || edge.nodeId} / ${edge.input}`;
+        })
+        .join(' ← ');
+      html += `<p><button data-source-nav="enter" data-source-id="${esc(candidate.nodeId)}">${esc(candidate.type)} · ${esc(candidate.name)} · ${esc(candidate.detail)}</button><small> ID: ${esc(candidate.nodeId)} · ${esc(route)} · ${candidate.directInputs} saved direct geometry inputs (${candidate.directNodes} nodes)</small></p>`;
+    }
+    for (const diagnostic of result.diagnostics)
+      html += `<p class="warning">${esc(diagnostic.reason)} · ${esc(diagnostic.nodeId)}</p>`;
+    html += '<button data-source-nav="cancel">Cancel source search</button></div>';
+  }
+  return html + '</section>';
+}
+function focusSourceHeading() {
+  app.querySelector('[data-source-heading]')?.focus({ preventScroll: true });
+}
+function clearSourceEditSelection() {
+  characterEdit = null;
+  pointSelection = { nodeId: null, ids: new Set() };
+  pointFocus = null;
+  pointHover = null;
+  penSegmentHover = null;
+  remapBatches.clear();
+  selectedGuide = null;
+  snapMatches = [];
+}
+function sourceNavigationAction(button) {
+  if (sourceNavigationBusy()) {
+    notify(
+      'Finish or cancel the current field edit or interaction before source navigation.',
+      true,
+    );
+    return;
+  }
+  const action = button.dataset.sourceNav;
+  if (action === 'cancel') {
+    sourcePicker = null;
+    render();
+    app.querySelector('[data-source-nav="open"]')?.focus({ preventScroll: true });
+    return;
+  }
+  if (action === 'back') {
+    const ticket = sourceReturn;
+    sourceReturn = null;
+    sourcePicker = null;
+    if (!ticket || ticket.epoch !== sourceEpoch) return;
+    const l = history.doc.layers.find((item) => item.id === ticket.ui.activeLayer);
+    clearSourceEditSelection();
+    if (!l) {
+      selected = null;
+      selection.clear();
+      artworkTarget = null;
+      artworkSelection.clear();
+      render();
+      focusSourceHeading();
+      notify('Return composition no longer exists.', true);
+      return;
+    }
+    activeLayer = l.id;
+    selection = new Set([...ticket.ui.selection].filter((id) => l.nodes.some((n) => n.id === id)));
+    selected = l.nodes.some((n) => n.id === ticket.ui.selected) ? ticket.ui.selected : null;
+    artworkSelection = new Set(
+      [...ticket.ui.artworkSelection].filter((id) =>
+        history.doc.layers.some((item) => item.id === id),
+      ),
+    );
+    artworkTarget = artworkSelection.has(ticket.ui.artworkTarget) ? ticket.ui.artworkTarget : null;
+    // Conservative correspondence boundary: any committed edit invalidates old point/character scopes.
+    if (ticket.doc === history.doc) {
+      characterEdit = ticket.ui.characterEdit;
+      selectedGuide = ticket.ui.selectedGuide;
+      for (const [id, batch] of ticket.ui.remapBatches) remapBatches.set(id, batch);
+      pointSelection = ticket.points;
+      pointFocus = ticket.pointFocus;
+    }
+    graphZoom = ticket.graphZoom;
+    render();
+    const viewport = app.querySelector('.graph-scroll');
+    const scroll = ticket.center.map((value, axis) =>
+      Math.max(0, value * graphZoom - (axis ? viewport.clientHeight : viewport.clientWidth) / 2),
+    );
+    updateGraphBounds(scroll);
+    viewport.scrollLeft = scroll[0];
+    viewport.scrollTop = scroll[1];
+    app.querySelector('.inspector').scrollTop = ticket.inspectorScroll;
+    focusSourceHeading();
+    notify(
+      selected || artworkTarget
+        ? 'Returned. Source edits are retained.'
+        : 'Returned; original selection no longer exists.',
+    );
+    return;
+  }
+  const root = sourceRoot();
+  if (!root) return;
+  if (action === 'open') {
+    sourcePicker = {
+      root,
+      doc: history.doc,
+      result: queryShapeSources(history.doc, root, session.state.expectedRevision),
+    };
+    render();
+    return;
+  }
+  if (action !== 'enter' || !sourcePicker || !sameSourceRoot(root, sourcePicker.root)) return;
+  if (
+    sourcePicker.doc !== history.doc ||
+    sourcePicker.result.revision !== session.state.expectedRevision
+  ) {
+    sourcePicker = {
+      root,
+      doc: history.doc,
+      result: queryShapeSources(history.doc, root, session.state.expectedRevision),
+    };
+    render();
+    notify('Sources changed. Review the refreshed list and choose again.');
+    return;
+  }
+  const fresh = queryShapeSources(history.doc, root, session.state.expectedRevision);
+  const candidate = fresh.candidates.find((item) => item.nodeId === button.dataset.sourceId);
+  if (!candidate) {
+    sourcePicker.result = fresh;
+    render();
+    notify('Source is no longer available.', true);
+    return;
+  }
+  if (!sourceReturn) {
+    const viewport = app.querySelector('.graph-scroll');
+    sourceReturn = {
+      epoch: sourceEpoch,
+      doc: history.doc,
+      ui: selectionSnapshot(true),
+      points: structuredClone(pointSelection),
+      pointFocus: structuredClone(pointFocus),
+      graphZoom,
+      center: [
+        (viewport.scrollLeft + viewport.clientWidth / 2) / graphZoom,
+        (viewport.scrollTop + viewport.clientHeight / 2) / graphZoom,
+      ],
+      inspectorScroll: app.querySelector('.inspector').scrollTop,
+      label: artworkTarget
+        ? 'Artwork'
+        : nodeDisplayName(current().nodes.find((item) => item.id === root.nodeId)),
+    };
+  }
+  sourcePicker = null;
+  selected = candidate.nodeId;
+  selection = new Set([selected]);
+  artworkTarget = null;
+  artworkSelection = new Set();
+  clearSourceEditSelection();
+  render();
+  app.querySelector('.inspector').scrollTop = 0;
+  focusSourceHeading();
+  // Do not expand authored collapsed cards, change Output, or bind a Viewer.
+  const destination = selected,
+    epoch = sourceEpoch;
+  requestAnimationFrame(() => {
+    if (epoch !== sourceEpoch || selected !== destination) return;
+    [...app.querySelectorAll('.node')]
+      .find((el) => el.dataset.id === destination)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+}
+app.addEventListener(
+  'pointerdown',
+  (event) => {
+    if (!event.target.closest?.('[data-source-nav]')) return;
+    if (sourceNavigationBusy()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      notify(
+        'Finish or cancel the current field edit or interaction before source navigation.',
+        true,
+      );
+    }
+  },
+  true,
+);
+
+app.addEventListener(
+  'keydown',
+  (event) => {
+    if (
+      event.key !== 'Escape' ||
+      event.isComposing ||
+      composing ||
+      !sourcePicker ||
+      !event.target.closest?.('.source-navigation')
+    )
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const cancel = app.querySelector('[data-source-nav="cancel"]');
+    if (cancel) sourceNavigationAction(cancel);
+  },
+  true,
+);
+
 function revealNode(id) {
   requestAnimationFrame(() =>
     document
@@ -4072,6 +4346,9 @@ function updateDocumentStatus() {
   if (status) status.textContent = documents.saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved';
 }
 function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
+  sourceEpoch++;
+  sourcePicker = null;
+  sourceReturn = null;
   cancelVariableAction();
   if (!prepared) {
     variableBridge?.dispose();
@@ -4100,6 +4377,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (Object.hasOwn(d, 'sourceNav')) {
+    sourceNavigationAction(b);
+    return;
+  }
   if (d.pointPanelMode || d.pointPanelPage) {
     const id = d.pointPanelMode || d.pointPanelPage;
     const view = pointPanelViews.get(id) || { all: false, page: 0 };
