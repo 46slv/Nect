@@ -84,3 +84,32 @@ Manual patterns remain editable and display Custom. Each preset is a single
 undoable node-settings command and respects composition locks. Focused stroke
 DOM/core tests pass 4/4; no new Windows ZIP has been produced. Pucker/Bloat meaning
 is awaiting clarification; no deformation node has been added in this slice.
+
+## Non-destructive modifier expansion (2026-10-17)
+
+Shiro requested more Illustrator-like editing including Mirror, then explicitly authorized
+repeating research and additions with Blender modifiers as inspiration. There is no fixed
+modifier-count ceiling. Each addition must have an actual vector-art use, searchable naming,
+editable parameters, bypass, atomic common commands, focused verification and bounded output.
+This does not expand merge/release or account permissions.
+
+### Mirror
+
+- Geometry node before Fill / Stroke, found through Add node → Mirror.
+- Left-right: reflect about the vertical line through Axis Center. Up-down: reflect about
+  the horizontal line. Angle: reflect about a line through Axis Center, clockwise degrees
+  from horizontal (0 horizontal, 90 vertical). Axis Center initially [480,270]; it is explicit,
+  not a continuously inferred artwork bounding center.
+- Keep Original off replaces the evaluated output with its reflection; on retains source
+  plus reflected output as a live pair. Upstream edits update both; the upstream document
+  remains editable. Coordinates and angle support the existing numeric drag/typing UI.
+- Relative Bézier handles are reflected with the linear matrix. Each copy has independent
+  paint groups while hole contours stay together. This is no seam weld or Boolean merge.
+- Deterministic generated IDs; unstable fingerprint protects downstream remaps from silent
+  retargeting. Direct canvas character editing through Mirror is suspended; edit source Text.
+  Raster Image mirroring and artwork-selection flip shortcuts are separate future capabilities.
+- Focused evidence: Mirror core 4/4, DOM 1/1, Join regression 5/5, Web build pass. No claim of
+  native Windows interaction, PNG visual review or full Illustrator equivalence.
+
+Next: review existing Repeater/Offset/Boolean/Remap coverage, then add missing useful geometry
+modifiers in coherent slices instead of duplicating nodes or inventing a generic framework.

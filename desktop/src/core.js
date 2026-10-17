@@ -1,3 +1,4 @@
+import { mirrorGeometry } from './mirror-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -155,6 +156,12 @@ export const definitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
+  },
+  Mirror: {
+    path: p('Path', null),
+    center: p('Vector2', [480, 270]),
+    angle: p('Scalar', 0),
+    keepOriginal: p('Boolean', false),
   },
   'Geometry Repeater': {
     path: p('Path', null),
@@ -315,13 +322,15 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Closed Path Offset'
-        ? 'miter'
-        : type === 'Geometry Repeater'
-          ? 'linear'
-          : ['Math', 'Vector Math'].includes(type)
-            ? 'add'
-            : 'subtract',
+      type === 'Mirror'
+        ? 'left-right'
+        : type === 'Closed Path Offset'
+          ? 'miter'
+          : type === 'Geometry Repeater'
+            ? 'linear'
+            : ['Math', 'Vector Math'].includes(type)
+              ? 'add'
+              : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -447,6 +456,7 @@ const bypassInputs = Object.freeze({
   Math: 'a',
   'Vector Math': 'a',
   Transform: 'path',
+  Mirror: 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -672,6 +682,7 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
@@ -690,6 +701,8 @@ export const operationOptions = {
 };
 export function activeParameters(n) {
   const entries = parameters(n);
+  if (n.type === 'Mirror')
+    return entries.filter(([key]) => key !== 'angle' || n.operation === 'angle');
   if (n.type === 'Geometry Repeater')
     return entries.filter(([key]) =>
       (n.operation === 'linear'
@@ -1393,6 +1406,23 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           ...routeCharacters(a, `${n.id}:a`),
           ...routeCharacters(b, `${n.id}:b`),
         ];
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Mirror') {
+        if (!operationOptions.Mirror.includes(n.operation)) throw Error('Invalid Mirror operation');
+        const source = read('path');
+        result = mirrorGeometry(source, {
+          center: read('center'),
+          angle: n.operation === 'left-right' ? 90 : n.operation === 'up-down' ? 0 : read('angle'),
+          keepOriginal: read('keepOriginal'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Mirror; edit the source Text',
+        );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Geometry Repeater') {
