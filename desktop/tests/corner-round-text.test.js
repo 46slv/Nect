@@ -113,3 +113,100 @@ test('straight-only geometry fingerprints remain unchanged', () => {
     assert.equal(createHash('sha256').update(JSON.stringify(output)).digest('hex'), expected);
   }
 });
+
+for (const raw of ['B', 'S', 'a', 'g']) {
+  test(`real ${raw} sharp cubic joins round at useful font scales, preserving topology and reopening`, async () => {
+    const { fontScene } = await import('../scripts/cubic-font-corners-example.js');
+    for (const serif of [false, true])
+      for (const size of [48, 96])
+        for (const radius of [0.25, 2]) {
+          const s = fontScene(raw, { serif, size, radius }),
+            e = evaluate(s.l, resolveFonts(s.doc));
+          assert.equal(e.error, null);
+          const source = e.run(s.text.id),
+            result = e.run(s.round.id);
+          assert.ok(result.cornerDiagnostics.rounded > 0);
+          if (!serif)
+            assert.equal(result.cornerDiagnostics.rounded, { B: 7, S: 7, a: 7, g: 6 }[raw]);
+          assert.equal(result.contours.length, source.contours.length);
+          assert.notEqual(pathData(result), pathData(source));
+          assert.deepEqual(
+            result.contours.map((c) => [c.group, c.closed]),
+            source.contours.map((c) => [c.group, c.closed]),
+          );
+          const reopened = deserialize(serialize(s.doc));
+          assert.equal(exportSVG(reopened), exportSVG(s.doc));
+          const direct = fontScene(raw, { serif, size, radius, converted: true });
+          assert.equal(
+            pathData(e.path),
+            pathData(evaluate(direct.l, resolveFonts(direct.doc)).path),
+          );
+        }
+  });
+}
+test('real O is exactly unchanged over small and oversized radii and font sizes', async () => {
+  const { fontScene } = await import('../scripts/cubic-font-corners-example.js');
+  for (const serif of [false, true])
+    for (const size of [48, 96])
+      for (const radius of [0.25, 2, 24, 1000]) {
+        const s = fontScene('O', { serif, size, radius }),
+          e = evaluate(s.l, resolveFonts(s.doc));
+        assert.equal(e.error, null);
+        assert.deepEqual(
+          e.run(s.round.id).contours.map(geometry),
+          e.run(s.text.id).contours.map(geometry),
+        );
+      }
+});
+test('static TTF/glyf and OTF/CFF imports both feed Corner Round and cold SVG export', () => {
+  for (const extension of ['ttf', 'otf']) {
+    const bytes = fs.readFileSync(
+      new URL(`./fixtures/fonts/NectJPFixture-Regular.${extension}`, import.meta.url),
+    );
+    const font = makeFontAsset(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      `fixture.${extension}`,
+    );
+    const s = scene('ABC日本');
+    s.doc.fontAssets = { [font.id]: font.asset };
+    s.text.font = font.id;
+    const e = evaluate(s.l, resolveFonts(s.doc));
+    assert.equal(e.error, null);
+    assert.equal(exportSVG(deserialize(serialize(s.doc))), exportSVG(s.doc));
+    assert.ok(
+      e.path.contours.every((c) =>
+        c.points.every((p) => [...p.position, ...p.handleA, ...p.handleB].every(Number.isFinite)),
+      ),
+    );
+  }
+});
+test('real B counters retain their interior samples at oversized radius', async () => {
+  const { default: paper } = await import('paper');
+  const { fontScene } = await import('../scripts/cubic-font-corners-example.js');
+  const project = new paper.Project();
+  const curve = (c) =>
+    new paper.Path({
+      segments: c.points.map((p) => new paper.Segment(p.position, p.handleA, p.handleB)),
+      closed: c.closed,
+      insert: false,
+    });
+  try {
+    for (const serif of [false, true]) {
+      const s = fontScene('B', { serif, size: 48, radius: 24 }),
+        e = evaluate(s.l, resolveFonts(s.doc));
+      const before = e.run(s.text.id).contours,
+        after = e.run(s.round.id).contours;
+      assert.equal(before.length, 3);
+      for (let i = 0; i < before.length; i++) {
+        const a = curve(before[i]),
+          b = curve(after[i]);
+        assert.equal(Math.sign(a.area), Math.sign(b.area));
+        assert.ok(b.contains(a.interiorPoint));
+        a.remove();
+        b.remove();
+      }
+    }
+  } finally {
+    project.remove();
+  }
+});

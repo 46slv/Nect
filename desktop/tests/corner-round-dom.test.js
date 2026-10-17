@@ -92,6 +92,6 @@ test('Corner Round controls expose draggable radius with undo', async () => {
   document.querySelector('[data-action="undo"]').click();
   await tick();
   assert.equal(read().params.radius.value, 12);
-  assert.match(document.querySelector('.inspector-body').textContent, /straight-edge/);
+  assert.match(document.querySelector('.inspector-body').textContent, /G1/);
   win.happyDOM.abort();
 });

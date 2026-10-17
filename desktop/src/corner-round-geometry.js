@@ -1,3 +1,4 @@
+import { hasCurves, roundMixedContours } from './corner-round-cubic.js';
 const MAX_CONTOURS = 10000;
 const MAX_POINTS = 100000;
 const ANGLE_EPSILON = 1e-12;
@@ -211,9 +212,9 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
 }
 
 /**
- * Round only vertices between two straight segments, including in mixed paths.
- * Curve-adjacent vertices and their relative handles stay unchanged. A zero
- * radius is a geometry-preserving clone/no-op.
+ * Preserve the historical straight-only path. Mixed contours use conservative
+ * G1 blends with exact retained cubic restrictions and bounded diagnostics.
+ * A zero radius is a geometry-preserving clone/no-op.
  */
 export function roundCorners(source, { radius, prefix = 'round-corners' } = {}) {
   if (!Number.isFinite(radius) || radius < 0)
@@ -223,6 +224,17 @@ export function roundCorners(source, { radius, prefix = 'round-corners' } = {}) 
   if (typeof prefix !== 'string' || !prefix)
     throw Error('Round Corners needs a nonempty ID prefix');
   let pointCount = 0;
+  const addPoint = () => {
+    pointCount++;
+    if (pointCount > MAX_POINTS) throw Error('Round Corners exceeds geometry budget');
+  };
+  if (source.contours.some(hasCurves))
+    return roundMixedContours(source, {
+      radius,
+      prefix,
+      addPoint,
+      legacy: (contour, index) => roundContour(contour, index, radius, prefix, addPoint),
+    });
   const contours = source.contours.map((contour, index) =>
     roundContour(contour, index, radius, prefix, () => {
       pointCount++;

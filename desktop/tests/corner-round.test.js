@@ -60,7 +60,7 @@ test('Corner Round radius uses atomic common commands and respects history / loc
   assert.throws(() => send('set-parameter', { key: 'radius', value: 3 }), /lock/i);
   assert.deepEqual(session.snapshot(), locked);
 });
-test('curved input can be connected through common commands and preserves its cubic', () => {
+test('curved input can be connected through common commands and keeps a cubic representation', () => {
   const { doc, l, round } = scene();
   const curve = node('Curve');
   curve.points[0].handleB.value = [30, 0];
@@ -77,8 +77,12 @@ test('curved input can be connected through common commands and preserves its cu
     path.contours.map((c) =>
       c.points.map(({ position, handleA, handleB }) => ({ position, handleA, handleB })),
     );
-  assert.deepEqual(
-    geometry(result.run(round.id))[0].slice(0, 2),
-    geometry(result.run(curve.id))[0].slice(0, 2),
+  const rounded = result.run(round.id);
+  assert.ok(rounded.cornerDiagnostics.rounded > 0);
+  assert.ok(
+    geometry(rounded)[0].some(
+      (p) => p.handleA.some((v) => v !== 0) || p.handleB.some((v) => v !== 0),
+    ),
   );
+  assert.equal(curve.points[0].handleB.value[0], 30);
 });

@@ -2680,6 +2680,10 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (radius < 0 || radius > 100000)
           throw Error('Corner Round radius must be from 0 to 100000 px');
         result = roundCorners(source, { radius, prefix: fingerprint(n.id) });
+        for (const [reason, count] of Object.entries(result.cornerDiagnostics?.skipped || {}))
+          warnings.push(
+            `${n.name}: ${count} corner(s) left unchanged (${reason}). Curved corners use conservative local G1 blends.`,
+          );
         result.characterOccurrences = routeCharacters(
           source,
           n.id,
