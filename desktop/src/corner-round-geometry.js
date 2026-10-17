@@ -136,6 +136,12 @@ function cornerArc(vertex, incoming, outgoing, radius, contourIndex) {
   return points;
 }
 
+const zeroHandle = (handle) => handle[0] === 0 && handle[1] === 0;
+
+// A segment belongs to both endpoints: a zero handle at this vertex alone
+// does not make its neighbor's cubic segment a line.
+const straightSegment = (from, to) => zeroHandle(from.handleB) && zeroHandle(to.handleA);
+
 function roundContour(contour, contourIndex, radius, prefix, addPoint) {
   const points = contour.points;
   const count = points.length;
@@ -148,10 +154,11 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
       points: points.map((point, index) => {
         addPoint();
         return {
+          ...point,
           id: `${prefix}:c${contourIndex}:p${index}`,
           position: [...point.position],
-          handleA: [0, 0],
-          handleB: [0, 0],
+          handleA: [...point.handleA],
+          handleB: [...point.handleB],
         };
       }),
     };
@@ -162,6 +169,8 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
   for (let i = first; i < end; i++) {
     const previous = (i - 1 + count) % count;
     const next = (i + 1) % count;
+    if (!straightSegment(points[previous], points[i]) || !straightSegment(points[i], points[next]))
+      continue;
     const incoming = unitEdge(points[previous].position, points[i].position, contourIndex);
     const outgoing = unitEdge(points[i].position, points[next].position, contourIndex);
     corners[i] = cornerArc(points[i].position, incoming, outgoing, radius, contourIndex);
@@ -170,8 +179,10 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
   const output = [];
   const push = (point) => {
     addPoint();
+    const { id: sourceId, ...attributes } = point;
     output.push({
       id: `${prefix}:c${contourIndex}:p${output.length}`,
+      ...attributes,
       position: [...point.position],
       handleA: [...point.handleA],
       handleB: [...point.handleB],
@@ -181,16 +192,16 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
     for (let i = 0; i < count; i++) {
       const arc = corners[i];
       if (arc) for (const point of arc) push(point);
-      else push({ position: points[i].position, handleA: [0, 0], handleB: [0, 0] });
+      else push(points[i]);
     }
   } else {
-    push({ position: points[0].position, handleA: [0, 0], handleB: [0, 0] });
+    push(points[0]);
     for (let i = 1; i < count - 1; i++) {
       const arc = corners[i];
       if (arc) for (const point of arc) push(point);
-      else push({ position: points[i].position, handleA: [0, 0], handleB: [0, 0] });
+      else push(points[i]);
     }
-    if (count > 1) push({ position: points[count - 1].position, handleA: [0, 0], handleB: [0, 0] });
+    if (count > 1) push(points[count - 1]);
   }
   return {
     ...contour,
@@ -200,8 +211,9 @@ function roundContour(contour, contourIndex, radius, prefix, addPoint) {
 }
 
 /**
- * Round only straight-edge polygon corners. Curved source segments are rejected
- * for positive radii; a zero radius is a geometry-preserving clone/no-op.
+ * Round only vertices between two straight segments, including in mixed paths.
+ * Curve-adjacent vertices and their relative handles stay unchanged. A zero
+ * radius is a geometry-preserving clone/no-op.
  */
 export function roundCorners(source, { radius, prefix = 'round-corners' } = {}) {
   if (!Number.isFinite(radius) || radius < 0)
@@ -210,19 +222,6 @@ export function roundCorners(source, { radius, prefix = 'round-corners' } = {}) 
   if (radius === 0) return cloneGeometry(source);
   if (typeof prefix !== 'string' || !prefix)
     throw Error('Round Corners needs a nonempty ID prefix');
-  for (const contour of source.contours) {
-    for (const point of contour.points) {
-      if (
-        point.handleA[0] !== 0 ||
-        point.handleA[1] !== 0 ||
-        point.handleB[0] !== 0 ||
-        point.handleB[1] !== 0
-      )
-        throw Error(
-          'Round Corners supports straight-edge polylines only; zero Bezier handles are required',
-        );
-    }
-  }
   let pointCount = 0;
   const contours = source.contours.map((contour, index) =>
     roundContour(contour, index, radius, prefix, () => {

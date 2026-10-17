@@ -210,20 +210,7 @@ test('preserves contour group membership and winding order', () => {
   }
 });
 
-test('rejects curved input, malformed radius, zero-length edges and non-finite geometry', () => {
-  const curved = {
-    contours: [
-      contour(
-        [
-          [0, 0],
-          [10, 0],
-        ],
-        false,
-      ),
-    ],
-  };
-  curved.contours[0].points[0].handleB = [0, 1];
-  assert.throws(() => roundCorners(curved, { radius: 1 }), /straight-edge polylines/);
+test('rejects malformed radius, zero-length line edges and non-finite geometry', () => {
   for (const radius of [-1, Infinity, NaN])
     assert.throws(() => roundCorners({ contours: [] }, { radius }), /finite and nonnegative/);
   assert.throws(
@@ -262,5 +249,85 @@ test('rejects outputs that exceed the geometry point budget', () => {
   assert.throws(
     () => roundCorners({ contours: [contour(positions, false)] }, { radius: 1, prefix: 'large' }),
     /geometry budget/,
+  );
+});
+
+test('mixed contours round only line-line corners and retain cubic endpoints and handles exactly', () => {
+  const source = {
+    contours: [
+      {
+        id: 'mixed',
+        closed: false,
+        group: 'g',
+        points: [
+          point('a', [0, 0], [8, 7]),
+          point('b', [10, 0]),
+          point('c', [10, 10]),
+          point('d', [20, 10], [0, 0], [4, -6]),
+          point('e', [30, 20], [-7, 2]),
+          point('f', [40, 20], [0, 0], [5, 9]),
+        ],
+      },
+    ],
+  };
+  const original = structuredClone(source);
+  const result = roundCorners(source, { radius: 2 });
+  const points = result.contours[0].points;
+  assert.equal(points.length, 8); // b and c rounded; d/e curve-adjacent, a/f open ends
+  for (const index of [0, 3, 4, 5]) {
+    const expected = source.contours[0].points[index];
+    const actual = points.find(
+      (p) => JSON.stringify(p.position) === JSON.stringify(expected.position),
+    );
+    assert.ok(actual);
+    assert.deepEqual(actual.handleA, expected.handleA);
+    assert.deepEqual(actual.handleB, expected.handleB);
+    assert.notEqual(actual.position, expected.position);
+    assert.notEqual(actual.handleB, expected.handleB);
+  }
+  assert.equal(result.contours[0].group, 'g');
+  assert.deepEqual(source, original);
+});
+
+test('both remote handles prevent false line-line eligibility, including the closed seam', () => {
+  for (const [pointIndex, handle] of [
+    [0, 'handleB'],
+    [2, 'handleA'],
+  ]) {
+    const c = contour(
+      [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+      ],
+      false,
+    );
+    c.points[pointIndex][handle] = [1, 2];
+    assert.equal(roundCorners({ contours: [c] }, { radius: 2 }).contours[0].points.length, 3);
+  }
+  const c = contour([
+    [0, 0],
+    [10, 0],
+    [10, 10],
+    [0, 10],
+  ]);
+  c.points[3].handleB = [3, 0];
+  const result = roundCorners({ contours: [c] }, { radius: 2 }).contours[0];
+  assert.equal(result.points.length, 6);
+  for (const i of [0, 3]) {
+    const p = result.points.find((p) => p.position.every((v, j) => v === c.points[i].position[j]));
+    assert.deepEqual(p.handleB, c.points[i].handleB);
+  }
+});
+
+test('short closed cubic contours and coincident cubic endpoints remain intact', () => {
+  const c = {
+    closed: true,
+    points: [point('a', [0, 0], [-2, 3], [2, 3]), point('b', [0, 0], [2, -3], [-2, -3])],
+  };
+  const result = roundCorners({ contours: [c] }, { radius: 2 });
+  assert.deepEqual(
+    result.contours[0].points.map(({ id, ...p }) => p),
+    c.points.map(({ id, ...p }) => p),
   );
 });

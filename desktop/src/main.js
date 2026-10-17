@@ -1505,7 +1505,7 @@ function resampleControls(n) {
 }
 function cornerRoundControls(n) {
   return n.type === 'Corner Round'
-    ? '<p class="font-note">Round straight-edge polygon / polyline corners before Fill / Stroke. Radius is document px; short edges limit each tangent to half the adjacent edge. Open endpoints stay fixed. Curved input is unsupported at nonzero radius; zero radius preserves the input. Circular corners use cubic Bézier approximation. No Boolean cleanup or self-intersection repair.</p>'
+    ? '<p class="font-note">Round straight-edge corners before Fill / Stroke, including in Text and mixed line / curve paths. Radius is document px; short edges limit each tangent to half the adjacent edge. Open endpoints stay fixed. Only corners between two straight segments are rounded. Existing curves and line-to-curve joins stay unchanged; this does not round every glyph corner. Zero radius preserves the input. Circular corners use cubic Bézier approximation. No Boolean cleanup or self-intersection repair.</p>'
     : '';
 }
 function dashControls(n) {

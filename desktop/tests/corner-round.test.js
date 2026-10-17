@@ -60,30 +60,25 @@ test('Corner Round radius uses atomic common commands and respects history / loc
   assert.throws(() => send('set-parameter', { key: 'radius', value: 3 }), /lock/i);
   assert.deepEqual(session.snapshot(), locked);
 });
-test('new curved input errors roll back, and unrelated edits can repair an already-invalid graph', () => {
-  const { doc, l, shape, round } = scene();
+test('curved input can be connected through common commands and preserves its cubic', () => {
+  const { doc, l, round } = scene();
   const curve = node('Curve');
   curve.points[0].handleB.value = [30, 0];
   l.nodes.push(curve);
   const session = new CommandSession(doc);
-  const before = session.snapshot();
-  assert.throws(
-    () =>
-      session.dispatch({
-        ...session.state,
-        type: 'connect',
-        payload: { layerId: l.id, sourceId: curve.id, nodeId: round.id, key: 'path' },
-      }),
-    /straight-edge/,
-  );
-  assert.deepEqual(session.snapshot(), before);
-  // Direct model fixtures can represent externally authored unsupported input.
-  connect(l, curve.id, round.id, 'path');
-  const broken = new CommandSession(doc);
-  broken.dispatch({
-    ...broken.state,
-    type: 'set-parameter',
-    payload: { layerId: l.id, nodeId: round.id, key: 'radius', value: 0 },
+  session.dispatch({
+    ...session.state,
+    type: 'connect',
+    payload: { layerId: l.id, sourceId: curve.id, nodeId: round.id, key: 'path' },
   });
-  assert.equal(evaluate(broken.snapshot().layers[0]).error, null);
+  const result = evaluate(session.snapshot().layers[0]);
+  assert.equal(result.error, null);
+  const geometry = (path) =>
+    path.contours.map((c) =>
+      c.points.map(({ position, handleA, handleB }) => ({ position, handleA, handleB })),
+    );
+  assert.deepEqual(
+    geometry(result.run(round.id))[0].slice(0, 2),
+    geometry(result.run(curve.id))[0].slice(0, 2),
+  );
 });
