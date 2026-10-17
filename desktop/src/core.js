@@ -1,3 +1,4 @@
+import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
@@ -157,6 +158,7 @@ export const definitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
+  'Corner Round': { path: p('Path', null), radius: p('Scalar', 12) },
   Mirror: {
     path: p('Path', null),
     center: p('Vector2', [480, 270]),
@@ -457,6 +459,7 @@ const bypassInputs = Object.freeze({
   'Vector Math': 'a',
   Transform: 'path',
   Mirror: 'path',
+  'Corner Round': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -1408,6 +1411,20 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Corner Round') {
+        const source = read('path');
+        const radius = read('radius');
+        if (radius < 0 || radius > 100000)
+          throw Error('Corner Round radius must be from 0 to 100000 px');
+        result = roundCorners(source, { radius, prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Corner Round; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Mirror') {
         if (!operationOptions.Mirror.includes(n.operation)) throw Error('Invalid Mirror operation');
         const source = read('path');
@@ -2121,6 +2138,11 @@ export function validate(doc) {
           n.params.count.value > 256)
       )
         throw Error('Repeater count must be an integer from 1 to 256');
+      if (
+        n.type === 'Corner Round' &&
+        (n.params.radius.value < 0 || n.params.radius.value > 100000)
+      )
+        throw Error('Corner Round radius must be from 0 to 100000 px');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
       if (

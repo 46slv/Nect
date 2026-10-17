@@ -113,3 +113,37 @@ This does not expand merge/release or account permissions.
 
 Next: review existing Repeater/Offset/Boolean/Remap coverage, then add missing useful geometry
 modifiers in coherent slices instead of duplicating nodes or inventing a generic framework.
+
+### Corner Round
+
+- Non-destructive straight-edge polygon/polyline fillet, inspired by the non-destructive
+  edge treatment of [Blender Bevel](https://docs.blender.org/manual/en/4.4/modeling/modifiers/generate/bevel.html).
+  This is a 2D design adaptation, not Blender feature parity.
+- Path input, Radius 0–100000 document px (default 12), standard bypass. Positive radius
+  requires zero Bézier handles; curves fail explicitly. Radius 0 preserves any input geometry.
+- Circular tangent arcs approximated by cubic segments of at most 90 degrees. Adjacent
+  half-edge limits reduce the effective radius on short edges. Open endpoints remain fixed;
+  concave signed turns, holes/group membership and winding order are retained.
+- Zero-length edges at rounded corners and 180-degree reversals fail explicitly. This does
+  not weld, repair self-intersections or promise global topology preservation.
+- Geometry output bounded to 10000 contours /100000 points. Generated IDs and fingerprint
+  follow the existing remap suspension contract. Edit the upstream polygon/curve as the source.
+- Evidence: geometry 8/8, Session graph/history 2/2, DOM 1/1 and Mirror regression 4/4 passed;
+  Web build passed. A combined rounded-star + live-Mirror SVG exported successfully. Raster
+  preview was not inspected (cloud SVG rasterizer unavailable); no native GUI claim.
+
+### Continuing research sequence
+
+- Resample Path: count-controlled equally spaced samples along each contour, as a foundation
+  for deliberate point-density editing and later displacement. Curves become polylines; name
+  and docs must make approximation explicit. Reference:
+  [Blender Resample Curve](https://docs.blender.org/manual/en/5.0/modeling/geometry_nodes/curve/operations/resample_curve.html).
+- Simplify Path: error-tolerance-driven point reduction with explicit topology checks;
+  [Blender Decimate](https://docs.blender.org/manual/en/4.4/modeling/modifiers/generate/decimate.html)
+  is inspiration, not an implementation contract.
+- Expand Stroke: geometry outlines from width/caps/joins, then Boolean-editable shapes;
+  [Blender Solidify](https://docs.blender.org/manual/en/5.3/modeling/modifiers/generate/solidify.html)
+  motivates converting thickness into geometry. Need a bounded open/closed offset contract.
+
+These are an evolving implementation sequence under Shiro's explicit research/addition
+instruction, not a reason to rebuild existing Repeater/Offset/Mirror or run full audits.
