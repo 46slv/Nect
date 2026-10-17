@@ -527,3 +527,25 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - O(points),10000-contour/100000-point limit, immutable clones, deterministic IDs, finite coordinate/absolute-endpoint guards, unstable fingerprint and upstream Text edit restriction. Acute turns may overshoot or self-intersect; this is not topology repair or exact Blender parity. The [Blender automatic-handle category](https://docs.blender.org/manual/en/latest/modeling/curves/structure.html) is a reference, not the numeric formula.
 - Final focused evidence: helper9 + core/Session2 + DOM1 + disconnected validation1 + bypass42 =55/55 pass; Webbuild passes with existing large-chunk warning. No native GUI/full-suite claim.
 - User's curve-to-angular question was answered with actual core output in an8-layer editable comparison: original circle and24/8/4-point Resample variants. Inkscape rendered the SVG on white for the delivered PNG. Catalog19, main playground still18/47layers; this comparison is not a new production asset count.
+
+### Instance on Points
+
+- Inspired by Blender's [Instance on Points](https://docs.blender.org/manual/en/4.5/modeling/geometry_nodes/instances/instance_on_points.html)
+  concept. Nect materializes Path geometry; it does not claim Blender reference-instance parity.
+- Path → Path with required Source Path and Points Path inputs. The whole-source geometric
+  bounds center, from the existing `pathBounds(source)`, is placed at each authored target
+  anchor. Target handles, curve interiors and groups are ignored. Use Resample Path before
+  Points when even spacing is wanted. Translation only; there is no tangent orientation, rotation,
+  scale or pivot control in this slice.
+- Copies preserve source contours, holes, groups, relative handles and metadata. Each target
+  anchor, including a duplicate, gets distinct deterministic contour/point IDs and independent
+  groups. Transparent copies remain separately painted; no global union is performed.
+- Both inputs are required and incomplete wiring stays a normal editable state. Source-path
+  bypass forwards the exact source without evaluating Points. The node participates in bounded
+  transactional preflight; counts are rejected before Paper bounds work. Output budgets and
+  non-finite arithmetic reject the full command. Derived output is unstable for downstream
+  Path Remap, and direct Text character editing stays upstream at the Source Text.
+- Focused helper/core/DOM/bypass tests and one Web build are the requested verification scope;
+  full-suite, native Windows acceptance and replacement packaging are outside this slice. The
+  advancing source catalog contains20 modifiers; the main playground remains18 modifiers /47
+  layers, and the separate frozen trial remains19 modifiers.

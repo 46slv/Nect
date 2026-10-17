@@ -13,6 +13,7 @@ import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
+import { instancePointsGeometry } from './instance-points-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -240,6 +241,10 @@ export const definitions = {
     center: p('Vector2', [480, 270]),
     startAngle: p('Scalar', 0),
     angle: p('Scalar', 360),
+  },
+  'Instance on Points': {
+    path: p('Path', null),
+    points: p('Path', null),
   },
   Value: { value: p('Scalar', 100) },
   Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
@@ -554,6 +559,7 @@ const bypassInputs = Object.freeze({
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
   'Geometry Repeater': 'path',
+  'Instance on Points': 'path',
   'Convert to Path': 'path',
   'Text to Path': 'path',
   Fill: 'path',
@@ -590,7 +596,10 @@ function bypassInput(n) {
 }
 function evaluatedParameters(n) {
   const input = bypassInput(n);
-  return input ? [[input, n.params[input]]] : activeParameters(n);
+  if (input) return [[input, n.params[input]]];
+  if (n.type === 'Instance on Points' && (!n.params.path.source || !n.params.points.source))
+    return [];
+  return activeParameters(n);
 }
 export function setNodeBypassed(layer, nodeId, bypassed) {
   const n = layer.nodes.find((n) => n.id === nodeId);
@@ -2488,6 +2497,63 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Instance on Points') {
+        if (!n.params.path.source || !n.params.points.source)
+          throw Error('Connect both Source and Points Path inputs');
+        const source = read('path'),
+          targets = read('points');
+        if (!source || !targets) throw Error('Connect both Source and Points Path inputs');
+
+        // Keep malformed or over-budget geometry away from Paper bounds work.
+        // The geometry helper remains the authoritative structural validator.
+        const cheapPointCount = (path) => {
+          if (!Array.isArray(path?.contours)) return null;
+          if (path.contours.length > 10000)
+            throw Error('Instance on Points exceeds geometry budget');
+          let count = 0;
+          for (const contour of path.contours) {
+            count += Array.isArray(contour?.points) ? contour.points.length : 0;
+            if (count > 100000) throw Error('Instance on Points exceeds geometry budget');
+          }
+          return count;
+        };
+        const sourcePoints = cheapPointCount(source),
+          targetPoints = cheapPointCount(targets);
+        if (sourcePoints === null || targetPoints === null) {
+          result = instancePointsGeometry(source, targets, { prefix: fingerprint(n.id) });
+        } else if (sourcePoints === 0 || targetPoints === 0) {
+          // Empty inputs produce empty geometry without constructing Paper bounds.
+          result = instancePointsGeometry(source, targets, { prefix: fingerprint(n.id) });
+        } else {
+          if (targetPoints > 256) throw Error('Instance on Points exceeds instance budget');
+          const sourceGroups = new Set(source.contours.map((contour) => contour?.group ?? ''));
+          if (
+            source.contours.length * targetPoints > 10000 ||
+            sourcePoints * targetPoints > 100000 ||
+            sourceGroups.size * targetPoints > 256
+          )
+            throw Error('Instance on Points exceeds geometry budget');
+          const bounds = pathBounds(source),
+            pivot = [bounds[0][1], bounds[1][1]],
+            prefix = fingerprint(n.id);
+          result = instancePointsGeometry(source, targets, { pivot, prefix });
+        }
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Instance on Points; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(
+          JSON.stringify([
+            provenance(n.id),
+            source.fingerprint || null,
+            signature(source),
+            targets.contours.flatMap((contour) => contour.points.map((point) => point.position)),
+            signature(result),
+          ]),
+        );
       } else if (n.type === 'Closed Path Offset') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
@@ -2859,9 +2925,14 @@ export function assertClosedOffsetChange(
     'Bend Points',
     'Twist Points',
     'Auto Handles',
+    'Instance on Points',
   ]);
   const boundedInputs = (n) =>
-    n.type === 'Boolean' ? ['a', 'b'].map((key) => n.params[key]?.source) : [n.params.path?.source];
+    n.type === 'Boolean'
+      ? ['a', 'b'].map((key) => n.params[key]?.source)
+      : n.type === 'Instance on Points'
+        ? ['path', 'points'].map((key) => n.params[key]?.source)
+        : [n.params.path?.source];
   if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;

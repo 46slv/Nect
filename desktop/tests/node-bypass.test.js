@@ -83,6 +83,7 @@ const supported = [
   'Path Remap',
   'Closed Path Offset',
   'Geometry Repeater',
+  'Instance on Points',
   'Convert to Path',
   'Text to Path',
   'Fill',

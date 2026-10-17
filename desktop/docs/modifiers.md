@@ -1,8 +1,8 @@
 # Non-destructive vector modifier catalog
 
 These nodes preserve the upstream source and can be reordered by graph wiring. Use Add node
-search. Development build required: the previously distributed 7496aee trial cannot load these
-new node names. Native Windows interaction and a replacement trial package remain open.
+search. Development build required: the separately frozen 19-modifier trial does not contain
+Instance on Points. Native Windows interaction acceptance for this advancing source remains open.
 
 | Node               | Controls                                                                                              | Current contract                                                                                                                                                                                                                                                                                                                     |
 | ------------------ | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -25,7 +25,8 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Taper              | Amount −50..50%; Horizontal / Vertical axis                                                           | Whole-input control bounds; scales the perpendicular dimension; nonlinear curve interior is approximate                                                                                                                                                                                                                              |
 | Bend Points        | Angle −180°..180°; Horizontal / Vertical axis                                                         | Bends all contours into a circular strip around the shared control-bounds midpoint; folds are rejected; nonlinear curve interior is approximate                                                                                                                                                                                      |
 | Twist Points       | Angle −360°..360°                                                                                     | Center-weighted radial angular warp in one shared whole-input bounds frame; positive is clockwise in screen coordinates; nonlinear curve interior is approximate                                                                                                                                                                     |
-| Auto Handles | Strength0–1 | Preserves anchors; generates symmetric one-third-shorter-chord tangents;0 makes straight edges |
+| Auto Handles       | Strength0–1                                                                                           | Preserves anchors; generates symmetric one-third-shorter-chord tangents;0 makes straight edges                                                                                                                                                                                                                                       |
+| Instance on Points | Source Path; Points Path                                                                              | Places the whole-source bounds center at each authored target anchor; translation only. Target handles, interiors and groups are ignored. Both paths are required; Resample Points first for even spacing. Copies are materialized, bounded geometry with separate groups and no global union                                        |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
@@ -56,6 +57,7 @@ produce empty erosion.
 - Text/Path → Taper → Fill for size progression across a wordmark; Resample first for finer curve deformation.
 - Line/Curve → Bend Points → Stroke or Fill for a circular strip; Resample first for finer deformation detail.
 - Text/Path → Twist Points → Fill or Stroke for a center-weighted swirl; Resample first for finer deformation detail.
+- Source Path → Instance on Points ← Points Path → Fill for translated ornaments; use Resample Path before Points when even spacing is wanted.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 
