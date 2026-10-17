@@ -74,6 +74,50 @@ function directory(bytes) {
   return tables;
 }
 
+/** Derive display metadata only; never use names/classes as face identity or synthesis. */
+export function fontMetadata(font) {
+  const names = font?.names;
+  const name = (records) => {
+    if (!records || typeof records !== 'object' || Array.isArray(records)) return null;
+    const keys = Object.keys(records).sort();
+    const ordered = [
+      ...keys.filter((key) => key === 'en'),
+      ...keys.filter((key) => key.startsWith('en-')),
+      ...keys.filter((key) => key !== 'en' && !key.startsWith('en-')),
+    ];
+    for (const key of ordered) {
+      const value = records[key];
+      if (
+        typeof value === 'string' &&
+        value.trim().length &&
+        value.length <= 256 &&
+        !/[\u0000-\u001f\u007f-\u009f]/u.test(value)
+      )
+        return value.trim();
+    }
+    return null;
+  };
+  const integer = (value, min, max) =>
+    Number.isInteger(value) && value >= min && value <= max ? value : null;
+  const os2 = font?.tables?.os2;
+  const fsSelection = integer(os2?.fsSelection, 0, 0xffff);
+  const flag = (bit) => (fsSelection === null ? null : Boolean(fsSelection & (1 << bit)));
+  const version = integer(os2?.version, 0, 0xffff);
+  return Object.freeze({
+    family: name(names?.preferredFamily) ?? name(names?.fontFamily),
+    subfamily: name(names?.preferredSubfamily) ?? name(names?.fontSubfamily),
+    fullName: name(names?.fullName),
+    postScriptName: name(names?.postScriptName),
+    weightClass: integer(os2?.usWeightClass, 1, 1000),
+    widthClass: integer(os2?.usWidthClass, 1, 9),
+    fsSelection,
+    italic: flag(0),
+    bold: flag(5),
+    regular: flag(6),
+    oblique: version !== null && version >= 4 ? flag(9) : null,
+  });
+}
+
 /** Parse only local bytes. No URL, system-font lookup or network is performed. */
 export function parseFont(bytes) {
   try {
@@ -109,6 +153,7 @@ export function parseFont(bytes) {
         origins.set(v.getUint16(8 + i * 4), v.getInt16(10 + i * 4));
     }
     font.nectVertical = { metrics, origins, defaultOrigin };
+    font.nectMetadata = fontMetadata(font);
     return font;
   } catch (e) {
     throw Error(`Cannot load font: ${e.message}`);
