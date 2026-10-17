@@ -11,7 +11,7 @@ Patterns were checked against primary product documentation:
 - [Blender node introduction](https://docs.blender.org/manual/en/4.4/interface/controls/nodes/introduction.html): node-editor pan, Frame All and Frame Selected. Direct retrieval was unavailable; official search excerpts supported these navigation patterns.
 - [DaVinci Resolve 20 Fusion Visual Effects training](https://documents.blackmagicdesign.com/UserManuals/DaVinci-Resolve-20-Fusion-Visual-Effects.pdf?_v=1757574012000), pp. 24–25: context-specific view zoom, pan, actual size and fit.
 
-These are adapted interaction patterns, not a compatibility claim or a broad redesign. No panel zoom, permanent Hand tool, minimap, node rearrangement or canvas-selection fitting is added. Canvas selection fitting remains deferred until bounds for selected source outputs, transforms and character instances are consistently verified.
+These are adapted interaction patterns, not a compatibility claim or a broad redesign. No panel zoom, permanent Hand tool, node rearrangement or canvas-selection fitting is added. Canvas selection fitting remains deferred until bounds for selected source outputs, transforms and character instances are consistently verified.
 
 ## Artboard
 
@@ -67,3 +67,36 @@ Focused coverage: `tests/graph-node-snap.test.js` and
 and scroll geometry, the starter graph and shipped `examples/boolean-remap.json`.
 These checks are source-bound behavior evidence, not native pointer or rendered
 browser visual acceptance; real WebView2 guide appearance remains unverified.
+
+## Optional graph overview
+
+The rightmost **Overview** button opens/closes a small overlay inside the node graph.
+It starts closed; its visibility is session-only view state, with no new stored settings
+or document schema. Existing pan, zoom, fit, Find and native scrollbars remain.
+
+The map shows measured card rectangles and the current viewport, including graph zoom
+and the graph's 16-unit margin. It fits content, the visible region and the origin with
+padding instead of scaling the 2400×1600 background floor. Resize, card expansion,
+node movement, zoom and scroll update the map. Narrow or short panels shrink the overlay.
+Wires and card contents are intentionally omitted.
+
+Click outside the viewport rectangle to center there, or drag inside it without an
+initial jump. The map projection stays fixed during the drag and updates on release.
+Only scrolling changes; node coordinates, selection, connections, Output, document
+revision/dirty state, history and export remain unchanged. Arrow keys while the map
+is focused pan 80 CSS pixels. Escape during a drag restores its starting view;
+Escape while idle closes the map and returns focus to the toggle. Pointer cancellation,
+lost capture, window blur, hidden document and structural rerender also stop the drag.
+IME, another active gesture, rename, Pen draft and open dialogs prevent map dragging.
+Map wheel zoom is not added. Scrolling reuses card geometry and changes the viewport
+rectangle rather than replacing every card rectangle.
+
+`tests/graph-overview-dom.test.js` exercises the actual event handlers with synthetic
+DOM events and explicit measured geometry: empty/single/large graphs, node and viewport
+size changes, open/close, click/drag, frozen projection, competing pointers/gestures,
+zoom, scroll, keyboard, cancellation, and unchanged document/SVG/history/file state.
+The geometry is supplied by the test: these are not rendered-browser, native touch,
+WebView2, high-DPI or visual acceptance results. The pre-existing
+`view-navigation-dom.test.js` has an unresolved relative import in its data-URL harness;
+that older suite is not claimed as passed. Browser execution remains blocked by the
+previously established sandbox restriction; no alternate launch route was attempted.

@@ -662,6 +662,9 @@ let history = session.historyView,
   pan = [0, 0],
   graphHeight = 42,
   graphZoom = 1,
+  graphOverviewOpen = false,
+  graphOverviewObserver = null,
+  graphOverviewNodes = null,
   message = 'Ready',
   error = false,
   fonts = {},
@@ -2132,6 +2135,8 @@ function render(resetView = false, artworkResolution = null) {
     clearTimeout(pendingRender);
     pendingRender = null;
   }
+  if (drag?.type === 'graph-overview') cancelInteraction();
+  graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
   const canvasEditor =
     !resetView && canvasTextEdit ? app.querySelector('.canvas-text-editor') : null;
@@ -2210,7 +2215,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -2302,6 +2307,7 @@ function render(resetView = false, artworkResolution = null) {
     const key = `${el.closest('.node').dataset.id}/${el.dataset.detail}`;
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
+  observeGraphOverview();
   revealActivePointRow();
   for (const select of app.querySelectorAll('[data-stroke-preset]'))
     select.value = select.querySelector('option[selected]').value;
@@ -3134,6 +3140,7 @@ function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
 function updateNavigation() {
+  updateGraphOverview();
   updateLayerDeletionControls();
   for (const [view, value, limits, prefix] of [
     ['canvas', zoom, CANVAS_LIMITS, ''],
@@ -3207,6 +3214,7 @@ function fitArtboard() {
   fitCanvas();
 }
 function drawWires() {
+  updateGraphOverview();
   let graph = document.querySelector('.graph'),
     svg = document.querySelector('.wires');
   if (!graph) return;
@@ -3252,7 +3260,10 @@ function drawWires() {
 app.addEventListener(
   'scroll',
   (e) => {
-    if (wiring && e.target.matches('.graph-scroll')) drawWires();
+    if (e.target.matches('.graph-scroll')) {
+      updateGraphOverview(false);
+      if (wiring) drawWires();
+    }
   },
   true,
 );
@@ -4484,6 +4495,12 @@ app.addEventListener('click', async (e) => {
           });
           break;
         }
+        case 'graph-overview':
+          if (!navigationBusy()) {
+            graphOverviewOpen = !graphOverviewOpen;
+            updateGraphOverview();
+          }
+          break;
         case 'graph-fit':
         case 'graph-fit-selection':
           if (!navigationBusy()) fitGraph(d.action === 'graph-fit-selection');
@@ -6235,6 +6252,18 @@ function cancelInteraction() {
     return;
   }
   if (!drag && !wiring) return;
+  if (drag?.type === 'graph-overview') {
+    const old = drag;
+    drag = null;
+    pointerActive = false;
+    const viewport = document.querySelector('.graph-scroll');
+    viewport.scrollLeft = old.scroll[0];
+    viewport.scrollTop = old.scroll[1];
+    if (old.capture.hasPointerCapture?.(old.pointerId))
+      old.capture.releasePointerCapture(old.pointerId);
+    updateNavigation();
+    return;
+  }
   const old = drag;
   const wire = wiring;
   drag = null;
@@ -6284,6 +6313,107 @@ function zoomGraph(next, clientX, clientY) {
   updateNavigation();
   drawWires();
 }
+// Overview is transient view state. Coordinates include the graph's zoomed 16px margin.
+function graphOverviewGeometry(remeasure = true) {
+  const viewport = document.querySelector('.graph-scroll');
+  if (!viewport || !viewport.clientWidth || !viewport.clientHeight) return null;
+  const view = {
+    x: viewport.scrollLeft / graphZoom,
+    y: viewport.scrollTop / graphZoom,
+    width: viewport.clientWidth / graphZoom,
+    height: viewport.clientHeight / graphZoom,
+  };
+  if (remeasure || !graphOverviewNodes)
+    graphOverviewNodes = [...document.querySelectorAll('.graph .node')].map((el) => ({
+      x: el.offsetLeft + 16,
+      y: el.offsetTop + 16,
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+    }));
+  const nodes = graphOverviewNodes;
+  const bounds = unionBounds([{ x: 0, y: 0, width: 1, height: 1 }, view, ...nodes]);
+  // Preserve aspect ratio in world units while keeping the small window a fixed 2:1 shape.
+  const width = Math.max(bounds.width + 64, (bounds.height + 64) * 2);
+  const height = width / 2;
+  return { nodes, viewport: view, bounds: { x: -32, y: -32, width, height } };
+}
+function updateGraphOverview(remeasure = true) {
+  const panel = document.querySelector('.graph-overview');
+  const toggle = document.querySelector('[data-action="graph-overview"]');
+  if (!panel || !toggle) return;
+  panel.hidden = !graphOverviewOpen;
+  toggle.setAttribute('aria-expanded', String(graphOverviewOpen));
+  if (!graphOverviewOpen) return;
+  const viewport = document.querySelector('.graph-scroll');
+  panel.style.width =
+    Math.max(0, Math.min(240, viewport.clientWidth - 48, (viewport.clientHeight - 16) * 2)) + 'px';
+  const geometry = graphOverviewGeometry(remeasure);
+  const map = panel.querySelector('svg');
+  if (!geometry) {
+    map.innerHTML = '';
+    return;
+  }
+  const bounds = drag?.type === 'graph-overview' ? drag.bounds : geometry.bounds;
+  map.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
+  const rect = (r, cls) =>
+    `<rect class="${cls}" x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" vector-effect="non-scaling-stroke"/>`;
+  if (remeasure || !map.querySelector('.overview-viewport'))
+    map.innerHTML =
+      geometry.nodes.map((r) => rect(r, 'overview-node')).join('') +
+      rect(geometry.viewport, 'overview-viewport');
+  else {
+    const frame = map.querySelector('.overview-viewport');
+    for (const [key, value] of Object.entries(geometry.viewport)) frame.setAttribute(key, value);
+  }
+}
+function observeGraphOverview() {
+  if (!window.ResizeObserver) return;
+  graphOverviewObserver ||= new window.ResizeObserver(() => updateGraphOverview());
+  for (const element of document.querySelectorAll('.graph-scroll,.graph .node'))
+    graphOverviewObserver.observe(element);
+}
+function graphOverviewPoint(event, map, bounds) {
+  const rect = map.getBoundingClientRect();
+  return [
+    bounds.x + ((event.clientX - rect.left) / Math.max(1, rect.width)) * bounds.width,
+    bounds.y + ((event.clientY - rect.top) / Math.max(1, rect.height)) * bounds.height,
+  ];
+}
+function moveGraphOverview(event) {
+  const point = graphOverviewPoint(event, drag.capture, drag.bounds);
+  const scroll = point.map((value, axis) => Math.max(0, (value - drag.offset[axis]) * graphZoom));
+  updateGraphBounds(scroll);
+  const viewport = document.querySelector('.graph-scroll');
+  viewport.scrollLeft = scroll[0];
+  viewport.scrollTop = scroll[1];
+  updateGraphOverview(false);
+}
+app.addEventListener('keydown', (event) => {
+  if (!event.target.closest('.graph-overview-map') || event.isComposing || composing) return;
+  if (event.key === 'Escape' && !drag) {
+    event.preventDefault();
+    event.stopPropagation();
+    graphOverviewOpen = false;
+    updateGraphOverview();
+    document.querySelector('[data-action="graph-overview"]').focus({ preventScroll: true });
+  }
+  const axis = { ArrowLeft: [-80, 0], ArrowRight: [80, 0], ArrowUp: [0, -80], ArrowDown: [0, 80] }[
+    event.key
+  ];
+  if (!axis) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (navigationBusy() || penDraft || nameEdit) return;
+  const viewport = document.querySelector('.graph-scroll');
+  const scroll = [
+    Math.max(0, viewport.scrollLeft + axis[0]),
+    Math.max(0, viewport.scrollTop + axis[1]),
+  ];
+  updateGraphBounds(scroll);
+  viewport.scrollLeft = scroll[0];
+  viewport.scrollTop = scroll[1];
+  updateGraphOverview(false);
+});
 function fitGraph(selectedOnly = false) {
   const viewport = document.querySelector('.graph-scroll');
   const cards = [...document.querySelectorAll('.graph .node')].filter(
@@ -6340,6 +6470,9 @@ app.addEventListener(
   },
   { passive: false },
 );
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && drag?.type === 'graph-overview') cancelInteraction();
+});
 window.addEventListener('blur', () => {
   lastNameClick = null;
   space = false;
@@ -6352,6 +6485,42 @@ app.addEventListener('lostpointercapture', (e) => {
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
+  const overview = e.target.closest('.graph-overview-map');
+  if (overview) {
+    e.preventDefault();
+    if (
+      e.button !== 0 ||
+      navigationBusy() ||
+      penDraft ||
+      nameEdit ||
+      document.querySelector('dialog[open]')
+    )
+      return;
+    const viewport = document.querySelector('.graph-scroll');
+    const geometry = graphOverviewGeometry();
+    if (!geometry) return;
+    const point = graphOverviewPoint(e, overview, geometry.bounds);
+    const v = geometry.viewport;
+    const inside =
+      point[0] >= v.x && point[0] <= v.x + v.width && point[1] >= v.y && point[1] <= v.y + v.height;
+    drag = {
+      type: 'graph-overview',
+      capture: overview,
+      pointerId: e.pointerId,
+      bounds: geometry.bounds,
+      scroll: [viewport.scrollLeft, viewport.scrollTop],
+      offset: inside ? [point[0] - v.x, point[1] - v.y] : [v.width / 2, v.height / 2],
+    };
+    overview.focus({ preventScroll: true });
+    try {
+      overview.setPointerCapture?.(e.pointerId);
+    } catch {
+      drag = null;
+      return;
+    }
+    moveGraphOverview(e);
+    return;
+  }
   if (penDraft && e.target.closest('[inert]')) return;
   const viewport = e.target.closest('.graph-scroll');
   const control = editingControl(e.target);
@@ -7532,6 +7701,10 @@ function movePointer(e) {
     updateCanvas();
     return;
   }
+  if (drag.type === 'graph-overview') {
+    moveGraphOverview(e);
+    return;
+  }
   if (drag.type === 'graph-pan') {
     const viewport = document.querySelector('.graph-scroll');
     viewport.scrollLeft = drag.scroll[0] - e.clientX + drag.start[0];
@@ -7783,6 +7956,10 @@ document.addEventListener('pointerup', (e) => {
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
+    if (d.type === 'graph-overview') {
+      updateNavigation();
+      return;
+    }
     if (d.type === 'graph-marquee') {
       if (!d.started && !d.additive) {
         selected = null;
@@ -8172,7 +8349,10 @@ document.addEventListener('keydown', (e) => {
       return;
     }
   }
-  if (['pan', 'graph-pan', 'graph-marquee'].includes(drag?.type) && e.key === 'Escape') {
+  if (
+    ['pan', 'graph-pan', 'graph-marquee', 'graph-overview'].includes(drag?.type) &&
+    e.key === 'Escape'
+  ) {
     // Navigation is view-only: stop at the current offset without undo or selection changes.
     e.preventDefault();
     cancelInteraction();

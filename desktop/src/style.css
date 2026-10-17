@@ -1897,3 +1897,54 @@ input[data-scrub-step].scrubbing {
   margin-top: 3px;
   font-size: 10px;
 }
+
+/* The overview overlays only the graph body, leaving native scrollbars and tools intact. */
+.graph-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.graph-body > .graph-scroll {
+  min-width: 0;
+}
+.graph-overview {
+  position: absolute;
+  z-index: 25;
+  top: 8px;
+  right: 24px;
+  width: min(240px, calc(100% - 48px));
+  background: #f7f8f9f5;
+  border: 1px solid #8797a4;
+  border-radius: 5px;
+  box-shadow: 0 2px 8px #26374425;
+}
+.graph-overview[hidden] {
+  display: none;
+}
+.graph-overview-map {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2;
+  touch-action: none;
+  cursor: crosshair;
+}
+.graph-overview-map:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: 2px;
+}
+.overview-node {
+  fill: #b6c3cc;
+  stroke: #6b8090;
+  stroke-width: 1;
+  pointer-events: none;
+}
+.overview-viewport {
+  fill: #4387bd20;
+  stroke: #24669b;
+  stroke-width: 2;
+  pointer-events: none;
+}
+[data-action='graph-overview'][aria-expanded='true'] {
+  background: #dceaf5;
+}
