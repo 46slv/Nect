@@ -63,3 +63,13 @@ composition locks. Cancel restores the preference and does not alter document
 history. The regression first failed (12 remained 12 rather than 32), then passed
 after the fix; numeric DOM and pure-unit tests pass 4/4. This is source-test evidence,
 not a new native trial qualification.
+
+## Remap hover lifetime fix — 2026-10-17
+
+Hover-only tangent handles previously remained visible after pointer movement left
+Canvas. Outside-stage pointer movement now clears hover while preserving clicked
+point focus and active gestures. A focused DOM regression reproduced two stale
+handles, then passed after the fix; clicked-point handles remain visible. The same
+view-navigation test retains Alt-wheel and view-only/document-preservation checks.
+This is DOM evidence, not native GUI or physical-input acceptance. The distributed
+trial remains 7496aee; subsequent source fixes have not been packaged into a new ZIP.

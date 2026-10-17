@@ -5755,6 +5755,10 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select generators, or one Transform to move its whole group');
 });
 function movePointer(e) {
+  if (!drag && !wiring && pointHover && !e.target.closest?.('.canvas-stage')) {
+    pointHover = null;
+    updateCanvas();
+  }
   if (
     !drag &&
     !wiring &&

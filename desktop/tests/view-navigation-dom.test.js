@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
-import '../src/core.js';
+import { node } from '../src/core.js';
 test('View navigation is scoped, view-only and preserves drafts, scroll, focus and IME', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
@@ -69,6 +69,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
+  source += '\nwindow.flushCanvasForTest = () => updateCanvas(true);';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
   const q = (selector) => document.querySelector(selector);
@@ -228,5 +229,32 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
   click('graph-reset');
   assert.equal(scale('graph'), '100%');
   assert.deepEqual([graph().scrollLeft, graph().scrollTop], [0, 0]);
+  // Hover-only tangent handles must disappear when the pointer leaves the canvas.
+  const fixture = win.nect.document;
+  const layer = fixture.layers[0];
+  const curve = node('Curve');
+  curve.points[0].handleA.value = [-30, 20];
+  curve.points[0].handleB.value = [30, -20];
+  layer.nodes.push(curve);
+  const remap = layer.nodes.find((n) => n.type === 'Path Remap');
+  remap.params.path.source = curve.id;
+  win.nect.load(JSON.stringify(fixture));
+  pointer(q(`[data-rename-node="${remap.id}"]`), 'pointerdown');
+  pointer(document, 'pointerup');
+  const point = win.nect.evaluate().run(remap.id).contours[0].points[0];
+  const atPoint = { clientX: point.position[0], clientY: point.position[1] };
+  const handles = () => document.querySelectorAll('.point-marker[data-handle]').length;
+  assert.equal(handles(), 0);
+  pointer(stage(), 'pointermove', atPoint);
+  win.flushCanvasForTest();
+  assert.ok(handles() > 0, 'hover reveals tangent handles');
+  pointer(document.body, 'pointermove', atPoint);
+  win.flushCanvasForTest();
+  assert.equal(handles(), 0, 'leaving canvas clears hover-only handles');
+  pointer(q(`.point-marker[data-point="${point.id}"]`), 'pointerdown', atPoint);
+  pointer(document, 'pointerup', atPoint);
+  pointer(document.body, 'pointermove', atPoint);
+  win.flushCanvasForTest();
+  assert.ok(handles() > 0, 'selected point keeps tangent handles outside canvas');
   win.happyDOM.abort();
 });
