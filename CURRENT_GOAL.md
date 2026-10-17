@@ -14,7 +14,7 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-17 14:07 UTC
+## ACTIVE CHECKPOINT — 2026-10-17 14:51 UTC
 
 Goal: Prioritize Shiro's hands-on feedback and font/path usability. The explicit October 17 full-font request broadens the historical mission; support remains staged and must not be described as universally complete.
 
@@ -34,11 +34,17 @@ Expression completion: inline supported-function/constants and live numeric-refe
 
 Ownership: all implementation workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
 
-Next concrete work: accept the frozen integrated slice in a real supported browser/WebView, then compile/package on authorized shiro-WS when connected. Check existing task and environment first. Do not bypass the previously denied cloud-browser sandbox or switch to unauthorized computers. Independent approved development can continue without treating native wait as a global stop.
+Next concrete work: the user's 14:06 UTC instruction prioritizes repeated sourced specification research through the following morning JST, with minimal EXE resource expenditure. Do not resume native packaging monitoring during this research window. The latest implementation checkpoint is 16e193ac6f73bc1a7f61a5f67e0e2a96ac72dcdf; subsequent research proposals are not implemented. Research 01–16 covers source editing, graph roles, square fitting/visual thickness, typography, palette links, export, panel division, outline editing, typed value, navigation, Boolean/masks, input ownership, linked dimensions, centered grid, demo removal and two assigned viewers. Reuse this evidence and add genuinely distinct themes; do not recreate these investigations.
+
+The canonical product specification is https://app.notion.com/p/3dffd279a6f381cca8c7c4dec111b131 . The detailed conversation memo is https://app.notion.com/p/3fcfd279a6f38126b1fac69b3048531b ; source-backed research 01–10 is https://app.notion.com/p/3fcfd279a6f381e78204fa7e1053818b and the continuation is https://app.notion.com/p/3fcfd279a6f381d2b57be6790c4836be . Research16 integration is pending readback at this checkpoint. User requests are normative implementation targets; optional design choices remain labeled proposals.
+
+Latest explicit requirements: fixed panel responsibility redesign; distinct Grid and Layout Grid buttons/settings; node library categories; canvas-first outline editing instead of full point lists; path-tool point insertion and synchronized node highlight; pre-expression editable value across typed inputs; adjacent Ctrl+D duplication, optional pan pad/minimap; header context menu for Use as Output/Duplicate/Delete; no production demo startup/UI; two independently assigned live Viewer slots without final-output rewiring. Centered artboard grid must put a line intersection at center, with accessible opacity and finest fixed width; optional nine origins must not silently contradict that geometry contract. Preserve original user files, safe Undo and existing driver/lock rules.
+
+The private vr-logo JSON was read and rendered without modifying it. Its Transform use separates shared shape construction, local placement, text aspect adjustment and final placement. All active artwork is filled geometry; normal widths are not equivalent to Stroke settings. Do not publish its embedded fonts or add the private JSON to repository fixtures. Actual artwork analysis is https://app.notion.com/p/3fcfd279a6f3819b9d78d4fabb1f4585 .
 
 Frozen deliveries: native b9fe3f64732e119b409a4761894c17f47893df40 was delivered at 10:59 UTC (Library libfile_0bf2f7e94fac81919256d212ac38fcef); browser cec110497cdf27a8a90bdf6afe282445e5cadf9e at 10:26 UTC (Library libfile_d75c0ab0205c8191af8626ec909fb4c6). Earlier packages remain unchanged. New source changes are NOT in those deliveries. Native startup/close passed, but full editing/save/IME/high-DPI acceptance is still unverified. Keep version-specific saved JSON separate.
 
-Native update: authorized shiro-WS was offline at 13:39 UTC. Do not switch to unauthorized computers or bypass connection restrictions. Resume the existing native packaging task only after the authorized environment reconnects, selecting an exact stable source checkpoint and preserving older packages. Font-catalog compilation and bounded startup are required before claiming a new EXE is ready. Parent owns the promised user notification and Library delivery.
+Native update is deferred during the authorized overnight research window. Authorized shiro-WS was last observed offline at 14:03 UTC. Do not switch to unauthorized computers or bypass connection restrictions. After the research window, resume the existing native packaging task only after the authorized environment reconnects, selecting an exact stable source checkpoint and preserving older packages. Font-catalog compilation and bounded startup are required before claiming a new EXE is ready. Parent owns the promised user notification and Library delivery.
 
 Requirements: the existing Notion Nect product-specification home is canonical, with original request IDs, acceptance conditions, source verification and delivered-version status separated. Do not replace it with another tracker or overwrite historical checkpoints. Text to Path remains a compatibility pass-through; explicit baking is a separate command. SVG already uses outlines; native .ai support is not claimed.
 
