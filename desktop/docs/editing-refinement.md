@@ -170,3 +170,23 @@ Next: seeded Roughen for controlled irregular outlines, with Resample before it 
 predictable point density. Inspiration: [Blender Grease Pencil Noise](https://docs.blender.org/manual/en/3.3/grease_pencil/modifiers/deform/noise.html).
 Use amount in px, deterministic seed and an open-endpoint preservation toggle. No animation,
 opacity noise or unqualified topology guarantees in this first slice.
+
+### Roughen
+
+- Static point-position noise inspired by the cited Grease Pencil Noise modifier. Amount
+  0–100000 px bounds each X/Y component (default 3); integer Seed 0–2147483647 (default 1).
+  Keep Endpoints defaults on and pins only open-path ends.
+- Uses deterministic integer hashing of seed plus source contour/point IDs. Re-evaluation,
+  save/reopen and the same source IDs keep the noise pattern. No clock/random global state.
+- Does not add points; place Resample Path first to control density. Relative Bézier handles
+  remain unchanged, translating with their point. Large noise may self-intersect; no cleanup.
+- Preserves contour groups/closed flags and source editability. Geometry bounded at 10000
+  contours /100000 points with finite values. Standard bypass, common history and locks.
+- Evidence: helper6/6, graph+Session2/2, DOM1/1, Resample regression5/5, Web build pass.
+  Actual native interaction and raster preview remain unverified.
+
+Compatibility: new node names require this development build. The previously distributed
+7496aee trial does not recognize these new modifiers; do not open their project data there.
+Next slice: Smooth Path, a bounded position-only neighbor-average filter with repeat count
+and pinned open endpoints, following [Blender Smooth](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/smooth.html).
+It intentionally may shrink geometry; it will not claim topology preservation or curve fitting.

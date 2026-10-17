@@ -1,3 +1,4 @@
+import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
@@ -157,6 +158,12 @@ export const definitions = {
     offset: p('Vector2', [0, 0]),
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
+  },
+  Roughen: {
+    path: p('Path', null),
+    amount: p('Scalar', 3),
+    seed: p('Scalar', 1),
+    keepEndpoints: p('Boolean', true),
   },
   'Resample Path': { path: p('Path', null), count: p('Scalar', 32) },
   'Corner Round': { path: p('Path', null), radius: p('Scalar', 12) },
@@ -462,6 +469,7 @@ const bypassInputs = Object.freeze({
   Mirror: 'path',
   'Corner Round': 'path',
   'Resample Path': 'path',
+  Roughen: 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -1413,6 +1421,22 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Roughen') {
+        const source = read('path');
+        result = roughenGeometry(source, {
+          amount: read('amount'),
+          seed: read('seed'),
+          keepEndpoints: read('keepEndpoints'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Roughen; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Resample Path') {
         const source = read('path'),
           count = read('count');
@@ -1660,6 +1684,15 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             n.params.count.value > 1024)
         )
           throw Error('Resample count must be an integer from 2 to 1024');
+        if (
+          n.type === 'Roughen' &&
+          (n.params.amount.value < 0 ||
+            n.params.amount.value > 100000 ||
+            !Number.isInteger(n.params.seed.value) ||
+            n.params.seed.value < 0 ||
+            n.params.seed.value > 2147483647)
+        )
+          throw Error('Roughen needs amount 0–100000 px and integer seed 0–2147483647');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Stroke') {
@@ -1932,7 +1965,13 @@ export function assertClosedOffsetChange(
 ) {
   assertTextPathChange(layer, previousLayer, fonts, imageAssets, previousFonts);
   // Keep bounded geometry modifiers transactional, including upstream edits.
-  const bounded = new Set(['Closed Path Offset', 'Mirror', 'Corner Round', 'Resample Path']);
+  const bounded = new Set([
+    'Closed Path Offset',
+    'Mirror',
+    'Corner Round',
+    'Resample Path',
+    'Roughen',
+  ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
