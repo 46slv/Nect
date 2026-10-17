@@ -20,6 +20,7 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Reverse Path   | None                                                                                                  | Reverses contour direction exactly; swaps Bézier handles and retains each closed contour's first anchor seam                                                  |
 | Pucker & Bloat | Amount −100..100%; Automatic Center or manual Center                                                  | Opposite anchor/control scaling; automatic center uses all anchor bounds; no Illustrator numeric parity claim                                                 |
 | Wave Points    | Vertical / Horizontal; Amplitude ±100000 px; Wavelength 0.0001–100000 px; Phase ±360°; Keep Endpoints | Static sine displacement of existing anchors only; optional open-end pinning; relative Bézier handles unchanged; coordinate/wavelength ratio limited to ±1e12 |
+| Taper | Amount −50..50%; Horizontal / Vertical axis | Whole-input control bounds; scales the perpendicular dimension; nonlinear curve interior is approximate |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
@@ -41,10 +42,11 @@ Direct canvas text-character editing through these effects is unavailable; edit 
 - Imported polyline or Resample Path → Simplify Path for point reduction.
 - Rectangle/Star → Pucker & Bloat → Fill for pointed or petal-like shapes.
 - Line/Curve → Resample Path → Wave Points → Stroke for a static sine-like outline.
+- Text/Path → Taper → Fill for size progression across a wordmark; Resample first for finer curve deformation.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 
 Open `examples/modifier-playground.json` in this development build for editable examples. It has
-35 evaluated editable layers and examples for all 14 listed modifiers. Rebuild with
+35 evaluated editable layers and examples for 14 of the 15 listed modifiers. Rebuild with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).

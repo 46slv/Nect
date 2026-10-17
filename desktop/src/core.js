@@ -1,3 +1,4 @@
+import { taperGeometry } from './taper-geometry.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
@@ -189,6 +190,7 @@ export const definitions = {
     path: p('Path', null),
     start: p('Scalar', 0),
   },
+  Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
@@ -377,17 +379,19 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Wave Points'
-        ? 'vertical'
-        : type === 'Mirror'
-          ? 'left-right'
-          : type === 'Closed Path Offset'
-            ? 'miter'
-            : type === 'Geometry Repeater'
-              ? 'linear'
-              : ['Math', 'Vector Math'].includes(type)
-                ? 'add'
-                : 'subtract',
+      type === 'Taper'
+        ? 'horizontal'
+        : type === 'Wave Points'
+          ? 'vertical'
+          : type === 'Mirror'
+            ? 'left-right'
+            : type === 'Closed Path Offset'
+              ? 'miter'
+              : type === 'Geometry Repeater'
+                ? 'linear'
+                : ['Math', 'Vector Math'].includes(type)
+                  ? 'add'
+                  : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -523,6 +527,7 @@ const bypassInputs = Object.freeze({
   'Set Path Start': 'path',
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
+  Taper: 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
   'Dash Path': 'path',
@@ -751,6 +756,7 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  Taper: ['horizontal', 'vertical'],
   'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
@@ -2111,6 +2117,21 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Taper') {
+        const source = read('path');
+        result = taperGeometry(source, {
+          amount: read('amount'),
+          axis: n.operation,
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Taper; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Wave Points') {
         const source = read('path');
         result = waveGeometry(source, {
@@ -2720,6 +2741,7 @@ export function assertClosedOffsetChange(
     'Dash Path',
     'Pucker & Bloat',
     'Wave Points',
+    'Taper',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -3071,6 +3093,8 @@ export function validate(doc) {
         )
           throw Error('Trim Path start must not exceed end');
       }
+      if (n.type === 'Taper' && (n.params.amount.value < -50 || n.params.amount.value > 50))
+        throw Error('Taper amount must be from -50 to 50');
       if (n.type === 'Set Path Start' && (n.params.start.value < 0 || n.params.start.value > 1))
         throw Error('Set Path Start start must be from 0 to 1');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))

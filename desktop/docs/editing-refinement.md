@@ -395,3 +395,22 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
 The current catalog and editable playground cover 14 modifiers in 35 layers. The final row compares the same half-Trim with unchanged, reversed and shifted-start traversal; the exported SVG was visually inspected.
 Continue with useful researched slices rather than duplicating existing nodes. Native trial
 packaging remains a separate dependency.
+
+### Taper
+
+- Inspired by [Blender Simple Deform Taper](https://docs.blender.org/manual/en/latest/modeling/modifiers/deform/simple_deform.html), with an explicit static 2D Nect contract, not numerical parity.
+- Path → Path. Amount −50..50% (default0); Horizontal/Vertical axis (default Horizontal).
+  One shared bounding box includes anchors and absolute Bézier control endpoints across all contours.
+  Along the chosen axis, normalize to u in [−1,1]; scale the perpendicular coordinate about the
+  shared midpoint by 1 + Amount/100 × u. Positive grows toward the maximum-axis end.
+- Maps anchors and absolute controls, then recomputes relative handles. This is a control-point
+  approximation to nonlinear deformation of the curve interior; use Resample Path first for
+  finer geometry. It does not add points. Control-point scale factors remain 0.5–1.5.
+- Empty/zero-span/zero-amount inputs independently clone geometry. Groups, order and closure
+  are retained. Finite arithmetic and 10000-contour/100000-point budgets are checked. Standard
+  deterministic generated IDs, unstable fingerprint, bypass, Session history/locks, numeric drag,
+  transactional preflight, and upstream Text editing restrictions apply.
+- Evidence: helper10 + graph/Session2 + DOM1 + disconnected-validation1 =14 focused checks pass;
+  Web build passes with the existing large-chunk warning. No native GUI/full-suite claim.
+- Catalog now15 modifiers. The existing 35-layer playground covers14; Taper's focused rectangle
+  evidence explicitly checks output anchors, JSON roundtrip and SVG output.
