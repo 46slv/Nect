@@ -1,0 +1,1 @@
+fontkit src/utils.js explicitly derives base64 decoding from niklasvh/base64-arraybuffer under MIT. License retrieved unchanged 2026-10-17 from https://raw.githubusercontent.com/niklasvh/base64-arraybuffer/master/LICENSE . No npm dependency version is asserted for the embedded code.

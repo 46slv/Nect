@@ -1,0 +1,1 @@
+Unicode data terms retrieved unchanged on 2026-10-17 from https://www.unicode.org/license.txt . Retained for generated Unicode property/shaper data; this does not assert the Unicode version of the bundled data.

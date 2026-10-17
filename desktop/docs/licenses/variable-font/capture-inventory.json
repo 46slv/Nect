@@ -1,0 +1,319 @@
+[
+  {
+    "path": "docs/licenses/variable-font/@swc--helpers/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 10836,
+    "sha256": "d96eba1f1881334d50ffc144276dfa98e147a415e7c591ecdfcb81680361dc91"
+  },
+  {
+    "path": "docs/licenses/variable-font/@swc--helpers/package.json",
+    "type": "text/utf-8",
+    "bytes": 27807,
+    "sha256": "10ee79b75759afbf8cfa2b8e5a2eff946c487143e935fc31b2433aa68be84596"
+  },
+  {
+    "path": "docs/licenses/variable-font/README.md",
+    "type": "text/utf-8",
+    "bytes": 2822,
+    "sha256": "6ec7397d57a8ebc6d80d40c3507b20f23100871a74585837abad4ef97439b817"
+  },
+  {
+    "path": "docs/licenses/variable-font/base64-arraybuffer/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1062,
+    "sha256": "f3eca6ff762533fa5a77caf954a143e48afa204668cf97dce758c45a9e006be3"
+  },
+  {
+    "path": "docs/licenses/variable-font/base64-arraybuffer/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 284,
+    "sha256": "fc469bdf922951b53af3b6a0e7ae810717a49300145ca023edf78012ad4b78b5"
+  },
+  {
+    "path": "docs/licenses/variable-font/base64-js/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1081,
+    "sha256": "5b37224c080cdcc97c871ada971c224e9926370fe74f11b539aa1cf9f3b1aca1"
+  },
+  {
+    "path": "docs/licenses/variable-font/base64-js/package.json",
+    "type": "text/utf-8",
+    "bytes": 1115,
+    "sha256": "9758f3ab8c45e07bb9a368e32f9a8b3729623bbf47cbbb205b32d674ab2a91f0"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/Apache-2.0.txt",
+    "type": "text/utf-8",
+    "bytes": 10836,
+    "sha256": "d96eba1f1881334d50ffc144276dfa98e147a415e7c591ecdfcb81680361dc91"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/DECODER-NOTICES.txt",
+    "type": "text/utf-8",
+    "bytes": 8297,
+    "sha256": "3ae5e09cfcf61f1ab06153b7dad8730171cb7c9b2f512d925bd4b8585fcf665d"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/LICENSE-DECLARATION.txt",
+    "type": "text/utf-8",
+    "bytes": 468,
+    "sha256": "184798d2682695bb03515332d5dd9adb5d96fb9ad756956caf1de4cf432a0df4"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 2389,
+    "sha256": "0f590ff5b0a0d3a840c43c55eacc3f4b6809bcc74cbd217eee4afe5956be83d1"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/VENDOR-GOOGLE-LICENSE.txt",
+    "type": "text/utf-8",
+    "bytes": 1084,
+    "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/package.json",
+    "type": "text/utf-8",
+    "bytes": 786,
+    "sha256": "387b47d00ea96cab9b4c521629fbcdc7621053ac061812526f3c69700924cef5"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/upstream-gitmodules.txt",
+    "type": "text/utf-8",
+    "bytes": 90,
+    "sha256": "e3cbed0b94641ca35a7f74ed0d4f009bd8b1c56b3cbf5be79970964fe4aa7fbc"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/upstream-readme.md",
+    "type": "text/utf-8",
+    "bytes": 1913,
+    "sha256": "8a8bac543fccf52a64708ff3315ca2be90e3e4c270634df1e4e4b51f0ee9c5d7"
+  },
+  {
+    "path": "docs/licenses/variable-font/brotli/upstream-tree.json",
+    "type": "text/utf-8",
+    "bytes": 28626,
+    "sha256": "55d33a7d4bef92ae409167130c84cd12eb4ef5094af89ce5a2ce361341fa7ab3"
+  },
+  {
+    "path": "docs/licenses/variable-font/browser-inputs.json",
+    "type": "text/utf-8",
+    "bytes": 1820,
+    "sha256": "d930bac1fb1b1c7971d30f4199dd1ac67b4a51f21214098fc428295db244f94f"
+  },
+  {
+    "path": "docs/licenses/variable-font/clone/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1070,
+    "sha256": "3fb0857ef0133928cf72c88dfc464e931486e88778961eedec25585e2321507f"
+  },
+  {
+    "path": "docs/licenses/variable-font/clone/package.json",
+    "type": "text/utf-8",
+    "bytes": 1886,
+    "sha256": "07e9c7efd55a99cbe2909d1fd46b032b67cba6b493d1fbc974fddf4f2adebc83"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/LICENSE-DECLARATION.txt",
+    "type": "text/utf-8",
+    "bytes": 278,
+    "sha256": "bc95da0e9c575d8488af569322a0038afd740c4ee598c665e1ebcced39c87eba"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 1652,
+    "sha256": "80f2f40054c4bb2ca19a304fa7d554cca9039de5cd0221ff25213166454dc1da"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/package.json",
+    "type": "text/utf-8",
+    "bytes": 978,
+    "sha256": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/upstream-README.md",
+    "type": "text/utf-8",
+    "bytes": 3201,
+    "sha256": "30bd445925aa53205ff7f9afa6a43e21358fab656e471df6e028431aefc426c7"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/upstream-evidence.json",
+    "type": "text/utf-8",
+    "bytes": 2496,
+    "sha256": "b2310ac41eefb12d6a5e8ac30e932ea0bc33da2dd2acb7094512d03d0624a528"
+  },
+  {
+    "path": "docs/licenses/variable-font/dfa/upstream-package.json",
+    "type": "text/utf-8",
+    "bytes": 978,
+    "sha256": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+  },
+  {
+    "path": "docs/licenses/variable-font/fast-deep-equal/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1074,
+    "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a"
+  },
+  {
+    "path": "docs/licenses/variable-font/fast-deep-equal/package.json",
+    "type": "text/utf-8",
+    "bytes": 1496,
+    "sha256": "a5c63940db0260739be9e2ac67f3aac268df4db5770420ee4e34e493152f97d2"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/LICENSE-DECLARATION.txt",
+    "type": "text/utf-8",
+    "bytes": 278,
+    "sha256": "bc95da0e9c575d8488af569322a0038afd740c4ee598c665e1ebcced39c87eba"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 1932,
+    "sha256": "8364b56e95bacf174d342a1cb03e1e940828e43e9132f58ecd19da3858be1853"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/package.json",
+    "type": "text/utf-8",
+    "bytes": 2432,
+    "sha256": "49c60605b92316a5d5fe57b9a3bca8950ad9a8beab1cb633d6f29862d1bd163d"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/upstream-README.md",
+    "type": "text/utf-8",
+    "bytes": 13254,
+    "sha256": "8a1cf12d8ae7277f047c3000af7677927f2da9243627223ba5715d40df4979d6"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/upstream-evidence.json",
+    "type": "text/utf-8",
+    "bytes": 8071,
+    "sha256": "12e86877d90dc2938e4277d9aea35b05bc8b2d1afbf363bc6b1f024613e427d2"
+  },
+  {
+    "path": "docs/licenses/variable-font/fontkit/upstream-package.json",
+    "type": "text/utf-8",
+    "bytes": 2432,
+    "sha256": "49c60605b92316a5d5fe57b9a3bca8950ad9a8beab1cb633d6f29862d1bd163d"
+  },
+  {
+    "path": "docs/licenses/variable-font/manifest.json",
+    "type": "text/utf-8",
+    "bytes": 13868,
+    "sha256": "1c1259a29a1a26b6f8104882c08f16fc3abddaa16b1d1e9b272ef1642b5228f0"
+  },
+  {
+    "path": "docs/licenses/variable-font/pako/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1084,
+    "sha256": "3bc404ffa7888053253eedcc5a667619aa08dc1be0bea400e5ff28c51602180f"
+  },
+  {
+    "path": "docs/licenses/variable-font/pako/package.json",
+    "type": "text/utf-8",
+    "bytes": 878,
+    "sha256": "dc1090fc2228e15fb13cc8aa81f3c99c9c0a4237f99a42d1c7ffda1b137cf1cf"
+  },
+  {
+    "path": "docs/licenses/variable-font/restructure/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1077,
+    "sha256": "c0df7f551401f8f80197ff31bf69b8cd23727d127423403282514d242a3ab132"
+  },
+  {
+    "path": "docs/licenses/variable-font/restructure/package.json",
+    "type": "text/utf-8",
+    "bytes": 906,
+    "sha256": "f28780f515208c0fc417a2e49340b0cd1c146ff20ce6bfeee3593e64a8f74d14"
+  },
+  {
+    "path": "docs/licenses/variable-font/tiny-inflate/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1077,
+    "sha256": "c0df7f551401f8f80197ff31bf69b8cd23727d127423403282514d242a3ab132"
+  },
+  {
+    "path": "docs/licenses/variable-font/tiny-inflate/package.json",
+    "type": "text/utf-8",
+    "bytes": 598,
+    "sha256": "7a97c9567b054c9294036537d42a112f4bd4263892fbfe2714e6acdf25816c6d"
+  },
+  {
+    "path": "docs/licenses/variable-font/tslib/CopyrightNotice.txt",
+    "type": "text/utf-8",
+    "bytes": 822,
+    "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b"
+  },
+  {
+    "path": "docs/licenses/variable-font/tslib/LICENSE.txt",
+    "type": "text/utf-8",
+    "bytes": 655,
+    "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751"
+  },
+  {
+    "path": "docs/licenses/variable-font/tslib/package.json",
+    "type": "text/utf-8",
+    "bytes": 1219,
+    "sha256": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-data/LICENSE.txt",
+    "type": "text/utf-8",
+    "bytes": 1995,
+    "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-data/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 211,
+    "sha256": "5372747b3c1ed92c30b71a5eb4dffb70de8bdff6c349e8a880264d3974beb937"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-properties/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1040,
+    "sha256": "43439dbd4f43837aadab215cdbe5a422cc6323a50c4ea84d8d6bbc3671666a1d"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-properties/package.json",
+    "type": "text/utf-8",
+    "bytes": 1141,
+    "sha256": "4dba3776474dc9f928749684eeaeabacb40fd0e58ef704b2c2a976201830183b"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-trie/LICENSE",
+    "type": "text/utf-8",
+    "bytes": 1040,
+    "sha256": "43439dbd4f43837aadab215cdbe5a422cc6323a50c4ea84d8d6bbc3671666a1d"
+  },
+  {
+    "path": "docs/licenses/variable-font/unicode-trie/package.json",
+    "type": "text/utf-8",
+    "bytes": 683,
+    "sha256": "11742ae162c45a0f55a4d85ae1c6dc7dd380e203173d3bca04e72ca3b68729b6"
+  },
+  {
+    "path": "tests/fixtures/variable-font/OFL.txt",
+    "type": "text/utf-8",
+    "bytes": 4394,
+    "sha256": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41"
+  },
+  {
+    "path": "tests/fixtures/variable-font/PROVENANCE.md",
+    "type": "text/utf-8",
+    "bytes": 1033,
+    "sha256": "81e465fe16e24c3bca5e41bf4436a60ef784a2bfb7855df76ab2b2f7480bd5ec"
+  },
+  {
+    "path": "tests/fixtures/variable-font/Roboto-variable.ttf",
+    "type": "binary",
+    "bytes": 488584,
+    "sha256": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134"
+  },
+  {
+    "path": "docs/licenses/variable-font/capture-inventory.json",
+    "type": "text/utf-8",
+    "note": "This inventory; self-hash omitted."
+  }
+]
