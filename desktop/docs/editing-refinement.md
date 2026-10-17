@@ -549,3 +549,38 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   full-suite, native Windows acceptance and replacement packaging are outside this slice. The
   advancing source catalog contains20 modifiers; the main playground remains18 modifiers /47
   layers, and the separate frozen trial remains19 modifiers.
+
+### Halftone and Ordered Dither — luminance-to-geometry v1
+
+- These are PaintedPath→PaintedPath modifiers after a solid Fill or the existing two-stop
+  Linear / Radial Gradient Fill. Each has Cell Pitch 1–1024 px (default16) and Invert Luminance
+  (default off); the world-grid origin is fixed at (0,0). The paint source must have a solid
+  Color or supported gradient and an ungrouped collection of closed contours. Open contours,
+  explicit groups, stroke-only paint and Image inputs fail explicitly. Source fill/stroke styling
+  is replaced by opaque black output geometry; the upstream source stays unchanged.
+- Luminance is sampled at centers of every pitch-sized world-grid cell with positive-area
+  intersection against the flattened source bounds. Centers can fall outside the mask; generated
+  geometry is clipped afterward. Existing gradient paint interpolates encoded sRGB stop values;
+  channels are then linearized, alpha is composited over white in linear light, and WCAG relative
+  luminance is calculated with coefficients 0.2126 / 0.7152 / 0.0722. Darkness is `1 − L`; Invert
+  switches to `L`.
+- Halftone uses a centered disk clipped to each square cell, with polygon area calibrated to that
+  cell's darkness. Its polygon segment count keeps circle sagitta at or below0.1 document unit.
+  Ordered Dither compares darkness to the fixed 8×8 Bayer threshold `(rank + 0.5) / 64` and
+  emits a full-cell square above threshold. This is ordered thresholding, not error diffusion.
+  Both modes clip marks to the closed compound source mask, preserving holes and preventing
+  marks from crossing the outline. Generated geometry is opaque black. Vector calibration does
+  not claim printed dot gain, screen frequency or physical print calibration.
+- Bounded work: at most4096 sampled cells; the mask helper allows32 contours /256 authored points,
+  512 flattened vertices and4096 subdivision nodes; generated geometry is capped at100000
+  vertices, mask-mark intersection at2,000,000 vertex-pair units, and clipped output at100000
+  vertices /10000 contours. Exceeded budgets reject a command atomically. Cubic source curves are
+  flattened at approximately0.1 px, so both the mask and circular dots are polygonal
+  approximations. Same-type bypass, stable generated IDs, unstable downstream-Remap provenance,
+  common Undo/Redo, JSON serialization and transaction preflight are included.
+- Focused evidence covers white/black output, a small source wholly inside a cell, nonaligned
+  black bounds, varying gradient dot area, Bayer density, compound holes/no-leak, unsupported
+  inputs, budget rollback, deterministic identity, serialization/history, editor controls and
+  bypass. These checks do not establish native Windows interaction or physical print behavior.
+  More general luminance mappings remain a possible follow-on; this slice intentionally adds no
+  generic Field port or extra mapping framework.

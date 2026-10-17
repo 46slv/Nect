@@ -89,13 +89,22 @@ const supported = [
   'Fill',
   'Linear Gradient Fill',
   'Radial Gradient Fill',
+  'Halftone',
+  'Ordered Dither',
   'Stroke',
 ];
 for (const type of supported)
   test(`${type} bypass forwards its explicit compatible identity input, preserving authored state`, () => {
     const f = fixture(
       type,
-      ['Fill', 'Linear Gradient Fill', 'Radial Gradient Fill', 'Stroke'].includes(type),
+      [
+        'Fill',
+        'Linear Gradient Fill',
+        'Radial Gradient Fill',
+        'Halftone',
+        'Ordered Dither',
+        'Stroke',
+      ].includes(type),
     );
     const before = structuredClone(f.effect),
       input = bypassContract(f.effect).input;

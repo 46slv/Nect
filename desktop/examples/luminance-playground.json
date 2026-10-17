@@ -1,0 +1,1573 @@
+{
+  "schemaVersion": 2,
+  "name": "Luminance Playground",
+  "width": 816,
+  "height": 312,
+  "layers": [
+    {
+      "id": "luminance-0",
+      "name": "White paper",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-0:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                408,
+                156
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                816,
+                312
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-0:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-0:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-0:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-0:n2"
+    },
+    {
+      "id": "luminance-1",
+      "name": "Label / Luminance → Marks",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                40
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 25,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Luminance → Marks",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#20323d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-1:n2"
+    },
+    {
+      "id": "luminance-2",
+      "name": "Label / One grayscale source, three editable outputs",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-2:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                66
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "One grayscale source, three editable outputs",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-2:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-2:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-2:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-2:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-2:n2"
+    },
+    {
+      "id": "luminance-3",
+      "name": "01  SOURCE GRADIENT",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-3:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                128,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                192,
+                128
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-3:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-3:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                224,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-3:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-3:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-3:n2"
+    },
+    {
+      "id": "luminance-4",
+      "name": "Label / 01  SOURCE GRADIENT",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-4:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                106
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "01  SOURCE GRADIENT",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-4:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-4:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-4:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-4:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-4:n2"
+    },
+    {
+      "id": "luminance-5",
+      "name": "Label / linear gradient",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-5:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                274
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "linear gradient",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-5:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-5:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-5:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-5:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-5:n2"
+    },
+    {
+      "id": "luminance-6",
+      "name": "02  HALFTONE",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-6:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                408,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                192,
+                128
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-6:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-6:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                312,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                504,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-6:n2",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-6:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-6:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-6:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-6:n3"
+    },
+    {
+      "id": "luminance-7",
+      "name": "Label / 02  HALFTONE",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-7:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                312,
+                106
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "02  HALFTONE",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-7:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-7:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-7:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-7:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-7:n2"
+    },
+    {
+      "id": "luminance-8",
+      "name": "Label / area-calibrated circles",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-8:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                312,
+                274
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "area-calibrated circles",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-8:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-8:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-8:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-8:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-8:n2"
+    },
+    {
+      "id": "luminance-9",
+      "name": "03  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-9:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                688,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                192,
+                128
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-9:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-9:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                592,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                784,
+                184
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-9:n2",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-9:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-9:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-9:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-9:n3"
+    },
+    {
+      "id": "luminance-10",
+      "name": "Label / 03  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-10:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                592,
+                106
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "03  ORDERED DITHER",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-10:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-10:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-10:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-10:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-10:n2"
+    },
+    {
+      "id": "luminance-11",
+      "name": "Label / Bayer 8×8 / 8 px cells",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luminance-11:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                592,
+                274
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Bayer 8×8 / 8 px cells",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-11:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-11:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luminance-11:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luminance-11:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luminance-11:n2"
+    }
+  ]
+}

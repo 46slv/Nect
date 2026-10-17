@@ -14,6 +14,9 @@ import { mirrorGeometry } from './mirror-geometry.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
+import { sampleLuminanceGrid } from './luminance-field.js';
+import { generateLuminanceMarks } from './luminance-marks.js';
+import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -272,6 +275,16 @@ export const definitions = {
     startColor: p('Color', { hex: '#fff3b0', alpha: 1 }),
     endColor: p('Color', { hex: '#d94862', alpha: 1 }),
   },
+  Halftone: {
+    path: p('PaintedPath', null),
+    pitch: p('Scalar', 16),
+    invert: p('Boolean', false),
+  },
+  'Ordered Dither': {
+    path: p('PaintedPath', null),
+    pitch: p('Scalar', 16),
+    invert: p('Boolean', false),
+  },
   Stroke: {
     path: p('PaintedPath', null),
     color: p('Color', { hex: '#36434e', alpha: 1 }),
@@ -312,6 +325,14 @@ export function radialGradientSettings(read) {
       ['center', 'radius', 'startColor', 'endColor'].map((key) => [key, read(key)]),
     ),
   );
+}
+export function luminanceModifierSettings(read) {
+  const pitch = read('pitch'),
+    invert = read('invert');
+  if (!Number.isFinite(pitch) || pitch < 1 || pitch > 1024)
+    throw Error('Luminance pitch must be from 1 to 1024 px');
+  if (typeof invert !== 'boolean') throw Error('Luminance invert must be boolean');
+  return { pitch, invert };
 }
 // Keep count validation shared by JSON/direct input and resolved expression/socket input.
 export function radialSettings(type, read) {
@@ -518,7 +539,17 @@ export function outputType(n, port) {
   if (port !== undefined) return undefined;
   if (n.type === 'Vector Math')
     return ['length', 'distance', 'dot'].includes(n.operation) ? 'Scalar' : 'Vector2';
-  if (['Fill', 'Linear Gradient Fill', 'Radial Gradient Fill', 'Stroke', 'Output'].includes(n.type))
+  if (
+    [
+      'Fill',
+      'Linear Gradient Fill',
+      'Radial Gradient Fill',
+      'Halftone',
+      'Ordered Dither',
+      'Stroke',
+      'Output',
+    ].includes(n.type)
+  )
     return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
   if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
@@ -565,6 +596,8 @@ const bypassInputs = Object.freeze({
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
+  Halftone: 'path',
+  'Ordered Dither': 'path',
   Stroke: 'path',
 });
 export function bypassContract(n) {
@@ -1717,6 +1750,24 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   let computed = 0,
     reused = 0;
   const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  const hasImagePaintSource = (nodeId, seen = new Set()) => {
+    if (!nodeId || seen.has(nodeId)) return false;
+    seen.add(nodeId);
+    const sourceNode = byId.get(nodeId);
+    if (!sourceNode) return false;
+    if (['Image', 'Image Output'].includes(sourceNode.type)) return true;
+    return [
+      'Fill',
+      'Linear Gradient Fill',
+      'Radial Gradient Fill',
+      'Stroke',
+      'Output',
+      'Halftone',
+      'Ordered Dither',
+    ].includes(sourceNode.type)
+      ? hasImagePaintSource(sourceNode.params.path?.source, seen)
+      : false;
+  };
   let storedGraphError = null;
   if (layer.nodes.some((n) => n.bypassed)) {
     try {
@@ -1805,6 +1856,11 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
     if (active.size >= 256) throw Error('Graph depth exceeds 256 nodes');
     let n = byId.get(id);
     if (!n) throw Error('Missing source node');
+    if (
+      ['Halftone', 'Ordered Dither'].includes(n.type) &&
+      hasImagePaintSource(n.params.path.source)
+    )
+      throw Error(`${n.type} requires vector paint; image inputs are unsupported`);
     active.add(id);
     try {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
@@ -2554,6 +2610,63 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             signature(result),
           ]),
         );
+      } else if (n.type === 'Halftone' || n.type === 'Ordered Dither') {
+        const source = read('path');
+        if (!source) throw Error(`Connect a PaintedPath input to ${n.type}`);
+        if (source.kind === 'image')
+          throw Error(`${n.type} requires vector paint; image inputs are unsupported`);
+        if (source.fill === null || source.fill === undefined)
+          throw Error(`${n.type} requires a filled source; stroke-only inputs are unsupported`);
+        if (!Array.isArray(source.contours) || source.contours.length > 10000)
+          throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
+        let inputVertices = 0;
+        for (const contour of source.contours) {
+          inputVertices += Array.isArray(contour?.points) ? contour.points.length : 0;
+          if (inputVertices > 100000)
+            throw Error(`${n.type} exceeds the 100000-vertex geometry budget`);
+        }
+        const { pitch, invert } = luminanceModifierSettings(read),
+          mode = n.type === 'Halftone' ? 'halftone' : 'dither';
+        if (source.contours.length === 0) {
+          // A valid empty painted path (for example, Boolean A−A) remains an
+          // empty black fill. Still validate its paint and node settings.
+          sampleLuminanceGrid(
+            source.fill,
+            { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+            { pitch, origin: { x: 0, y: 0 }, invert },
+          );
+          result = { contours: [], fill: { hex: '#000000', alpha: 1 } };
+        } else {
+          const mask = prepareLuminanceMask(source),
+            field = sampleLuminanceGrid(source.fill, mask.bounds, {
+              pitch,
+              origin: { x: 0, y: 0 },
+              invert,
+            }),
+            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode }),
+            polygons = generated.marks.map((mark) => mark.vertices);
+          result = clipLuminanceMarks(mask, polygons, fingerprint(n.id));
+          result.fill = { hex: '#000000', alpha: 1 };
+        }
+        result.unstable = true;
+        result.fingerprint = fingerprint(
+          JSON.stringify([
+            provenance(n.id),
+            mode,
+            pitch,
+            invert,
+            source.fill,
+            source.fingerprint || null,
+            signature(source),
+            signature(result),
+          ]),
+        );
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          `Canvas character editing is unavailable through ${n.type}; edit upstream Text`,
+        );
       } else if (n.type === 'Closed Path Offset') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
@@ -2926,6 +3039,8 @@ export function assertClosedOffsetChange(
     'Twist Points',
     'Auto Handles',
     'Instance on Points',
+    'Halftone',
+    'Ordered Dither',
   ]);
   const boundedInputs = (n) =>
     n.type === 'Boolean'
@@ -3269,6 +3384,8 @@ export function validate(doc) {
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
+      if (['Halftone', 'Ordered Dither'].includes(n.type))
+        luminanceModifierSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
       if (['Polygon', 'Star'].includes(n.type))
         radialSettings(n.type, (key) => n.params[key].value);

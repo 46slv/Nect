@@ -27,12 +27,26 @@ Instance on Points. Native Windows interaction acceptance for this advancing sou
 | Twist Points       | Angle −360°..360°                                                                                     | Center-weighted radial angular warp in one shared whole-input bounds frame; positive is clockwise in screen coordinates; nonlinear curve interior is approximate                                                                                                                                                                     |
 | Auto Handles       | Strength0–1                                                                                           | Preserves anchors; generates symmetric one-third-shorter-chord tangents;0 makes straight edges                                                                                                                                                                                                                                       |
 | Instance on Points | Source Path; Points Path                                                                              | Places the whole-source bounds center at each authored target anchor; translation only. Target handles, interiors and groups are ignored. Both paths are required; Resample Points first for even spacing. Copies are materialized, bounded geometry with separate groups and no global union                                        |
+| Halftone           | Source Fill; Cell Pitch 1–1024 px; Invert Luminance                                                   | PaintedPath→PaintedPath; black, cell-clipped polygon dots whose area follows sampled darkness; fixed world-grid origin (0,0)                                                                                                                                                                                                         |
+| Ordered Dither     | Source Fill; Cell Pitch 1–1024 px; Invert Luminance                                                   | PaintedPath→PaintedPath; black, clipped cell squares selected by a fixed Bayer 8×8 threshold; ordered thresholding, not error diffusion                                                                                                                                                                                              |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
 preserve authored state. Output/work budgets fail explicitly rather than freezing on huge input.
 Derived geometry is marked unstable so downstream Path Remap edits suspend on changed input.
 Direct canvas text-character editing through these effects is unavailable; edit upstream Text.
+Halftone and Ordered Dither are paint-to-geometry effects: both require a filled, ungrouped path
+made of closed contours, with a solid or existing two-stop linear/radial gradient fill. Open,
+grouped, stroke-only and image inputs fail explicitly. A source stroke is not carried into the
+black output. They sample cell centers on the fixed artboard grid (no grid-origin control), then
+clip every dot/square to its cell and the source's compound mask so holes stay empty. Gradient
+stops interpolate in the existing sRGB paint space; relative luminance is calculated in linear
+light after compositing alpha over white. Halftone polygon area approximates darkness; ordered
+dither uses the fixed Bayer 8×8 threshold matrix. Cubics are flattened at about 0.1 document unit.
+These vector approximations are not print-calibrated. The bounded pipeline limits sampling to
+4096 cells, generated/output geometry to 100,000 vertices and mask-mark intersection work to
+2,000,000 vertex-pair units; curve-mask preflight has its own 32-contour / 256-authored-point /
+512-flattened-vertex caps. Exhausted work budgets reject edits transactionally.
 Closed Path Offset's 32-contour / 256-authored-point input caps and 256 flattened / 512 output
 vertex, 4096 subdivision-node, 300000 topology-check and 4096 estimated-join budgets are
 aggregate across groups, not multiplied per group; its existing eight-nonzero-node graph cap
@@ -58,11 +72,14 @@ produce empty erosion.
 - Line/Curve → Bend Points → Stroke or Fill for a circular strip; Resample first for finer deformation detail.
 - Text/Path → Twist Points → Fill or Stroke for a center-weighted swirl; Resample first for finer deformation detail.
 - Source Path → Instance on Points ← Points Path → Fill for translated ornaments; use Resample Path before Points when even spacing is wanted.
+- Linear / Radial Gradient Fill → Halftone for variable-size black dots; switch to Ordered Dither for a fixed Bayer texture.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 
 Open `examples/modifier-playground.json` in this development build for editable examples. It has
-41 evaluated editable layers with examples for earlier modifier additions; later additions are documented in editing-refinement. Rebuild with
+47 evaluated editable layers covering 18 modifier/effect families. For luminance-to-geometry
+examples, open the [12-layer luminance playground](../examples/luminance-playground.json), which
+stores the evaluated Halftone and Ordered Dither outputs. Rebuild the main playground with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).
 
