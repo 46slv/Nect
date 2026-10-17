@@ -185,6 +185,10 @@ export const definitions = {
     start: p('Scalar', 0),
     end: p('Scalar', 1),
   },
+  'Set Path Start': {
+    path: p('Path', null),
+    start: p('Scalar', 0),
+  },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
@@ -516,6 +520,7 @@ const bypassInputs = Object.freeze({
   'Smooth Path': 'path',
   'Reverse Path': 'path',
   'Trim Path': 'path',
+  'Set Path Start': 'path',
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
   'Wave Points': 'path',
@@ -1195,6 +1200,203 @@ function trimPathGeometry(source, { start, end, prefix }) {
     });
     if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
       throw Error('Trim Path exceeds geometry budget');
+    return { ...source, contours };
+  } finally {
+    item.remove();
+  }
+}
+
+function setPathStartGeometry(source, { start, prefix }) {
+  if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
+  if (!Number.isFinite(start) || start < 0 || start > 1)
+    throw Error('Set Path Start start must be from 0 to 1');
+  if (typeof prefix !== 'string' || !prefix)
+    throw Error('Set Path Start needs a nonempty ID prefix');
+  if (source.contours.length > 10000) throw Error('Set Path Start exceeds geometry budget');
+
+  let inputPointCount = 0;
+  for (const contour of source.contours) {
+    if (!Array.isArray(contour?.points) || typeof contour.closed !== 'boolean')
+      throw Error('Set Path Start needs valid contours');
+    inputPointCount += contour.points.length;
+    if (inputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
+    for (const point of contour.points) {
+      if (!point) throw Error('Set Path Start needs valid points');
+      assertValue('Vector2', point.position);
+      assertValue('Vector2', point.handleA);
+      assertValue('Vector2', point.handleB);
+    }
+  }
+
+  const copyPoint = (point, contourIndex, pointIndex) => ({
+      ...point,
+      id: `${prefix}:c${contourIndex}:p${pointIndex}`,
+      position: [...point.position],
+      handleA: [...point.handleA],
+      handleB: [...point.handleB],
+    }),
+    copyContour = (contour, contourIndex, points = contour.points) => ({
+      ...contour,
+      id: `${prefix}:c${contourIndex}`,
+      // Open paths have no seam to move. They intentionally pass through with
+      // their point order, curve shape, groups and arbitrary source metadata intact.
+      points: points.map((point, pointIndex) => copyPoint(point, contourIndex, pointIndex)),
+    });
+
+  // Both ends are geometry identities. Still give the modifier's result its
+  // own deterministic IDs, like the other derived-path modifiers.
+  if (start === 0 || start === 1)
+    return {
+      ...source,
+      contours: source.contours.map((contour, contourIndex) => copyContour(contour, contourIndex)),
+    };
+
+  if (!source.contours.some((contour) => contour.closed && contour.points.length))
+    return {
+      ...source,
+      contours: source.contours.map((contour, contourIndex) => copyContour(contour, contourIndex)),
+    };
+
+  const item = toPaper(source);
+  try {
+    if (!Array.isArray(item.children) || item.children.length !== source.contours.length)
+      throw Error('Set Path Start could not resolve contour geometry');
+    let outputPointCount = 0;
+    const contours = source.contours.map((contour, contourIndex) => {
+      const count = contour.points.length,
+        path = item.children[contourIndex];
+      if (!contour.closed || count === 0) {
+        outputPointCount += count;
+        if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
+        return copyContour(contour, contourIndex);
+      }
+
+      const length = path.length;
+      if (!Number.isFinite(length) || length < 0)
+        throw Error('Set Path Start exceeds finite path length');
+      // No arc-length position can distinguish a zero-length closed contour.
+      // Keep its original closure and finite points for every seam value.
+      if (length === 0) {
+        outputPointCount += count;
+        if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
+        return copyContour(contour, contourIndex);
+      }
+      if (!path.curves || path.curves.length !== count)
+        throw Error('Set Path Start could not resolve closed contour edges');
+
+      const distance = start * length,
+        tolerance = length * Number.EPSILON * 16;
+      if (!Number.isFinite(distance)) throw Error('Set Path Start exceeds finite path length');
+
+      // An exact source-vertex seam needs no split and must not acquire a
+      // duplicate knot. Resolve a boundary before looking for an interior edge.
+      let cursor = 0,
+        vertexIndex = null,
+        split = null;
+      for (let edgeIndex = 0; edgeIndex < path.curves.length; edgeIndex++) {
+        const curve = path.curves[edgeIndex],
+          curveLength = curve.length,
+          next = cursor + curveLength;
+        if (!Number.isFinite(curveLength) || curveLength < 0 || !Number.isFinite(next))
+          throw Error('Set Path Start exceeds finite path length');
+        if (Math.abs(distance - cursor) <= tolerance) {
+          vertexIndex = edgeIndex;
+          break;
+        }
+        if (Math.abs(distance - next) <= tolerance) {
+          vertexIndex = (edgeIndex + 1) % count;
+          break;
+        }
+        if (curveLength > 0 && distance > cursor && distance < next) {
+          const time = curveTimeAtDistance(curve, distance - cursor, curveLength);
+          if (!Number.isFinite(time) || time <= 0 || time >= 1)
+            throw Error('Set Path Start could not represent an interior seam');
+          const tail = curve.getPart(time, 1)?.values,
+            head = curve.getPart(0, time)?.values;
+          if (
+            !Array.isArray(tail) ||
+            tail.length !== 8 ||
+            !tail.every(Number.isFinite) ||
+            !Array.isArray(head) ||
+            head.length !== 8 ||
+            !head.every(Number.isFinite)
+          )
+            throw Error('Set Path Start could not represent an interior seam');
+          const position = tail.slice(0, 2),
+            handleB = [tail[2] - position[0], tail[3] - position[1]],
+            handleA = [head[4] - position[0], head[5] - position[1]];
+          if (![...position, ...handleA, ...handleB].every(Number.isFinite))
+            throw Error('Set Path Start could not represent an interior seam');
+          split = { position, handleA, handleB, edgeIndex, tail, head };
+          break;
+        }
+        cursor = next;
+      }
+
+      let points;
+      if (vertexIndex !== null) {
+        points = Array.from(
+          { length: count },
+          (_, offset) => contour.points[(vertexIndex + offset) % count],
+        );
+      } else if (split) {
+        const seamSource = contour.points[split.edgeIndex];
+        const tailEndIndex = (split.edgeIndex + 1) % count,
+          tailEnd = contour.points[tailEndIndex],
+          headStart = seamSource,
+          tailEndHandleA = [split.tail[4] - split.tail[6], split.tail[5] - split.tail[7]],
+          headStartHandleB = [split.head[2] - split.head[0], split.head[3] - split.head[1]];
+        points =
+          count === 1
+            ? [
+                {
+                  ...seamSource,
+                  position: split.position,
+                  handleA: split.handleA,
+                  handleB: split.handleB,
+                },
+                {
+                  ...tailEnd,
+                  handleA: tailEndHandleA,
+                  handleB: headStartHandleB,
+                },
+              ]
+            : [
+                {
+                  ...seamSource,
+                  position: split.position,
+                  handleA: split.handleA,
+                  handleB: split.handleB,
+                },
+                {
+                  ...tailEnd,
+                  handleA: tailEndHandleA,
+                },
+                ...Array.from(
+                  { length: count - 2 },
+                  (_, offset) => contour.points[(split.edgeIndex + 2 + offset) % count],
+                ),
+                {
+                  ...headStart,
+                  handleB: headStartHandleB,
+                },
+              ];
+      } else {
+        throw Error('Set Path Start could not locate a finite seam');
+      }
+
+      outputPointCount += points.length;
+      if (outputPointCount > 100000) throw Error('Set Path Start exceeds geometry budget');
+      const remapped = copyContour(contour, contourIndex, points);
+      for (const point of remapped.points) {
+        assertValue('Vector2', point.position);
+        assertValue('Vector2', point.handleA);
+        assertValue('Vector2', point.handleB);
+      }
+      return remapped;
+    });
+    if (contours.reduce((sum, contour) => sum + contour.points.length, 0) > 100000)
+      throw Error('Set Path Start exceeds geometry budget');
     return { ...source, contours };
   } finally {
     item.remove();
@@ -1886,6 +2088,18 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Set Path Start') {
+        const source = read('path'),
+          start = read('start');
+        result = setPathStartGeometry(source, { start, prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Set Path Start; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Reverse Path') {
         const source = read('path');
         result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
@@ -2498,6 +2712,7 @@ export function assertClosedOffsetChange(
     'Roughen',
     'Smooth Path',
     'Trim Path',
+    'Set Path Start',
     'Reverse Path',
     'Subdivide Path',
     'Expand Stroke',
@@ -2856,6 +3071,8 @@ export function validate(doc) {
         )
           throw Error('Trim Path start must not exceed end');
       }
+      if (n.type === 'Set Path Start' && (n.params.start.value < 0 || n.params.start.value > 1))
+        throw Error('Set Path Start start must be from 0 to 1');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
         throw Error('Stroke width must be from 0 to 100000 px');
       if (

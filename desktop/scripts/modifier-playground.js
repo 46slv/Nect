@@ -22,7 +22,7 @@ const fonts = {
 const doc = document();
 doc.name = 'Modifier Playground';
 doc.width = 1080;
-doc.height = 1160;
+doc.height = 1420;
 doc.layers = [];
 function chain(name, nodes, color = '#40586b', paint = true) {
   const l = layer(name);
@@ -186,6 +186,33 @@ chain(
   false,
 );
 label('12  Wave Points', 765, 1125);
+// Direction and seam controls are easiest to see against the same full curve.
+for (const [cx, title, effect] of [
+  [180, 'Trim reference', null],
+  [540, '13  Reverse Path', node('Reverse Path')],
+  [890, '14  Set Path Start', modifier('Set Path Start', { start: 0.25 })],
+]) {
+  const referenceStroke = node('Stroke');
+  referenceStroke.params.width.value = 2;
+  referenceStroke.params.color.value = { hex: '#c9d0d3', alpha: 1 };
+  chain(`${title} reference`, [circle(cx, 1270), referenceStroke], '#c9d0d3', false);
+  const activeStroke = node('Stroke');
+  activeStroke.params.width.value = 8;
+  activeStroke.params.color.value = { hex: '#40586b', alpha: 1 };
+  activeStroke.strokeCap = 'round';
+  chain(
+    title,
+    [
+      circle(cx, 1270),
+      ...(effect ? [effect] : []),
+      modifier('Trim Path', { end: 0.5 }),
+      activeStroke,
+    ],
+    '#40586b',
+    false,
+  );
+  label(title, cx - 125, 1385);
+}
 const saved = serialize(doc),
   restored = deserialize(saved);
 for (const l of restored.layers) {

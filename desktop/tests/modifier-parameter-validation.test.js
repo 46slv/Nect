@@ -10,6 +10,7 @@ test('disconnected modifier fallback ranges are rejected by commands and seriali
     ['Smooth Path', 'factor', 2],
     ['Smooth Path', 'iterations', 0],
     ['Trim Path', 'start', 2],
+    ['Set Path Start', 'start', -0.1],
     ['Corner Round', 'radius', -1],
     ['Wave Points', 'wavelength', 0],
     ['Wave Points', 'phase', 361],

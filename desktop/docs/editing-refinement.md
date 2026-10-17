@@ -372,6 +372,26 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
 - Focused evidence: helper + Reverse Path core/DOM checks pass 11/11; the Web build passes with
   the existing large-chunk warning. No native GUI or full-suite claim.
 
-The current catalog lists 13 modifiers; the editable playground still has examples for 12.
+### Set Path Start
+
+- Path → Path modifier with one Start scalar from 0 to 1. Each nondegenerate closed contour moves
+  its seam by that fraction of its own arc length, retaining the forward winding and exact cubic
+  geometry. An interior seam splits the intersected Bézier and rejoins the tail to the head as one
+  closed contour; a source-vertex seam rotates anchors without introducing a duplicate knot.
+- Open contours pass through unchanged. Start 0 and 1 are geometry identities (with derived IDs),
+  while empty and zero-length closed contours stay closed and finite. Contour order, groups and
+  metadata are retained; output IDs are deterministic and the result has an unstable fingerprint.
+  Canvas character editing through Set Path Start is suspended at the upstream Text source.
+- Preflight validates finite vectors, Start range and the 10,000-contour / 100,000-point bounds.
+  The node participates in transactional modifier preflight, Path bypass, Session history and input
+  locks, plus JSON roundtrip and SVG export. Numeric drag is bounded 0–1 in 0.01 steps.
+- Useful stack: Set Path Start → Trim Path / Dash Path to select a different seam-relative beginning
+  while preserving forward direction. This describes Nect's seam-control contract and makes no
+  claim of Adobe or Blender numeric parity.
+- Focused evidence: Set Path Start core tests 8/8, DOM test 1/1, disconnected modifier parameter
+  validation 1/1, and Web build pass with the existing large-chunk warning. No native GUI or
+  full-suite claim.
+
+The current catalog and editable playground cover 14 modifiers in 35 layers. The final row compares the same half-Trim with unchanged, reversed and shifted-start traversal; the exported SVG was visually inspected.
 Continue with useful researched slices rather than duplicating existing nodes. Native trial
 packaging remains a separate dependency.
