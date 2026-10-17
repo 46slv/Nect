@@ -1,3 +1,4 @@
+import { splitPathSegment } from './path-point-insertion.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -33,6 +34,7 @@ import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { generateLuminanceMarks } from './luminance-marks.js';
 import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
+export { hitPathSegment } from './path-point-insertion.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -784,6 +786,23 @@ export function nodeDependencies(n, activeOnly = false) {
   if (reference) deps.push(reference);
   if (n.type === 'Text' && n.pathAttachment) deps.push({ source: n.pathAttachment.nodeId });
   return deps;
+}
+// Reuse the graph's parameter/reference/expression dependency contract. Inactive
+// edges are intentionally included: retained edits must remain safe on re-enable.
+export function insertionRemapDependents(layer, nodeId) {
+  const downstream = new Set([nodeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const n of layer.nodes)
+      if (!downstream.has(n.id) && nodeDependencies(n).some((d) => downstream.has(d.source))) {
+        downstream.add(n.id);
+        changed = true;
+      }
+  }
+  return layer.nodes.filter(
+    (n) => downstream.has(n.id) && n.type === 'Path Remap' && n.edits.length,
+  );
 }
 export function referenceTarget(layer, n) {
   if (n?.type !== 'Reference') throw Error('Select a Reference node');
@@ -5886,6 +5905,7 @@ export class CommandSession {
         'set-node-bypassed',
         'set-reference',
         'set-node-settings',
+        'insert-path-point',
         'create-point',
         'delete-point',
         'set-point-mode',
@@ -6037,6 +6057,72 @@ export class CommandSession {
         connect(target, source.id, paint.id, 'path');
         connect(target, paint.id, target.output, 'path');
       } else connect(target, source.id, target.output, 'path');
+    } else if (type === 'insert-path-point') {
+      const item = target.nodes.find((n) => n.id === payload.nodeId);
+      if (!item || !['Curve', 'Multi Path'].includes(item.type))
+        throw Error('Generated path: select the original Curve or Multi Path to insert a point');
+      if (item.locked || item.bypassed) throw Error('Path is locked or bypassed');
+      if (target.visible === false) throw Error('Show the composition before inserting a point');
+      if (item.points.length >= 10000) throw Error('Too many vertices (10000 per node)');
+      // Retained Remap deltas can change meaning or suspend after topology changes.
+      // This initial slice refuses affected retained edits; unrelated branches
+      // remain editable. Never silently update a fingerprint or rebind an edit.
+      if (insertionRemapDependents(target, item.id).length)
+        throw Error(
+          'Point insertion is unavailable because this source feeds retained Path Remap edits: topology changes can suspend or alter them. No edits were rebound.',
+        );
+      const closedParameter = item.type === 'Curve' ? item.params.closed : null;
+      const blocked = (q) => q.locked || q.source || q.expression;
+      if (closedParameter && blocked(closedParameter))
+        throw Error('Path closure is locked or driven');
+      const contour =
+        item.type === 'Curve'
+          ? { id: item.id, points: item.points.map((p) => p.id), closed: closedParameter.value }
+          : item.contours.find((c) => c.id === payload.contourId);
+      if (!contour || contour.id !== payload.contourId) throw Error('Missing owned contour');
+      const index = contour.points.indexOf(payload.startPointId),
+        next = (index + 1) % contour.points.length;
+      if (
+        index < 0 ||
+        (!contour.closed && next === 0) ||
+        contour.points[next] !== payload.endPointId ||
+        contour.points.length < 2
+      )
+        throw Error('Select adjacent points in contour order');
+      const a = item.points.find((p) => p.id === payload.startPointId),
+        b = item.points.find((p) => p.id === payload.endPointId);
+      if ([a.position, a.handleB, b.position, b.handleA].some(blocked))
+        throw Error('Segment anchors or handles are locked or driven');
+      const evaluated = evaluate(
+        { ...target, output: item.id },
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+      );
+      if (evaluated.error) throw Error(evaluated.error);
+      const split = splitPathSegment(
+        { position: a.position.value, handleB: a.handleB.value },
+        { position: b.position.value, handleA: b.handleA.value },
+        payload.t,
+      );
+      const created = point(...split.position);
+      created.handleA.value = split.handleA;
+      created.handleB.value = split.handleB;
+      created.handleType =
+        Math.hypot(...split.handleA) && Math.hypot(...split.handleB) ? 'smooth' : 'corner';
+      a.handleB.value = split.startHandle;
+      b.handleA.value = split.endHandle;
+      for (const pt of [a, b])
+        if (
+          pt.handleType === 'symmetric' &&
+          pt.handleA.value.some((v, axis) => v !== -pt.handleB.value[axis])
+        )
+          pt.handleType = 'smooth';
+      if (item.type === 'Curve') item.points.splice(index + 1, 0, created);
+      else {
+        item.points.push(created);
+        contour.points.splice(index + 1, 0, created.id);
+      }
+      result = { pointId: created.id, contourId: contour.id };
     } else if (['create-point', 'delete-point', 'set-point-mode'].includes(type)) {
       const item = target.nodes.find(
         (node) => node.id === payload.nodeId && ['Curve', 'Multi Path'].includes(node.type),

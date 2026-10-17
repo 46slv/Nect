@@ -38,3 +38,36 @@ A maximum of 100 document layers and 10,000 Curve points applies. Layer capacity
 `tests/artwork-creation.test.js` covers detached creation/commit, prior objects/assets, exact Undo/Redo/JSON, invalid data, duplicate IDs and capacity/vertex budgets. `tests/pen-artwork-dom.test.js` covers finish variants, cancellation at multiple stages, interruption, locked/hidden context, selection/focus and explicit source editing. `tests/artwork-move-target.test.js` and `tests/curve-artwork-dom.test.js` cover rigid batch placement, target invalidation, atomic rejection and retained source-stage editing. `tests/pen-artwork.e2e.js` uses actual Chrome pointers for open/closed Bézier paths, placement after finish, image/Output locks, navigation, exact SVG/PNG pixels, cold reopen, interruptions and 1280×800 / 1600×1000 affordances. Windows CI remains the actual-browser and Rust/NSIS gate. Native WebView2, native file dialogs and IME acceptance remain separate.
 
 Open [the editable Pen example](../examples/independent-pen-artwork.json) to inspect two independent committed curves beside retained artwork.
+
+## Insert a point into an owned source path
+
+Select one **Curve** or **Multi Path** in the graph, then choose **Pen**. Hover an
+unambiguous source-stage segment for a plus preview; press and release to insert
+one anchor with an exact de Casteljau split. The source contour keeps its shape,
+existing point IDs, hole grouping and units. The new point is selected in the
+canvas and existing paged point panel. One insertion is one Undo; Redo restores
+the same new ID. JSON keeps typed positions and handles without rounding.
+
+Existing anchors select (Shift toggles); Alt-click/drag retains handle creation.
+An insertion is click-only: moving 4 CSS pixels, Escape, pointer cancellation,
+lost capture or blur cancels it. A stale document revision cannot commit the hit.
+The segment threshold is 6 CSS pixels, after the existing 7-pixel anchor priority.
+Crossings, coincident edges or multiple nearby segment candidates refuse with an
+explanation rather than silently picking one. Click blank canvas for the existing
+independent Pen draft; a live draft always retains its original gesture meaning.
+
+This slice does not extend endpoints, add to generated contours, bake text, reroute
+graphs or rebind Remap edits. Select the original owned source for generated paths.
+A source feeding retained downstream Path Remap edits is explicitly refused,
+including indirect and inactive dependencies, because insertion could suspend or
+change those deltas. Unrelated Remap branches remain editable. Other downstream
+point-count-dependent effects may change even though the source shape is preserved.
+Locked/driven segment anchors and changed handles, driven/locked closure, hidden
+compositions and the node-wide 10,000-point ceiling reject atomically. Unrelated
+driven points and the reverse-side handles are preserved.
+
+`tests/path-point-insertion.test.js` checks geometry, ownership, holes, typed
+round trips, budget and atomic command safety. `tests/path-point-insertion-dom.test.js`
+checks source routing, selection, repeat releases, interruptions and new-Pen/Alt
+regressions in a synthetic DOM. Actual Chrome and Windows/WebView2 acceptance for
+this new insertion slice remains separate; these tests do not establish it.

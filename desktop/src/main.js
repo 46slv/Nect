@@ -421,6 +421,8 @@ import {
   transformParameter,
   pointControlTargets,
   hitPointControl,
+  hitPathSegment,
+  insertionRemapDependents,
   inverseCharacterDelta,
   characterBoxPoints,
   hitCharacter,
@@ -1013,6 +1015,7 @@ function resetTransient() {
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
   pointHover = null;
+  penSegmentHover = null;
   for (const { face } of editorFonts.values()) document.fonts?.delete(face);
   editorFonts.clear();
   textPreview = null;
@@ -2119,6 +2122,12 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false, artworkResolution = null) {
+  const pointOwner = current().nodes.find((n) => n.id === pointSelection.nodeId);
+  if (pointOwner && ['Curve', 'Multi Path'].includes(pointOwner.type)) {
+    const ids = new Set(pointOwner.points.map((p) => p.id));
+    pointSelection.ids = new Set([...pointSelection.ids].filter((id) => ids.has(id)));
+    if (pointFocus?.nodeId === pointOwner.id && !ids.has(pointFocus.pointId)) pointFocus = null;
+  }
   gridOpacityDraft = null;
   closeNodeContextMenu();
   if (
@@ -2979,6 +2988,22 @@ function canvasOverlay(n, result) {
   let out =
     `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
     nodeStageMoveMarker(n, path);
+  const insertionPreview =
+    drag?.type === 'path-insert'
+      ? !drag.cancelled && drag.payload.nodeId === n.id
+        ? drag
+        : null
+      : tool === 'pen' &&
+          !penDraft &&
+          penSegmentHover?.nodeId === n.id &&
+          penSegmentHover.revision === session.state.expectedRevision
+        ? penSegmentHover
+        : null;
+  if (insertionPreview) {
+    const [x, y] = insertionPreview.position,
+      r = 5 / canvasScale();
+    out += `<g pointer-events="none" class="guide"><circle cx="${x}" cy="${y}" r="${r}"/><path d="M${x - r} ${y}H${x + r} M${x} ${y - r}V${y + r}"/></g>`;
+  }
   if (['Curve', 'Multi Path', 'Path Remap'].includes(n.type)) {
     const scale = canvasScale(),
       focused = [
@@ -3039,6 +3064,7 @@ function nodeStageMoveMarker(n, path) {
   if (![x, y].every(Number.isFinite)) return '';
   return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move selected node before downstream nodes"><title>Move selected node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
 }
+let penSegmentHover = null;
 let pointFocus = null,
   pointHover = null,
   pointSelection = { nodeId: null, ids: new Set() };
@@ -4576,7 +4602,9 @@ app.addEventListener('click', async (e) => {
     tool = d.tool;
     if (tool === 'pen') {
       penId = null;
-      notify('Click the canvas to begin a curve');
+      notify(
+        'Click a selected source path segment to add a point; click blank canvas for a new path. Alt-click an anchor for handles.',
+      );
       render();
     } else if (tool !== 'select') {
       createArtwork(tool);
@@ -6944,7 +6972,78 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
-  if (tool === 'pen') {
+  let penAltAnchor = false;
+  if (tool === 'pen' && !penDraft && selectedNode() && !artworkTarget) {
+    const n = selectedNode();
+    // Only the explicitly selected source stage is an editable target. Never
+    // infer an owner from the painted final output or a generated point ID.
+    if (selection.size === 1 && selection.has(n.id) && outputType(n) === 'Path') {
+      if (document.querySelector('dialog[open]') || composing) return;
+      try {
+        stage.focus({ preventScroll: true });
+        const path = evaluate(current(), fonts, history.doc.imageAssets).run(n.id),
+          pos = canvasPoint(e),
+          anchor = hitPointControl(path, pos, canvasScale()),
+          segment = !anchor && hitPathSegment(path, pos, canvasScale());
+        if (anchor || segment) {
+          e.preventDefault();
+          if (!layerShown(current()) || current().locked || n.locked || n.bypassed)
+            throw Error('Show and unlock the source path before editing');
+          if (!['Curve', 'Multi Path'].includes(n.type))
+            throw Error(
+              'Generated path: select the original Curve or Multi Path. Local point insertion is not supported here.',
+            );
+          if (anchor?.ambiguous || segment?.ambiguous)
+            throw Error(
+              'Overlapping path targets: point insertion is ambiguous. Choose an unambiguous segment.',
+            );
+          stage.focus({ preventScroll: true });
+          if (anchor) {
+            if (e.altKey) penAltAnchor = true;
+            else {
+              pointFocus = { nodeId: n.id, pointId: anchor.pointId };
+              selectPointTarget(n, anchor, e);
+              return;
+            }
+          } else {
+            if (e.altKey || e.shiftKey)
+              throw Error(
+                'Click a segment without Alt or Shift to add a point; Alt edits anchor handles.',
+              );
+            if (insertionRemapDependents(current(), n.id).length)
+              throw Error(
+                'Point insertion is unavailable because this source feeds retained Path Remap edits: topology changes can suspend or alter them. No edits were rebound.',
+              );
+            drag = {
+              type: 'path-insert',
+              payload: {
+                layerId: current().id,
+                nodeId: n.id,
+                contourId: segment.contourId,
+                startPointId: segment.startPointId,
+                endPointId: segment.endPointId,
+                t: segment.t,
+              },
+              envelope: { ...session.state },
+              startClient: [e.clientX, e.clientY],
+              position: segment.position,
+              cancelled: false,
+            };
+            captureArtworkPointer(e, stage);
+            updateCanvas(true);
+            notify(
+              'Release to add one point. Drag or Escape cancels. Downstream point-count effects may change.',
+            );
+            return;
+          }
+        }
+      } catch (error) {
+        notify(error.message, true);
+        return;
+      }
+    }
+  }
+  if (tool === 'pen' && !penAltAnchor) {
     let pos = canvasPoint(e);
     // A new independent layer must include the old active layer as a snap target.
     if (!penDraft)
@@ -7343,6 +7442,10 @@ app.addEventListener('pointerdown', (e) => {
   } else notify('Select generators, or one Transform to move its whole group');
 });
 function movePointer(e) {
+  if (!drag && penSegmentHover && !e.target.closest?.('.canvas-stage')) {
+    penSegmentHover = null;
+    updateCanvas();
+  }
   if (!drag && !wiring && pointHover && !e.target.closest?.('.canvas-stage')) {
     pointHover = null;
     updateCanvas();
@@ -7361,6 +7464,17 @@ function movePointer(e) {
       canvasScale(),
       [pointFocus, pointHover].filter((t) => t?.nodeId === n.id).map((t) => t.pointId),
     );
+    if (tool === 'pen' && !penDraft && !artworkTarget && selection.size === 1) {
+      const segment = !hit && hitPathSegment(path, canvasPoint(e), canvasScale());
+      const nextSegment =
+        segment && !segment.ambiguous && ['Curve', 'Multi Path'].includes(n.type)
+          ? { ...segment, nodeId: n.id, revision: session.state.expectedRevision }
+          : null;
+      if (penSegmentHover || nextSegment) {
+        penSegmentHover = nextSegment;
+        updateCanvas();
+      }
+    } else penSegmentHover = null;
     const next = hit && !hit.ambiguous ? { nodeId: n.id, pointId: hit.pointId } : null;
     if (pointHover?.nodeId !== next?.nodeId || pointHover?.pointId !== next?.pointId) {
       pointHover = next;
@@ -7383,6 +7497,13 @@ function movePointer(e) {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'path-insert') {
+    if (Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) >= 4) {
+      drag.cancelled = true;
+      updateCanvas(true);
+    }
+    return;
+  }
   if (drag.type === 'graph-marquee') {
     moveGraphMarquee(e);
     return;
@@ -7956,6 +8077,32 @@ document.addEventListener('pointerup', (e) => {
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
+    if (d.type === 'path-insert') {
+      if (
+        !d.cancelled &&
+        Math.hypot(e.clientX - d.startClient[0], e.clientY - d.startClient[1]) < 4 &&
+        current().id === d.payload.layerId &&
+        selectedNode()?.id === d.payload.nodeId
+      ) {
+        const result = commandChange(
+          'insert-path-point',
+          d.payload,
+          'Added one source-path point; downstream point-count effects may change',
+          false,
+          d.envelope,
+        );
+        if (result?.changed) {
+          const n = selectedNode();
+          pointSelection = { nodeId: n.id, ids: new Set() };
+          pointFocus = { nodeId: n.id, pointId: result.pointId };
+          selectPointTarget(n, { pointId: result.pointId, key: 'position' }, { shiftKey: false });
+        }
+      } else {
+        notify('Point insertion cancelled');
+        render();
+      }
+      return;
+    }
     if (d.type === 'graph-overview') {
       updateNavigation();
       return;
@@ -8325,6 +8472,11 @@ document.addEventListener('keydown', (e) => {
   }
   if (artworkDrag() && e.key === 'Shift') {
     if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: true, altKey: e.altKey });
+    return;
+  }
+  if (drag?.type === 'path-insert' && e.key === 'Escape') {
+    e.preventDefault();
+    cancelInteraction();
     return;
   }
   if (drag?.type === 'numeric' && e.key === 'Escape') {
