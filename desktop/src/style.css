@@ -1948,3 +1948,25 @@ input[data-scrub-step].scrubbing {
 [data-action='graph-overview'][aria-expanded='true'] {
   background: #dceaf5;
 }
+
+/* Add-node catalog scope is session UI, separate from font filters. */
+.picker-category-filters {
+  flex-wrap: wrap;
+}
+.picker-category-filters select {
+  max-width: 100%;
+  padding: 5px;
+}
+.picker-context {
+  margin: 0;
+  padding: 0 12px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.node-search-panel .picker-option {
+  flex-wrap: wrap;
+}
+.node-search-panel .picker-option small {
+  flex-basis: 100%;
+  overflow-wrap: anywhere;
+}

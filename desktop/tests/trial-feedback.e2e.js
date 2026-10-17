@@ -145,7 +145,7 @@ try {
   const beforeNode = await doc(page);
   await page.locator('.graph-scroll').focus();
   await page.keyboard.press('Control+Space');
-  await page.getByRole('combobox', { name: 'Add node search' }).fill('vector math');
+  await page.getByRole('combobox', { name: 'ノードを追加 search' }).fill('vector math');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await page.waitForFunction(() =>
@@ -155,7 +155,7 @@ try {
   await page.keyboard.press('Control+z');
   assert.equal(await doc(page), beforeNode);
   await page.locator('#add-node').click();
-  await page.getByRole('combobox', { name: 'Add node search' }).fill('no-such-node');
+  await page.getByRole('combobox', { name: 'ノードを追加 search' }).fill('no-such-node');
   assert.equal(await dialog(page).getByRole('option').count(), 0);
   await page.keyboard.press('Enter');
   assert.equal(await dialog(page).count(), 1);

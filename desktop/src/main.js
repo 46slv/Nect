@@ -1,3 +1,4 @@
+import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
@@ -18,6 +19,10 @@ function openSearchPanel({
   isFavorite,
   toggleFavorite,
   fontFilters = false,
+  categories,
+  filterItems,
+  context,
+  fallbackFocus,
 }) {
   const previousFocus = document.activeElement;
   const dialog = document.createElement('dialog');
@@ -113,6 +118,46 @@ function openSearchPanel({
       'Choose a real face/style below. Unknown metadata stays unknown; no synthetic bold or italic.';
     filters.after(note);
   }
+  let categoryId = '';
+  let categorySelect, scope, clearScope;
+  if (categories) {
+    dialog.classList.add('node-search-panel');
+    const filters = document.createElement('div');
+    filters.className = 'picker-search picker-category-filters';
+    const label = document.createElement('label');
+    label.textContent = '分類（内蔵） ';
+    categorySelect = document.createElement('select');
+    categorySelect.setAttribute('aria-label', 'ノード分類');
+    for (const category of [{ id: '', label: 'すべて' }, ...categories]) {
+      const option = document.createElement('option');
+      option.value = category.id;
+      option.textContent = category.label;
+      categorySelect.append(option);
+    }
+    label.append(categorySelect);
+    scope = document.createElement('span');
+    scope.className = 'picker-scope';
+    scope.setAttribute('role', 'status');
+    clearScope = document.createElement('button');
+    clearScope.type = 'button';
+    clearScope.textContent = '全体で検索';
+    clearScope.className = 'picker-clear-scope';
+    categorySelect.onchange = () => {
+      categoryId = categorySelect.value;
+      refresh();
+    };
+    clearScope.onclick = () => {
+      categoryId = categorySelect.value = '';
+      refresh();
+      input.focus();
+    };
+    filters.append(label, scope, clearScope);
+    dialog.querySelector('.picker-search').after(filters);
+    const destination = document.createElement('p');
+    destination.className = 'picker-context';
+    destination.textContent = context;
+    filters.before(destination);
+  }
   const active = () => rows.find((item) => item.id === activeId && !item.disabled);
   function highlight() {
     for (const row of list.children)
@@ -131,21 +176,29 @@ function openSearchPanel({
   }
   function refresh() {
     const words = input.value.trim().normalize('NFKC').toLowerCase().split(/\s+/).filter(Boolean);
-    rows = items.filter(
-      (item) =>
-        (!favoriteOnly || isFavorite(item)) &&
-        (!familyFilter ||
-          (familyFilter === '__unknown__'
-            ? !item.metadata?.family
-            : `family:${item.metadata?.family}` === familyFilter)) &&
-        (!weightFilter ||
-          (weightFilter === '__unknown__'
-            ? item.metadata?.weightClass == null
-            : String(item.metadata?.weightClass) === weightFilter)) &&
-        words.every((word) =>
-          `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
-        ),
-    );
+    if (closed) return;
+    rows = filterItems
+      ? filterItems(items, input.value, categoryId)
+      : items.filter(
+          (item) =>
+            (!favoriteOnly || isFavorite(item)) &&
+            (!familyFilter ||
+              (familyFilter === '__unknown__'
+                ? !item.metadata?.family
+                : `family:${item.metadata?.family}` === familyFilter)) &&
+            (!weightFilter ||
+              (weightFilter === '__unknown__'
+                ? item.metadata?.weightClass == null
+                : String(item.metadata?.weightClass) === weightFilter)) &&
+            words.every((word) =>
+              `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
+            ),
+        );
+    if (scope) {
+      const label = categories.find((item) => item.id === categoryId)?.label || 'すべて';
+      scope.textContent = `${categoryId ? label + '内' : '全体'} ${rows.length}件`;
+      clearScope.hidden = !categoryId;
+    }
     if (!rows.some((item) => item.id === activeId && !item.disabled))
       activeId = rows.find((item) => !item.disabled)?.id;
     list.replaceChildren();
@@ -180,18 +233,21 @@ function openSearchPanel({
         row.append(star);
       }
       row.onclick = () => {
-        if (item.disabled) return;
+        if (closed || item.disabled) return;
         activeId = item.id;
         highlight();
         input.focus();
       };
       row.ondblclick = () => {
-        if (!item.disabled) onCommit(active());
+        if (!closed && !item.disabled && rows.includes(item)) {
+          activeId = item.id;
+          commit();
+        }
       };
       list.append(row);
     });
     highlight();
-    if (!rows.length) status.textContent = 'No matches';
+    if (!rows.length) status.textContent = categories ? '該当するノードはありません' : 'No matches';
   }
   const panel = {
     get closed() {
@@ -212,11 +268,15 @@ function openSearchPanel({
       dialog.close();
       dialog.remove();
       if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+      else fallbackFocus?.();
     },
   };
+  function commit() {
+    if (!closed && !composing && active()) onCommit(active());
+  }
   dialog.querySelector('.picker-close').onclick = () => panel.close(true);
   dialog.querySelector('.picker-cancel').onclick = () => panel.close(true);
-  apply.onclick = () => onCommit(active());
+  apply.onclick = commit;
   favorites.onclick = () => {
     favoriteOnly = !favoriteOnly;
     favorites.setAttribute('aria-pressed', String(favoriteOnly));
@@ -256,7 +316,7 @@ function openSearchPanel({
       // Buttons retain their normal action (favorites/cancel), search commits.
       if (event.target !== input) return;
       event.preventDefault();
-      if (active()) onCommit(active());
+      if (!event.repeat) commit();
     }
   });
   document.body.append(dialog);
@@ -3366,18 +3426,31 @@ function openNodePicker() {
   const envelope = session.state,
     layerId = current().id;
   editorPicker = openSearchPanel({
-    title: 'Add node',
-    action: 'Add node',
-    items: Object.keys(definitions)
-      .filter((type) => !['Output', 'Image Output', 'Image'].includes(type))
-      .map((type) => ({
-        id: type,
-        label: nodeTypeLabel(type),
-        detail: type === 'Join Geometry' ? 'Join Geometry · independent path groups' : '',
-      })),
+    title: 'ノードを追加',
+    action: '追加',
+    context: `作成先: ${current().name}`,
+    categories: nodePickerItems(definitions).some((item) => item.categoryId === 'uncategorized')
+      ? [...nodeCategories, { id: 'uncategorized', label: '未分類' }]
+      : nodeCategories,
+    items: nodePickerItems(definitions, nodeTypeLabel),
+    filterItems: searchNodeItems,
+    fallbackFocus: () => document.querySelector('.graph-scroll')?.focus({ preventScroll: true }),
     onCommit(item) {
-      if (!item) return;
+      if (!item || !editorPicker || editorPicker.closed) return;
       const picker = editorPicker;
+      if (
+        current().id !== layerId ||
+        current().locked ||
+        penDraft ||
+        navigationBusy() ||
+        nameEdit
+      ) {
+        picker.status(
+          '作成先または編集状態が変わりました。閉じてから再度追加してください。',
+          false,
+        );
+        return;
+      }
       editorPicker = null;
       picker.close();
       if (addNode(item.id, envelope, layerId))
