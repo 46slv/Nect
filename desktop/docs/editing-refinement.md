@@ -279,7 +279,47 @@ See [modifier catalog](modifiers.md) for current controls, recipes and limitatio
   raster was inspected for labels, clipping and shape output. Native application acceptance remains
   unverified. The earlier seven-example proof sent in chat is preserved as that historical image.
 
-Next: Subdivide Path to add Bézier anchors without changing the curve shape, rather than converting
-it to a polyline. See [Blender Subdivide Curve](https://docs.blender.org/manual/nl/4.5/modeling/geometry_nodes/curve/operations/subdivide_curve.html).
-Use bounded per-edge cuts and retained cubic subsegments; preserve endpoints/closed seams and test
-sampled shape equivalence before adding it to the catalog.
+Subdivide Path is the next completed addition below: it adds Bézier anchors without converting the
+curve to a polyline. See its exact per-edge contract, bounds and focused evidence.
+
+### Subdivide Path
+
+- Path → Path, with **Segments per Edge** 1–32 (default 2). Each existing open or closed edge is
+  split into that many equal-parameter Bézier portions using Paper.js `Curve.getPart(t0, t1)`;
+  this is not arc-length Resample. Geometry and tangent continuity are preserved. Segments=1 is a
+  geometry-preserving clone with fresh deterministic modifier IDs.
+- Open endpoints and their unused relative handles remain intact. Closed contours keep the original
+  seam and do not duplicate the closing endpoint. Contour groups remain unchanged. An edge whose
+  endpoint handles are both zero retains zero handles on its line portions for polyline-only
+  downstream nodes. Empty and one-point contours stay finite.
+- Preflight bounds: 10,000 input contours, 100,000 input points and 100,000 estimated output
+  points. The estimate is checked before constructing Paper geometry or output points; non-finite
+  source/results and non-integer/out-of-range evaluated Segments values fail without partial edits.
+  Fallback values are checked during document validation as well. Output has deterministic IDs and
+  an unstable fingerprint; direct canvas character editing is disabled through the modifier while
+  upstream Text remains editable.
+- Inspired by [Blender Subdivide Curve](https://docs.blender.org/manual/nl/4.5/modeling/geometry_nodes/curve/operations/subdivide_curve.html), which adds control points while retaining Bézier/poly shape. Nect's control is **segments per edge** (the number of resulting pieces); Blender exposes **Cuts**, so the numeric setting is intentionally different.
+- Focused evidence: the two assigned Subdivide Path test files pass 11/11; `npm run build` passes.
+  No native Windows GUI review is claimed. Build emitted Vite's existing warning that the minified
+  main chunk exceeds 500 kB.
+
+### Pucker & Bloat
+
+- Selected under Shiro's broad repeated-modifier-addition instruction. The earlier ambiguous
+  word “パンク” has not been separately confirmed; this does not invent an answer to that question.
+- Inspired by [Adobe Pucker & Bloat's described direction](https://helpx.adobe.com/illustrator/using/reshaping-objects-effects.html),
+  with an explicit Nect cubic-control contract, not claimed numerical parity: for t=Amount/100,
+  anchors scale by (1−t) around Center and absolute Bézier controls by (1+t). Relative handles
+  are recomputed from those results. Positive bloats, negative puckers; zero clones geometry.
+- Amount −100..100% (default0). Automatic Center uses the bounds of all source anchors, not
+  exact curve extrema or a separate center for each group. Disable it for a manual Vector2 Center.
+  Straight polygons intentionally gain curved handles. Large amounts can fold/collapse geometry.
+- Finite values,10000 contours/100000 points; deterministic modifier IDs, original groups/order,
+  common bypass/history/locks, generated fingerprint and explicit upstream Text editing.
+- Focused evidence: helper9 + graph/Session2 + DOM1, plus Subdivide core/DOM11, total23/23;
+  Web build pass. Playground now has 26 evaluated editable layers showing11 modifiers and both
+  positive/negative Pucker & Bloat variants; actual exported SVG raster visually inspected.
+  Native Windows GUI and exact Illustrator numerical matching remain unverified.
+
+Current catalog and the concrete example are updated; continue with useful researched slices
+rather than duplicating existing nodes. Native trial packaging remains a separate dependency.

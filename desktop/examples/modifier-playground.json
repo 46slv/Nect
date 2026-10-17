@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "name": "Modifier Playground",
   "width": 1080,
-  "height": 900,
+  "height": 1160,
   "layers": [
     {
       "id": "sample-layer-0",
@@ -3099,6 +3099,821 @@
         }
       ],
       "output": "sample-node-19-2"
+    },
+    {
+      "id": "sample-layer-20",
+      "name": "Shape-preserving subdivisions",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-20-0",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M95 1070 C75 940 300 940 270 1070"
+        },
+        {
+          "id": "sample-node-20-1",
+          "type": "Subdivide Path",
+          "name": "Subdivide Path",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-20-0"
+            },
+            "segments": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-20-2",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-20-1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#40586b",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 6,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-20-3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            940,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-20-2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-20-3"
+    },
+    {
+      "id": "sample-layer-21",
+      "name": "10  Subdivide Path",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-21-0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                65,
+                1125
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 18,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "10  Subdivide Path",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-21-1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-21-0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-21-2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-21-1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-21-2"
+    },
+    {
+      "id": "sample-layer-22",
+      "name": "11  Bloat (+70%)",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-22-0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                540,
+                1010
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                105,
+                105
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-22-1",
+          "type": "Pucker & Bloat",
+          "name": "Pucker & Bloat",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-22-0"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 70,
+              "expression": "",
+              "locked": false
+            },
+            "autoCenter": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-22-2",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-22-1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#b05e3d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-22-3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            940,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-22-2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-22-3"
+    },
+    {
+      "id": "sample-layer-23",
+      "name": "11  Bloat (+70%)",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-23-0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                415,
+                1125
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 18,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "11  Bloat (+70%)",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-23-1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-23-0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-23-2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-23-1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-23-2"
+    },
+    {
+      "id": "sample-layer-24",
+      "name": "11  Pucker (-70%)",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-24-0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                890,
+                1010
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                105,
+                105
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-24-1",
+          "type": "Pucker & Bloat",
+          "name": "Pucker & Bloat",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-24-0"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": -70,
+              "expression": "",
+              "locked": false
+            },
+            "autoCenter": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-24-2",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-24-1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#4b746d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-24-3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            940,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-24-2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-24-3"
+    },
+    {
+      "id": "sample-layer-25",
+      "name": "11  Pucker (-70%)",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "sample-node-25-0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                765,
+                1125
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 18,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "11  Pucker (-70%)",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-25-1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            340,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-25-0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "sample-node-25-2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            640,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "sample-node-25-1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "sample-node-25-2"
     }
   ]
 }

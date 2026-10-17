@@ -11,6 +11,8 @@ test('disconnected modifier fallback ranges are rejected by commands and seriali
     ['Smooth Path', 'iterations', 0],
     ['Trim Path', 'start', 2],
     ['Corner Round', 'radius', -1],
+    ['Subdivide Path', 'segments', 0],
+    ['Pucker & Bloat', 'amount', 101],
     ['Simplify Path', 'tolerance', -1],
     ['Dash Path', 'dashLength', 0],
     ['Dash Path', 'gapLength', -1],

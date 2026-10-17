@@ -22,7 +22,7 @@ const fonts = {
 const doc = document();
 doc.name = 'Modifier Playground';
 doc.width = 1080;
-doc.height = 900;
+doc.height = 1160;
 doc.layers = [];
 function chain(name, nodes, color = '#40586b', paint = true) {
   const l = layer(name);
@@ -150,6 +150,28 @@ chain(
   false,
 );
 label('09  Dash Path', 765, 865);
+const cubic = node('Imported Path');
+cubic.rawPath = 'M95 1070 C75 940 300 940 270 1070';
+const curveStroke = node('Stroke');
+curveStroke.params.width.value = 6;
+curveStroke.params.color.value = { hex: '#40586b', alpha: 1 };
+chain(
+  'Shape-preserving subdivisions',
+  [cubic, modifier('Subdivide Path', { segments: 4 }), curveStroke],
+  '#40586b',
+  false,
+);
+label('10  Subdivide Path', 65, 1125);
+for (const [cx, amount, title] of [
+  [540, 70, '11  Bloat (+70%)'],
+  [890, -70, '11  Pucker (-70%)'],
+]) {
+  const rect = node('Rectangle');
+  rect.params.center.value = [cx, 1010];
+  rect.params.size.value = [105, 105];
+  chain(title, [rect, modifier('Pucker & Bloat', { amount })], amount > 0 ? '#b05e3d' : '#4b746d');
+  label(title, cx - 125, 1125);
+}
 const saved = serialize(doc),
   restored = deserialize(saved);
 for (const l of restored.layers) {
