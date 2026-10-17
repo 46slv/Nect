@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { Window } from 'happy-dom';
-import { document as newDocument, node, serialize } from '../src/core.js';
+import { document as newDocument, node, serialize, createCharacterPositions } from '../src/core.js';
+import { parseFont } from '../src/fonts.js';
 const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -40,9 +41,20 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
     for (const w of live) await w.terminate();
     await win.happyDOM.close();
   });
+  const staticBytes = await buffer('../public/fonts/DejaVuSans.ttf');
+  globalThis.mixedFontCatalog = [
+    ['system-static', 'Installed static face', null, parseFont(staticBytes).nectMetadata],
+    ['system-variable', 'Installed variable face', 'Variable fonts unsupported'],
+  ];
+  let readInstalled = async () => staticBytes;
+  globalThis.readMixedFont = (id) => readInstalled(id);
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
+    .replace(
+      /import \{[^}]*\} from '.\/storage.js';/,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.mixedFontCatalog, readSystemFont=(id)=>globalThis.readMixedFont(id);`,
+    )
     .replace(
       /from '(.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
@@ -191,5 +203,105 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   start([{ name: 'bad.ttf', size: 20, arrayBuffer: async () => new ArrayBuffer(20) }]);
   await wait(() => status().includes('Font rejected'), 'invalid font');
   assert.equal(snapshot(), final);
+  // Static Text keeps its rich picker even while another Text uses a live variable bank.
+  const mixed = JSON.parse(final),
+    staticText = node('Text');
+  staticText.text = 'AV';
+  staticText.characterPositions = createCharacterPositions(staticText.text);
+  mixed.layers[0].nodes.unshift(staticText);
+  await win.nect.load(JSON.stringify(mixed));
+  const q = (selector) => document.querySelector(selector);
+  const openPicker = async (range = false) => {
+    q(range ? '[data-character-style="font"]' : '.inspector-body [data-font]').dispatchEvent(
+      new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+    );
+    await wait(() => !!q('dialog[open]'), 'mixed picker open');
+  };
+  const row = (id) => q(`.picker-option[data-id="${id}"]`);
+  const apply = async () => {
+    await wait(() => q('.picker-apply') && !q('.picker-apply').disabled, 'mixed picker ready');
+    q('.picker-apply').click();
+    await wait(() => !q('dialog[open]'), 'mixed picker applied');
+  };
+  const mixedBefore = snapshot(),
+    variableId = mixed.layers[0].nodes[1].font;
+  const variableBefore = JSON.stringify(mixed.layers[0].nodes[1]);
+  await openPicker();
+  assert.ok(q('[aria-label="Font family"]'), 'static family filters survive mixed documents');
+  assert.ok(row('system-static').querySelector('.picker-star'));
+  assert.equal(row('system-variable').getAttribute('aria-disabled'), 'true');
+  row('system-static').click();
+  await apply();
+  assert.notEqual(current().font, 'default');
+  assert.equal(JSON.stringify(win.nect.document.layers[0].nodes[1]), variableBefore);
+  assert.equal(win.nect.evaluate().error, null, 'static commit preserves variable bank readiness');
+  const mixedWhole = snapshot();
+  q('[data-action="undo"]').click();
+  await wait(() => snapshot() === mixedBefore, 'mixed static undo');
+  q('[data-action="redo"]').click();
+  await wait(() => snapshot() === mixedWhole, 'mixed static redo');
+  const rangeText = q('.inspector-body [data-text]');
+  rangeText.setSelectionRange(0, 1);
+  rangeText.dispatchEvent(new win.Event('select', { bubbles: true }));
+  q('.inspector-body [data-style-text-range]').click();
+  await openPicker(true);
+  assert.equal(
+    row(variableId).getAttribute('aria-disabled'),
+    'true',
+    'variable range stays unavailable',
+  );
+  row('default').click();
+  await apply();
+  assert.equal(current().characterPositions.styles.c1.font, 'default');
+  assert.equal(win.nect.evaluate().error, null);
+  const mixedRange = snapshot();
+  // A cancelled installed-font read cannot publish after the picker closes.
+  let finishInstalled;
+  readInstalled = () =>
+    new Promise((resolve) => {
+      finishInstalled = resolve;
+    });
+  await openPicker();
+  row('system-static').click();
+  q('.picker-cancel').click();
+  finishInstalled(staticBytes);
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(snapshot(), mixedRange);
+  assert.equal(win.nect.evaluate().error, null);
+  readInstalled = async () => staticBytes;
+  const importedStaticBytes = await buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
+  q('.inspector-body [data-load-font]').click();
+  const staticInput = q('#font-file');
+  Object.defineProperty(staticInput, 'files', {
+    configurable: true,
+    value: [
+      {
+        name: 'mixed-static.otf',
+        size: importedStaticBytes.byteLength,
+        arrayBuffer: async () => importedStaticBytes,
+      },
+    ],
+  });
+  staticInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await wait(() => snapshot() !== mixedRange, 'mixed static import');
+  assert.equal(JSON.stringify(win.nect.document.layers[0].nodes[1]), variableBefore);
+  assert.equal(win.nect.evaluate().error, null);
+  q('[data-action="undo"]').click();
+  await wait(() => snapshot() === mixedRange, 'mixed static import single undo');
+  // Whole-text variable selection remains explicit and prepared, with no gesture preview commit.
+  await win.nect.load(mixedBefore);
+  await openPicker();
+  row(variableId).click();
+  assert.equal(snapshot(), mixedBefore);
+  q('.picker-cancel').click();
+  assert.equal(snapshot(), mixedBefore, 'variable row cancellation leaves static Text untouched');
+  await openPicker();
+  row(variableId).click();
+  await apply();
+  await wait(() => !!current().variation, 'mixed whole variable switch');
+  assert.equal(current().font, variableId);
+  assert.equal(win.nect.evaluate().error, null);
+  q('[data-action="undo"]').click();
+  await wait(() => snapshot() === mixedBefore, 'mixed variable switch single undo');
   win.nect.load(serialize(doc));
 });

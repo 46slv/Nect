@@ -14,7 +14,7 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-17 13:40 UTC
+## ACTIVE CHECKPOINT — 2026-10-17 13:50 UTC
 
 Goal: Prioritize Shiro's hands-on feedback and font/path usability. The explicit October 17 full-font request broadens the historical mission; support remains staged and must not be described as universally complete.
 
@@ -24,7 +24,9 @@ New integrated slice: opt-in schema 25 variable TrueType assets, exact worker-pr
 
 Evidence: core/document 65/65 focused checks, UI 4/4 focused DOM checks, CLI 5/5 focused checks. One integrated production Web build passed: 94 modules, emitted local Worker 369.13 kB. Synthetic DOM plus real Node Worker tests are not browser/WebView acceptance. Native font-catalog Rust remains uncompiled; real offline Worker/CSP, IME/high-DPI and native packaging remain unverified. Worker output/cache limits are not a hard heap quota. Preserve exact bundled license declarations/notices without invented attribution.
 
-Ownership: core, UI and CLI workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
+Follow-on mixed-document correction: static Text retains full family/style/favorites/installed-font/import and range selection when a variable asset or node is present. Variable adoption remains a whole-text prepared transaction; variable range/native rows remain disabled. Four focused DOM tests pass with real Worker coverage of import, cancellation, history and preserved variable readiness; one new integrated build passes.
+
+Ownership: core, UI, CLI and mixed-picker repair workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
 
 Next concrete work: accept the frozen integrated slice in a real supported browser/WebView, then compile/package on authorized shiro-WS when connected. Check existing task and environment first. Do not bypass the previously denied cloud-browser sandbox or switch to unauthorized computers. Independent approved development can continue without treating native wait as a global stop.
 

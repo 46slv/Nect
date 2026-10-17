@@ -2,7 +2,19 @@
 
 Status: investigation and proposed staged contract, 2026-10-17. Broad font support includes real weights/styles, variable fonts, Japanese vertical typography, shaping and fallback; corner rounding is a separate geometry capability. This document does not claim universal font or Unicode support.
 
-## Evidence boundary
+## Current implementation checkpoint — 2026-10-17 13:41 UTC
+
+Source checkpoint `961e0feb421f538f31c1cde1ca752ff2155ba820` integrates the following bounded parts of this plan:
+
+- F1: actual static family/style/weight metadata and selection, including source-level native catalog metadata. Focused static style tests passed; native Rust compilation remains unverified.
+- F3: explicit schema-25 `glyf`/`gvar` variable assets and axis coordinates, ready-only synchronous evaluation, atomic asynchronous preparation/history/open, experimental manual import/axis controls, and cold-process CLI export. Existing static documents retain schema 24 and their parser. Named-instance UI is not implemented.
+- Variable support is whole horizontal single-line simple Latin with verified one-to-one mapping. It does not establish F2 cluster-safe shaping or F5 vertical completeness. Unsupported mappings, CFF2, variable vertical/wrap/path/rich-character/maintained-arrangement layouts reject explicitly.
+- Real licensed Roboto variable and static style fixtures now exist. Exact provenance and notices live in `tests/fixtures/variable-font` and `docs/licenses/variable-font`; earlier missing-fixture observations below describe the original investigation.
+- Integration evidence: core/document 65, UI 4 and CLI 5 focused checks passed, followed by one production build (94 modules). Emitted local Worker: 369,128 bytes. No CSP changes, no main-thread fontkit fallback. Real browser/WebView/IME/native package acceptance remains open; serialized output limits are not hard heap quotas.
+
+See [document bridge](variable-font-document-bridge.md), [UI scope](variable-font-ui.md), [CLI](variable-font-cli.md), and [static style selection](font-style-selection.md) for current contracts. The matrix and staged implementation discussion below retain the original investigation as historical evidence; their “missing” labels are not current for these completed slices.
+
+## Original investigation evidence boundary
 
 Inspected the supplied `desktop` source snapshot; this directory has no usable Git metadata, so a commit identity was not independently verified. Reference file SHA-256 values at inspection:
 

@@ -3187,9 +3187,9 @@ function openFontPicker(control, query = '') {
   const nodeId = context?.n.id || control.dataset.font;
   if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason)))
     return;
-  if (hasVariableFonts(history.doc)) {
+  if (variableNode(nodeId)) {
     if (context) {
-      notify('Variable font documents currently support whole-text font selection only', true);
+      notify('Variable Text currently supports whole-text font selection only', true);
       return;
     }
     editorPicker = openSearchPanel({
@@ -3259,6 +3259,12 @@ function openFontPicker(control, query = '') {
       key: `asset:${id}`,
       legacyKey: `font:${asset.name}`,
       metadata: fonts[id]?.nectMetadata,
+      variable: asset.kind === 'variable-glyf-v1',
+      disabled: !!context && asset.kind === 'variable-glyf-v1',
+      detail:
+        asset.kind === 'variable-glyf-v1'
+          ? 'Experimental variable font · whole-text only · prepared on Apply'
+          : '',
     })),
     ...systemFonts.map(([id, name, reason, metadata]) => ({
       id,
@@ -3302,6 +3308,15 @@ function openFontPicker(control, query = '') {
     const serial = ++request;
     readyId = undefined;
     if (!item) return;
+    if (item.variable) {
+      // Variable geometry cannot enter the synchronous static font gesture.
+      // Leave the active bank intact; prepare the whole-text switch on Apply.
+      fontPreview = null;
+      readyId = item.id;
+      updateCanvas(true);
+      picker.status('Experimental variable font · prepared on Apply');
+      return;
+    }
     picker.status(item.installed ? 'Loading font…' : '', false);
     try {
       const update = item.installed
@@ -3349,6 +3364,19 @@ function openFontPicker(control, query = '') {
       try {
         await pending;
         if (picker.closed || request !== serial || readyId !== item.id || session !== owner) return;
+        if (item.variable) {
+          owner.dispatch({ ...envelope, type: 'cancel-gesture', payload: token });
+          fontPreview = null;
+          editorPicker = null;
+          picker.close();
+          await preparedChange(
+            'set-variable-font',
+            { nodeId, fontId: item.id, axes: {} },
+            'Font updated',
+            envelope,
+          );
+          return;
+        }
         owner.dispatch({ ...envelope, type: 'commit-gesture', payload: token });
         fontPreview = null;
         editorPicker = null;
