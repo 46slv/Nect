@@ -88,7 +88,8 @@ function clampUnit(value) {
 function linearParameter(fill, x, y) {
   let rx = x - fill.start[0],
     ry = y - fill.start[1],
-    scale;
+    scale,
+    alreadyScaled = false;
   if (Number.isFinite(rx) && Number.isFinite(ry)) {
     scale = Math.max(Math.abs(rx), Math.abs(ry), fill.length);
   } else {
@@ -102,8 +103,11 @@ function linearParameter(fill, x, y) {
     );
     rx = x / scale - fill.start[0] / scale;
     ry = y / scale - fill.start[1] / scale;
+    alreadyScaled = true;
   }
-  const along = (rx / scale) * (fill.dx / fill.length) + (ry / scale) * (fill.dy / fill.length);
+  const along =
+    (alreadyScaled ? rx : rx / scale) * (fill.dx / fill.length) +
+    (alreadyScaled ? ry : ry / scale) * (fill.dy / fill.length);
   if (along === 0) return 0;
   const ratio = scale / fill.length;
   if (Number.isFinite(ratio)) return along * ratio;

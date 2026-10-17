@@ -173,3 +173,16 @@ test('grid preflights its cell budget and rejects unsafe world indices', () => {
     /numeric range/,
   );
 });
+
+test('linear pad sampling remains correct when point-minus-start overflows', () => {
+  const fill = {
+    kind: 'linear-gradient',
+    start: [-1e308, 0],
+    end: [-5e307, 0],
+    startColor: black,
+    endColor: white,
+  };
+  assert.equal(sampleLuminance(fill, 1e308, 0), 1);
+  const reversed = { ...fill, start: [1e308, 0], end: [5e307, 0] };
+  assert.equal(sampleLuminance(reversed, -1e308, 0), 1);
+});
