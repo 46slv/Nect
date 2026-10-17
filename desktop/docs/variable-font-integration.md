@@ -35,7 +35,7 @@ Only sfnt TrueType with glyf, gvar and fvar, editable/installable embedding righ
 validated directories, loca and horizontal metrics is admitted. No collection/WOFF/CFF2,
 color/bitmap, VVAR/MVAR, vertical, RTL, wrapping, fallback or arbitrary cluster path.
 The fvar axis and named-instance coordinate records are bounds-checked. Named-instance
-names are not exposed or used as identity. Axis values must be finite, known and in range;
+names are exposed as bounded display labels by the opt-in inspector, never used as identity. See [named-instance UI bounds](variable-font-ui.md#named-instance-metadata-bounds). Axis values must be finite, known and in range;
 effective coordinates are sorted, and explicit defaults disappear from sparse coordinates.
 
 Source eligibility is ASCII printable plus selected precomposed Latin ranges, with fixed
@@ -101,7 +101,6 @@ Recorded checkpoint: **29/29 focused tests passed**, followed by one successful
 remains; the private adapter is not in that main chunk. No other test/build category
 is implied. Review regressions cover stale worker errors, Node Buffer copy semantics,
 invalid-axis cache bypass and rejection of padded fvar tags that fontkit would trim.
-
 
 ### Notice audit follow-up: explicit MIT declarations, packaging review
 

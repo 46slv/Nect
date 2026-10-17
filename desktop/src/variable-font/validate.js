@@ -1,4 +1,5 @@
 import { LIMITS, requireThat as check } from './contract.js';
+import { readInstanceNames } from './named-instances.js';
 /** Independent preflight; intentionally does not relax the static font parser's guard. */
 export function validateVariableBytes(bytes) {
   check(
@@ -120,13 +121,44 @@ export function validateVariableBytes(bytes) {
     );
     Object.defineProperty(axes, tag, { value: { min, default: def, max }, enumerable: true });
   }
-  const orderedAxes = Object.values(axes);
-  for (let i = 0; i < instanceCount; i++)
+  const tags = Object.keys(axes),
+    namedInstances = [];
+  for (let i = 0; i < instanceCount; i++) {
+    const p = axisOffset + axisCount * axisSize + i * instanceSize,
+      nameId = f.getUint16(p),
+      coordinates = {};
+    check(
+      (nameId === 2 || nameId === 17 || (nameId >= 256 && nameId < 32768)) &&
+        f.getUint16(p + 2) === 0,
+      'FONT_AXIS_METADATA',
+    );
     for (let j = 0; j < axisCount; j++) {
-      const value =
-        f.getInt32(axisOffset + axisCount * axisSize + i * instanceSize + 4 + j * 4) / 65536;
-      check(value >= orderedAxes[j].min && value <= orderedAxes[j].max, 'FONT_AXIS_METADATA');
+      const tag = tags[j],
+        value = f.getInt32(p + 4 + j * 4) / 65536;
+      check(value >= axes[tag].min && value <= axes[tag].max, 'FONT_AXIS_METADATA');
+      coordinates[tag] = value;
     }
+    const isDefault = tags.every((tag) => coordinates[tag] === axes[tag].default);
+    check((nameId !== 2 && nameId !== 17) || isDefault, 'FONT_AXIS_METADATA');
+    if (instanceSize === 6 + axisCount * 4) {
+      const ps = f.getUint16(p + 4 + axisCount * 4);
+      check(
+        ps === 0xffff || (ps === 6 && isDefault) || (ps >= 256 && ps < 32768),
+        'FONT_AXIS_METADATA',
+      );
+    }
+    namedInstances.push({ nameId, coordinates });
+  }
+  const names = instanceCount
+    ? readInstanceNames(
+        tables.name,
+        namedInstances.map((n) => n.nameId),
+      )
+    : new Map();
+  namedInstances.forEach((instance, index) => {
+    instance.name =
+      names.get(instance.nameId) || `Instance ${index + 1} (name ID ${instance.nameId})`;
+  });
   const g = tables.gvar,
     shared = g.getUint16(6),
     sharedOffset = g.getUint32(8),
@@ -149,5 +181,5 @@ export function validateVariableBytes(bytes) {
     check(n >= previous && dataOffset + n <= g.byteLength, 'FONT_GVAR');
     previous = n;
   }
-  return { axes, unitsPerEm: units, glyphCount: glyphs };
+  return { axes, namedInstances, unitsPerEm: units, glyphCount: glyphs };
 }

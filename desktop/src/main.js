@@ -1,3 +1,4 @@
+import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
@@ -1731,11 +1732,31 @@ function flushArrangementText(nodeId, scope) {
     (!el || el.value === current().nodes.find((n) => n.id === nodeId)?.text)
   );
 }
+async function selectVariableInstance(el, preview = false) {
+  const n = current().nodes.find((n) => n.id === el.dataset.variableInstance),
+    instances = fonts[n?.font]?.nectVariable?.namedInstances;
+  if (!n?.variation || !/^(0|[1-9][0-9]*)$/.test(el.value)) return;
+  const instance = instances?.[Number(el.value)];
+  if (!instance) return;
+  await preparedChange(
+    'set-variable-font',
+    { nodeId: n.id, fontId: n.font, axes: { ...instance.coordinates } },
+    'Variable named instance updated',
+    session.state,
+    preview,
+  );
+}
 function variableControls(n) {
-  const axes = fonts[n.font]?.nectVariable?.axes;
+  const metadata = fonts[n.font]?.nectVariable,
+    axes = metadata?.axes,
+    selectedInstance = metadata ? matchingNamedInstance(metadata, n.variation?.axes) : -1,
+    instances = metadata?.namedInstances || [];
+  const presets = instances.length
+    ? `<div class="field"><label>Named instance</label><select data-variable-instance="${n.id}" aria-label="Variable named instance"><option value="" ${selectedInstance < 0 ? 'selected' : ''} disabled>Custom axes</option>${instances.map((instance, index) => `<option value="${index}" ${selectedInstance === index ? 'selected' : ''}>${esc(instance.name)}</option>`).join('')}</select></div>`
+    : '';
   return `<button class="mini" data-load-variable-font="${n.id}">Load variable TTF (experimental)…</button>${
     axes
-      ? `<p class="font-note">Experimental variable font: whole, single-line horizontal Latin text only. No wrap, path, vertical, character overrides or maintained arrangement. Axis changes are prepared before commit; Escape cancels pending work.</p>${Object.entries(
+      ? `<p class="font-note">Experimental variable font: whole, single-line horizontal Latin text only. No wrap, path, vertical, character overrides or maintained arrangement. Axis changes are prepared before commit; Escape cancels pending work.</p>${presets}${Object.entries(
           axes,
         )
           .map(
@@ -5042,6 +5063,10 @@ app.addEventListener('beforeinput', (e) => {
   };
 });
 app.addEventListener('input', (e) => {
+  if (e.target.dataset.variableInstance) {
+    void selectVariableInstance(e.target, true);
+    return;
+  }
   if (e.target.dataset.variableAxis) {
     const el = e.target,
       n = current().nodes.find((n) => n.id === el.dataset.variableNode);
@@ -5459,6 +5484,10 @@ app.addEventListener('change', async (e) => {
   if (d.text && variableNode(d.text)) {
     if (composing || e.isComposing) return;
     await preparedChange('set-text-content', { nodeId: d.text, text: el.value }, 'Text updated');
+    return;
+  }
+  if (d.variableInstance) {
+    await selectVariableInstance(el);
     return;
   }
   if (d.variableAxis) {

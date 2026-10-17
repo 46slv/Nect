@@ -123,6 +123,69 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   await wait(() => snapshot() === imported, 'one undo');
   document.querySelector('[data-action="redo"]').click();
   await wait(() => current().variation.axes.wght === 700, 'redo');
+  // Named instances carry the font's complete coordinates, never inferred weights.
+  // happy-dom does not synchronize parsed option[selected] to select.value.
+  // Assert the rendered selection attribute; user events below set value explicitly.
+  const instanceSelect = () => document.querySelector('.inspector-body [data-variable-instance]');
+  const chooseInstance = (label, event = 'change') => {
+    const select = instanceSelect();
+    const option = [...select.options].find((option) => option.textContent === label);
+    assert(option, `real named instance ${label}`);
+    select.value = option.value;
+    select.dispatchEvent(new win.Event(event, { bubbles: true }));
+  };
+  assert.equal(instanceSelect().querySelector('option[selected]').textContent, 'Bold');
+  const beforeInstance = snapshot();
+  chooseInstance('Condensed Black', 'input');
+  await wait(() => status().includes('axis preview'), 'instance preview');
+  assert.equal(snapshot(), beforeInstance);
+  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(snapshot(), beforeInstance);
+  assert.equal(instanceSelect().querySelector('option[selected]').textContent, 'Bold');
+  chooseInstance('Condensed Black');
+  await wait(
+    () => current().variation.axes.wght === 900 && current().variation.axes.wdth === 75,
+    'named instance commit',
+  );
+  assert.equal(instanceSelect().querySelector('option[selected]').textContent, 'Condensed Black');
+  assert.notEqual(win.nect.export(), originalSVG);
+  assert.equal(Object.keys(win.nect.document.fontAssets).length, 1);
+  assert.equal(
+    Object.values(win.nect.document.fontAssets)[0].data,
+    Object.values(JSON.parse(imported).fontAssets)[0].data,
+  );
+  const instanceSaved = snapshot();
+  await win.nect.load(instanceSaved);
+  assert.equal(snapshot(), instanceSaved);
+  assert.equal(instanceSelect().querySelector('option[selected]').textContent, 'Condensed Black');
+  // Reopening resets history; make a fresh preset edit and check its single Undo.
+  chooseInstance('Bold');
+  await wait(
+    () => current().variation.axes.wght === 700 && current().variation.axes.wdth === undefined,
+    'preset resets omitted defaults',
+  );
+  document.querySelector('[data-action="undo"]').click();
+  await wait(() => snapshot() === instanceSaved, 'preset one undo');
+  document.querySelector('[data-action="redo"]').click();
+  await wait(() => current().variation.axes.wght === 700, 'preset redo');
+  axis = document.querySelector('.inspector-body [data-variable-axis="wght"]');
+  axis.value = '701';
+  axis.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await wait(() => current().variation.axes.wght === 701, 'custom axes');
+  assert.equal(
+    instanceSelect().querySelector('option[selected]').value,
+    '',
+    'nearby custom coordinates must not claim a named preset',
+  );
+  assert.equal(instanceSelect().querySelector('option[selected]').textContent, 'Custom axes');
+  delay = 150;
+  chooseInstance('Thin', 'input');
+  chooseInstance('Black', 'input');
+  document.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(current().variation.axes.wght, 701, 'cancelled stale preset cannot commit');
+  assert.equal(instanceSelect().querySelector('option[selected]').value, '');
+  delay = 0;
   const changed = snapshot();
   // Unprepared ordinary commands cannot mutate variable text.
   assert.throws(

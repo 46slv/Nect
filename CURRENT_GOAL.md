@@ -14,7 +14,7 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-17 13:50 UTC
+## ACTIVE CHECKPOINT — 2026-10-17 13:56 UTC
 
 Goal: Prioritize Shiro's hands-on feedback and font/path usability. The explicit October 17 full-font request broadens the historical mission; support remains staged and must not be described as universally complete.
 
@@ -26,7 +26,9 @@ Evidence: core/document 65/65 focused checks, UI 4/4 focused DOM checks, CLI 5/5
 
 Follow-on mixed-document correction: static Text retains full family/style/favorites/installed-font/import and range selection when a variable asset or node is present. Variable adoption remains a whole-text prepared transaction; variable range/native rows remain disabled. Four focused DOM tests pass with real Worker coverage of import, cancellation, history and preserved variable readiness; one new integrated build passes.
 
-Ownership: core, UI, CLI and mixed-picker repair workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
+Named instances: actual validated fvar presets now use the existing asynchronous preview/commit/history path with exact coordinate matching and a Custom state. Twenty focused variable/document/UI/metadata checks and one production build pass. No schema/backend/CSP/native changes; browser/WebView visual acceptance remains open.
+
+Ownership: core, UI, CLI, mixed-picker repair and named-instance workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
 
 Next concrete work: accept the frozen integrated slice in a real supported browser/WebView, then compile/package on authorized shiro-WS when connected. Check existing task and environment first. Do not bypass the previously denied cloud-browser sandbox or switch to unauthorized computers. Independent approved development can continue without treating native wait as a global stop.
 
