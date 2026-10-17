@@ -321,5 +321,38 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
   positive/negative Pucker & Bloat variants; actual exported SVG raster visually inspected.
   Native Windows GUI and exact Illustrator numerical matching remain unverified.
 
-Current catalog and the concrete example are updated; continue with useful researched slices
-rather than duplicating existing nodes. Native trial packaging remains a separate dependency.
+### Wave Points
+
+- A static sine displacement of existing Path anchors, inspired by the effect category in the
+  [Blender Wave modifier manual](https://docs.blender.org/manual/en/5.0/modeling/modifiers/deform/wave.html).
+  Nect's explicit contract is its own; Blender feature or numeric parity is not claimed.
+- Direction **Vertical** offsets Y using each anchor's X coordinate; **Horizontal** offsets X
+  using Y. Displacement is `Amplitude × sin(2π × coordinate / Wavelength + Phase)`. Amplitude is
+  −100000..100000 px (default20), Wavelength 0.0001..100000 px (default150), and Phase −360..360°
+  (default0). The sine angle is `2π × coordinate / Wavelength + Phase × π/180`; phase is reduced
+  modulo360° and spatial turns modulo one before sine evaluation.
+- Only existing anchor positions move. Relative Bézier handles remain unchanged and move with
+  their anchor; curved segments between anchors are not continuously warped into an exact sine.
+  No points are added. Resample Path first to choose finer wave detail. **Keep Endpoints** defaults
+  off; when enabled it pins the first and last points of each open contour, and has no endpoint
+  effect on closed contours.
+- Input is bounded to10000 contours and100000 points, so evaluation is a single bounded pass.
+  Every source position and relative handle must be finite. The relevant coordinate divided by
+  Wavelength must be within ±1e12; generated coordinates and arithmetic must remain finite, or the
+  operation fails. This protects precision and avoids silently accepting invalid geometry.
+- For nonzero displacement, generated contour/point IDs are deterministic for modifier output
+  order; zero amplitude returns a cloned copy with the source IDs. The output is marked unstable
+  so a changed result suspends downstream Remap edits. Use the normal Path→Path bypass, common
+  history and lock behavior. Canvas character editing through Wave Points is unavailable; edit
+  upstream Text instead.
+- Focused evidence: 17/17 checks pass (Wave helper/core/DOM, disconnected-modifier validation,
+  and Pucker core); this includes a geometry-precision failure rollback regression. Wave Points
+  and Pucker & Bloat are included in bounded modifier preflight. The Web build passes with the
+  existing large-chunk warning. This is source-level evidence, not native GUI acceptance.
+- The editable playground now replaces only the negative Pucker sample with Line → Resample Path
+  (49 points) → Wave Points → Stroke; the positive Bloat sample remains. The shared-core generator
+  validates each serialized/reopened layer and writes the SVG export. This is not a native GUI
+  acceptance claim.
+
+The current catalog and concrete example include 12 modifiers. Continue with useful researched
+slices rather than duplicating existing nodes. Native trial packaging remains a separate dependency.

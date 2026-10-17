@@ -17,6 +17,7 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Simplify Path  | Tolerance in px                                                      | Straight-edge RDP reduction; fixed endpoints and valid-ring fallback; not topology repair                     |
 | Dash Path      | Dash Length; Gap Length; Pattern Offset in px                        | Actual cubic dash geometry; positive dash length; closed-seam fragments rejoined                              |
 | Pucker & Bloat | Amount −100..100%; Automatic Center or manual Center                 | Opposite anchor/control scaling; automatic center uses all anchor bounds; no Illustrator numeric parity claim |
+| Wave Points    | Vertical / Horizontal; Amplitude ±100000 px; Wavelength 0.0001–100000 px; Phase ±360°; Keep Endpoints | Static sine displacement of existing anchors only; optional open-end pinning; relative Bézier handles unchanged; coordinate/wavelength ratio limited to ±1e12 |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
@@ -35,9 +36,11 @@ Direct canvas text-character editing through these effects is unavailable; edit 
 - Curve → Dash Path → Stroke for actual separated path pieces.
 - Imported polyline or Resample Path → Simplify Path for point reduction.
 - Rectangle/Star → Pucker & Bloat → Fill for pointed or petal-like shapes.
+- Line/Curve → Resample Path → Wave Points → Stroke for a static sine-like outline.
 - Existing Geometry Repeater, Closed Path Offset, Transform, Boolean and Join Geometry remain
   available; these additions do not replace them.
 
-Open `examples/modifier-playground.json` in this development build for editable examples.
-Rebuild with `node scripts/modifier-playground.js`; it validates all layers and exports SVG.
-Detailed evidence, research sources and limitations: [editing refinement](editing-refinement.md).
+Open `examples/modifier-playground.json` in this development build for editable examples. It has
+26 evaluated editable layers and examples for all 12 modifiers. Rebuild with
+`node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
+research sources and limitations: [editing refinement](editing-refinement.md).

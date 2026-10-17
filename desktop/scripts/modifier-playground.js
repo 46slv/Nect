@@ -162,16 +162,30 @@ chain(
   false,
 );
 label('10  Subdivide Path', 65, 1125);
-for (const [cx, amount, title] of [
-  [540, 70, '11  Bloat (+70%)'],
-  [890, -70, '11  Pucker (-70%)'],
-]) {
-  const rect = node('Rectangle');
-  rect.params.center.value = [cx, 1010];
-  rect.params.size.value = [105, 105];
-  chain(title, [rect, modifier('Pucker & Bloat', { amount })], amount > 0 ? '#b05e3d' : '#4b746d');
-  label(title, cx - 125, 1125);
-}
+const bloated = node('Rectangle');
+bloated.params.center.value = [540, 1010];
+bloated.params.size.value = [105, 105];
+chain('Bloat +70%', [bloated, modifier('Pucker & Bloat', { amount: 70 })], '#b05e3d');
+label('11  Bloat (+70%)', 415, 1125);
+const waveLine = node('Imported Path');
+waveLine.rawPath = 'M730 1010 L1050 1010';
+const wave = modifier('Wave Points', {
+  amplitude: 28,
+  wavelength: 100,
+  phase: 0,
+  keepEndpoints: true,
+});
+wave.operation = 'vertical';
+const waveStroke = node('Stroke');
+waveStroke.params.width.value = 7;
+waveStroke.params.color.value = { hex: '#4b746d', alpha: 1 };
+chain(
+  'Waved sampled line',
+  [waveLine, modifier('Resample Path', { count: 49 }), wave, waveStroke],
+  '#4b746d',
+  false,
+);
+label('12  Wave Points', 765, 1125);
 const saved = serialize(doc),
   restored = deserialize(saved);
 for (const l of restored.layers) {

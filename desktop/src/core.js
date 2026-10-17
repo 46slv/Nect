@@ -1,3 +1,4 @@
+import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
 import { simplifyGeometry } from './simplify-geometry.js';
@@ -183,6 +184,13 @@ export const definitions = {
     start: p('Scalar', 0),
     end: p('Scalar', 1),
   },
+  'Wave Points': {
+    path: p('Path', null),
+    amplitude: p('Scalar', 20),
+    wavelength: p('Scalar', 150),
+    phase: p('Scalar', 0),
+    keepEndpoints: p('Boolean', false),
+  },
   'Pucker & Bloat': {
     path: p('Path', null),
     amount: p('Scalar', 0),
@@ -363,15 +371,17 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
     operation:
-      type === 'Mirror'
-        ? 'left-right'
-        : type === 'Closed Path Offset'
-          ? 'miter'
-          : type === 'Geometry Repeater'
-            ? 'linear'
-            : ['Math', 'Vector Math'].includes(type)
-              ? 'add'
-              : 'subtract',
+      type === 'Wave Points'
+        ? 'vertical'
+        : type === 'Mirror'
+          ? 'left-right'
+          : type === 'Closed Path Offset'
+            ? 'miter'
+            : type === 'Geometry Repeater'
+              ? 'linear'
+              : ['Math', 'Vector Math'].includes(type)
+                ? 'add'
+                : 'subtract',
     edits: [],
     text: 'Nect',
     font: 'default',
@@ -505,6 +515,7 @@ const bypassInputs = Object.freeze({
   'Trim Path': 'path',
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
+  'Wave Points': 'path',
   'Simplify Path': 'path',
   'Dash Path': 'path',
   'Vector Transform': 'vector',
@@ -732,6 +743,7 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
   'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
@@ -1871,6 +1883,24 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Wave Points') {
+        const source = read('path');
+        result = waveGeometry(source, {
+          amplitude: read('amplitude'),
+          wavelength: read('wavelength'),
+          phase: read('phase'),
+          direction: n.operation,
+          keepEndpoints: read('keepEndpoints'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Wave Points; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Pucker & Bloat') {
         const source = read('path'),
           autoCenter = read('autoCenter');
@@ -2458,6 +2488,8 @@ export function assertClosedOffsetChange(
     'Expand Stroke',
     'Simplify Path',
     'Dash Path',
+    'Pucker & Bloat',
+    'Wave Points',
   ]);
   if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -2768,6 +2800,16 @@ export function validate(doc) {
         (n.params.amount.value < -100 || n.params.amount.value > 100)
       )
         throw Error('Pucker & Bloat amount must be from -100 to 100');
+      if (
+        n.type === 'Wave Points' &&
+        (Math.abs(n.params.amplitude.value) > 100000 ||
+          n.params.wavelength.value < 0.0001 ||
+          n.params.wavelength.value > 100000 ||
+          Math.abs(n.params.phase.value) > 360)
+      )
+        throw Error(
+          'Wave Points needs amplitude within ±100000 px, wavelength 0.0001–100000 px and phase within ±360 degrees',
+        );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (n.type === 'Closed Path Offset') closedOffsetSettings((key) => n.params[key].value);
