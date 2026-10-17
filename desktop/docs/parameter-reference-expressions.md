@@ -12,6 +12,8 @@ References read effective values, including expressions and connected inputs. A 
 
 Changes to referenced values invalidate numeric dependencies, including Text's independent Position output, without requiring Text outline generation. Group duplication remaps copied node references; individual copies keep external references. Deleting a source retains an explicit missing-reference diagnostic, so Undo or restoration can recover it. Saved expressions use the existing parameter-expression field; no new graph node or data container is introduced.
 
+Group remapping preserves authored whitespace, including spaces, tabs and newlines between `ref` and `(`. Every internal occurrence is remapped, including both `X; Y` parts and dormant expressions under connected sockets; external and dangling IDs remain unchanged. The bounded remap matcher follows the current restricted quoted-ID grammar, not arbitrary strings or escapes. The parser and command transaction validation remain unchanged; this correction adds no syntax or schema. Regression check: `node --test tests/parameter-reference-expressions.test.js`.
+
 ## UI integration
 
 `expressionReferenceTargets(layer, currentNodeId)` returns numeric choices with `nodeId`, `name`, `key`, optional `component`, `label`, and ready-to-insert `expression`. Use the returned expression at the editor selection. `parameterReferenceExpression(nodeId, key, component)` produces the same validated syntax. Apply with the existing `set-parameter-expression` command. Numeric controls driven by an expression remain read-only until the expression is cleared.

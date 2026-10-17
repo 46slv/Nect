@@ -886,7 +886,7 @@ export function duplicateNodes(layer, ids) {
     for (const [, q] of parameters(copy)) {
       if (remap.has(q.source)) q.source = remap.get(q.source);
       if (q.expression)
-        q.expression = q.expression.replace(/ref\(\s*"([a-zA-Z0-9:_-]+)"/g, (match, id) =>
+        q.expression = q.expression.replace(/\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g, (match, id) =>
           remap.has(id) ? match.replace(`"${id}"`, `"${remap.get(id)}"`) : match,
         );
     }

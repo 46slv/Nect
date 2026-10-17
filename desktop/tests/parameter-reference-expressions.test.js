@@ -159,3 +159,103 @@ test('connected targets still reject invalid authored expressions without changi
   send(`${ref(scalar.id, 'value')} * 3`);
   assert.equal(evaluate(s.snapshot().layers[0]).run(sink.id), 4);
 });
+
+for (const whitespace of ['', ' ', '\t', '\r\n', '\u00a0']) {
+  test(`group duplication remaps ref with ${JSON.stringify(whitespace)} before parentheses`, () => {
+    const { doc, l, scalar, sink } = fixture();
+    scalar.params.value.value = 3;
+    const original = `ref${whitespace}(\n "${scalar.id}" , "value" )`;
+    sink.params.value.expression = original;
+    assert.equal(evaluate(l).run(sink.id), 3);
+    const [copyScalar, copySink] = duplicateNodes(l, [scalar.id, sink.id]);
+    copyScalar.params.value.value = 7;
+    assert.equal(copySink.params.value.expression, original.replace(scalar.id, copyScalar.id));
+    assert.equal(sink.params.value.expression, original);
+    assert.equal(evaluate(l).run(copySink.id), 7);
+    assert.equal(evaluate(l).run(sink.id), 3);
+    const restored = deserialize(serialize(doc)).layers[0];
+    assert.equal(evaluate(restored).run(copySink.id), 7);
+    assert.equal(evaluate(restored).run(sink.id), 3);
+  });
+}
+
+test('duplicate repeated vector refs exactly, preserving external and dangling IDs', () => {
+  const { doc, l, source, scalar, sink } = fixture();
+  scalar.id = 'node-ref';
+  sink.id = 'node-ref-long';
+  sink.params.value.value = 10;
+  const internal = `ref \n("${scalar.id}", "value")`,
+    external = `ref\t("${sink.id}", "value")`,
+    original = `${internal} + ${internal}; ${external} + ${internal}`;
+  source.params.value.expression = original;
+  const [copySource, copyScalar] = duplicateNodes(l, [source.id, scalar.id]);
+  copyScalar.params.value.value = 7;
+  assert.equal(
+    copySource.params.value.expression,
+    original.replaceAll(`"${scalar.id}"`, `"${copyScalar.id}"`),
+  );
+  assert.deepEqual(evaluate(l).run(copySource.id), [14, 17]);
+  assert.deepEqual(evaluate(l).run(source.id), [8, 14]);
+  const [externalCopy] = duplicateNodes(l, [source.id]);
+  assert.equal(externalCopy.params.value.expression, original);
+  const restored = deserialize(serialize(doc)).layers[0];
+  assert.deepEqual(evaluate(restored).run(copySource.id), [14, 17]);
+  assert.deepEqual(evaluate(restored).run(externalCopy.id), [8, 14]);
+  sink.params.value.expression = 'ref \n("node-missing", "value")';
+  const [danglingCopy] = duplicateNodes(l, [sink.id]);
+  assert.equal(danglingCopy.params.value.expression, sink.params.value.expression);
+  assert.throws(() => evaluate(l).run(danglingCopy.id), /missing/);
+  assert.doesNotThrow(() => deserialize(serialize(doc)));
+});
+
+test('duplicate dormant component refs while retaining connected socket priority', () => {
+  const { doc, l, source, scalar, sink } = fixture();
+  connect(l, scalar.id, sink.id, 'value');
+  const original = `ref \n("${source.id}", "value", "y")`;
+  sink.params.value.expression = original;
+  const [copySource, copyScalar, copySink] = duplicateNodes(l, [source.id, scalar.id, sink.id]);
+  copySource.params.value.value = [300, 500];
+  copyScalar.params.value.value = 9;
+  assert.equal(copySink.params.value.expression, original.replace(source.id, copySource.id));
+  assert.equal(copySink.params.value.source, copyScalar.id);
+  assert.equal(evaluate(l).run(copySink.id), 9);
+  const restored = deserialize(serialize(doc)).layers[0],
+    restoredSink = restored.nodes.find((n) => n.id === copySink.id);
+  assert.equal(evaluate(restored).run(copySink.id), 9);
+  restoredSink.params.value.source = null;
+  assert.equal(evaluate(restored).run(copySink.id), 500);
+  assert.equal(evaluate(l).run(sink.id), 4);
+  assert.equal(sink.params.value.expression, original);
+});
+
+test('spaced ref duplication is one undoable command; malformed drafts remain atomic', () => {
+  const { doc, l, scalar, sink } = fixture();
+  sink.params.value.expression = `ref ("${scalar.id}", "value")`;
+  const session = new CommandSession(doc),
+    dispatch = (type, payload = {}) =>
+      session.dispatch({ ...session.state, type, payload: { layerId: l.id, ...payload } }),
+    before = serialize(session.snapshot());
+  dispatch('duplicate-nodes', { nodeIds: [scalar.id, sink.id] });
+  const after = serialize(session.snapshot()),
+    copies = session.snapshot().layers[0].nodes.slice(-2);
+  assert.equal(copies[1].params.value.expression, `ref ("${copies[0].id}", "value")`);
+  dispatch('undo');
+  assert.equal(serialize(session.snapshot()), before);
+  dispatch('redo');
+  assert.equal(serialize(session.snapshot()), after);
+  for (const expression of [
+    `xref ("${scalar.id}", "value")`,
+    `ref ("${scalar.id}", "value").constructor`,
+    `ref ("${scalar.id}", "value", "z")`,
+    `ref ("${scalar.id}", "value"`,
+    `ref ('${scalar.id}', 'value')`,
+    `ref ("${scalar.id}", "va\\"lue")`,
+  ]) {
+    const revision = session.state.expectedRevision;
+    assert.throws(() =>
+      dispatch('set-parameter-expression', { nodeId: sink.id, key: 'value', expression }),
+    );
+    assert.equal(serialize(session.snapshot()), after);
+    assert.equal(session.state.expectedRevision, revision);
+  }
+});
