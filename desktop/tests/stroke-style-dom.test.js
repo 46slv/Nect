@@ -83,6 +83,19 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
   };
   const stroke = await add('Stroke');
   const control = (key) => document.querySelector(`.graph [data-stroke-${key}="${stroke}"]`);
+  const strokeNode = () => win.nect.document.layers[0].nodes.find((n) => n.id === stroke);
+  await change(control('preset'), 'dashed');
+  assert.deepEqual(strokeNode().strokeDash, [12, 6]);
+  assert.equal(strokeNode().strokeCap, 'butt');
+  await change(control('preset'), 'dotted');
+  assert.deepEqual(strokeNode().strokeDash, [0, 8]);
+  assert.equal(strokeNode().strokeCap, 'round');
+  document.querySelector('[data-action="undo"]').click();
+  await tick();
+  assert.deepEqual(strokeNode().strokeDash, [12, 6], 'preset is one undoable command');
+  assert.equal(strokeNode().strokeCap, 'butt');
+  await change(control('preset'), 'solid');
+  assert.deepEqual(strokeNode().strokeDash, []);
   await change(control('cap'), 'round');
   await change(control('join'), 'bevel');
   await change(control('dash'), '12 6 2');
@@ -94,6 +107,7 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
     win.nect.document.layers[0].nodes.find((n) => n.id === stroke).strokeDash,
     [12, 6, 2],
   );
+  assert.equal(control('preset').value, 'custom');
   await change(control('dash'), '1 -2');
   assert.deepEqual(
     win.nect.document.layers[0].nodes.find((n) => n.id === stroke).strokeDash,
@@ -112,6 +126,9 @@ test('stroke controls: cap, join, dash validation, numeric bounds, parity and hi
   const layer = win.nect.document.layers[0].id;
   document.querySelector(`[data-layer-lock="${layer}"]`).click();
   await tick();
+  const lockedDash = [...strokeNode().strokeDash];
+  await change(control('preset'), 'dotted');
+  assert.deepEqual(strokeNode().strokeDash, lockedDash, 'preset respects layer lock');
   await change(control('cap'), 'square');
   assert.equal(win.nect.document.layers[0].nodes.find((n) => n.id === stroke).strokeCap, 'round');
   win.happyDOM.abort();

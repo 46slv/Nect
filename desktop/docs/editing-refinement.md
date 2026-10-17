@@ -73,3 +73,14 @@ handles, then passed after the fix; clicked-point handles remain visible. The sa
 view-navigation test retains Alt-wheel and view-only/document-preservation checks.
 This is DOM evidence, not native GUI or physical-input acceptance. The distributed
 trial remains 7496aee; subsequent source fixes have not been packaged into a new ZIP.
+
+## Stroke presets — 2026-10-17
+
+The requested dotted/dashed appearance already existed in Stroke's dash pattern,
+cap and SVG/PNG path. A named Solid / Dashed / Dotted selector now exposes it in
+both graph and inspector. Dashed sets 12 px / 6 px with butt caps; Dotted sets
+0 px / 8 px with round caps. Solid clears the dash pattern, retaining the cap.
+Manual patterns remain editable and display Custom. Each preset is a single
+undoable node-settings command and respects composition locks. Focused stroke
+DOM/core tests pass 4/4; no new Windows ZIP has been produced. Pucker/Bloat meaning
+is awaiting clarification; no deformation node has been added in this slice.

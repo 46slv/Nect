@@ -1280,7 +1280,27 @@ function gradientControls(n) {
 }
 function strokeControls(n) {
   if (n.type !== 'Stroke') return '';
-  return `<div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
+  const dash = n.strokeDash || [];
+  const preset = !dash.some((v) => v !== 0)
+    ? 'solid'
+    : dash.length === 2 && dash[0] === 12 && dash[1] === 6 && (n.strokeCap || 'butt') === 'butt'
+      ? 'dashed'
+      : dash.length === 2 && dash[0] === 0 && dash[1] === 8 && n.strokeCap === 'round'
+        ? 'dotted'
+        : 'custom';
+  return `<div class="field"><label>Stroke style</label><select data-stroke-preset="${n.id}" aria-label="Stroke style preset">${[
+    ['solid', 'Solid'],
+    ['dashed', 'Dashed'],
+    ['dotted', 'Dotted'],
+    ['custom', 'Custom'],
+  ]
+    .map(
+      ([value, label]) =>
+        `<option value="${value}" ${preset === value ? 'selected' : ''} ${value === 'custom' ? 'disabled' : ''}>${label}</option>`,
+    )
+    .join(
+      '',
+    )}</select></div><div class="field"><label>Line cap</label><select data-stroke-cap="${n.id}" aria-label="Stroke line cap">${['butt', 'round', 'square'].map((v) => `<option value="${v}" ${(n.strokeCap || 'butt') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Line join</label><select data-stroke-join="${n.id}" aria-label="Stroke line join">${['miter', 'round', 'bevel'].map((v) => `<option value="${v}" ${(n.strokeJoin || 'miter') === v ? 'selected' : ''}>${v}</option>`).join('')}</select></div><div class="field"><label>Dash / gap (px)</label><input data-stroke-dash="${n.id}" aria-label="Stroke dash pattern" value="${esc((n.strokeDash || []).join(' '))}" placeholder="Solid, or e.g. 12 6"></div><p class="font-note">Odd patterns repeat twice. Empty/none or all zero is solid. Miter limit is a ratio; dashOffset is px.</p>`;
 }
 function operationControls(n) {
   const options = operationOptions[n.type];
@@ -1478,6 +1498,8 @@ function render(resetView = false, artworkResolution = null) {
     const key = `${el.closest('.node').dataset.id}/${el.dataset.detail}`;
     if (detailsState.has(key)) el.open = detailsState.get(key);
   }
+  for (const select of app.querySelectorAll('[data-stroke-preset]'))
+    select.value = select.querySelector('option[selected]').value;
   fitCanvas();
   compactTextInspector();
   if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
@@ -4573,6 +4595,16 @@ app.addEventListener('change', async (e) => {
       notify(error.message, true);
       scheduleRender();
     }
+    return;
+  }
+  if (d.strokePreset) {
+    const settings = {
+      solid: { strokeDash: [] },
+      dashed: { strokeDash: [12, 6], strokeCap: 'butt' },
+      dotted: { strokeDash: [0, 8], strokeCap: 'round' },
+    }[el.value];
+    if (settings)
+      commandChange('set-node-settings', { nodeId: d.strokePreset, settings }, undefined, true);
     return;
   }
   if (
