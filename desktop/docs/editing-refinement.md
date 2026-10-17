@@ -147,3 +147,26 @@ modifiers in coherent slices instead of duplicating nodes or inventing a generic
 
 These are an evolving implementation sequence under Shiro's explicit research/addition
 instruction, not a reason to rebuild existing Repeater/Offset/Mirror or run full audits.
+
+### Resample Path
+
+- Implements the count-based concept from the cited Blender Resample Curve reference as a
+  2D Path node: 2–1024 points per contour (closed contours require at least 3), default 32.
+- Samples at equal intervals of the source's numerically evaluated arc length using the
+  existing Paper.js geometry engine; output handles are zero. Open endpoints retained;
+  closed paths avoid duplicating the seam. Zero-length contours remain finite.
+- This creates a polyline approximation. Low counts can remove corners/small features or
+  alter shape topology; it is not tolerance-preserving Simplify. Source remains editable.
+- Preserves groups and closed state, namespaces deterministic generated IDs, and uses the
+  existing unstable fingerprint/remap protection. Output limits 10000 contours /100000
+  points plus a 2,000,000 source-points × samples work estimate across contours.
+- The common bounded-modifier preflight now includes Mirror, Corner Round and Resample
+  alongside Offset. Invalid newly introduced geometry errors roll back commands; missing
+  wiring stays editable and pre-existing errors can be repaired.
+- Evidence: Resample core5/5 + DOM1/1, Corner Round Session3/3 and Offset pipeline12/12
+  passed. Native GUI and raster visual review remain open. Distributed EXE unchanged.
+
+Next: seeded Roughen for controlled irregular outlines, with Resample before it for
+predictable point density. Inspiration: [Blender Grease Pencil Noise](https://docs.blender.org/manual/en/3.3/grease_pencil/modifiers/deform/noise.html).
+Use amount in px, deterministic seed and an open-endpoint preservation toggle. No animation,
+opacity noise or unqualified topology guarantees in this first slice.

@@ -158,6 +158,7 @@ export const definitions = {
     scale: p('Scalar', 1),
     rotation: p('Scalar', 0),
   },
+  'Resample Path': { path: p('Path', null), count: p('Scalar', 32) },
   'Corner Round': { path: p('Path', null), radius: p('Scalar', 12) },
   Mirror: {
     path: p('Path', null),
@@ -460,6 +461,7 @@ const bypassInputs = Object.freeze({
   Transform: 'path',
   Mirror: 'path',
   'Corner Round': 'path',
+  'Resample Path': 'path',
   'Vector Transform': 'vector',
   'Path Remap': 'path',
   'Closed Path Offset': 'path',
@@ -1411,6 +1413,65 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         ];
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Resample Path') {
+        const source = read('path'),
+          count = read('count');
+        if (!source) throw Error('Connect a Path input');
+        if (!Number.isInteger(count) || count < 2 || count > 1024)
+          throw Error('Resample count must be an integer from 2 to 1024');
+        if (count < 3 && source.contours.some((c) => c.closed))
+          throw Error('Closed contours require at least 3 samples');
+        if (
+          source.contours.length > 10000 ||
+          source.contours.length * count > 100000 ||
+          source.contours.reduce((sum, c) => sum + c.points.length, 0) > 100000 ||
+          source.contours.reduce((sum, c) => sum + c.points.length * count, 0) > 2000000
+        )
+          throw Error('Resample exceeds geometry budget');
+        const item = toPaper(source),
+          prefix = fingerprint(n.id);
+        try {
+          result = {
+            contours: source.contours.map((c, ci) => {
+              const path = item.children[ci],
+                length = path.length;
+              if (!Number.isFinite(length)) throw Error('Resample exceeds finite path length');
+              return {
+                id: `${prefix}:c${ci}`,
+                closed: c.closed,
+                ...(c.group !== undefined ? { group: c.group } : {}),
+                points: c.points.length
+                  ? Array.from({ length: count }, (_, pi) => {
+                      const distance = length * (pi / (c.closed ? count : count - 1));
+                      const sampled = path.getPointAt(distance);
+                      const position = sampled
+                        ? [sampled.x, sampled.y]
+                        : length === 0
+                          ? [...c.points[0].position]
+                          : null;
+                      assertValue('Vector2', position);
+                      return {
+                        id: `${prefix}:c${ci}:p${pi}`,
+                        position,
+                        handleA: [0, 0],
+                        handleB: [0, 0],
+                      };
+                    })
+                  : [],
+              };
+            }),
+          };
+        } finally {
+          item.remove();
+        }
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Resample Path; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Corner Round') {
         const source = read('path');
         const radius = read('radius');
@@ -1592,6 +1653,13 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = clone(result);
         if (n.type === 'Fill') result.fill = read('color');
+        if (
+          n.type === 'Resample Path' &&
+          (!Number.isInteger(n.params.count.value) ||
+            n.params.count.value < 2 ||
+            n.params.count.value > 1024)
+        )
+          throw Error('Resample count must be an integer from 2 to 1024');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Stroke') {
@@ -1863,12 +1931,12 @@ export function assertClosedOffsetChange(
   previousFonts = fonts,
 ) {
   assertTextPathChange(layer, previousLayer, fonts, imageAssets, previousFonts);
-  if (!layer.nodes.some((n) => n.type === 'Closed Path Offset' && n.params.path.source)) return;
+  // Keep bounded geometry modifiers transactional, including upstream edits.
+  const bounded = new Set(['Closed Path Offset', 'Mirror', 'Corner Round', 'Resample Path']);
+  if (!layer.nodes.some((n) => bounded.has(n.type) && n.params.path.source)) return;
   const current = evaluate(layer, fonts, imageAssets);
   let previous;
-  for (const n of layer.nodes.filter(
-    (n) => n.type === 'Closed Path Offset' && n.params.path.source,
-  )) {
+  for (const n of layer.nodes.filter((n) => bounded.has(n.type) && n.params.path.source)) {
     try {
       current.run(n.id);
     } catch (error) {
