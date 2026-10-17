@@ -1047,7 +1047,7 @@ function field(n, key, q) {
   const name = ['Halftone', 'Ordered Dither'].includes(n.type)
     ? { path: 'Source fill', pitch: 'Cell pitch (px)', invert: 'Invert luminance' }[key] || key
     : n.type === 'Instance on Points'
-      ? { path: 'Source', points: 'Points' }[key] || key
+      ? { path: 'Source', points: 'Points', alignTangent: 'Align Tangent' }[key] || key
       : isTransform(n)
         ? {
             anchor: 'Anchor Point',
@@ -1289,7 +1289,9 @@ function compactFields(n) {
   return activeParameters(n)
     .map(([key, q]) => {
       const label =
-        n.type === 'Instance on Points' ? { path: 'Source', points: 'Points' }[key] || key : key;
+        n.type === 'Instance on Points'
+          ? { path: 'Source', points: 'Points', alignTangent: 'Align Tangent' }[key] || key
+          : key;
       return `<div class="field compact-field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><button class="socket ${q.source ? 'input' : 'available-input'}" ${q.source ? '' : 'data-connect-menu'} aria-label="${esc(n.name + ' ' + label)} input" title="${esc(label)} · ${q.type}${q.source ? ' · connected; drag or right-click to disconnect' : ' · connect input'}"></button></div>`;
     })
     .join('');
@@ -1363,7 +1365,7 @@ function smoothControls(n) {
 }
 function instancePointsControls(n) {
   return n.type === 'Instance on Points'
-    ? '<p class="font-note">Place the source path bounds center on every authored anchor in Points. Connect Resample Path first for even ornament spacing. Translation only; target handles, curve interiors and groups are ignored. Copies are materialized geometry with bounded output.</p>'
+    ? '<p class="font-note">Place the source path bounds center on every authored anchor in Points. Align Tangent turns the source so its local +X follows the target tangent: outgoing handle B, reverse incoming handle A, then neighboring anchor chords. Curves are not arc-length-sampled; use Resample Path first when even spacing or denser target anchors are wanted. Target groups and curve interiors are ignored. Copies are materialized geometry with bounded output.</p>'
     : '';
 }
 function luminanceControls(n) {

@@ -534,9 +534,16 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   concept. Nect materializes Path geometry; it does not claim Blender reference-instance parity.
 - Path → Path with required Source Path and Points Path inputs. The whole-source geometric
   bounds center, from the existing `pathBounds(source)`, is placed at each authored target
-  anchor. Target handles, curve interiors and groups are ignored. Use Resample Path before
-  Points when even spacing is wanted. Translation only; there is no tangent orientation, rotation,
-  scale or pivot control in this slice.
+  anchor. The Boolean Align Tangent option defaults off and retains the original translation-only
+  geometry. When on, source local +X follows target handle B when nonzero; otherwise the reverse
+  of handle A; otherwise a centered neighbor chord, wrapped for closed contours and one-sided at
+  open endpoints. If that chord is degenerate, the next edge, prior edge in path-forward direction,
+  then +X are the fallbacks. Relative source handles rotate with the source. This does not rotate
+  or scale the target anchors, and target groups / curve interiors are ignored. Curve interiors
+  are not arc-length-sampled; use Resample Path upstream for even spacing or denser tangent anchors.
+- Existing schema-version-1-to-12 Instance on Points documents backfill `alignTangent: false`
+  and advance to schema version 13. This preserves their prior translation-only output; invalid
+  non-Boolean values reject validation rather than silently coercing them.
 - Copies preserve source contours, holes, groups, relative handles and metadata. Each target
   anchor, including a duplicate, gets distinct deterministic contour/point IDs and independent
   groups. Transparent copies remain separately painted; no global union is performed.
@@ -545,10 +552,14 @@ Resample spacing example: two serialized/reopened editable layers are verified t
   transactional preflight; counts are rejected before Paper bounds work. Output budgets and
   non-finite arithmetic reject the full command. Derived output is unstable for downstream
   Path Remap, and direct Text character editing stays upstream at the Source Text.
-- Focused helper/core/DOM/bypass tests and one Web build are the requested verification scope;
-  full-suite, native Windows acceptance and replacement packaging are outside this slice. The
-  advancing source catalog contains20 modifiers; the main playground remains18 modifiers /47
-  layers, and the separate frozen trial remains19 modifiers.
+- The [11-layer tangent playground](../examples/instance-tangent-playground.json) compares
+  translation-only and tangent-aligned placements and reopens with identical evaluated output.
+  Its SVG / Inkscape rendering was inspected. This improves the existing 20th modifier; it does
+  not add a catalog entry, alter the 47-layer main playground, or change the separate frozen
+  19-modifier trial.
+- Focused helper / core / DOM tests and one Web build cover this change; full-suite, native
+  Windows acceptance and replacement packaging are outside this slice. Older Instance on Points
+  documents backfill false and save as schema 13.
 
 ### Halftone and Ordered Dither — luminance-to-geometry v1
 

@@ -57,6 +57,11 @@ function absoluteHandle(pointValue, handleName) {
   return pointValue.position.map((value, axis) => value + pointValue[handleName][axis]);
 }
 
+function assertVectorClose(actual, expected, epsilon = 1e-9) {
+  assert.equal(actual.length, expected.length);
+  actual.forEach((value, axis) => assert.ok(Math.abs(value - expected[axis]) <= epsilon));
+}
+
 test('translates every source point from the supplied pivot and retains relative handles', () => {
   const source = sourcePath();
   const targets = targetPath();
@@ -119,6 +124,171 @@ test('translates every source point from the supplied pivot and retains relative
       'scatter:i2:c3',
     ],
   );
+});
+
+test('default and explicit alignTangent false preserve translation-only output exactly', () => {
+  const source = sourcePath();
+  const targets = targetPath();
+  const defaultResult = instancePointsGeometry(source, targets, { pivot: [3, -7], prefix: 'same' });
+  const explicitFalse = instancePointsGeometry(source, targets, {
+    pivot: [3, -7],
+    prefix: 'same',
+    alignTangent: false,
+  });
+  assert.deepEqual(explicitFalse, defaultResult);
+});
+
+test('aligns source +X to horizontal, bent, and vertical target anchor tangents', () => {
+  const source = {
+    contours: [contour('source', 'ornament', [point('p', [2, 1], [1, 0], [0, 2])], false)],
+  };
+  const targets = {
+    contours: [
+      contour(
+        'path',
+        undefined,
+        [point('a', [0, 0]), point('b', [10, 0]), point('c', [10, 10])],
+        false,
+      ),
+    ],
+  };
+  const beforeTargets = structuredClone(targets);
+  const result = instancePointsGeometry(source, targets, {
+    pivot: [0, 0],
+    alignTangent: true,
+  });
+  const copies = result.contours.map((copy) => copy.points[0]);
+
+  assert.deepEqual(copies[0].position, [2, 1]);
+  assert.deepEqual(copies[0].handleA, [1, 0]);
+  assert.deepEqual(copies[0].handleB, [0, 2]);
+  assertVectorClose(copies[1].position, [10 + Math.sqrt(0.5), Math.sqrt(4.5)]);
+  assertVectorClose(copies[1].handleA, [Math.sqrt(0.5), Math.sqrt(0.5)]);
+  assertVectorClose(copies[1].handleB, [-Math.sqrt(2), Math.sqrt(2)]);
+  assert.deepEqual(copies[2].position, [9, 12]);
+  assertVectorClose(copies[2].handleA, [0, 1]);
+  assertVectorClose(copies[2].handleB, [-2, 0]);
+  assert.deepEqual(targets, beforeTargets);
+});
+
+test('prefers outgoing then reverse incoming Bezier handles for target tangents', () => {
+  const source = {
+    contours: [contour('source', undefined, [point('p', [1, 0], [2, 3], [4, 5])], false)],
+  };
+  const targets = {
+    contours: [
+      contour(
+        'path',
+        undefined,
+        [point('outgoing', [0, 0], [0, 0], [0, 1]), point('incoming', [10, 0], [1, 0], [0, 0])],
+        false,
+      ),
+    ],
+  };
+  const copies = instancePointsGeometry(source, targets, {
+    pivot: [0, 0],
+    alignTangent: true,
+  }).contours.map((copy) => copy.points[0]);
+
+  assertVectorClose(copies[0].position, [0, 1]);
+  assertVectorClose(copies[0].handleA, [-3, 2]);
+  assertVectorClose(copies[0].handleB, [-5, 4]);
+  assertVectorClose(copies[1].position, [9, 0]);
+  assertVectorClose(copies[1].handleA, [-2, -3]);
+  assertVectorClose(copies[1].handleB, [-4, -5]);
+});
+
+test('uses wrapped neighbors for tangent alignment at a closed contour seam', () => {
+  const source = { contours: [contour('source', undefined, [point('p', [1, 0])], false)] };
+  const targets = {
+    contours: [
+      contour(
+        'closed-path',
+        undefined,
+        [point('seam', [0, 0]), point('right', [10, 0]), point('up', [10, 10])],
+        true,
+      ),
+    ],
+  };
+  const result = instancePointsGeometry(source, targets, {
+    pivot: [0, 0],
+    alignTangent: true,
+  });
+  assertVectorClose(result.contours[0].points[0].position, [0, -1]);
+});
+
+test('falls back from a zero centered chord to an adjacent edge and then to +X', () => {
+  const source = {
+    name: 'repeated ornament',
+    paint: { fill: '#123456' },
+    contours: [contour('source', undefined, [point('p', [1, 0])], false)],
+  };
+  const cusp = {
+    contours: [
+      contour(
+        'cusp',
+        undefined,
+        [point('left', [0, 0]), point('center', [10, 0]), point('return', [0, 0])],
+        false,
+      ),
+    ],
+  };
+  const cuspCenter = instancePointsGeometry(source, cusp, {
+    pivot: [0, 0],
+    alignTangent: true,
+  }).contours[1].points[0];
+  assertVectorClose(cuspCenter.position, [9, 0]);
+
+  const duplicates = {
+    contours: [
+      contour(
+        'duplicates',
+        undefined,
+        [point('a', [5, 6]), point('b', [5, 6]), point('c', [5, 6])],
+        false,
+      ),
+    ],
+  };
+  const duplicateResult = instancePointsGeometry(source, duplicates, {
+    pivot: [0, 0],
+    alignTangent: true,
+  });
+  const duplicateCopies = duplicateResult.contours.map((copy) => copy.points[0]);
+  for (const copy of duplicateCopies) assert.deepEqual(copy.position, [6, 6]);
+  assert.deepEqual(
+    duplicateResult.contours.map((copy) => copy.id),
+    ['instances:i0:c0', 'instances:i1:c0', 'instances:i2:c0'],
+  );
+  assert.equal(new Set(duplicateResult.contours.map((copy) => copy.group)).size, 3);
+  assert.equal(duplicateResult.name, source.name);
+  assert.deepEqual(duplicateResult.paint, source.paint);
+});
+
+test('preflights aligned arithmetic and rolls back on overflow without mutating inputs', () => {
+  const source = {
+    contours: [contour('source', undefined, [point('p', [1.7e308, 0])], false)],
+  };
+  const targets = {
+    contours: [
+      contour(
+        'target',
+        undefined,
+        [
+          point('safe', [0, 0], [0, 0], [1, 0]),
+          point('overflow', [1.7e308, 1.7e308], [0, 0], [1, 1]),
+        ],
+        false,
+      ),
+    ],
+  };
+  const beforeSource = structuredClone(source);
+  const beforeTargets = structuredClone(targets);
+  assert.throws(
+    () => instancePointsGeometry(source, targets, { pivot: [0, 0], alignTangent: true }),
+    /finite coordinates/i,
+  );
+  assert.deepEqual(source, beforeSource);
+  assert.deepEqual(targets, beforeTargets);
 });
 
 test('keeps anchor order, source contour/point order, holes, and orientation unchanged', () => {
@@ -213,6 +383,10 @@ test('validates inputs, options, pivot, and finite arithmetic', () => {
     assert.throws(() => instancePointsGeometry(source, target, { pivot: invalidPivot }), /pivot/i);
   }
   assert.throws(() => instancePointsGeometry(source, target, null), /options/i);
+  assert.throws(
+    () => instancePointsGeometry(source, target, { pivot: [0, 0], alignTangent: 'yes' }),
+    /alignTangent/i,
+  );
   assert.throws(
     () => instancePointsGeometry(source, target, { pivot: [0, 0], prefix: '' }),
     /prefix/i,

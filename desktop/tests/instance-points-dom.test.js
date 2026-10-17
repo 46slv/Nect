@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import '../src/core.js';
 
-test('Instance on Points exposes two typed inputs with concise graph guidance', async () => {
+test('Instance on Points exposes two required typed inputs and an optional tangent inspector control', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
@@ -73,12 +73,30 @@ test('Instance on Points exposes two typed inputs with concise graph guidance', 
       .length,
     2,
   );
+  const alignField = document.querySelector(
+      `.graph .field[data-node="${effect.id}"][data-key="alignTangent"]`,
+    ),
+    alignControl = alignField?.querySelector('input[type="checkbox"][data-value]');
+  assert.equal(alignField?.querySelector('label')?.textContent, 'Align Tangent');
+  assert.ok(alignControl, 'Align Tangent is a Boolean inspector option');
+  assert.equal(alignControl.checked, false, 'the option defaults off');
   assert.match(
     document.querySelector('.inspector-body').textContent,
     /bounds center.*every authored anchor/i,
   );
   assert.match(document.querySelector('.inspector-body').textContent, /Resample Path first/i);
-  assert.match(document.querySelector('.inspector-body').textContent, /Translation only/i);
+  assert.match(document.querySelector('.inspector-body').textContent, /outgoing handle B/i);
+  assert.match(document.querySelector('.inspector-body').textContent, /not arc-length-sampled/i);
   assert.match(document.querySelector('.inspector-body').textContent, /bounded output/i);
+
+  alignControl.checked = true;
+  alignControl.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((node) => node.id === effect.id).params.alignTangent
+      .value,
+    true,
+    'the inspector checkbox records the setting through the common Session command',
+  );
   win.happyDOM.abort();
 });

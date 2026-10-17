@@ -248,6 +248,7 @@ export const definitions = {
   'Instance on Points': {
     path: p('Path', null),
     points: p('Path', null),
+    alignTangent: p('Boolean', false),
   },
   Value: { value: p('Scalar', 100) },
   Math: { a: p('Scalar', 0), b: p('Scalar', 0), min: p('Scalar', 0), max: p('Scalar', 1) },
@@ -2557,7 +2558,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         if (!n.params.path.source || !n.params.points.source)
           throw Error('Connect both Source and Points Path inputs');
         const source = read('path'),
-          targets = read('points');
+          targets = read('points'),
+          alignTangent = read('alignTangent');
         if (!source || !targets) throw Error('Connect both Source and Points Path inputs');
 
         // Keep malformed or over-budget geometry away from Paper bounds work.
@@ -2576,10 +2578,16 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         const sourcePoints = cheapPointCount(source),
           targetPoints = cheapPointCount(targets);
         if (sourcePoints === null || targetPoints === null) {
-          result = instancePointsGeometry(source, targets, { prefix: fingerprint(n.id) });
+          result = instancePointsGeometry(source, targets, {
+            prefix: fingerprint(n.id),
+            alignTangent,
+          });
         } else if (sourcePoints === 0 || targetPoints === 0) {
           // Empty inputs produce empty geometry without constructing Paper bounds.
-          result = instancePointsGeometry(source, targets, { prefix: fingerprint(n.id) });
+          result = instancePointsGeometry(source, targets, {
+            prefix: fingerprint(n.id),
+            alignTangent,
+          });
         } else {
           if (targetPoints > 256) throw Error('Instance on Points exceeds instance budget');
           const sourceGroups = new Set(source.contours.map((contour) => contour?.group ?? ''));
@@ -2592,7 +2600,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           const bounds = pathBounds(source),
             pivot = [bounds[0][1], bounds[1][1]],
             prefix = fingerprint(n.id);
-          result = instancePointsGeometry(source, targets, { pivot, prefix });
+          result = instancePointsGeometry(source, targets, { pivot, prefix, alignTangent });
         }
         result.characterOccurrences = routeCharacters(
           source,
@@ -2606,6 +2614,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
             provenance(n.id),
             source.fingerprint || null,
             signature(source),
+            alignTangent,
             targets.contours.flatMap((contour) => contour.points.map((point) => point.position)),
             signature(result),
           ]),
@@ -3046,7 +3055,7 @@ export function assertClosedOffsetChange(
     n.type === 'Boolean'
       ? ['a', 'b'].map((key) => n.params[key]?.source)
       : n.type === 'Instance on Points'
-        ? ['path', 'points'].map((key) => n.params[key]?.source)
+        ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
         : [n.params.path?.source];
   if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
   const current = evaluate(layer, fonts, imageAssets);
@@ -3176,7 +3185,7 @@ export function validate(doc) {
     if (q.sourcePort !== undefined && (!q.source || !['x', 'y', 'position'].includes(q.sourcePort)))
       throw Error('Invalid source port');
   }
-  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(doc.schemaVersion))
+  if (!doc || ![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(doc.schemaVersion))
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
   text(doc.name);
@@ -3290,6 +3299,14 @@ export function validate(doc) {
         if (operationOptions.Boolean.includes(n.operation)) n.operation = 'count';
         if (!Object.hasOwn(n.params, 'spacing'))
           n.params.spacing = clone(definitions['Resample Path'].spacing);
+      }
+      // Instance on Points gains an opt-in local-tangent transform. Old files
+      // load with the identity (translation-only) setting, then serialize using
+      // the schema that records the new parameter.
+      if (n.type === 'Instance on Points' && doc.schemaVersion < 13 && n.params) {
+        if (!Object.hasOwn(n.params, 'alignTangent'))
+          n.params.alignTangent = clone(definitions['Instance on Points'].alignTangent);
+        doc.schemaVersion = 13;
       }
       if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
         throw Error('Invalid operation');

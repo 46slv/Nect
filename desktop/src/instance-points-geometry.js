@@ -74,23 +74,88 @@ function emptyPath(source) {
   return { ...copyMetadata(source, ROOT_GEOMETRY_KEYS), contours: [] };
 }
 
+function subtractVector(left, right) {
+  const result = [left[0] - right[0], left[1] - right[1]];
+  if (!result.every(Number.isFinite)) throw Error('Instance on Points exceeds finite coordinates');
+  return result;
+}
+
+function isNonzeroVector(vector) {
+  return vector[0] !== 0 || vector[1] !== 0;
+}
+
+function tangentForPoint(contour, pointIndex) {
+  const point = contour.points[pointIndex];
+  if (isNonzeroVector(point.handleB)) return point.handleB;
+
+  const reverseIncoming = [-point.handleA[0], -point.handleA[1]];
+  if (isNonzeroVector(reverseIncoming)) return reverseIncoming;
+
+  const points = contour.points;
+  const count = points.length;
+  const closed = contour.closed;
+  const current = point.position;
+  const nextIndex = pointIndex + 1 < count ? pointIndex + 1 : closed ? 0 : -1;
+  const previousIndex = pointIndex > 0 ? pointIndex - 1 : closed ? count - 1 : -1;
+  let tangent = [0, 0];
+
+  if (count > 1) {
+    if (closed) {
+      tangent = subtractVector(points[nextIndex].position, points[previousIndex].position);
+    } else if (pointIndex > 0 && pointIndex < count - 1) {
+      tangent = subtractVector(points[nextIndex].position, points[previousIndex].position);
+    } else if (pointIndex === 0) {
+      tangent = subtractVector(points[nextIndex].position, current);
+    } else {
+      tangent = subtractVector(current, points[previousIndex].position);
+    }
+    if (isNonzeroVector(tangent)) return tangent;
+
+    // A centered chord can cancel at a cusp or where anchors coincide. Prefer
+    // the forward edge, then the incoming edge in its path-forward direction.
+    if (nextIndex !== -1 && nextIndex !== pointIndex) {
+      tangent = subtractVector(points[nextIndex].position, current);
+      if (isNonzeroVector(tangent)) return tangent;
+    }
+    if (previousIndex !== -1 && previousIndex !== pointIndex) {
+      tangent = subtractVector(current, points[previousIndex].position);
+      if (isNonzeroVector(tangent)) return tangent;
+    }
+  }
+
+  return [1, 0];
+}
+
+function rotateVector(vector, cosine, sine) {
+  const result = [vector[0] * cosine - vector[1] * sine, vector[0] * sine + vector[1] * cosine];
+  if (!result.every(Number.isFinite)) throw Error('Instance on Points exceeds finite coordinates');
+  return result;
+}
+
 /**
- * Materialize a translation-only copy of source at every target anchor. The
- * caller supplies the exact whole-source geometric bounds center as pivot.
+ * Materialize source at every target anchor using the supplied whole-source
+ * geometric bounds center as pivot. By default this remains translation-only;
+ * alignTangent rotates each copy so its +X axis follows the target path.
  */
 export function instancePointsGeometry(source, targets, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     throw Error('Instance on Points needs valid options');
-  const { pivot, prefix = 'instances' } = options;
+  const { pivot, prefix = 'instances', alignTangent = false } = options;
   if (typeof prefix !== 'string' || !prefix)
     throw Error('Instance on Points needs a nonempty ID prefix');
+  if (typeof alignTangent !== 'boolean')
+    throw Error('Instance on Points needs a boolean alignTangent option');
 
   const sourceInfo = validatePath(source, 'Instance on Points source');
   const targetInfo = validatePath(targets, 'Instance on Points targets');
 
   const anchors = [];
+  const anchorContexts = [];
   for (const contour of targets.contours) {
-    for (const point of contour.points) anchors.push(point.position);
+    for (let pointIndex = 0; pointIndex < contour.points.length; pointIndex++) {
+      anchors.push(contour.points[pointIndex].position);
+      anchorContexts.push({ contour, pointIndex });
+    }
   }
   if (anchors.length > MAX_INSTANCES) throw Error('Instance on Points exceeds instance budget');
 
@@ -117,34 +182,68 @@ export function instancePointsGeometry(source, targets, options = {}) {
   )
     throw Error('Instance on Points exceeds geometry budget');
 
-  // Preflight all arithmetic before allocating any output geometry. Handles are
-  // relative vectors, so only their translated absolute positions are checked.
-  const deltas = anchors.map((position) => {
-    const delta = [position[0] - pivot[0], position[1] - pivot[1]];
-    if (!delta.every(Number.isFinite)) throw Error('Instance on Points exceeds finite coordinates');
-    return delta;
-  });
-  for (const delta of deltas) {
-    for (const contour of source.contours) {
-      for (const point of contour.points) {
-        const x = point.position[0] + delta[0];
-        const y = point.position[1] + delta[1];
-        if (
-          !Number.isFinite(x) ||
-          !Number.isFinite(y) ||
-          !Number.isFinite(x + point.handleA[0]) ||
-          !Number.isFinite(y + point.handleA[1]) ||
-          !Number.isFinite(x + point.handleB[0]) ||
-          !Number.isFinite(y + point.handleB[1])
-        )
-          throw Error('Instance on Points exceeds finite coordinates');
+  let deltas;
+  let alignedPoints;
+  if (alignTangent) {
+    // Preflight transformed anchors and handles before allocating output. The
+    // source pivot maps to each target point; handles remain relative vectors.
+    alignedPoints = anchorContexts.map(({ contour, pointIndex }, instanceIndex) => {
+      const tangent = tangentForPoint(contour, pointIndex);
+      const angle = Math.atan2(tangent[1], tangent[0]);
+      const cosine = Math.cos(angle);
+      const sine = Math.sin(angle);
+      const anchor = anchors[instanceIndex];
+      return source.contours.map((sourceContour) =>
+        sourceContour.points.map((point) => {
+          const relativePosition = subtractVector(point.position, pivot);
+          const rotatedPosition = rotateVector(relativePosition, cosine, sine);
+          const position = [rotatedPosition[0] + anchor[0], rotatedPosition[1] + anchor[1]];
+          const handleA = rotateVector(point.handleA, cosine, sine);
+          const handleB = rotateVector(point.handleB, cosine, sine);
+          if (
+            !position.every(Number.isFinite) ||
+            !Number.isFinite(position[0] + handleA[0]) ||
+            !Number.isFinite(position[1] + handleA[1]) ||
+            !Number.isFinite(position[0] + handleB[0]) ||
+            !Number.isFinite(position[1] + handleB[1])
+          )
+            throw Error('Instance on Points exceeds finite coordinates');
+          return { position, handleA, handleB };
+        }),
+      );
+    });
+  } else {
+    // Preserve the original translation-only arithmetic and emitted geometry.
+    deltas = anchors.map((position) => {
+      const delta = [position[0] - pivot[0], position[1] - pivot[1]];
+      if (!delta.every(Number.isFinite))
+        throw Error('Instance on Points exceeds finite coordinates');
+      return delta;
+    });
+    // Preflight all arithmetic before allocating any output geometry. Handles
+    // are relative vectors, so only their translated absolute positions matter.
+    for (const delta of deltas) {
+      for (const contour of source.contours) {
+        for (const point of contour.points) {
+          const x = point.position[0] + delta[0];
+          const y = point.position[1] + delta[1];
+          if (
+            !Number.isFinite(x) ||
+            !Number.isFinite(y) ||
+            !Number.isFinite(x + point.handleA[0]) ||
+            !Number.isFinite(y + point.handleA[1]) ||
+            !Number.isFinite(x + point.handleB[0]) ||
+            !Number.isFinite(y + point.handleB[1])
+          )
+            throw Error('Instance on Points exceeds finite coordinates');
+        }
       }
     }
   }
 
   const contours = [];
-  for (let instanceIndex = 0; instanceIndex < deltas.length; instanceIndex++) {
-    const delta = deltas[instanceIndex];
+  for (let instanceIndex = 0; instanceIndex < anchors.length; instanceIndex++) {
+    const delta = deltas?.[instanceIndex];
     for (let contourIndex = 0; contourIndex < source.contours.length; contourIndex++) {
       const contour = source.contours[contourIndex];
       const groupIndex = sourceGroups.get(contour.group ?? '');
@@ -154,13 +253,18 @@ export function instancePointsGeometry(source, targets, options = {}) {
         id: contourId,
         group: `${prefix}:i${instanceIndex}:g${groupIndex}`,
         closed: contour.closed,
-        points: contour.points.map((point, pointIndex) => ({
-          ...copyMetadata(point, POINT_GEOMETRY_KEYS),
-          id: `${contourId}:p${pointIndex}`,
-          position: [point.position[0] + delta[0], point.position[1] + delta[1]],
-          handleA: [...point.handleA],
-          handleB: [...point.handleB],
-        })),
+        points: contour.points.map((point, pointIndex) => {
+          const transformed = alignedPoints?.[instanceIndex]?.[contourIndex]?.[pointIndex];
+          return {
+            ...copyMetadata(point, POINT_GEOMETRY_KEYS),
+            id: `${contourId}:p${pointIndex}`,
+            position: transformed
+              ? [...transformed.position]
+              : [point.position[0] + delta[0], point.position[1] + delta[1]],
+            handleA: transformed ? [...transformed.handleA] : [...point.handleA],
+            handleB: transformed ? [...transformed.handleB] : [...point.handleB],
+          };
+        }),
       });
     }
   }

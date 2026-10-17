@@ -39,6 +39,7 @@ function scene({
     [5, 12],
   ],
   targetHandles = [],
+  alignTangent = false,
 } = {}) {
   const doc = document(),
     layer = doc.layers[0],
@@ -49,6 +50,7 @@ function scene({
     effect = node('Instance on Points'),
     fill = node('Fill'),
     output = node('Output');
+  effect.params.alignTangent.value = alignTangent;
   donut.rawPath = 'M0 0H20V20H0Z M5 5V15H15V5Z';
   extra.params.center.value = [40, 10];
   extra.params.radius.value = 5;
@@ -63,6 +65,33 @@ function scene({
   connect(layer, effect.id, fill.id, 'path');
   connect(layer, fill.id, output.id, 'path');
   return { doc, layer, donut, source, targets, effect, fill, output };
+}
+
+function orientationScene({
+  outgoing = [0, 0],
+  incoming = [0, 0],
+  target = [
+    [0, 0],
+    [0, 20],
+  ],
+} = {}) {
+  const doc = document(),
+    layer = doc.layers[0],
+    source = node('Rectangle'),
+    targets = node('Curve'),
+    effect = node('Instance on Points'),
+    output = node('Output');
+  source.params.center.value = [0, 0];
+  source.params.size.value = [20, 10];
+  addTargetPoints(targets, target);
+  targets.points[0].handleB.value = outgoing;
+  targets.points[0].handleA.value = incoming;
+  layer.nodes = [source, targets, effect, output];
+  layer.output = output.id;
+  connect(layer, source.id, effect.id, 'path');
+  connect(layer, targets.id, effect.id, 'points');
+  connect(layer, effect.id, output.id, 'path');
+  return { doc, layer, source, targets, effect, output };
 }
 
 function signedArea(contour) {
@@ -152,6 +181,78 @@ test('centers the source bounds at every target anchor, keeps handles, and creat
     'ignored target handles do not affect provenance',
   );
   assert.deepEqual(afterTargetHandleEdit.contours, path.contours);
+});
+
+test('Align Tangent defaults off and maps source +X to outgoing, reversed incoming, or neighbor-chord direction', () => {
+  const cases = [
+    {
+      outgoing: [0, 12],
+      incoming: [0, 0],
+      target: [
+        [0, 0],
+        [10, 0],
+      ],
+    },
+    {
+      outgoing: [0, 0],
+      incoming: [0, -12],
+      target: [
+        [0, 0],
+        [10, 0],
+      ],
+    },
+    {
+      outgoing: [0, 0],
+      incoming: [0, 0],
+      target: [
+        [0, 0],
+        [0, 10],
+      ],
+    },
+  ];
+
+  for (const tangentCase of cases) {
+    const f = orientationScene(tangentCase);
+    assert.equal(f.effect.params.alignTangent.value, false);
+    const source = evaluate(f.layer).run(f.source.id),
+      translationOnly = evaluate(f.layer).run(f.effect.id);
+    assert.deepEqual(
+      translationOnly.contours[0].points.map((point) => point.position),
+      source.contours[0].points.map((point) => point.position),
+      'the default retains the exact translation-only geometry when the pivot and anchor are both zero',
+    );
+
+    f.effect.params.alignTangent.value = true;
+    const aligned = evaluate(f.layer).run(f.effect.id);
+    source.contours[0].points.forEach((point, index) => {
+      const actual = aligned.contours[0].points[index].position,
+        expected = [-point.position[1], point.position[0]];
+      actual.forEach((value, axis) =>
+        assert.ok(Math.abs(value - expected[axis]) <= 1e-9, 'target +Y rotates source +X to +Y'),
+      );
+    });
+    assert.deepEqual(aligned.contours[0].points[0].handleA, [0, 0]);
+    assert.deepEqual(aligned.contours[0].points[0].handleB, [0, 0]);
+  }
+});
+
+test('old Instance on Points JSON backfills Align Tangent false and migrates its schema safely', () => {
+  const f = scene(),
+    legacy = structuredClone(f.doc);
+  legacy.schemaVersion = 12;
+  delete legacy.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent;
+
+  const reopened = deserialize(JSON.stringify(legacy)),
+    effect = reopened.layers[0].nodes.find((node) => node.id === f.effect.id);
+  assert.equal(reopened.schemaVersion, 13);
+  assert.equal(effect.params.alignTangent.type, 'Boolean');
+  assert.equal(effect.params.alignTangent.value, false);
+  assert.deepEqual(
+    evaluate(reopened.layers[0]).run(effect.id),
+    evaluate(f.layer).run(f.effect.id),
+    'legacy documents keep translation-only output after backfill',
+  );
+  assert.equal(serialize(deserialize(serialize(reopened))), serialize(reopened));
 });
 
 test('upstream source geometry changes deterministically suspend retained Path Remap edits', () => {
@@ -262,7 +363,7 @@ test('empty inputs and missing sockets follow ordinary typed wiring semantics', 
 });
 
 test('bypass skips Points evaluation; Session history and locks remain atomic', () => {
-  const f = scene();
+  const f = scene({ alignTangent: true });
   f.targets.params.closed.expression = 'not a valid expression';
   const session = new CommandSession(f.doc),
     send = (type, payload = {}) =>
@@ -275,6 +376,12 @@ test('bypass skips Points evaluation; Session history and locks remain atomic', 
   assert.deepEqual(
     evaluate(session.snapshot().layers[0]).run(f.effect.id),
     evaluate(f.layer).run(f.source.id),
+  );
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent
+      .value,
+    true,
+    'bypass preserves the enabled option without evaluating it',
   );
   send('undo');
   assert.throws(
@@ -299,10 +406,15 @@ test('bypass skips Points evaluation; Session history and locks remain atomic', 
 });
 
 test('JSON roundtrip preserves both inputs and direct Text character editing is blocked upstream', () => {
-  const f = scene(),
+  const f = scene({ alignTangent: true }),
     serialized = serialize(f.doc),
     reopened = deserialize(serialized),
     path = evaluate(reopened.layers[0]).run(f.effect.id);
+  assert.equal(reopened.schemaVersion, 13);
+  assert.equal(
+    reopened.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent.value,
+    true,
+  );
   assert.deepEqual(path, evaluate(f.layer).run(f.effect.id));
   assert.deepEqual(
     reopened.layers[0].nodes.find((n) => n.id === f.effect.id).params,
@@ -324,6 +436,65 @@ test('JSON roundtrip preserves both inputs and direct Text character editing is 
       occurrence.reason?.includes('unavailable through Instance on Points'),
     ),
   );
+});
+
+test('Align Tangent setting has transactional validation, locks, undo, redo, serialization, and a setting-sensitive fingerprint', () => {
+  const f = orientationScene({ outgoing: [12, 0] }),
+    session = new CommandSession(f.doc),
+    send = (type, payload = {}) =>
+      session.dispatch({
+        ...session.state,
+        type,
+        payload: { layerId: f.layer.id, ...payload },
+      }),
+    before = serialize(session.snapshot()),
+    translationOnly = evaluate(session.snapshot().layers[0]).run(f.effect.id);
+
+  assert.throws(
+    () => send('set-parameter', { nodeId: f.effect.id, key: 'alignTangent', value: 'yes' }),
+    /Expected Boolean/,
+  );
+  assert.equal(serialize(session.snapshot()), before, 'invalid values do not commit');
+
+  send('set-parameter-lock', { nodeId: f.effect.id, key: 'alignTangent', locked: true });
+  const locked = serialize(session.snapshot());
+  assert.throws(
+    () => send('set-parameter', { nodeId: f.effect.id, key: 'alignTangent', value: true }),
+    /locked/,
+  );
+  assert.equal(serialize(session.snapshot()), locked, 'locked edits do not commit');
+  send('undo');
+
+  send('set-parameter', { nodeId: f.effect.id, key: 'alignTangent', value: true });
+  const aligned = evaluate(session.snapshot().layers[0]).run(f.effect.id),
+    saved = serialize(session.snapshot());
+  assert.deepEqual(
+    aligned.contours[0].points.map((point) => point.position),
+    translationOnly.contours[0].points.map((point) => point.position),
+    'a +X target tangent leaves geometry coordinates unchanged',
+  );
+  assert.notEqual(aligned.fingerprint, translationOnly.fingerprint);
+  assert.equal(
+    deserialize(saved).layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent
+      .value,
+    true,
+  );
+  send('undo');
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent
+      .value,
+    false,
+  );
+  send('redo');
+  assert.equal(serialize(session.snapshot()), saved);
+});
+
+test('invalid serialized Align Tangent values are rejected', () => {
+  const f = scene(),
+    invalid = structuredClone(f.doc);
+  invalid.schemaVersion = 13;
+  invalid.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent.value = 1;
+  assert.throws(() => deserialize(JSON.stringify(invalid)), /Expected Boolean/);
 });
 
 test('target and materialized geometry caps reject before commit and roll back the failed command', () => {
