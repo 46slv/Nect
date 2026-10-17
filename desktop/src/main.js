@@ -204,6 +204,7 @@ import { artworkGapDistributions } from './artwork-gap-distribution.js';
 import { resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
+  snapGraphNodes,
   fitScale,
   unionBounds,
   anchoredPan,
@@ -1674,7 +1675,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option>${x}</option>`)
     .join(
       '',
-    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-layer" title="Add the starter Boolean demo as an independent composition">+ Demo composition</button><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -3665,7 +3666,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>New creates a blank document; + Blank composition appends an empty vector Output. + Demo composition keeps the explicit starter Boolean example, which also remains the launch-time example. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -5110,9 +5111,12 @@ function updateCanvasGesture(target, update) {
 function moveGraphNodes() {
   if (drag?.type !== 'node' || current().locked) return;
   const point = graphPoint(...drag.pointer);
-  // Clamp the group as a unit, preserving relative spacing at the origin.
-  const delta = point.map((v, i) =>
-    Math.max(v - drag.startWorld[i], -Math.min(...drag.originals.map((o) => o.position[i]))),
+  const { delta, guides } = snapGraphNodes(
+    drag.boxes.filter((box) => drag.originals.some((node) => node.id === box.id)),
+    drag.boxes,
+    point.map((value, axis) => value - drag.startWorld[axis]),
+    graphZoom,
+    drag.snapBypass,
   );
   const preview = updateGraphGesture({ delta });
   if (!preview) return;
@@ -5124,6 +5128,15 @@ function moveGraphNodes() {
   }
   updateGraphBounds();
   drawWires();
+  const overlay = document.querySelector('.graph-snap-guides');
+  overlay.innerHTML = guides
+    .map((guide) => {
+      const { axis, coordinate, start, end } = guide;
+      return axis === 0
+        ? `<line x1="${coordinate}" y1="${start - 12 / graphZoom}" x2="${coordinate}" y2="${end + 12 / graphZoom}"/>`
+        : `<line x1="${start - 12 / graphZoom}" y1="${coordinate}" x2="${end + 12 / graphZoom}" y2="${coordinate}"/>`;
+    })
+    .join('');
 }
 function edgeVelocity(value, low, high) {
   const band = Math.min(64, (high - low) / 3);
@@ -5572,6 +5585,17 @@ app.addEventListener('pointerdown', (e) => {
     if (!gesture) return;
     drag = {
       type: 'node',
+      snapBypass: e.ctrlKey || e.metaKey,
+      boxes: current().nodes.map((node) => {
+        const el = document.querySelector(`.node[data-id="${node.id}"]`);
+        return {
+          id: node.id,
+          x: node.position[0],
+          y: node.position[1],
+          width: el.offsetWidth || node.width || 264,
+          height: el.offsetHeight || 260,
+        };
+      }),
       nameTarget: e.target.closest('[data-rename-node]') ? id : null,
       started: false,
       pointer: [e.clientX, e.clientY],
@@ -6420,6 +6444,7 @@ function movePointer(e) {
       graphFrame = requestAnimationFrame(graphAutoPan);
     }
     drag.pointer = [e.clientX, e.clientY];
+    drag.snapBypass = e.ctrlKey || e.metaKey;
     moveGraphNodes();
     return;
   }
@@ -6694,6 +6719,12 @@ document.addEventListener('keydown', (e) => {
   else if (graph) zoomGraph(actual ? 1 : graphZoom * (['+', '='].includes(e.key) ? 1.2 : 1 / 1.2));
   else zoomCanvas(actual ? 1 : zoom * (['+', '='].includes(e.key) ? 1.2 : 1 / 1.2));
 });
+for (const type of ['keydown', 'keyup'])
+  document.addEventListener(type, (e) => {
+    if (drag?.type !== 'node' || !['Control', 'Meta'].includes(e.key)) return;
+    drag.snapBypass = e.ctrlKey || e.metaKey;
+    if (drag.started) moveGraphNodes();
+  });
 document.addEventListener('keydown', (e) => {
   if (e.target.matches?.('[data-rename-name]')) {
     if (e.isComposing || e.keyCode === 229 || nameEdit?.composing) return;

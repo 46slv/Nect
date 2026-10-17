@@ -1623,6 +1623,33 @@ input[data-scrub-step].scrubbing {
   white-space: nowrap;
 }
 
-.point-hit { fill: transparent; stroke: none; pointer-events: all; cursor: move; }
-.point-marker { pointer-events: none; vector-effect: non-scaling-stroke; }
-.vertex.active { fill: #527fa6; stroke: white; }
+.point-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: move;
+}
+.point-marker {
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+.vertex.active {
+  fill: #527fa6;
+  stroke: white;
+}
+
+.graph-snap-guides {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 3;
+  overflow: visible;
+}
+.graph-snap-guides line {
+  stroke: #168cbd;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}

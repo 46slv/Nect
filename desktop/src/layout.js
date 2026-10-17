@@ -52,3 +52,60 @@ export function wheelPixels(event, viewport) {
   const delta = [event.deltaX * unit[0], event.deltaY * unit[1]];
   return event.shiftKey && !delta[0] ? [delta[1], 0] : delta;
 }
+
+// Graph-only attraction. One group correction per axis, in graph coordinates;
+// the tolerance is in screen CSS pixels. Stable IDs break equal-distance ties.
+export function snapGraphNodes(moving, targets, delta, zoom, bypass = false, threshold = 6) {
+  if (!moving.length) return { delta: [...delta], guides: [] };
+  const axes = ['x', 'y'],
+    sizes = ['width', 'height'];
+  const ids = new Set(moving.map((box) => box.id));
+  const ordered = (boxes) => [...boxes].sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  // Clamp before searching, then reject candidates that would cross the origin.
+  const lowerBounds = axes.map((key) => -Math.min(...moving.map((box) => box[key])));
+  const result = delta.map((value, axis) => Math.max(value, lowerBounds[axis]));
+  const sources = ordered(moving),
+    candidates = ordered(targets.filter((box) => !ids.has(box.id)));
+  const matches = [];
+  if (!bypass && Number.isFinite(zoom) && zoom > 0) {
+    for (let axis = 0; axis < 2; axis++) {
+      const key = axes[axis],
+        size = sizes[axis];
+      let best = null;
+      for (const source of sources) {
+        for (const target of candidates) {
+          for (const a of [0, 0.5, 1])
+            for (const b of [0, 0.5, 1]) {
+              const coordinate = target[key] + target[size] * b;
+              const correction = coordinate - (source[key] + source[size] * a + result[axis]);
+              if (
+                Math.abs(correction) * zoom > threshold ||
+                result[axis] + correction < lowerBounds[axis]
+              )
+                continue;
+              if (!best || Math.abs(correction) < Math.abs(best.correction))
+                best = { axis, coordinate, correction, source, target };
+            }
+        }
+      }
+      if (best) {
+        result[axis] += best.correction;
+        matches.push(best);
+      }
+    }
+  }
+  return {
+    delta: result,
+    guides: matches.map(({ axis, coordinate, source, target }) => {
+      const cross = 1 - axis,
+        key = axes[cross],
+        size = sizes[cross];
+      return {
+        axis,
+        coordinate,
+        start: Math.min(source[key] + result[cross], target[key]),
+        end: Math.max(source[key] + result[cross] + source[size], target[key] + target[size]),
+      };
+    }),
+  };
+}

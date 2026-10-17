@@ -40,3 +40,30 @@ Inputs, textareas, selects, contenteditable descendants, floating character cont
 Pure geometry and synthetic DOM tests cover fit bounds/limits, anchor equations, wheel normalization, scoped shortcuts, exempt controls, composition, busy navigation, unchanged document/history/SVG, drafts and sidebar/focus restoration. `tests/view-navigation.e2e.js` adds real Chrome checks for actual CTM percentage/100%, cursor/center anchors, independent views, fit card height, resize, both 1280×800 and 1600×1000 layouts, real wheel gestures, sidebar editing continuity, busy scrub scroll and sub-1% zoom direction. Existing navigation/editing regression suites remain part of the full Chrome command.
 
 Local Chromium cannot launch because its socket operation is restricted. New Chrome checks and screenshots must be verified on the exact Windows CI commit before a browser pass is claimed. Native WebView2, physical high-DPI devices, trackpad pinch and real Japanese IME are separate unverified checks; synthetic composition events are not native IME evidence.
+
+## Graph node alignment snapping
+
+Dragging graph card headers attracts their left/center/right and top/center/bottom
+anchors to other cards within **6 CSS screen pixels**, at any graph zoom. The
+nearest valid match wins independently per axis; stable node IDs break ties.
+Current measured card dimensions include expanded controls and custom widths.
+Selected cards move as one group, retain their relative spacing, and never snap
+to each other. The group cannot cross the graph's top/left origin.
+
+Dashed blue guides show only the alignment actually applied. Hold **Ctrl/Cmd**
+during a node drag to bypass snapping, including without moving the pointer;
+release to restore attraction. Ctrl/Cmd+Shift at pointer-down still pans, Shift
+click still selects, and Alt behavior is unchanged. This is graph-card layout,
+not artwork snapping or automatic graph arrangement. Locked compositions remain
+read-only; parameter locks continue to protect parameter values, not card layout.
+
+Autoscroll recomputes snapping from the current world pointer. Pointer-up commits
+one ordinary graph-translate gesture; Undo/Redo includes the snapped position.
+Escape and pointer cancellation discard the preview and guides. Guides are only
+DOM feedback and are never saved/exported as document metadata.
+
+Focused coverage: `tests/graph-node-snap.test.js` and
+`tests/graph-node-snap-dom.test.js`, using synthetic DOM events, explicit zoom
+and scroll geometry, the starter graph and shipped `examples/boolean-remap.json`.
+These checks are source-bound behavior evidence, not native pointer or rendered
+browser visual acceptance; real WebView2 guide appearance remains unverified.
