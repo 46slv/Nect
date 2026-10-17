@@ -5,6 +5,7 @@ edition = "2021"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 tauri = { version = "=2.9.0", features = [] }
 rfd = { version = "0.15", features = ["common-controls-v6"] }
 tempfile = "3"

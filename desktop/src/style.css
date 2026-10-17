@@ -1653,3 +1653,19 @@ input[data-scrub-step].scrubbing {
   stroke-dasharray: 4 3;
   vector-effect: non-scaling-stroke;
 }
+
+.picker-font-filters {
+  flex-wrap: wrap;
+}
+.picker-font-filters label {
+  flex: 1;
+  min-width: 0;
+}
+.picker-font-filters select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+.search-panel > .font-note {
+  padding: 0 12px;
+}

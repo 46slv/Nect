@@ -13,6 +13,7 @@ function openSearchPanel({
   onCancel,
   isFavorite,
   toggleFavorite,
+  fontFilters = false,
 }) {
   const previousFocus = document.activeElement;
   const dialog = document.createElement('dialog');
@@ -28,7 +29,7 @@ function openSearchPanel({
     favorites = dialog.querySelector('.picker-favorites');
   const listId = `picker-${Math.random().toString(36).slice(2)}`;
   list.id = listId;
-  list.setAttribute('aria-label', title);
+  list.setAttribute('aria-label', fontFilters ? 'Available font faces and styles' : title);
   input.setAttribute('aria-label', `${title} search`);
   input.setAttribute('role', 'combobox');
   input.setAttribute('aria-controls', listId);
@@ -44,6 +45,70 @@ function openSearchPanel({
     composing = false,
     favoriteOnly = false,
     lastNotified;
+  let familyFilter = '',
+    weightFilter = '';
+  let familySelect, weightSelect;
+  if (fontFilters) {
+    const filters = document.createElement('div');
+    filters.className = 'picker-search picker-font-filters';
+    function select(label) {
+      const wrapper = document.createElement('label');
+      wrapper.textContent = label + ' ';
+      const control = document.createElement('select');
+      control.setAttribute('aria-label', label);
+      wrapper.append(control);
+      filters.append(wrapper);
+      return control;
+    }
+    function option(control, value, label) {
+      const entry = document.createElement('option');
+      entry.value = value;
+      entry.textContent = label;
+      control.append(entry);
+    }
+    familySelect = select('Font family');
+    weightSelect = select('Available weight');
+    option(familySelect, '', 'All families / flat list');
+    for (const family of [
+      ...new Set(items.map((item) => item.metadata?.family).filter(Boolean)),
+    ].sort())
+      option(familySelect, `family:${family}`, family);
+    option(familySelect, '__unknown__', 'Unknown family / legacy faces');
+    function weights() {
+      weightSelect.replaceChildren();
+      option(weightSelect, '', 'All available weights');
+      const faces = items.filter(
+        (item) =>
+          !familyFilter ||
+          (familyFilter === '__unknown__'
+            ? !item.metadata?.family
+            : `family:${item.metadata?.family}` === familyFilter),
+      );
+      for (const weight of [
+        ...new Set(faces.map((item) => item.metadata?.weightClass).filter((w) => w != null)),
+      ].sort((a, b) => a - b))
+        option(weightSelect, String(weight), String(weight));
+      if (faces.some((item) => item.metadata?.weightClass == null))
+        option(weightSelect, '__unknown__', 'Unknown weight');
+      weightFilter = '';
+    }
+    familySelect.onchange = () => {
+      familyFilter = familySelect.value;
+      weights();
+      refresh();
+    };
+    weightSelect.onchange = () => {
+      weightFilter = weightSelect.value;
+      refresh();
+    };
+    weights();
+    dialog.querySelector('.picker-search').after(filters);
+    const note = document.createElement('p');
+    note.className = 'font-note';
+    note.textContent =
+      'Choose a real face/style below. Unknown metadata stays unknown; no synthetic bold or italic.';
+    filters.after(note);
+  }
   const active = () => rows.find((item) => item.id === activeId && !item.disabled);
   function highlight() {
     for (const row of list.children)
@@ -65,6 +130,14 @@ function openSearchPanel({
     rows = items.filter(
       (item) =>
         (!favoriteOnly || isFavorite(item)) &&
+        (!familyFilter ||
+          (familyFilter === '__unknown__'
+            ? !item.metadata?.family
+            : `family:${item.metadata?.family}` === familyFilter)) &&
+        (!weightFilter ||
+          (weightFilter === '__unknown__'
+            ? item.metadata?.weightClass == null
+            : String(item.metadata?.weightClass) === weightFilter)) &&
         words.every((word) =>
           `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
         ),
@@ -166,7 +239,7 @@ function openSearchPanel({
     if (event.key === 'Escape') {
       event.preventDefault();
       panel.close(true);
-    } else if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+    } else if (['ArrowDown', 'ArrowUp'].includes(event.key) && event.target.tagName !== 'SELECT') {
       event.preventDefault();
       const enabled = rows.filter((item) => !item.disabled);
       if (!enabled.length) return;
@@ -2829,22 +2902,52 @@ function openFontPicker(control, query = '') {
   }
   const items = [
     ...(context ? [{ id: '', label: 'Inherit default font', key: 'inherit' }] : []),
-    { id: 'default', label: 'DejaVu Sans (Latin)', key: 'default' },
+    {
+      id: 'default',
+      label: 'DejaVu Sans (Latin)',
+      key: 'default',
+      metadata: bundledFont?.nectMetadata,
+    },
     ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
       id,
       label: asset.name,
-      key: `font:${asset.name}`,
+      key: `asset:${id}`,
+      legacyKey: `font:${asset.name}`,
+      metadata: fonts[id]?.nectMetadata,
     })),
-    ...systemFonts.map(([id, name, reason]) => ({
+    ...systemFonts.map(([id, name, reason, metadata]) => ({
       id,
       label: name,
-      key: `font:${name}`,
+      key: `installed:${id}`,
+      legacyKey: `font:${name}`,
+      metadata,
       detail: reason,
       disabled: !!reason,
       installed: true,
     })),
   ];
+  // Names describe a face; only its opaque ID chooses the bytes. Keep duplicate
+  // names as separate rows, including separate favorite controls.
+  for (const item of items) {
+    if (item.id === '') continue;
+    const m = item.metadata;
+    const style = m?.subfamily || 'Unknown style';
+    const weight = m?.weightClass == null ? 'weight unknown' : `weight ${m.weightClass}`;
+    const family = m?.family || 'Unknown family';
+    item.detail = `${family} · ${style} · ${weight}${item.detail ? ` · ${item.detail}` : ''}`;
+  }
+  const duplicateNames = new Set(
+    items
+      .filter((item, i) => items.findIndex((other) => other.label === item.label) !== i)
+      .map((item) => item.label),
+  );
+  for (const item of items) if (duplicateNames.has(item.label)) item.detail += ` · face ${item.id}`;
   const favorites = fontFavorites();
+  // Migrate name-based favorites to the currently visible IDs without merging
+  // same-name faces when the user subsequently toggles one of them.
+  for (const item of items)
+    if (item.legacyKey && favorites.has(item.legacyKey)) favorites.add(item.key);
+  for (const item of items) if (item.legacyKey) favorites.delete(item.legacyKey);
   let picker,
     request = 0,
     pending = Promise.resolve(),
@@ -2876,6 +2979,7 @@ function openFontPicker(control, query = '') {
   }
   picker = editorPicker = openSearchPanel({
     title: 'Font',
+    fontFilters: true,
     action: 'Apply font',
     items,
     query,

@@ -82,8 +82,49 @@ export async function registerClose(handler) {
   await invoke('enable_close_guard', { channel });
 }
 
+// The first three tuple positions remain the legacy flat catalog API. Metadata
+// is optional display information, never an ID, read path, or font validator.
+export function normalizeSystemFontEntry(entry) {
+  const [id, name, reason, source] = entry;
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return [id, name, reason];
+  const text = (value) => {
+    if (
+      typeof value !== 'string' ||
+      value.length > 256 ||
+      /[\u0000-\u001f\u007f-\u009f]/u.test(value)
+    )
+      return null;
+    return value.trim() || null;
+  };
+  const integer = (value, max) =>
+    Number.isInteger(value) && value >= 1 && value <= max ? value : null;
+  const flag = (value) => (typeof value === 'boolean' ? value : null);
+  return [
+    id,
+    name,
+    reason,
+    Object.freeze({
+      family: text(source.family),
+      subfamily: text(source.subfamily),
+      fullName: text(source.fullName),
+      postScriptName: text(source.postScriptName),
+      weightClass: integer(source.weightClass, 1000),
+      widthClass: integer(source.widthClass, 9),
+      fsSelection:
+        Number.isInteger(source.fsSelection) &&
+        source.fsSelection >= 0 &&
+        source.fsSelection <= 65535
+          ? source.fsSelection
+          : null,
+      italic: flag(source.italic),
+      bold: flag(source.bold),
+      regular: flag(source.regular),
+      oblique: flag(source.oblique),
+    }),
+  ];
+}
 export async function listSystemFonts() {
-  return desktop ? invoke('list_system_fonts') : [];
+  return desktop ? (await invoke('list_system_fonts')).map(normalizeSystemFontEntry) : [];
 }
 export async function readSystemFont(id) {
   if (!desktop) throw Error('Installed fonts require the Windows desktop app');

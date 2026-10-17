@@ -2179,6 +2179,7 @@ name = "nect-svg-desktop"
 version = "0.1.0"
 dependencies = [
  "rfd",
+ "serde",
  "tauri",
  "tauri-build",
  "tempfile",
