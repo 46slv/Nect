@@ -16,6 +16,7 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Expand Stroke  | Existing upstream Stroke width/cap/join                              | Solid straight-edge stroke → closed outline geometry; add Fill after; no type-preserving bypass               |
 | Simplify Path  | Tolerance in px                                                      | Straight-edge RDP reduction; fixed endpoints and valid-ring fallback; not topology repair                     |
 | Dash Path      | Dash Length; Gap Length; Pattern Offset in px                        | Actual cubic dash geometry; positive dash length; closed-seam fragments rejoined                              |
+| Reverse Path   | None                                                                 | Reverses contour direction exactly; swaps Bézier handles and retains each closed contour's first anchor seam |
 | Pucker & Bloat | Amount −100..100%; Automatic Center or manual Center                 | Opposite anchor/control scaling; automatic center uses all anchor bounds; no Illustrator numeric parity claim |
 | Wave Points    | Vertical / Horizontal; Amplitude ±100000 px; Wavelength 0.0001–100000 px; Phase ±360°; Keep Endpoints | Static sine displacement of existing anchors only; optional open-end pinning; relative Bézier handles unchanged; coordinate/wavelength ratio limited to ±1e12 |
 
@@ -34,6 +35,7 @@ Direct canvas text-character editing through these effects is unavailable; edit 
 - Curve → Subdivide Path → Remap → Fill for denser, editable anchors without changing the curve.
 - Curve → Resample Path → Stroke → Expand Stroke → Boolean → Fill
 - Curve → Dash Path → Stroke for actual separated path pieces.
+- Curve → Reverse Path → Trim Path / Dash Path to change direction-sensitive start and pattern order.
 - Imported polyline or Resample Path → Simplify Path for point reduction.
 - Rectangle/Star → Pucker & Bloat → Fill for pointed or petal-like shapes.
 - Line/Curve → Resample Path → Wave Points → Stroke for a static sine-like outline.
@@ -41,6 +43,6 @@ Direct canvas text-character editing through these effects is unavailable; edit 
   available; these additions do not replace them.
 
 Open `examples/modifier-playground.json` in this development build for editable examples. It has
-26 evaluated editable layers and examples for all 12 modifiers. Rebuild with
+26 evaluated editable layers and examples for 12 of the 13 listed modifiers. Rebuild with
 `node scripts/modifier-playground.js`; it validates all layers and exports SVG. Detailed evidence,
 research sources and limitations: [editing refinement](editing-refinement.md).

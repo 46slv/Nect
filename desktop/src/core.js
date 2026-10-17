@@ -7,6 +7,7 @@ import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
+import { reversePathGeometry } from './reverse-path-geometry.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
 export { scrubNumericValues } from './numeric-scrub.js';
 export { textEditGeometry, nearestTextCaret } from './canvas-text-edit.js';
@@ -184,6 +185,7 @@ export const definitions = {
     start: p('Scalar', 0),
     end: p('Scalar', 1),
   },
+  'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
     amplitude: p('Scalar', 20),
@@ -512,6 +514,7 @@ const bypassInputs = Object.freeze({
   'Resample Path': 'path',
   Roughen: 'path',
   'Smooth Path': 'path',
+  'Reverse Path': 'path',
   'Trim Path': 'path',
   'Subdivide Path': 'path',
   'Pucker & Bloat': 'path',
@@ -1883,6 +1886,17 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Reverse Path') {
+        const source = read('path');
+        result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Reverse Path; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Wave Points') {
         const source = read('path');
         result = waveGeometry(source, {
@@ -2484,6 +2498,7 @@ export function assertClosedOffsetChange(
     'Roughen',
     'Smooth Path',
     'Trim Path',
+    'Reverse Path',
     'Subdivide Path',
     'Expand Stroke',
     'Simplify Path',

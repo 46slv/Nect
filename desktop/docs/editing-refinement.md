@@ -354,5 +354,24 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
   validates each serialized/reopened layer and writes the SVG export. This is not a native GUI
   acceptance claim.
 
-The current catalog and concrete example include 12 modifiers. Continue with useful researched
-slices rather than duplicating existing nodes. Native trial packaging remains a separate dependency.
+### Reverse Path
+
+- Path → Path modifier inspired by [Blender Reverse Curve](https://docs.blender.org/manual/en/5.4/modeling/geometry_nodes/curve/operations/reverse_curve.html).
+  It has one Path input and no numeric controls. Open contours reverse point order; closed contours
+  retain their original first anchor as the seam and reverse the remaining points. Swapping each
+  point's relative Bézier handles preserves the exact cubic segments and closed silhouette while
+  reversing traversal direction; contour groups and metadata remain intact.
+- Preflight bounds are 10,000 contours and 100,000 points. Generated contour / point IDs are
+  deterministic from the node and output order. The output carries an unstable fingerprint so
+  downstream Path Remap edits suspend when the reversed geometry changes. Canvas character edits
+  through Reverse Path are disabled; edit the upstream Text source. Standard Path bypass, Session
+  history, input locks and JSON/SVG export apply.
+- Reverse Path → Trim Path changes which half a 0–0.5 selection follows. Reverse Path before
+  Dash Path similarly changes the pattern's traversal order; closed paths retain their existing
+  seam anchor.
+- Focused evidence: helper + Reverse Path core/DOM checks pass 11/11; the Web build passes with
+  the existing large-chunk warning. No native GUI or full-suite claim.
+
+The current catalog lists 13 modifiers; the editable playground still has examples for 12.
+Continue with useful researched slices rather than duplicating existing nodes. Native trial
+packaging remains a separate dependency.
