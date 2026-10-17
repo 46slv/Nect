@@ -25,6 +25,7 @@ new node names. Native Windows interaction and a replacement trial package remai
 | Taper              | Amount −50..50%; Horizontal / Vertical axis                                                           | Whole-input control bounds; scales the perpendicular dimension; nonlinear curve interior is approximate                                                                                                                                                                                                                              |
 | Bend Points        | Angle −180°..180°; Horizontal / Vertical axis                                                         | Bends all contours into a circular strip around the shared control-bounds midpoint; folds are rejected; nonlinear curve interior is approximate                                                                                                                                                                                      |
 | Twist Points       | Angle −360°..360°                                                                                     | Center-weighted radial angular warp in one shared whole-input bounds frame; positive is clockwise in screen coordinates; nonlinear curve interior is approximate                                                                                                                                                                     |
+| Auto Handles | Strength0–1 | Preserves anchors; generates symmetric one-third-shorter-chord tangents;0 makes straight edges |
 
 All new numeric fields use the common drag/type interaction. Bypass is available for the
 Path→Path effects. Common Session commands provide Undo/Redo and locks, and invalid edits
@@ -64,3 +65,6 @@ Open `examples/modifier-playground.json` in this development build for editable 
 research sources and limitations: [editing refinement](editing-refinement.md).
 
 For Count versus Maximum spacing, open [the two-layer density example](../examples/resample-spacing.json) in a schema-v12-capable build. Select each downstream Path Remap to inspect anchors: Count6 yields6/6 samples on120/240px contours; Maximum spacing24px yields6/11. Rebuild with `node scripts/resample-spacing-example.js`. Old Count documents load in this build; old binaries are not promised to read the new format.
+
+- Path → Auto Handles → Stroke preserves anchor positions while generating smooth tangent handles. Strength0 clears handles; bypass restores the source.
+- For the reverse direction, [the angularization example](../examples/angularize.json) compares the same curve with24/8/4 Resample points; source geometry remains editable. Rebuild with `node scripts/angularize-example.js`.

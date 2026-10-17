@@ -56,6 +56,7 @@ function fixture(type, painted = false) {
   return { doc, l, source, effect, fill, out };
 }
 const supported = [
+  'Auto Handles',
   'Mirror',
   'Corner Round',
   'Resample Path',

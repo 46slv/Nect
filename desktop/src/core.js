@@ -1,3 +1,4 @@
+import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
 import { twistGeometry } from './twist-geometry.js';
@@ -198,6 +199,7 @@ export const definitions = {
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
+  'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
     path: p('Path', null),
@@ -544,6 +546,7 @@ const bypassInputs = Object.freeze({
   Taper: 'path',
   'Bend Points': 'path',
   'Twist Points': 'path',
+  'Auto Handles': 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
   'Dash Path': 'path',
@@ -2188,6 +2191,20 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Auto Handles') {
+        const source = read('path');
+        result = autoHandlesGeometry(source, {
+          strength: read('strength'),
+          prefix: fingerprint(n.id),
+        });
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Auto Handles; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Twist Points') {
         const source = read('path');
         result = twistGeometry(source, {
@@ -2841,6 +2858,7 @@ export function assertClosedOffsetChange(
     'Taper',
     'Bend Points',
     'Twist Points',
+    'Auto Handles',
   ]);
   const boundedInputs = (n) =>
     n.type === 'Boolean' ? ['a', 'b'].map((key) => n.params[key]?.source) : [n.params.path?.source];
@@ -3225,6 +3243,8 @@ export function validate(doc) {
           n.params.angle.value > 360)
       )
         throw Error('Twist Points angle must be finite and from -360 to 360 degrees');
+      if (n.type === 'Auto Handles' && (n.params.strength.value < 0 || n.params.strength.value > 1))
+        throw Error('Auto Handles strength must be from 0 to 1');
       if (n.type === 'Set Path Start' && (n.params.start.value < 0 || n.params.start.value > 1))
         throw Error('Set Path Start start must be from 0 to 1');
       if (n.type === 'Stroke' && (n.params.width.value < 0 || n.params.width.value > 100000))
