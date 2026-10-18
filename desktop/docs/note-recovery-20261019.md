@@ -26,6 +26,9 @@ was required for those failures.
 Independent branch `codex/note-recovery-integration-20261019` starts at
 `2f57db3ed469080c272e43b67546b1360ce26353`, the shared Draft PR27 source.
 The original worktrees remain separate. Nothing was merged to main or PR27.
+Source checkpoint `e14c1c0257745330025f4215d4dcb64ba4f3a399` was pushed and
+remote-verified. [Draft PR28](https://github.com/46slv/Nect/pull/28) targets
+`codex/nect-node-picker-search`; subsequent checkpoint edits are documentation only.
 The new-PC local `f54505a` was neither fetched nor imported as a dependency.
 
 The `core.js` import conflict retains both `moveArtworkLayerBefore` and
