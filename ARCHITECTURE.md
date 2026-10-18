@@ -215,3 +215,12 @@ commit atomically. Layout advances and visible-bound anchoring keep their existi
 coordinate meanings. Horizontal layout height grows independently of artboard
 size; PNG retains normal artboard clipping. Full Japanese kinsoku and vertical
 wrap are not claimed. Old unwrapped native requests/snapshots retain v1/v2 meanings.
+
+
+Direct selection is a view-only resolver of a unique editable Output route. It
+composes literal Transform matrices for displayed controls and maps pointer/world
+nudge deltas back into source coordinates. Generated and branching paths are not
+silently baked or assigned new ownership. Common translate-points uses the same
+Curve/Multi Path/explicit Remap gesture validator, and independent handle drags
+commit corner mode plus one handle in the same transaction. UI point selection
+may be restored by stable ID on Undo, independently of saved authoring data.

@@ -1,3 +1,4 @@
+import { directSelectionSource } from './direct-selection.js';
 import { osTextIntent } from './os-font-outline.js';
 import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
@@ -809,6 +810,8 @@ function selectionSnapshot(withEditSelection = false) {
           characterEdit: characterEdit ? structuredClone(characterEdit) : null,
           selectedGuide,
           remapBatches: structuredClone(remapBatches),
+          pointSelection: structuredClone(pointSelection),
+          pointFocus: pointFocus ? { ...pointFocus } : null,
         }
       : {}),
   };
@@ -845,6 +848,24 @@ function stepHistory(redo = false) {
     characterEdit = state.characterEdit ? structuredClone(state.characterEdit) : null;
     if (state.restoreEditSelection) {
       selectedGuide = state.selectedGuide;
+      const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
+      let ids = new Set(owner?.points?.map((p) => p.id) || []);
+      if (owner?.type === 'Path Remap')
+        try {
+          ids = new Set(
+            evaluate(current(), resolveFonts(history.doc, activeFonts()), history.doc.imageAssets)
+              .run(owner.id)
+              .contours.flatMap((c) => c.points.map((p) => p.id)),
+          );
+        } catch {
+          ids.clear();
+        }
+      pointSelection = {
+        nodeId: owner?.id || null,
+        ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
+      };
+      pointFocus =
+        state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
       for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
     }
   }
@@ -1075,6 +1096,11 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     else void preparedChange(type, payload, text, envelope);
     return null;
   }
+  const beforeDocument = history.doc,
+    oldPast = history.past.at(-1),
+    pointUI = ['translate-points', 'delete-point', 'set-point-mode'].includes(type)
+      ? selectionSnapshot(true)
+      : null;
   let result = null;
   try {
     result = session.dispatch({
@@ -1082,6 +1108,10 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
       type,
       payload: { layerId: current().id, ...payload },
     });
+    if (pointUI && history.doc !== beforeDocument && history.past.at(-1) !== oldPast) {
+      selectionHistory.set(history.past.at(-1), pointUI);
+      selectionHistory.set(history.doc, selectionSnapshot(true));
+    }
     notify(text || 'Updated');
   } catch (error) {
     notify(error.message, true);
@@ -2368,6 +2398,7 @@ function render(resetView = false, artworkResolution = null) {
     pathBounds,
   );
   app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+    ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
     ['Circle', '○', 'Add Circle'],
@@ -3115,6 +3146,13 @@ function transformOverlay(n, result) {
     .join('')}</g>`;
 }
 
+function directPointContext(n, doc = displayDocument()) {
+  if (tool !== 'direct' || !n) return null;
+  return directSelectionSource(doc, current().id, {
+    sourceId: n.id,
+    fonts: resolveFonts(doc, activeFonts()),
+  });
+}
 function canvasOverlay(n, result) {
   if (canvasTextEdit) return canvasTextOverlay(result);
   if (characterEdit) return characterOverlay(result);
@@ -3138,7 +3176,9 @@ function canvasOverlay(n, result) {
   if (!n || !layerShown(current()) || n.bypassed) return '';
   let path;
   try {
-    path = result.run(n.id);
+    const direct = directPointContext(n);
+    if (direct && !direct.supported) return '';
+    path = direct?.path || result.run(n.id);
   } catch {
     return '';
   }
@@ -3162,8 +3202,10 @@ function canvasOverlay(n, result) {
     );
   if (outputType(n) !== 'Path') return '';
   let out =
-    `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
-    nodeStageMoveMarker(n, path);
+    tool === 'direct'
+      ? `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>`
+      : `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
+        nodeStageMoveMarker(n, path);
   const insertionPreview =
     drag?.type === 'path-insert'
       ? !drag.cancelled && drag.payload.nodeId === n.id
@@ -5072,6 +5114,21 @@ app.addEventListener('click', async (e) => {
         'Click a selected source path segment to add a point; click blank canvas for a new path. Alt-click an anchor for handles.',
       );
       render();
+    } else if (tool === 'direct') {
+      artworkTarget = null;
+      artworkSelection = new Set();
+      const route = directSelectionSource(history.doc, current().id, {
+        fonts: resolveFonts(history.doc, activeFonts()),
+      });
+      if (route.supported) {
+        selected = route.nodeId;
+        selection = new Set([selected]);
+        if (pointSelection.nodeId !== selected)
+          pointSelection = { nodeId: selected, ids: new Set() };
+      }
+      notify(route.supported ? 'Select anchors; Shift-click adds or removes points' : route.reason);
+      render();
+      document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
     } else if (tool !== 'select') {
       createArtwork(tool);
       tool = 'select';
@@ -7759,6 +7816,55 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (!stage || wiring) return;
+  if (tool === 'direct' && e.button === 0 && !e.target.closest('[data-point]')) {
+    const doc = displayDocument(),
+      point = canvasPoint(e),
+      hitLayer = e.target.closest('[data-layer]')?.dataset.layer;
+    const layers = doc.layers
+      .filter((l) => l.visible && !l.guide && (!hitLayer || l.id === hitLayer))
+      .reverse();
+    let picked = null,
+      reason = 'Select an editable path';
+    for (const layer of layers) {
+      const route = directSelectionSource(doc, layer.id, {
+        fonts: resolveFonts(doc, activeFonts()),
+      });
+      if (!route.supported) {
+        reason = route.reason;
+        continue;
+      }
+      const focused = pointSelection.nodeId === route.nodeId ? [...pointSelection.ids] : [];
+      const hit = hitPointControl(route.path, point, canvasScale(), focused),
+        segment = !hit && hitPathSegment(route.path, point, canvasScale());
+      if (hit?.ambiguous || segment?.ambiguous) {
+        notify('Overlapping points or segments: select the source in the graph', true);
+        e.preventDefault();
+        return;
+      }
+      if (hit || segment || hitLayer) {
+        picked = { ...route, layer };
+        break;
+      }
+    }
+    if (!picked) {
+      pointSelection = { nodeId: null, ids: new Set() };
+      pointFocus = null;
+      notify(reason, true);
+      updateCanvas(true);
+      e.preventDefault();
+      return;
+    }
+    activeLayer = picked.layerId;
+    selected = picked.nodeId;
+    selection = new Set([selected]);
+    artworkTarget = null;
+    artworkSelection = new Set();
+    if (pointSelection.nodeId !== selected) pointSelection = { nodeId: selected, ids: new Set() };
+    updateCanvas(true);
+    queueMicrotask(() => {
+      if (!drag) render();
+    });
+  }
   if (tool === 'select' && !control && e.button === 0 && !e.shiftKey) {
     const layerId =
       e.target.closest('[data-node-stage-layer]')?.dataset.nodeStageLayer ||
@@ -8135,6 +8241,11 @@ app.addEventListener('pointerdown', (e) => {
   }
   stage.focus({ preventScroll: true });
   n = selectedNode();
+  const directContext = directPointContext(n);
+  if (directContext && (!directContext.supported || directContext.locked)) {
+    notify(directContext.reason || 'Source path is locked', true);
+    return;
+  }
   let pointTarget = e.target.dataset.point
     ? { pointId: e.target.dataset.point, key: e.target.dataset.handle || 'position' }
     : null;
@@ -8142,7 +8253,8 @@ app.addEventListener('pointerdown', (e) => {
     ['Curve', 'Multi Path', 'Path Remap'].includes(n?.type) &&
     document.querySelector('.artboard')?.getScreenCTM
   ) {
-    const path = evaluate(current(), fonts, history.doc.imageAssets).run(n.id);
+    const path =
+      directContext?.path || evaluate(current(), fonts, history.doc.imageAssets).run(n.id);
     pointTarget = hitPointControl(
       path,
       pos,
@@ -8161,6 +8273,7 @@ app.addEventListener('pointerdown', (e) => {
   if (pointTarget?.key === 'position' && e.altKey) {
     drag = {
       type: 'point-handles',
+      matrix: directContext?.matrix,
       nodeId: n.id,
       pointId: pointTarget.pointId,
       start: pos,
@@ -8208,15 +8321,18 @@ app.addEventListener('pointerdown', (e) => {
     drag = {
       pointIds: key === 'position' ? selectedPointIds(n) : undefined,
       type: 'remap',
+      matrix: directContext?.matrix,
+      independent: pointTarget.key !== 'position' && e.altKey,
       nodeId: n.id,
       pointId,
       key,
       start: pos,
       original: clone(existing?.params?.[key]?.value ?? existing?.[key] ?? [0, 0]),
       anchor: (() => {
-        const p = evaluate(current(), fonts, history.doc.imageAssets)
-          .run(n.id)
-          .contours.flatMap((c) => c.points)
+        const p = (
+          directContext?.path || evaluate(current(), fonts, history.doc.imageAssets).run(n.id)
+        ).contours
+          .flatMap((c) => c.points)
           .find((p) => p.id === pointId);
         return key === 'position' ? p.position : p.position.map((v, i) => v + p[key][i]);
       })(),
@@ -8243,15 +8359,18 @@ app.addEventListener('pointerdown', (e) => {
     drag = {
       pointIds: key === 'position' ? selectedPointIds(n) : undefined,
       type: 'point',
+      matrix: directContext?.matrix,
+      independent: pointTarget.key !== 'position' && e.altKey,
       nodeId: n.id,
       pointId: pt.id,
       key,
       start: pos,
       original: clone(q.value),
       anchor: (() => {
-        const p = evaluate(current(), fonts, history.doc.imageAssets)
-          .run(n.id)
-          .contours.flatMap((c) => c.points)
+        const p = (
+          directContext?.path || evaluate(current(), fonts, history.doc.imageAssets).run(n.id)
+        ).contours
+          .flatMap((c) => c.points)
           .find((p) => p.id === pt.id);
         return key === 'position' ? p.position : p.position.map((v, i) => v + p[key][i]);
       })(),
@@ -8805,7 +8924,7 @@ function movePointer(e) {
           nodeId: drag.nodeId,
           pointId: drag.pointId,
         },
-        { delta },
+        { delta: drag.matrix ? inverseCharacterDelta(drag.matrix, delta) : delta },
       )
     )
       updateCanvas();
@@ -8875,7 +8994,17 @@ function movePointer(e) {
             ...(drag.pointIds?.length > 1 ? { pointIds: drag.pointIds } : {}),
             key: drag.key,
           };
-    if (!updateCanvasGesture(target, { delta })) return;
+    if (drag.type === 'point' && drag.key !== 'position') drag.independent ||= e.altKey;
+    const localDelta = drag.matrix ? inverseCharacterDelta(drag.matrix, delta) : delta;
+    if (
+      !updateCanvasGesture(target, {
+        delta: localDelta,
+        ...(drag.type === 'point' && drag.key !== 'position'
+          ? { independent: !!drag.independent }
+          : {}),
+      })
+    )
+      return;
   } else if (drag.type === 'pen') {
     try {
       penCommand('update-pen-point', { delta });
@@ -9562,6 +9691,54 @@ document.addEventListener('keydown', (e) => {
     document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
     return;
   }
+  if (
+    tool === 'direct' &&
+    ['Delete', 'Backspace'].includes(e.key) &&
+    !e.target.closest('.graph-scroll')
+  ) {
+    e.preventDefault();
+    notify('Select points to delete');
+    return;
+  }
+  if (
+    e.target.matches?.('.canvas-stage') &&
+    pointSelection.ids.size &&
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+  ) {
+    e.preventDefault();
+    if (drag || penDraft || e.ctrlKey || e.metaKey || e.altKey || deletionBusy()) return;
+    const n = current().nodes.find((n) => n.id === pointSelection.nodeId),
+      context = directPointContext(n);
+    if (!n || (context && (!context.supported || context.locked))) {
+      notify(context?.reason || 'Select an editable source path', true);
+      return;
+    }
+    const step = e.shiftKey ? 10 : 1,
+      world = [
+        e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0,
+        e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
+      ];
+    try {
+      const delta = context?.matrix ? inverseCharacterDelta(context.matrix, world) : world;
+      commandChange(
+        'translate-points',
+        { nodeId: n.id, pointIds: [...pointSelection.ids], delta },
+        'Selected points moved',
+      );
+      document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+    } catch (error) {
+      notify(error.message, true);
+    }
+    return;
+  }
+  if (
+    tool === 'direct' &&
+    e.target.matches?.('.canvas-stage') &&
+    ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+  ) {
+    e.preventDefault();
+    return;
+  }
   if (['Delete', 'Backspace'].includes(e.key) && deletionBusy()) {
     e.preventDefault();
     return;
@@ -9723,7 +9900,8 @@ document.addEventListener('keydown', (e) => {
     }
     return;
   }
-  const keys = { v: 'select', p: 'pen', c: 'Circle', r: 'Rectangle', t: 'Text' };
+  if (e.altKey) return;
+  const keys = { a: 'direct', v: 'select', p: 'pen', c: 'Circle', r: 'Rectangle', t: 'Text' };
   if (keys[e.key.toLowerCase()])
     document.querySelector(`[data-tool="${keys[e.key.toLowerCase()]}"]`)?.click();
 });

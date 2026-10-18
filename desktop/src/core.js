@@ -5009,7 +5009,8 @@ export class CommandSession {
               ? ['Curve', 'Multi Path'].includes(n.type)
               : n.type === 'Path Remap'),
         );
-        if (!node || node.bypassed) throw Error('Missing editable point node');
+        if (!node || node.bypassed || node.locked === true)
+          throw Error('Missing or locked editable point node');
         const pointIds = target.pointIds ?? [target.pointId];
         if (
           !Array.isArray(pointIds) ||
@@ -5019,11 +5020,18 @@ export class CommandSession {
           (pointIds.length > 1 && target.key !== 'position')
         )
           throw Error('Select distinct point anchors');
+        if (
+          update.independent !== undefined &&
+          (typeof update.independent !== 'boolean' || target.key === 'position')
+        )
+          throw Error('Independent handles require a handle drag');
         if (target.kind === 'curve-point') {
+          const editablePoints = new Map(node.points.map((p) => [p.id, p]));
           for (const pointId of pointIds) {
-            const point = node.points.find((p) => p.id === pointId);
+            const point = editablePoints.get(pointId);
             if (!point) throw Error('Missing point');
             write(point[target.key]);
+            if (update.independent) point.handleType = 'corner';
             if (target.key !== 'position' && point.handleType !== 'corner') {
               const other = point[target.key === 'handleA' ? 'handleB' : 'handleA'];
               if (!other.locked && !other.source && !other.expression) {
@@ -5711,6 +5719,35 @@ export class CommandSession {
       }
       validate(candidate);
       return { candidate, result: {} };
+    }
+    if (type === 'translate-points') {
+      const item = before.layers
+        .find((l) => l.id === payload.layerId)
+        ?.nodes.find((n) => n.id === payload.nodeId);
+      if (!['Curve', 'Multi Path', 'Path Remap'].includes(item?.type) || item.locked)
+        throw Error('Select an editable source path');
+      if (
+        !Array.isArray(payload.pointIds) ||
+        !payload.pointIds.length ||
+        payload.pointIds.length > 10000 ||
+        new Set(payload.pointIds).size !== payload.pointIds.length
+      )
+        throw Error('Select distinct point anchors');
+      return {
+        candidate: this.#gestureCandidate(
+          before,
+          {
+            kind: item.type === 'Path Remap' ? 'remap-point' : 'curve-point',
+            layerId: payload.layerId,
+            nodeId: item.id,
+            pointId: payload.pointIds[0],
+            pointIds: payload.pointIds,
+            key: 'position',
+          },
+          { delta: payload.delta },
+        ),
+        result: {},
+      };
     }
     if (['set-os-font-text', 'clear-os-font-text'].includes(type)) {
       const candidate = cloneDocument(before),

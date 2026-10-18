@@ -14,61 +14,59 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — OS Text wrap, 2026-10-18
+## ACTIVE CHECKPOINT — direct path editing and endpoint continuation
 
-Goal: Continue the user's practical font support before the remaining A direct
-selection, selected-point nudge, Alt independent handle and open-end continuation
-work. Preserve all previous EXE/ZIP checkpoints, point deletion ownership, generated
-path protection, stable identity and one-operation Undo. The parent owns Notion.
+Goal: Complete the user-authorized A direct selection, selected-point nudge,
+Alt independent handle and open-end Pen continuation. Preserve one-operation
+Undo, stable point IDs, generated Remap provenance, locks and point Delete ownership.
 
-Current phase: OS horizontal wrap is implemented and verified; commit/build/deliver
-this coherent checkpoint, then advance directly to path interactions. Windows DirectWrite uses whole-word wrapping at an explicit positive
-width, auto height and no clipping. Long unbreakable words retain all glyphs and
-report overflow. Windows line-break rules are used; full Japanese kinsoku and
-vertical wrap are explicitly unsupported. Existing Text wrapping remains intact.
+Current phase: A, point nudge and independent handles are implemented and pass
+model and production UI acceptance; preserve this checkpoint, then implement the
+remaining endpoint continuation. Existing Alt anchor-to-paired-handles behavior
+is retained. Existing Pen creates independent artwork; it does not resume an
+existing endpoint yet. No duplicate replacement implementation is needed.
 
-Proven: 4a0a277 is pushed and distributed with Composition references; Library
-libfile_a365dacaf9dc819184aec949bd8476d0, ZIP SHA256
-694AD543AC71D42BDB20CDFD949112EAC4187B5C44A3A03B17E70D1351682D9B.
-It includes font checkpoint 4c4af2f (OS axes, Japanese vertical, DIN isolated factory
-and GDI interop). Source/receipts/details are in PR24 issuecomment-6246568900.
-New native suite passes 34/34, including actual wrapping, fractional widths, spacing,
-alignment, overflow and malformed/vertical requests. New model/codec wrap checks
-pass 3/3 with actual native fixtures; production Edge/CSP wrap controls, width/off/Undo, alignment, spacing, refusal,
-JSON reload and SVG/PNG passed; 45 focused model/DOM checks pass. A legacy
-wrap-schema test now explicitly selects its pre-wrap schema instead of assuming
-the current document default.
+Proven: HEAD f055541 preserves OS Text horizontal wrap (schema32). Library
+libfile_0b7707ec405c8191afbd1120bb51e0eb, ZIP SHA256
+BBAAD76FFF7CB893CAB7B4A071AC3B3C3E55C23EAA2263D453DD42ABED0444ED;
+PR24 issuecomment-6246741306. Includes previous Composition/DIN/axes/vertical
+checkpoints. Native34, wrap/related45 and production native-fixture UI passed.
+New path work: model/gesture/deletion14 passed. Production Edge/CSP passed A,
+actual transformed point drag, world 1px/Shift10px and multi-point nudges, Alt
+one-handle separation with opposite vector unchanged, Undo, locks, IME/input focus,
+toolbar Delete safety and protection of procedural sources; receipt in
+ desktop/test-results/direct-selection/receipt.json (generated/ignored).
 
-Next task: Commit and build a separately identified schema32 package; continue
-the four remaining
-path interactions after comparing current implementation, without stopping at
-commit/distribution. Do not redo completed behavior.
+Next task: Add common-session Pen continuation for explicit owned open endpoint
+IDs, preserving existing point records and all unrelated nodes/contours. Refuse
+closed/interior/locked/driven/generated/suspended/topology-sensitive targets.
+Verify tail/head continuation, cancel/zero/stale handling and one Undo, then
+produce a separate combined path checkpoint and continue eligible work.
 
-Approach: Existing textWrap property and common set-os-font-text preparation,
-with atomic source/settings/outline adoption, stale/locked/IME guards and Undo.
-New OS reference version4 / directwrite-v3 includes wrapWidth and overflow; older
-unwrapped references retain their prior contract. Saved geometry requires no font
-service to render/export. Native request remains geometry-only, never font bytes.
+Approach: A resolves one unique Output/paint/literal Transform route to an owned
+Curve/Multi Path or explicit Remap, maps displayed affine geometry to authored
+point-space deltas and refuses branching/driven/singular cases. It never creates
+or bakes sources. translate-points uses the same common gesture authoring path;
+Remap binds current source fingerprint and refuses suspended edits. Alt handle
+movement sets corner mode and one vector atomically. Point commands retain only
+still-valid point selection on Undo; A prevents Delete from becoming node deletion
+when focus is on a toolbar. No saved-format change for these path interactions.
 
-Done for next: Actual wrap controls and placement/tracking/lineSpacing/alignment,
-width changes/off/Undo, JSON reopen and SVG/PNG are coherent and verified.
+Done for next: All four requested interactions work through Canvas and common
+Session with focused regression, reproducible tests and preserved earlier packages.
+State: codex/desktop-production-20261016, base f055541; path changes uncommitted.
 
-State: codex/desktop-production-20261016, HEAD 4a0a277, wrap work uncommitted.
-LOCAL_WAIT: Native WebView2 IME/high-DPI/full manual editing. Exposed tools have no
-native UI controller. Resume on formal native-control capability or hands-on user
-evidence; this does not block independent implementation. OS rich/path/character,
-custom leading, color/bitmap remain explicit limits. No universal completeness.
+LOCAL_WAIT: Actual native WebView2 IME/high-DPI/full manual editing. Formal native
+UI controller is unavailable; no repeated inventory without new evidence. This
+does not stop source implementation. OS full Japanese kinsoku/vertical wrap,
+custom leading/rich/path/character adjustments and color/bitmap remain explicit
+limits; no universal font-completeness claim.
 
-Authority: Current delegated user instruction permits code/tests/commit/dev
-non-force push/PR update/EXE/ZIP/Library. No main merge/release/force push or
-credentials/auth/permission changes. No Adobe cache/font software extraction or
-bundling. Do not mutate Notion.
+Authority: User-approved edits/tests/commit/non-force dev push/PR/EXE/ZIP/Library.
+No main merge/release/force push, auth/permission changes, font-cache/software
+extraction or Notion mutation. Parent owns Notion and user delivery.
 
-Double-check: critic gate invoked for saved format/layout boundary. Question is
-whether wrap preserves source text, coordinate anchoring, prepared snapshots and
-existing routes. Local native/codec/transaction/browser evidence is the bounded
-verification route; consultation not-required, zero external sends. No unresolved
-product choice; full kinsoku is expressly outside the current capability claim.
-
-Handoff: CONTINUE_CURRENT_TASK. Keep progressing through eligible source work;
-only declare human-only remaining work after checking the actual route.
+Double-check: local critic for interaction/authority boundary; exact stable IDs,
+affine inverse, generated fingerprints and transactional counterexamples verified.
+Consultation not-required, zero external sends; continue focused local evidence.
+Handoff: CONTINUE_CURRENT_TASK. Commits and distributions are checkpoints, not stops.
