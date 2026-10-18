@@ -18,16 +18,19 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Add one-level category toggles whose explicitly opened heading aligns to the
 node picker list top, preserving authored state and unrelated operations.
-Current phase: implementation and focused verification complete; development publication.
+Current phase: implemented, verified and development source pushed; Draft PR29 created.
 Proven: Independent copy/branch codex/toggle-list-scroll-20261019 begins at
 e8c9db5225f6e26e36b0d69d3acb3320829b9fb0. Focused tests 18/18 and Vite build
 (124 modules) pass. Actual Chrome on dedicated localhost:5201 verifies final-category
 heading alignment, closed-category search, Japanese alias/Enter/one Undo, short-tail
 space and stable native Left/Right collapse/reopen. Page/dialog remain at zero.
 Evidence: desktop/docs/toggle-list-scroll-20261019.md; ignored local screenshots/logs.
+Remote-verified source: 9830310db16db7ccc7ecf4f96aee4b2577e990bc.
+Draft PR: https://github.com/46slv/Nect/pull/29, targeting the PR28 integration branch.
+Later checkpoint-only commits do not change the tested production source.
 Next task: Review the bounded Draft PR; native/physical IME acceptance remains separate.
 Approach: Ordinary branch commit/push and Draft PR against the exact PR28 branch.
-Done for next: Remote branch/PR HEAD verified against the committed candidate.
+Done for next: Review the exact published source; any follow-on scope gets separate ownership.
 State: Only picker/catalog/style, focused tests/fixture and checkpoint/evidence docs changed.
 Previous source worktrees, user artwork and existing localhost:5199 remain untouched.
 Authority: Current delegation permits code/tests/docs, dev branch commit/push and Draft PR.
