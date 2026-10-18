@@ -907,6 +907,7 @@ const current = () =>
 let textPreview = null,
   textPreviewRevision = null,
   canvasTextEdit = null,
+  pendingCanvasTextClick = null,
   lastCanvasTextClick = null;
 const displayDocument = () =>
   fontPreview ||
@@ -1153,6 +1154,7 @@ function resetTransient() {
   textPreview = null;
   canvasTextEdit = null;
   lastCanvasTextClick = null;
+  pendingCanvasTextClick = null;
   editorPicker?.close(true);
   discardPenDraft();
   composing = false;
@@ -6151,7 +6153,7 @@ function beginCanvasTextEdit(layerId, event) {
   const sources = [...new Set((hits.length ? hits : occurrences).map((o) => o.source))];
   if (sources.length !== 1) return false;
   const node = layer.nodes.find((n) => n.id === sources[0] && n.type === 'Text');
-  if (!node) return false;
+  if (!node || node.locked || node.bypassed) return false;
   activeLayer = layerId;
   artworkTarget = null;
   artworkSelection = new Set();
@@ -8120,25 +8122,30 @@ app.addEventListener('pointerdown', (e) => {
       if (!drag) render();
     });
   }
-  if (tool === 'select' && !control && e.button === 0 && !e.shiftKey) {
+  pendingCanvasTextClick = null;
+  if (
+    tool === 'select' &&
+    !control &&
+    e.button === 0 &&
+    !e.shiftKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey
+  ) {
     const layerId =
       e.target.closest('[data-node-stage-layer]')?.dataset.nodeStageLayer ||
       e.target.closest('[data-layer]')?.dataset.layer;
-    if (layerId) {
-      const now = performance.now(),
-        prior = lastCanvasTextClick;
-      lastCanvasTextClick = { layerId, time: now, x: e.clientX, y: e.clientY };
-      if (
-        prior?.layerId === layerId &&
-        now - prior.time < 500 &&
-        Math.hypot(e.clientX - prior.x, e.clientY - prior.y) < 5 &&
-        beginCanvasTextEdit(layerId, e)
-      ) {
-        lastCanvasTextClick = null;
-        e.preventDefault();
-        return;
-      }
-    } else lastCanvasTextClick = null;
+    if (layerId)
+      pendingCanvasTextClick = {
+        layerId,
+        sessionId: session.id,
+        revision: session.state.expectedRevision,
+        pointerId: e.pointerId,
+        x: e.clientX,
+        y: e.clientY,
+        moved: false,
+      };
+    else lastCanvasTextClick = null;
   }
   const guideId = e.target.dataset.guide;
   if (guideId && tool !== 'pen') {
@@ -9294,7 +9301,19 @@ function movePointer(e) {
   updateCanvas();
 }
 document.addEventListener('pointermove', movePointer);
+document.addEventListener('pointermove', (e) => {
+  const pending = pendingCanvasTextClick;
+  if (
+    pending?.pointerId === e.pointerId &&
+    Math.hypot(e.clientX - pending.x, e.clientY - pending.y) >= 3
+  ) {
+    pending.moved = true;
+    lastCanvasTextClick = null;
+  }
+});
 document.addEventListener('pointercancel', (e) => {
+  pendingCanvasTextClick = null;
+  lastCanvasTextClick = null;
   lastNameClick = null;
   const pointerId = wiring?.pointerId ?? drag?.pointerId;
   if (pointerId !== undefined && pointerId !== e.pointerId) return;
@@ -9477,6 +9496,37 @@ document.addEventListener('pointerup', (e) => {
     const toggledArtwork = d.type === 'artwork' && d.toggleOnClick && !d.started;
     if (toggledArtwork) selectArtwork(d.toggleOnClick, { toggle: true });
     render(false, d.type === 'artwork' && !toggledArtwork ? artworkResolution : null);
+  }
+});
+// A second press may become a drag. Only completed stationary clicks may enter
+// text editing, after the normal move gesture has released its ownership.
+document.addEventListener('pointerup', (e) => {
+  const pending = pendingCanvasTextClick;
+  if (!pending || pending.pointerId !== e.pointerId) return;
+  pendingCanvasTextClick = null;
+  if (
+    pending.moved ||
+    Math.hypot(e.clientX - pending.x, e.clientY - pending.y) >= 3 ||
+    pending.sessionId !== session.id ||
+    pending.revision !== session.state.expectedRevision ||
+    tool !== 'select' ||
+    composing ||
+    session.hasTextComposition
+  ) {
+    lastCanvasTextClick = null;
+    return;
+  }
+  const prior = lastCanvasTextClick,
+    now = performance.now();
+  lastCanvasTextClick = { layerId: pending.layerId, time: now, x: e.clientX, y: e.clientY };
+  if (
+    prior?.layerId === pending.layerId &&
+    now - prior.time < 500 &&
+    Math.hypot(e.clientX - prior.x, e.clientY - prior.y) < 5 &&
+    beginCanvasTextEdit(pending.layerId, e)
+  ) {
+    lastCanvasTextClick = null;
+    e.preventDefault();
   }
 });
 function duplicateGraphNodes(nodeId) {

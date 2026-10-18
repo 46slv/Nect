@@ -14,55 +14,39 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Priority Graph Copy/Paste
+## ACTIVE CHECKPOINT — Text canvas drag repair
 
-Goal: Ctrl+C/Ctrl+V for selected graph nodes, including internal connections and
-settings, across Compositions in the same open Document; one Paste/one Undo.
-Current phase: Implemented, actual EXE verified and Library trial delivered.
-Parent receives Copy/Paste now; queued work must not delay this delivery.
-Proven: Copy captures authored node snapshots without changing revision/history;
-Paste reuses duplicateNodes identity rules for fresh node/point/contour IDs and
-internal socket/expression/Reference/Text-path remapping, relative placement and
-selection. Actual SVG part references, embedded Image/fonts, Text, Composition
-Reference and Mask/Keyer preserve same-document data. Graph/IME/input focus,
-one Undo/Redo, locked target, external input refusal and exact JSON reopen/SVG
-were checked. Context/duplicate tests preserve existing Ctrl+D and menu behavior.
-Actual isolated EXE/WebView2 repeats Ctrl+C/Ctrl+V,6-node cross-Composition paste,
-internal connections/assets/Text/Mask/Keyer,1Undo/Redo, input/IME exclusion, lock
-refusal and JSON reopen/exact SVG. Owned PID57276 was responsive and stopped.
-Evidence: tests/node-clipboard*, tests/node-context-menu-dom.test.js,
-test-results/node-clipboard/receipt.json; desktop/docs/node-copy-paste.md.
-Approach: Private Session clipboard only; New/Open/import clears it. No OS or
-cross-Document clipboard. Output nodes skipped with count; destination Output
-unchanged. External inputs stay original in the same Composition with notice;
-cross-Composition paste requires those sources included, otherwise refuses.
-Missing/changed assets, missing Composition targets and cycles refuse atomically.
-Existing edited Path Remap group refusal stays. No blind reference rebinding.
-Next task: Parent supplies the Library trial immediately. Then reproduce/repair
-Text canvas drag, followed by accepted recovery autosave and font remainder.
-Done for next: Usable Copy/Paste delivered and source/PR synchronized.
-Delivery: Library libfile_4d2327cc40988191b52293428b3bca97, version0;
-task/Nect-Desktop-trial-20261018-9f2db9c.zip,4,067,367 bytes/73 entries.
-ZIP SHA256 B0CA6E5FD55EF5E7C1F0F4786B22B1E391225FF77021979A61851E76BE7A52E5.
-EXE9,791,488 bytes, SHA256
-E22222429D99980C0E54735E3329911F22610C2A0A571BA069A1550593DB7BEE.
-Library finalize succeeded; returned EA0 applied/hash unchanged. New2 Clipboard
-examples checked; older14 retained with their original evidence, not mass-retested.
-State: codex/desktop-production-20261016 source9f2db9cf1de42de87966af18a7bd46dc86d49b8f
-normally pushed; remote SHA verified. This record changes docs only.
-Previous font fix0fcffc82721c83c69a16b1b959936dc9cfc8c823 is committed/pushed,
-model/DOM12 and browser checks passed; its own native check/distribution was
-preempted. Owned font diagnostic PID51260 stopped; no user window touched.
-Prior Keyer/Mask source9cde8a4 and Library libfile_d60022e6d96c81918b7825b50fde0858
-remain preserved. QR libfile_d837e47e864481918f8a3bdf52a8d81c remains unchanged.
-Queue after Copy/Paste: Text canvas drag regression (reproduce, repair selection/
-editing distinction, locks and transformed coordinates), then recovery autosave
-(existing LiveSave reuse, app-owned isolated recovery, atomic writes/bounded good
-copies, failure status/restart choice, no manual-file overwrite), then font gaps.
-Authority: Parent-delegated latest user priority and accepted recovery request.
-Edit/test/commit/dev push/PR/EXE/Library permitted. No main merge/release, auth or
-permission changes, usage reset, or Notion writes. Single writer remains here.
-Double-check: Skill invoked, local dependency/identity/lifetime/Undo review;
-external consultation not-required, sends0. Debugging owner classified browser
-failure as test selection preparation, not product error; no selection change.
-Handoff: CONTINUE_CURRENT_TASK; deliver Clipboard outcome before queued work.
+Goal: Restore Select/Move dragging of Text/OS Font, preserving text/font/outline
+data, clear text-edit distinction, locks,1 drag/Undo and transformed coordinates.
+Current phase: Reproduced and fixed; production UI passed, commit/build and narrow
+isolated EXE acceptance are next. Deliver this usable fix before autosave.
+Proven: At9f2db9c a click followed immediately by drag opened the text editor on
+the second pointer-down and left position220/240 instead of250/260. The new
+pointer-up decision only accepts completed stationary clicks;>=3px movement,
+including out-and-back, cancellation/stale Session/revision cannot enter editing.
+Source: desktop/src/main.js. No schema/core/font/native/storage change.
+Browser evidence: tests/text-drag.e2e.js, test-results/text-drag/receipt.json;
+8 movement variants (normal/saved OS Text, rotation/negative Transform, zoom,
+locked source position with movable parent),4 lock cases, intentional double
+click/Escape, net-zero drag, exact one Undo/Redo. Text/font/OS snapshot unchanged.
+7 existing canvas gesture/caret checks pass. Initial pre-fix probe is retained
+under test-results/text-drag/before-fix.json. Explicit Move node stage is unchanged;
+an overlapping source marker was classified as test-point setup and excluded
+from final-artwork drag tests, rather than altering its intended semantics.
+Approach: Reuse existing move resolver/gesture and supported graph capsule.
+No conversion to outlines, new font, implicit Transform or graph expansion.
+Next task: One Windows trial and isolated actual pointer/Undo/reopen checks,
+including real saved Windows Text; then immediate Library/source/hash report.
+Done for next: Usable verified Text drag trial, normal dev push/PR and clean state.
+State: codex/desktop-production-20261016 atdf04323; only Text drag UI/test/docs dirty.
+Copy/Paste source9f2db9c, Library libfile_4d2327cc40988191b52293428b3bca97 remains
+delivered. Font fix0fcffc8 and Mask/Keyer are preserved. No user window touched.
+Queue: next local recovery autosave (debounce, status, restart choice, app-owned
+isolated storage, atomic replacement/bounded good copy, no manual-file overwrite
+or existing-data deletion); then remaining font work. Desktop storage/lifecycle
+read showed no autosave hook yet; legacy LiveSave still needs a focused lookup.
+Authority: Parent-delegated accepted user priorities; one writer, edit/test/
+commit/dev push/PR/EXE/Library. No main merge/release/permission/reset/Notion.
+Double-check: Existing gate invoked; local evidence settles the bounded UI
+arbitration, consultation not-required, external sends0. Debugging owner reused.
+Handoff: CONTINUE_CURRENT_TASK; deliver repair before the autosave checkpoint.
