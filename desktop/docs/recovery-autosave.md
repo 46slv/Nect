@@ -1,7 +1,7 @@
 # Local recovery autosave
 
 Desktop observes committed Session encodings. Changes settle for 1 second before
-writing; continuous commits force a copy within 10 seconds. Canvas/IME drafts
+writing; continuous commits request a copy within 10 seconds. Canvas/IME drafts
 are not committed snapshots. Successful imports and restored unsaved documents
 also receive a copy. Initial launch artwork is only a baseline.
 

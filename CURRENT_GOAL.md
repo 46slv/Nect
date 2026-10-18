@@ -14,43 +14,49 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Local recovery autosave
+## ACTIVE CHECKPOINT — Local recovery autosave delivery
 
 Goal: Recover editing after restart through app-owned local autosave, without
 automatically overwriting a manually chosen project file.
-Current phase: Authorized next checkpoint; read-only reconnaissance only.
-Proven: Desktop storage/lifecycle and main.js have no autosave hook found yet.
-Legacy LiveSave still needs a focused lookup before deciding whether to reuse it.
-Approach: Debounce document mutations; show success/failure status; offer recovery
-on restart. Keep different documents/windows distinct. Preserve embedded images
-and fonts. Use atomic replacement, a last-good copy and small bounded retention.
-Never delete existing user recovery data or touch the live user document/window.
-Next task: Read desktop/src/storage.js, document-lifecycle.js, native
-document_storage.rs/acceptance_storage.rs and locate legacy LiveSave. Implement
-through existing storage authority and common Session boundaries. Verify isolated
-mutation -> autosave -> restart -> restore equality and a write-failure case.
-Done for next: Focused checks plus isolated real-EXE recovery, usable trial,
-normal dev push/PR, confirmed Library artifact and exact source/hash report.
-State: codex/desktop-production-20261016; Text source6861ee4 built and uploaded.
-No autosave code changes yet. Remaining font work follows recovery autosave.
-Authority: Parent-delegated accepted user priorities; one writer, edit/test/
-commit/dev push/PR/EXE/Library. No main merge/release/permission/reset/Notion.
-Handoff: NEW_TASK; completed Text repair delivery and context compaction mark a
-safe boundary before the independent storage/lifecycle checkpoint. Parent owns
-coordination; do not create a second source/build writer.
-
-Latest delivered Text repair: source6861ee4ee98730f6b677bc2d9393d305cf2392d3,
-Library libfile_55dc531b24008191ae1818877d34c278,
-task/Nect-Desktop-trial-20261018-6861ee4.zip (4,095,783 bytes /79 entries),
-ZIP SHA256 9B45BE5E191EDBBF85F49E285264910BAD0FC5C77C12D611E3C5AAC7CD3FB740;
-EXE SHA256 2963FF1FF0E61FFC704F9FE91EA96D7E92FA12C1E9A1CC6BCF5DDB6398B2B197.
-Verified:7 canvas model checks; production8 movement/4 lock cases; intentional
-double-click and net-zero drag; actual isolated EXE normal/negative Transform/
-real Windows saved Text pointer drag, one Undo/Redo, reopen exact SVG and unchanged
-text/font/outline snapshots. Native diagnostic stopped; live user app untouched.
-Evidence: desktop/docs/text-drag-repair.md and distributed BUILD/STARTUP,
-NATIVE-TEXT-DRAG-RECEIPT/TEXT-DRAG-UI-RECEIPT. Existing16 examples retained without
-mass retest;1 new native example checked. Physical pointer/IME/high-DPI unverified.
-Schema35; Copy/Paste9f2db9c, font fix0fcffc8 and Mask/Keyer remain included.
-Text gate: local evidence sufficient, external sends0; no schema/core/font/native/
-storage change. Autosave is explicitly absent from this delivered trial.
+Current phase: Implemented, isolated native acceptance passed, Library upload
+confirmed. Delivery complete; next bounded font work remains unstarted.
+Proven: sourcea43ee4b5de31e10d16b586aa8caf7e87741b38c6 (implementation5e4d3a6
+plus guarded-Save cleanliness fix). JS9/native storage3 checks pass. Previous Text
+production regression passed at5e4d3a6. Final EXE actual restart2 times: exact
+committed encoding, restored JSON/SVG, embedded font759,720 bytes and image,
+manual original unchanged, unbound/unsaved restore, visible write failure/retry,
+previous-good fallback after current corruption. IPC unstubbed, pageErrors[].
+Evidence: desktop/docs/recovery-autosave.md; task/native-recovery-v4/receipt.json,
+expected.json/svg and screenshots; distributed NATIVE-RECOVERY-RECEIPT.json.
+Approach: committed encoding observer,1-second debounce/10-second maximum timer,
+native-issued per-document/window token, app-local recovery-v1 storage, Windows
+exclusive run lease. Staged flush+atomic replace, current+previous per document.
+On restart offer inactive unsaved copies; after restore preserve a durable new
+copy before acknowledging the source. Source files remain. No manual binding used.
+Boundaries: initial launch artwork baseline only; unsaved imports also protected.
+IME/gesture drafts excluded. Dirty state and manual file binding remain separate.
+No legacy C++ recovery changes or existing recovery-file deletion. No global disk
+quota/old-directory pruning;2-copy retention is per document. Physical pointer,
+manual IME and high-DPI checks remain unverified. Existing17 examples retained
+without mass retest;1 embedded-data example checked. No schema/core/font change.
+State: codex/desktop-production-20261016, sourcea43ee4b. Final EXE9,956,864 bytes,
+SHA256 FC48A6646971184882401986E6FC5D41C66BC799C6F9DC94FF40F6834C65DD69.
+Library libfile_df97cd0b962c81918d30b83fe1720f59, version0/xattr applied;
+task/Nect-Desktop-trial-20261018-a43ee4b.zip,4,629,946 bytes/83 entries,
+SHA256 FB54F1F96058ED897519293428DC3BF960773A0FAA0EC0FEED031862940CC770.
+All exact owned recovery diagnostic native EXEs stopped. Live user app/document
+untouched. Native v1/v2/v3 helpers had stale CDP/launcher inherited-pipe issues;
+v4 uses per-phase unique ports, socket PID ownership and non-inherited launcher
+stdio. Final full native run is v4, not earlier partial diagnostics.
+Next task: Parent delivers this trial, then select the next bounded remaining
+font requirement from current user priorities. No font change started here.
+Done for next: Library artifact/source/hash report, normal dev push/PR record,
+remote SHA match and clean working tree.
+Authority: Parent-delegated accepted priorities; single source/build writer,
+edit/test/commit/dev push/PR/EXE/Library. No main merge/release/auth/reset/Notion.
+Gate: failure-recovery/storage design invoked double-check; local evidence
+settles ownership and failure handling, external review not-required/sends0.
+Shared debugging owner applied for harness failures. No active action denied,
+pending or uncertain. No implementation blocker remains for this delivery.
+Handoff: NEW_TASK; safe completed recovery checkpoint before independent font
+work. Parent coordinates source ownership; do not create a duplicate writer.
