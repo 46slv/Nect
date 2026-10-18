@@ -47,6 +47,7 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   const copiedLayers = remap(selectedLayers, collectIds(selectedLayers), collectIds(current));
   const result = cloneDocument(current);
   result.layers.push(...copiedLayers);
+  result.schemaVersion = Math.max(result.schemaVersion, source.schemaVersion);
   for (const layer of copiedLayers) for (const node of layer.nodes) {
     if (node.type === 'Image' && node.asset) {
       const asset = source.imageAssets?.[node.asset];
