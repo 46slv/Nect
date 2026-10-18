@@ -78,7 +78,7 @@ test('integer affine powers accumulate nonuniform scale, rotation and translatio
   const anchored = repeatGeometry(input, options({ anchor: [2, 3], rotation: 90 }));
   near(anchored.contours[1].points[0].position, [12, 3]);
 });
-test('negative offset is inverse, reflected and zero scale are bounded, fractional settings reject', () => {
+test('negative offset is inverse, reflected and zero scale are bounded', () => {
   const r = repeatGeometry(source(), options({ offset: -1, scale: [-200, 100], rotation: 90 }));
   near(r.contours[1].points[0].position, [2, 3]);
   near(r.contours[2].points[0].position, [7, -4]);
@@ -89,8 +89,6 @@ test('negative offset is inverse, reflected and zero scale are bounded, fraction
     /nonzero/,
   );
   for (const extra of [
-    { count: 2.5 },
-    { offset: -0.5 },
     { count: 257 },
     { offset: 257 },
     { scale: [1001, 100] },
@@ -101,6 +99,48 @@ test('negative offset is inverse, reflected and zero scale are bounded, fraction
     assert.throws(() => repeaterSettings((k) => options(extra)[k]), /Repeater/);
   assert.throws(
     () => repeatGeometry(source(), options({ count: 256, scale: [1000, 1000] })),
+    /budget/,
+  );
+});
+test('fractional Copies use a partial tail and fractional Offset uses bounded partial steps', () => {
+  const fractionalCopies = repeatGeometry(
+    source(),
+    options({ count: 2.5, startOpacity: 20, endOpacity: 80 }),
+  );
+  assert.equal(fractionalCopies.contours.length, 3);
+  assert.deepEqual(
+    fractionalCopies.contours.map((c) => c.repeaterOpacity),
+    [0.2, 0.5, 0.4],
+  );
+  const partial = repeatGeometry(
+    source(),
+    options({ count: 1, offset: 0.5, scale: [200, 200], position: [10, 0] }),
+  );
+  near(partial.contours[0].points[0].position, [2 * Math.SQRT2 + 5, 3 * Math.SQRT2]);
+  const inversePartial = repeatGeometry(
+    source(),
+    options({ count: 1, offset: -0.5, scale: [200, 200], position: [10, 0] }),
+  );
+  near(inversePartial.contours[0].points[0].position, [(2 - 5) / Math.SQRT2, 3 / Math.SQRT2]);
+  assert.doesNotThrow(() =>
+    repeatGeometry(source(), options({ count: 1, offset: 0.5, scale: [0, 100] })),
+  );
+  assert.throws(
+    () => repeatGeometry(source(), options({ count: 1, offset: 0.5, scale: [-100, 100] })),
+    /fractional Offset.*nonnegative Scale/,
+  );
+  assert.throws(
+    () => repeatGeometry(source(), options({ count: 1, offset: -0.5, scale: [0, 100] })),
+    /nonzero|invertible/,
+  );
+  assert.throws(
+    () =>
+      repeatGeometry(
+        {
+          contours: Array.from({ length: 129 }, (_, i) => ({ ...source().contours[0], group: i })),
+        },
+        options({ count: 1.01 }),
+      ),
     /budget/,
   );
 });
@@ -162,14 +202,23 @@ test('shared Session edits are undoable, restore via JSON and refuse invalid edi
   assert.equal(session.snapshot().layers[0].nodes[1].params.offset.value, 0);
   send('redo');
   assert.equal(serialize(session.snapshot()), changed);
+  send('set-parameter', { key: 'count', value: 2.5 });
+  send('set-parameter', { key: 'offset', value: 0.5 });
+  const fractional = serialize(session.snapshot());
+  assert.deepEqual(
+    evaluate(deserialize(fractional).layers[0]).path,
+    evaluate(session.snapshot().layers[0]).path,
+  );
+  send('undo');
+  assert.equal(session.snapshot().layers[0].nodes[1].params.offset.value, -2);
+  send('redo');
+  assert.equal(serialize(session.snapshot()), fractional);
   for (const [key, value] of [
-    ['count', 2.5],
-    ['offset', 0.5],
     ['endOpacity', 101],
-    ['scale', [0, 100]],
+    ['scale', [1001, 100]],
   ]) {
     assert.throws(() => send('set-parameter', { key, value }));
-    assert.equal(serialize(session.snapshot()), changed);
+    assert.equal(serialize(session.snapshot()), fractional);
   }
 });
 test('legacy modes preserve geometry and defaults on migration, new mode requires schema 37', () => {
@@ -230,7 +279,7 @@ test('schema-36 Dither survives Repeater migration, promotion, Undo and JSON reo
   send('redo');
   assert.equal(serialize(session.snapshot()), saved);
 });
-test('driven Copies/Offset enforce the same integer limits and parameter locks reject edits', () => {
+test('driven Copies/Offset preserve fractional values and parameter locks reject edits', () => {
   const { doc, l, repeat } = scene(),
     session = new CommandSession(doc);
   const send = (type, payload) =>
@@ -240,20 +289,19 @@ test('driven Copies/Offset enforce the same integer limits and parameter locks r
       payload: { layerId: l.id, nodeId: repeat.id, ...payload },
     });
   const original = session.snapshot();
-  assert.throws(
-    () => send('set-parameter-expression', { key: 'offset', expression: '1 / 2' }),
-    /integer/,
-  );
-  assert.deepEqual(session.snapshot(), original);
+  send('set-parameter-expression', { key: 'offset', expression: '1 / 2' });
+  assert.equal(evaluate(session.snapshot().layers[0]).parameterValue(repeat.id, 'offset'), 0.5);
+  assert.notDeepEqual(session.snapshot(), original);
   send('set-parameter-lock', { key: 'position', locked: true });
   const locked = session.snapshot();
   assert.throws(() => send('set-parameter', { key: 'position', value: [20, 0] }), /lock/i);
   assert.deepEqual(session.snapshot(), locked);
+  const wired = structuredClone(session.snapshot().layers[0]);
   const value = node('Value');
   value.params.value.value = 1.5;
-  l.nodes.push(value);
-  connect(l, value.id, repeat.id, 'count');
-  assert.match(evaluate(l).error, /integer/);
+  wired.nodes.push(value);
+  connect(wired, value.id, repeat.id, 'count');
+  assert.equal(evaluate(wired).error, null);
 });
 test('renderer preserves per-copy opacity once for fill plus stroke and rejects lossy downstream geometry', () => {
   const { doc, l, repeat, fill, stroke, out } = scene();

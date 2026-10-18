@@ -19,19 +19,36 @@ step's displacement; transforms accumulate, rather than adding independent
 per-copy TRS values. Offset moves the transformation index, without moving
 opacity's first/last endpoints. The source remains immutable.
 
-Negative Offset uses the inverse step. Both Scale axes must be nonzero for a
-negative Offset. Negative Scale is a reflection and alternates through integer
-powers. Zero Scale is allowed for nonnegative Offset and collapses geometry.
-Start/End Opacity interpolates linearly by copy index. Each copy gets fresh
-stable derived IDs; Copies Above reverses the order of whole copies, preserving
-the order and winding of contours inside them. Holes remain in their original
-independent group.
+For an integer transform index, Negative Offset uses the inverse step. Both
+Scale axes must be nonzero for a negative Offset. Negative Scale is a reflection
+and alternates through integer powers. Zero Scale is allowed for nonnegative
+Offset and collapses geometry.
+
+Copies may be fractional. Nect materializes `ceil(Copies)` copies; the final
+copy is multiplied by `Copies - floor(Copies)` alpha. Start/End Opacity still
+interpolates across the rendered copy indices, so a fractional tail reaches
+the endpoint opacity before its tail alpha is applied. `Copies = 0` is empty.
+
+Offset may be fractional. Nect applies the integer power followed by one
+bounded partial step. Position and Rotation are linearly interpolated and each
+nonnegative Scale axis is geometrically interpolated. A negative fractional
+Offset uses the inverse partial step. Fractional Offset with a negative Scale
+is rejected because a negative scale has no single real fractional power;
+negative Scale remains supported for integer transform indices. Zero Scale is
+allowed for nonnegative Offset, but any negative Offset still requires both
+Scale axes to be nonzero. These are explicit Nect rules, not a claim of AE
+fractional-power compatibility.
+
+Each copy gets fresh stable derived IDs; Copies Above reverses the order of
+whole copies, preserving the order and winding of contours inside them. Holes
+remain in their original independent group.
 
 ## Limits visible in the editor
 
-- Only integer Copies 0–256 and integer Offset −256–256. Fractional copies and
-  offsets reject atomically, including when driven by expressions or wires.
-- Scale −1000–1000% on each axis. Finite matrix/coordinate magnitude at most
+- Copies and Offset are finite numbers from 0 to 256 and -256 to 256. The
+  rendered-copy budget uses `ceil(Copies)`, including for fractional values.
+  These values reject atomically, including when driven by expressions or wires.
+- Scale -1000 to 1000% on each axis. Finite matrix/coordinate magnitude at most
   1e12; excessive inverse/accumulated transforms reject instead of overflowing.
 - Shared output caps: 256 independent groups, 10000 contours, 100000 points.
 - Geometry comes before paint. After this mode, only Transform, Fill, Stroke,
@@ -54,9 +71,10 @@ Adobe describes virtual copies, zero-based cumulative transformations, Offset
 as a shift in copy transformation index, front/behind Composite order, and
 interpolated endpoint opacity. These establish the feature direction.
 Adobe's help does not specify fractional copies, fractional affine powers or
-singular/reflected scale edge cases. Nect's integer affine-power contract and
-safety limits above are explicit implementation decisions. There is no AE
-runtime comparison here and no claim of complete AE compatibility.
+singular/reflected scale edge cases. Nect's integer affine-power contract,
+partial-step interpolation policy and safety limits above are explicit
+implementation decisions. There is no AE runtime comparison here and no claim
+of complete AE compatibility.
 
 The operation-loop and chatgpt-web-double-check skills were invoked. External
 consultation status: not-required (0 sends); official documentation, explicit
@@ -64,16 +82,15 @@ bounded behavior and local tests settle the implementation decisions.
 
 ## Verification (2026-10-18)
 
-- `node --test tests/repeater-ae.test.js tests/creation.test.js tests/mirror.test.js tests/join.test.js`: 22 passing checks (7 dedicated Repeater checks).
+- `node --test tests/repeater-ae.test.js tests/creation.test.js tests/mirror.test.js tests/join.test.js`: 24 passing checks (9 dedicated Repeater checks).
 - `npm run build`: passed. No native/EXE build was performed.
 - `node tests/repeater-ae.e2e.js`: isolated headless Chrome, production bundle and
-  native CSP. Inspector operation/fields, integer refusal, negative Offset,
+  native CSP. Inspector operation/fields, fractional Copies/Offset, negative Offset,
   Undo/Redo, real JSON save/reopen and SVG/PNG downloads passed. The test waits
   for deferred numeric-control rendering before the following input.
 - Full 160×100 RGBA digests match for Canvas shapes, SVG and PNG:
-  `d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b`.
-  A fill/stroke overlap changes from `[62,0,193,135]` (Above) to
-  `[85,0,170,135]` (Below). Browser errors: none. Machine evidence is in
+  `a1245e675c33d1615b1d40b6a9308006e629639a58855e9435c2003d90c56138`.
+  Copies Above and Below produce distinct digests. Browser errors: none. Machine evidence is in
   `repeater-ae-verification.json`; local preview/downloads are under
   `test-results/repeater-ae/`.
 - The additional `linear-gradient-pipeline.test.js` run has one pre-existing

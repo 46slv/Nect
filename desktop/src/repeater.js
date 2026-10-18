@@ -1,5 +1,5 @@
-// Bounded 2D Repeater. Integer powers deliberately avoid ambiguous fractional
-// affine transforms (especially reflections and singular scales).
+// Bounded 2D Repeater. Integer powers retain the original affine contract;
+// fractional Offset uses an explicit bounded partial-step policy below.
 export const REPEATER_SCHEMA_VERSION = 37;
 export const REPEATER_KEYS = [
   'offset',
@@ -25,14 +25,10 @@ export function repeaterSettings(read) {
     endOpacity,
     copiesAbove,
   } = settings;
-  if (!Number.isInteger(count) || count < 0 || count > 256)
-    throw Error(
-      '2D Repeater Copies must be an integer from 0 to 256; fractional copies are unsupported',
-    );
-  if (!Number.isInteger(offset) || Math.abs(offset) > 256)
-    throw Error(
-      '2D Repeater Offset must be an integer from -256 to 256; fractional offsets are unsupported',
-    );
+  if (!Number.isFinite(count) || count < 0 || count > 256)
+    throw Error('2D Repeater Copies must be a finite number from 0 to 256');
+  if (!Number.isFinite(offset) || Math.abs(offset) > 256)
+    throw Error('2D Repeater Offset must be a finite number from -256 to 256');
   if (
     ![anchor, position, scale].every(
       (v) => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite),
@@ -42,6 +38,10 @@ export function repeaterSettings(read) {
     throw Error('2D Repeater requires finite Anchor, Position, Scale and Rotation');
   if (scale.some((v) => Math.abs(v) > 1000))
     throw Error('2D Repeater Scale must be from -1000 to 1000 percent');
+  if (!Number.isInteger(offset) && scale.some((v) => v < 0))
+    throw Error(
+      '2D Repeater fractional Offset requires nonnegative Scale; use an integer Offset with negative Scale',
+    );
   if (offset < 0 && scale.some((v) => v === 0))
     throw Error('2D Repeater negative Offset requires nonzero Scale on both axes');
   if (![startOpacity, endOpacity].every((v) => Number.isFinite(v) && v >= 0 && v <= 100))
@@ -79,6 +79,38 @@ function inverse(m) {
     (m[1] * m[4] - m[0] * m[5]) / determinant,
   ]);
 }
+function integerPower(step, exponent) {
+  const direction = exponent < 0 ? inverse(step) : step;
+  let matrix = identity();
+  for (let i = 0; i < Math.abs(exponent); i++) matrix = multiply(matrix, direction);
+  return matrix;
+}
+function fractionalStep(settings, fraction) {
+  // This is a bounded Nect interpolation policy, not an Adobe-compatible
+  // fractional affine power. Position and rotation interpolate linearly;
+  // positive scale interpolates geometrically. Negative scale has no single
+  // real fractional power and is rejected by repeaterSettings.
+  const scale = settings.scale.map((value) => {
+    if (value === 0) return 0;
+    return 100 * Math.pow(value / 100, fraction);
+  });
+  return repeaterStep({
+    ...settings,
+    position: settings.position.map((value) => value * fraction),
+    scale,
+    rotation: settings.rotation * fraction,
+  });
+}
+function offsetMatrix(settings, step) {
+  const whole = settings.offset < 0 ? Math.ceil(settings.offset) : Math.floor(settings.offset);
+  const fraction = Math.abs(settings.offset - whole);
+  let matrix = integerPower(step, whole);
+  if (fraction > 0) {
+    const partial = fractionalStep(settings, fraction);
+    matrix = multiply(matrix, settings.offset < 0 ? inverse(partial) : partial);
+  }
+  return matrix;
+}
 export function repeaterStep({ anchor, position, scale, rotation }) {
   const radians = ((rotation % 360) * Math.PI) / 180;
   const c = Math.cos(radians),
@@ -102,31 +134,31 @@ export function repeatGeometry(source, options) {
   if (!source?.contours) throw Error('Connect a Path input');
   if (source.contours.some((c) => c.repeaterOpacity !== undefined))
     throw Error('Nested 2D Repeaters are unsupported; put legacy repeaters before the 2D Repeater');
-  const { count, offset, startOpacity, endOpacity, copiesAbove } = settings;
+  const { count, startOpacity, endOpacity, copiesAbove } = settings;
+  const fullCopies = Math.floor(count);
+  const partialCopy = count - fullCopies;
+  const copyCount = Math.ceil(count);
   const groups = new Map();
   for (const c of source.contours)
     if (!groups.has(c.group ?? '')) groups.set(c.group ?? '', groups.size);
   if (
-    source.contours.length * count > 10000 ||
-    source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000 ||
-    groups.size * count > 256
+    source.contours.length * copyCount > 10000 ||
+    source.contours.reduce((sum, c) => sum + c.points.length, 0) * copyCount > 100000 ||
+    groups.size * copyCount > 256
   )
     throw Error(
       '2D Repeater exceeds geometry budget (256 groups / 10000 contours / 100000 points)',
     );
-  if (!count) return { contours: [] };
+  if (!copyCount) return { contours: [] };
   const step = repeaterStep(settings);
-  let matrix = identity();
-  if (offset) {
-    const direction = offset < 0 ? inverse(step) : step;
-    for (let i = 0; i < Math.abs(offset); i++) matrix = multiply(matrix, direction);
-  }
+  let matrix = offsetMatrix(settings, step);
   const copies = [];
-  for (let copy = 0; copy < count; copy++) {
+  for (let copy = 0; copy < copyCount; copy++) {
     const opacity =
-      (count === 1
+      (copyCount === 1
         ? startOpacity
-        : startOpacity + ((endOpacity - startOpacity) * copy) / (count - 1)) / 100;
+        : startOpacity + ((endOpacity - startOpacity) * copy) / (copyCount - 1)) / 100;
+    const tailAlpha = partialCopy > 0 && copy === fullCopies ? partialCopy : 1;
     const transform = (v, handle = false) =>
       checked([
         matrix[0] * v[0] + matrix[2] * v[1] + (handle ? 0 : matrix[4]),
@@ -136,7 +168,7 @@ export function repeatGeometry(source, options) {
       source.contours.map((c, ci) => ({
         id: `${options.prefix}:copy${copy}:c${ci}`,
         group: `${options.prefix}:copy${copy}:g${groups.get(c.group ?? '')}`,
-        repeaterOpacity: opacity,
+        repeaterOpacity: opacity * tailAlpha,
         closed: c.closed,
         points: c.points.map((pt, pi) => ({
           id: `${options.prefix}:copy${copy}:c${ci}:p${pi}`,
@@ -146,7 +178,7 @@ export function repeatGeometry(source, options) {
         })),
       })),
     );
-    if (copy + 1 < count) matrix = multiply(matrix, step);
+    if (copy + 1 < copyCount) matrix = multiply(matrix, step);
   }
   return { contours: (copiesAbove ? copies : copies.reverse()).flat() };
 }
@@ -175,10 +207,10 @@ export function repeaterControls(node) {
   if (node.type !== 'Geometry Repeater') return '';
   const summary =
     node.operation === 'ae-2d'
-      ? '<small class="repeater-limits">2D only. Integer Copies / Offset. After this node use Transform, paint and Output only. Full limits in Help.</small>'
+      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small>'
       : '';
   return (
     summary +
-    '<p class="font-note">Geometry before paint. AE-style 2D: Copies includes the original (0–256); Offset shifts the transform index (−256–256). Both require integers; fractional copies/offsets are unsupported. Anchor is the pivot, Position is the per-step displacement, Scale is %, Rotation is degrees. Transforms accumulate; negative Offset uses the inverse (zero Scale cannot invert). Negative Scale mirrors; zero Scale collapses. Start/End Opacity is % per independent contour group (one copy uses Start). Copies Above puts later copies in front; off puts them behind. After 2D use Transform / Fill / Stroke / Output only; no nested 2D, paint duplication, 3D or timeline. Gradients stay in artboard space. Not complete AE compatibility. Legacy Linear / Radial retain their original behavior.</p>'
+    '<p class="font-note">Geometry before paint. AE-style 2D: Copies includes the original (0 to 256); Offset shifts the transform index (-256 to 256). Fractional Copies materialize ceil(Copies) copies and multiply the final copy alpha by the fractional remainder. Fractional Offset uses integer powers plus one partial step: Position and Rotation are linear, positive Scale is geometric; negative Offset uses the inverse partial step. Negative Scale mirrors for integer transform indices, but fractional Offset with negative Scale is rejected because its fractional power is ambiguous; zero Scale collapses for nonnegative Offset and cannot invert. Anchor is the pivot, Scale is %, and Rotation is degrees. Transforms accumulate. Start/End Opacity is % per independent contour group (one rendered copy uses Start). Copies Above puts later copies in front; off puts them behind. After 2D use Transform / Fill / Stroke / Output only; no nested 2D, paint duplication, 3D or timeline. Gradients stay in artboard space. Adobe does not define these fractional edge cases; this is bounded Nect behavior, not complete AE compatibility. Legacy Linear / Radial retain their original behavior.</p>'
   );
 }

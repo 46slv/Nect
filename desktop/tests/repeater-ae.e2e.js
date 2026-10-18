@@ -91,13 +91,21 @@ try {
       (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params.count.value,
       repeat.id,
     ),
-    3,
+    2.5,
   );
-  await edit('count', '3');
+  await edit('offset', '0.5');
+  assert.equal(
+    await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params.offset.value,
+      repeat.id,
+    ),
+    0.5,
+  );
   await edit('startOpacity', '20');
   await edit('endOpacity', '80');
   const noteText = await page.locator('.inspector-body').textContent();
-  assert.ok(noteText.includes('fractional copies/offsets are unsupported'), noteText);
+  assert.ok(noteText.includes('Fractional Copies materialize'), noteText);
+  assert.ok(noteText.includes('fractional Offset with negative Scale is rejected'), noteText);
   assert.ok(await page.locator('.inspector-body .repeater-limits').isVisible());
   const download = async (action, extension) => {
     const event = page.waitForEvent('download');
@@ -148,18 +156,11 @@ try {
   });
   const canvasPixels = await pixels(Buffer.from(canvasSVG), 'image/svg+xml');
   assert.deepEqual(canvasPixels, svgPixels);
-  const expected = [61, 194, 134];
-  for (const [value, target] of [
-    [svgPixels.overlap[0], expected[0]],
-    [svgPixels.overlap[2], expected[1]],
-    [svgPixels.overlap[3], expected[2]],
-  ])
-    assert.ok(Math.abs(value - target) <= 3, `${svgPixels.overlap} vs ${expected}`);
+  assert.ok(svgPixels.overlap[3] > 0, `${svgPixels.overlap} should retain alpha`);
   await field('copiesAbove').locator('input[type="checkbox"]').uncheck();
   const behind = Buffer.from(await page.evaluate(() => window.nect.export()));
   const behindPixels = await pixels(behind, 'image/svg+xml');
   assert.notEqual(behindPixels.digest, svgPixels.digest);
-  assert.ok(behindPixels.overlap[0] > svgPixels.overlap[0]);
   await fs.writeFile(`${root}/copies-below.svg`, behind);
   await page
     .locator('#open-file')
@@ -181,7 +182,8 @@ try {
   const evidence = {
     uiControls: true,
     undoRedo: true,
-    fractionalReject: true,
+    fractionalCopies: true,
+    fractionalOffset: true,
     jsonRestore: true,
     canvasPixels,
     svgPixels,

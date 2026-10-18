@@ -81,15 +81,17 @@ import {
   appendBlankComposition,
   duplicateArtworkLayer,
   duplicateArtworkLayers,
+  duplicateLayerGeneric,
 } from './artwork-creation.js';
 import { removeArtworkLayer } from './artwork-deletion.js';
-import { moveArtworkLayer } from './artwork-ordering.js';
+import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
+import { prepareCompositionImport } from './project-composition-import.js';
 import { validateGuides, guideDefaults, setLayoutGrid } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
@@ -5638,15 +5640,20 @@ export class CommandSession {
   }
   #observeCommit(action) {
     const before = this.#history.revision;
-    try { return action(); }
-    finally {
+    try {
+      return action();
+    } finally {
       if (this.#history.revision !== before) {
         // An adapter cannot roll back an already committed edit.
-        try { this.#onCommitted(Object.freeze(this.state)); } catch {}
+        try {
+          this.#onCommitted(Object.freeze(this.state));
+        } catch {}
       }
     }
   }
-  commitPrepared(token) { return this.#observeCommit(() => this.#commitPrepared(token)); }
+  commitPrepared(token) {
+    return this.#observeCommit(() => this.#commitPrepared(token));
+  }
   #commitPrepared(token) {
     const p = this.#prepared;
     if (
@@ -5679,7 +5686,9 @@ export class CommandSession {
     this.#prepareSequence++;
     bridge.cancel();
   }
-  dispatch(command) { return this.#observeCommit(() => this.#dispatch(command)); }
+  dispatch(command) {
+    return this.#observeCommit(() => this.#dispatch(command));
+  }
   #dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
     // Cleanup can release the caller's exact token even after a legacy edit made
@@ -5694,6 +5703,19 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    if (type === 'import-composition') {
+      if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
+        throw Error('Invalid composition import payload');
+      const imported = prepareCompositionImport(
+        this.#history.doc,
+        payload.sourceText,
+        payload.compositionId,
+      );
+      this.#history.apply((candidate) => {
+        this.#history.doc = imported;
+      });
+      return this.state;
+    }
     if (type === 'begin-gesture') {
       if (
         this.#gesture ||
@@ -6478,7 +6500,9 @@ export class CommandSession {
         'create-demo-layer',
         'delete-layer',
         'order-layer',
+        'reorder-layer',
         'duplicate-artworks',
+        'duplicate-layer',
         'adopt-image',
         'translate-artworks',
         'align-artworks',
@@ -6502,6 +6526,8 @@ export class CommandSession {
       } else if (type === 'delete-layer') result = removeArtworkLayer(candidate, payload.layerId);
       else if (type === 'order-layer')
         result = moveArtworkLayer(candidate, payload.layerId, payload.direction);
+      else if (type === 'reorder-layer')
+        result = moveArtworkLayerBefore(candidate, payload.layerId, payload.beforeLayerId);
       else if (type === 'duplicate-artworks') {
         if (
           !Array.isArray(payload.layerIds) ||
@@ -6521,6 +6547,8 @@ export class CommandSession {
                 ]
               : duplicateArtworkLayers(candidate, payload.layerIds, options),
         };
+      } else if (type === 'duplicate-layer') {
+        result = duplicateLayerGeneric(candidate, payload.layerId);
       } else if (
         [
           'translate-artworks',

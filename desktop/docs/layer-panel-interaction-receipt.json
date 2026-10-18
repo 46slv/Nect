@@ -1,0 +1,26 @@
+{
+  "base": "5f8f3a5e2b2e2867f6ed49a4a0a8c80f1fa279da",
+  "commit": "see git rev-parse HEAD",
+  "branch": "codex/graph-pan-ui",
+  "acceptance": {
+    "row_click_selection": "implemented",
+    "drag_reorder_one_undo": "implemented",
+    "ctrl_c_v_same_document": "Chrome_UI_pass",
+    "ctrl_d_duplicate": "Chrome_UI_pass",
+    "locked_layer_guard": "reused_existing_core_guard",
+    "build": "passed",
+    "chrome_ui": {
+      "selection": "passed",
+      "drag_reorder": "passed",
+      "undo_redo": "passed",
+      "copy_paste": "passed",
+      "duplicate_shortcut": "passed",
+      "text_input_non_conflict": "passed",
+      "locked_guard": "passed",
+      "serialize_deserialize_roundtrip": "passed_ids_and_order",
+      "save_reload": "not_verified_native_file_chooser_timeout"
+    },
+    "full_test_suite": "baseline_failures_present"
+  },
+  "deferred": "right-click menu recovery from nect-context-menu branch"
+}

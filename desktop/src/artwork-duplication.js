@@ -225,3 +225,43 @@ export function duplicateArtworkLayer(doc, layerId, options) {
   doc.layers.splice(staged.index, 0, staged.layer);
   return { layerId: staged.layerId, outputNodeId: staged.outputNodeId };
 }
+
+/** Generic layer duplication for the layer-panel command surface. */
+export function duplicateLayerGeneric(doc, layerId) {
+  const source = doc?.layers?.find((layer) => layer.id === layerId);
+  if (!source) throw Error('Layer is unavailable; select it again');
+  if (source.locked) throw Error('Unlock this layer before duplicating it.');
+  if (doc.layers.length >= 100) throw Error('Duplicate requires fewer than 100 layers.');
+  const layer = structuredClone(source);
+  const occupied = occupiedArtworkIds(doc);
+  const ids = new Map();
+  const collect = (value) => {
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.id === 'string') ids.set(value.id, null);
+    for (const child of Object.values(value)) collect(child);
+  };
+  collect(layer);
+  for (const oldId of ids.keys()) {
+    let next;
+    do next = uid('copy');
+    while (occupied.has(next) || [...ids.values()].includes(next));
+    ids.set(oldId, next);
+    occupied.add(next);
+  }
+  const remap = (value) => {
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'id' && typeof child === 'string') value[key] = ids.get(child) || child;
+      else if (typeof child === 'string' && ids.has(child)) value[key] = ids.get(child);
+      else remap(child);
+    }
+  };
+  remap(layer);
+  layer.name = `${source.name} copy`;
+  const index = doc.layers.indexOf(source) + 1;
+  const candidate = candidateDocument(doc);
+  candidate.layers.splice(index, 0, structuredClone(layer));
+  validate(candidate);
+  doc.layers.splice(index, 0, layer);
+  return { layerId: layer.id, sourceLayerId: source.id };
+}
