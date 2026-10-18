@@ -16,6 +16,9 @@ const axisRows = process.env.NECT_OS_AXES_SMOKE_OUTPUT
 const verticalRows = process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT
   ? JSON.parse(await readFile(process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT, 'utf8'))
   : [];
+const wrapRows = process.env.NECT_OS_WRAP_SMOKE_OUTPUT
+  ? JSON.parse(await readFile(process.env.NECT_OS_WRAP_SMOKE_OUTPUT, 'utf8'))
+  : [];
 assert.ok(variants.length >= 8, 'Run Windows native typography test with fixture output first');
 const doc = document(),
   layer = doc.layers[0],
@@ -65,7 +68,7 @@ try {
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(
-    ({ variants, din, axisRows, verticalRows }) => {
+    ({ variants, din, axisRows, verticalRows, wrapRows }) => {
       window.isTauri = true;
       window.fontCalls = [];
       window.fontSaves = [];
@@ -102,7 +105,13 @@ try {
               })
             )
               throw Error('Axis outside declared range');
-            const r = [...variants, ...(din ? [din] : []), ...axisRows, ...verticalRows].find(
+            const r = [
+              ...variants,
+              ...(din ? [din] : []),
+              ...axisRows,
+              ...verticalRows,
+              ...wrapRows,
+            ].find(
               (r) =>
                 [
                   'text',
@@ -115,6 +124,9 @@ try {
                 ].every((k) => r[k] === args.request[k]) &&
                 JSON.stringify(r.face) === JSON.stringify(args.request.face) &&
                 r.writingMode === args.request.writingMode &&
+                (r.wrapWidth === undefined
+                  ? args.request.wrapWidth === undefined
+                  : Math.fround(r.wrapWidth) === Math.fround(args.request.wrapWidth)) &&
                 (r.axes === undefined
                   ? args.request.axes === undefined
                   : args.request.axes &&
@@ -144,7 +156,7 @@ try {
         },
       };
     },
-    { variants, din, axisRows, verticalRows },
+    { variants, din, axisRows, verticalRows, wrapRows },
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
@@ -446,6 +458,97 @@ try {
     }
     await cachedRoundtrip('windows-japanese-vertical');
   }
+  if (wrapRows.length) {
+    const [unwrapped, wide, narrow, centered, ended, spaced, tracked] = wrapRows,
+      initial = wrapRows.find((r) => r.wrapWidth === 320),
+      off = wrapRows.find((r) => r.engine === 'directwrite-v2');
+    await choose(exampleDoc(unwrapped, [160, 32]), unwrapped.face.family);
+    await waitOutline(unwrapped);
+    await page.locator('.inspector-body [data-os-wrap]').selectOption('width');
+    await waitOutline(initial);
+    const fractional = wrapRows.find(
+      (r) => Math.fround(r.wrapWidth) === Math.fround(160.123456789),
+    );
+    const fractionalInput = page.locator('.inspector-body [data-os-wrap-width]');
+    await fractionalInput.click();
+    await fractionalInput.fill('160.123456789');
+    await fractionalInput.dispatchEvent('change');
+    await waitOutline(fractional);
+    for (const row of [wide, narrow]) {
+      const el = page.locator('.inspector-body [data-os-wrap-width]');
+      await el.click();
+      await el.fill(String(row.wrapWidth));
+      await el.dispatchEvent('change');
+      await waitOutline(row);
+    }
+    for (const row of [centered, ended, narrow]) {
+      await page
+        .locator('.inspector-body [data-os-setting="alignment"]')
+        .selectOption(['start', 'center', 'end'][row.alignment]);
+      await waitOutline(row);
+    }
+    for (const [key, value, row] of [
+      ['lineSpacing', 2, spaced],
+      ['tracking', 2, tracked],
+    ]) {
+      const el = page.locator(`.inspector-body [data-os-setting="${key}"]`);
+      await el.click();
+      await el.fill(String(value));
+      await el.dispatchEvent('change');
+      await waitOutline(row);
+      await page.locator('[data-action="undo"]').click();
+      await waitOutline(narrow);
+    }
+    await page.locator('.inspector-body [data-os-wrap]').selectOption('off');
+    await waitOutline(off);
+    await page.locator('[data-action="undo"]').click();
+    await waitOutline(narrow);
+    await page.waitForFunction(
+      () =>
+        document.querySelector(
+          '.inspector-body [data-os-setting="writingMode"] option[value="vertical-rl"]',
+        )?.disabled,
+      {},
+      { timeout: 2000 },
+    );
+    assert.equal(
+      await page
+        .locator('.inspector-body [data-os-setting="writingMode"] option[value="vertical-rl"]')
+        .evaluate((option) => option.disabled && option.matches(':disabled')),
+      true,
+    );
+    for (const row of wrapRows.filter(
+      (r) =>
+        r.engine === 'directwrite-v3' &&
+        r.wrapWidth === 96 &&
+        (r.text.endsWith('追加') || r.text === ''),
+    )) {
+      const before = await page.evaluate(() => JSON.stringify(window.nect.document));
+      await page.locator('.inspector-body [data-os-text]').fill(row.text);
+      await page.locator('.inspector-body [data-apply-os-text]').click();
+      await waitOutline(row);
+      assert.deepEqual(
+        await page.evaluate(
+          (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).textWrap,
+          text.id,
+        ),
+        { width: 96 },
+      );
+      await page.locator('[data-action="undo"]').click();
+      await waitOutline(narrow);
+      assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
+    }
+    const saved = await page.evaluate(() => JSON.stringify(window.nect.document)),
+      width = page.locator('.inspector-body [data-os-wrap-width]');
+    await width.click();
+    await width.fill('0');
+    await width.dispatchEvent('change');
+    await page.waitForFunction(() =>
+      document.querySelector('.status').textContent.includes('Wrap width'),
+    );
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), saved);
+    await cachedRoundtrip('windows-os-wrap');
+  }
   assert.deepEqual(errors, []);
   assert.ok(!(await page.evaluate(() => window.fontCalls)).includes('read_system_font'));
   await mkdir('test-results/desktop-font-text', { recursive: true });
@@ -469,6 +572,7 @@ try {
     dinExactFaceMultiline: !!din,
     osVariableAxes: !!axisRows.length,
     japaneseVertical: !!verticalRows.length,
+    osHorizontalWrap: !!wrapRows.length,
     pageErrors: errors,
     nativeWebView2: false,
   };

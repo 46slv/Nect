@@ -1979,7 +1979,7 @@ function desktopAxisControls(n) {
   }<button class="mini" data-reset-os-axes="${n.id}">Reset to font defaults</button></fieldset>`;
 }
 function desktopTypographyControls(n) {
-  if (![2, 3].includes(n.osFont?.version)) return '';
+  if (![2, 3, 4].includes(n.osFont?.version)) return '';
   const disabled = !desktop || current().locked || n.locked || osTextDrafts.has(n.id);
   return `<fieldset ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
     ['size', 'Size', n.params.size.value],
@@ -1998,9 +1998,11 @@ function desktopTypographyControls(n) {
   ]
     .map(
       ([value, label]) =>
-        `<option value="${value}" ${n.writingMode === value ? 'selected' : ''}>${label}</option>`,
+        `<option value="${value}" ${n.writingMode === value ? 'selected' : ''} ${n.textWrap && value === 'vertical-rl' ? 'disabled' : ''}>${label}</option>`,
     )
-    .join('')}</select></label>${desktopAxisControls(n)}</fieldset>`;
+    .join(
+      '',
+    )}</select></label>${desktopAxisControls(n)}<label>Horizontal wrap<select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode" ${n.writingMode === 'vertical-rl' ? 'disabled' : ''}><option value="off" ${n.textWrap ? '' : 'selected'}>Off</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap width" value="${n.textWrap.width}"></label>` : ''}<p class="font-note">Horizontal wrap uses Windows line breaks. Full Japanese kinsoku is not guaranteed. Long words can overflow; artwork is retained without clipping. Auto height may exceed the artboard.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap width overflow — all artwork retained</p>' : ''}</fieldset>`;
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
@@ -5283,7 +5285,7 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.resetOsAxes) {
-    const n = current().nodes.find((n) => n.id === d.resetOsAxes && n.osFont?.version === 3);
+    const n = current().nodes.find((n) => n.id === d.resetOsAxes && n.osFont?.version >= 3);
     if (n && !osTextDrafts.has(n.id))
       void commitOsText(n.id, n.text, {
         axes: Object.fromEntries(n.osFont.axes.map((a) => [a.tag, a.defaultValue])),
@@ -5447,7 +5449,7 @@ function stageOsText(el, composing = false) {
 }
 async function prepareDesktopText(source, face, patch = {}) {
   const same =
-    source.osFont?.version === 3 &&
+    source.osFont?.version >= 3 &&
     ['family', 'name', 'weight', 'style', 'stretch'].every(
       (k) => source.osFont.face[k] === face[k],
     );
@@ -5574,6 +5576,19 @@ app.addEventListener('input', (event) => {
 });
 app.addEventListener('change', (event) => {
   const el = event.target,
+    nodeId = el.dataset.osWrap || el.dataset.osWrapWidth;
+  if (!nodeId) return;
+  const n = current().nodes.find((n) => n.id === nodeId && n.osFont?.version >= 2);
+  if (!n || osTextDrafts.has(n.id)) return;
+  const textWrap = el.dataset.osWrap
+    ? el.value === 'width'
+      ? { width: 320 }
+      : null
+    : { width: el.value.trim() ? Number(el.value) : NaN };
+  void commitOsText(n.id, n.text, { textWrap });
+});
+app.addEventListener('change', (event) => {
+  const el = event.target,
     key = el.dataset.osSetting;
   if (!key) return;
   const n = current().nodes.find((n) => n.id === el.dataset.osNode && n.osFont?.version >= 2);
@@ -5590,7 +5605,7 @@ app.addEventListener('change', (event) => {
   const el = event.target,
     tag = el.dataset.osAxis;
   if (!tag) return;
-  const n = current().nodes.find((n) => n.id === el.dataset.osNode && n.osFont?.version === 3);
+  const n = current().nodes.find((n) => n.id === el.dataset.osNode && n.osFont?.version >= 3);
   if (!n || osTextDrafts.has(n.id)) return;
   if (!el.value.trim()) {
     notify('Enter an axis value', true);

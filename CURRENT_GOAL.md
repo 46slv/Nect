@@ -14,107 +14,61 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-18 Windows font support
+## ACTIVE CHECKPOINT — OS Text wrap, 2026-10-18
 
-Goal: The user's 13:40 JST instruction prioritizes practical complete font support
-before the deferred Illustrator-style path backlog. Preserve authoring and never
-extract/copy/embed Adobe cache/font software. Windows OS references may return
-geometry only. No universal all-font/all-script completion claim is authorized.
+Goal: Continue the user's practical font support before the remaining A direct
+selection, selected-point nudge, Alt independent handle and open-end continuation
+work. Preserve all previous EXE/ZIP checkpoints, point deletion ownership, generated
+path protection, stable identity and one-operation Undo. The parent owns Notion.
 
-Current phase: The font checkpoint is preserved at 4c4af2f (schema 30),
-with verified Library ZIP libfile_2644c94a2edc819198b6fc4226bfb6a2. The new
-same-document Composition Output reference is implemented; validate and build
-its separate schema 31 checkpoint. Notion remains the parent's responsibility.
+Current phase: OS horizontal wrap is implemented and verified; commit/build/deliver
+this coherent checkpoint, then advance directly to path interactions. Windows DirectWrite uses whole-word wrapping at an explicit positive
+width, auto height and no clipping. Long unbreakable words retain all glyphs and
+report overflow. Windows line-break rules are used; full Japanese kinsoku and
+vertical wrap are explicitly unsupported. Existing Text wrapping remains intact.
 
-Proven: Point Delete ownership is in bad7a6c; OS geometry and DIN Alternate GDI
-output were distributed in 6021b3e. Editable schema 28 OS Text is in 0662979.
-The delivered bc5ad1a adds real DirectWrite face/weight selection, exact-face
-Unicode shaping, multiline, size/tracking/line spacing/kerning/standard ligatures,
-portable schema 29 snapshots and missing-font preservation. See
-desktop/docs/windows-text-shaping.md for exact contracts, test evidence and limits.
-Thirty native tests, 18 OS model/DOM tests, 43 existing outline/variable tests and
-the production Edge/CSP typography flow pass. Its native build/startup and Library
-upload succeeded: libfile_cf685ae2da148191bf0ee28b6ff90571. Browser IPC was explicitly
-stubbed with independently captured native geometry, not WebView2 acceptance.
-The DIN repair preserves 637 GDI families after DirectWrite initialization and
-exposes 633 unified real faces, including DIN Alternate Bold/700. Native and
-production fixture workflows prove lowercase/multiline DIN, portable reload and
-exact SVG/path output. No reactivation/account change is needed for that repair.
-The schema 30 candidate adds geometry-only variable axes and vertical snapshots.
-Native 33/33, OS model/DOM 20/20 and existing outline/variable/point 49/49 pass.
-Production Edge/CSP covers axes/reset/range failure, vertical mode/spacing, Undo,
-JSON save/reload, cached-font absence, SVG/path parity and PNG; IPC remains a
-fixture using separately tested native output. Actual WebView2 IME/DPI is open.
+Proven: 4a0a277 is pushed and distributed with Composition references; Library
+libfile_a365dacaf9dc819184aec949bd8476d0, ZIP SHA256
+694AD543AC71D42BDB20CDFD949112EAC4187B5C44A3A03B17E70D1351682D9B.
+It includes font checkpoint 4c4af2f (OS axes, Japanese vertical, DIN isolated factory
+and GDI interop). Source/receipts/details are in PR24 issuecomment-6246568900.
+New native suite passes 34/34, including actual wrapping, fractional widths, spacing,
+alignment, overflow and malformed/vertical requests. New model/codec wrap checks
+pass 3/3 with actual native fixtures; production Edge/CSP wrap controls, width/off/Undo, alignment, spacing, refusal,
+JSON reload and SVG/PNG passed; 45 focused model/DOM checks pass. A legacy
+wrap-schema test now explicitly selects its pre-wrap schema instead of assuming
+the current document default.
 
-Next task: Commit and separately build/package this font checkpoint. Then inspect
-the existing Reference/evaluation model and add or extend the smallest equivalent
-for another same-document Composition's Output: stable target ID, live source
-updates, normal placement/Transform/duplication, alpha/holes without a baked
-background, save/reload, explicit missing targets and self/indirect cycle refusal.
-The user's 14:51 JST request authorizes this next bounded feature; external-file
-links and video are excluded. Do not stop at commit/push or ZIP boundaries.
+Next task: Commit and build a separately identified schema32 package; continue
+the four remaining
+path interactions after comparing current implementation, without stopping at
+commit/distribution. Do not redo completed behavior.
 
-Approach: One source/build writer; bounded native read-only adapters; common JS
-Session validates candidates and owns Undo/codec. Pure evaluation/export use
-persisted contours without font services. All unsupported operations fail
-atomically. Preserve existing variable axes/named instances and static vertical,
-rich/path layout rather than silently flattening or replacing them.
+Approach: Existing textWrap property and common set-os-font-text preparation,
+with atomic source/settings/outline adoption, stale/locked/IME guards and Undo.
+New OS reference version4 / directwrite-v3 includes wrapWidth and overflow; older
+unwrapped references retain their prior contract. Saved geometry requires no font
+service to render/export. Native request remains geometry-only, never font bytes.
 
-Done for next: Actual OS variable-axis and vertical/multiline font evidence,
-portable geometry snapshots and a separately versioned verified package; continue
-practical font acceptance before path extensions.
+Done for next: Actual wrap controls and placement/tracking/lineSpacing/alignment,
+width changes/off/Undo, JSON reopen and SVG/PNG are coherent and verified.
 
-State: codex/desktop-production-20261016, Composition candidate based on 4c4af2f. Blank/old
-documents remain schema 27 or their prior version until new features are authored;
-schema 28/29/30 documents require their corresponding reader. Existing bc5ad1a,
-6021b3e/bad7a6c and older
-b9fe3f/schema19 packages remain unchanged and are not the new font checkpoint.
+State: codex/desktop-production-20261016, HEAD 4a0a277, wrap work uncommitted.
+LOCAL_WAIT: Native WebView2 IME/high-DPI/full manual editing. Exposed tools have no
+native UI controller. Resume on formal native-control capability or hands-on user
+evidence; this does not block independent implementation. OS rich/path/character,
+custom leading, color/bitmap remain explicit limits. No universal completeness.
 
-LOCAL_WAIT: Actual WebView2 IME/high-DPI/picker and subjective typography acceptance.
-The exposed host tools have no native UI controller; browser automation and actual
-native adapter tests are available. Resume this row on native-control capability
-or the user's hands-on evidence; it does not block independent font work.
-OS-route wrap, custom leading, rich/path/character adjustments and color/bitmap
-fonts remain explicit limits; other existing routes retain their
-documented abilities. Legacy GDI-only families retain their narrower script and
-single-line limits. Do not describe font support as universally complete.
+Authority: Current delegated user instruction permits code/tests/commit/dev
+non-force push/PR update/EXE/ZIP/Library. No main merge/release/force push or
+credentials/auth/permission changes. No Adobe cache/font software extraction or
+bundling. Do not mutate Notion.
 
-Authority: Current user-approved code/tests/commit/dev-branch non-force push/PR
-update and EXE/ZIP/Library delivery. No main merge, release, force push or auth/
-permission changes. No Notion mutation. Path A direct selection, point nudge,
-Alt one-sided handles and endpoint extension remain deferred behind fonts.
+Double-check: critic gate invoked for saved format/layout boundary. Question is
+whether wrap preserves source text, coordinate anchoring, prepared snapshots and
+existing routes. Local native/codec/transaction/browser evidence is the bounded
+verification route; consultation not-required, zero external sends. No unresolved
+product choice; full kinsoku is expressly outside the current capability claim.
 
-Handoff: CONTINUE_CURRENT_TASK through this coherent font checkpoint. Earlier
-requirements/history remain in Git and the existing canonical Notion references;
-do not recreate a parallel tracker or expose private artwork/font bytes.
-
-
-## Composition Output reference checkpoint — 2026-10-18
-
-The user's 14:51 JST request adds same-document reusable Composition parts.
-Composition Reference stores a stable compositionId, reads the source's live
-Output even when hidden, and retains an explicit missing target. Self/indirect
-cycles reject atomically. The node's Position, normal artwork Move, duplication,
-paint-aware Transform and ordered Join preserve independent fill/stroke/gradient/
-image appearance and transparent holes. No background is baked. Geometry-only
-consumers require explicit Convert to Path; source typography export restrictions
-and warnings remain effective. Schema 31 persists references and paint routing;
-old documents retain their prior schema until the new feature is authored.
-
-Evidence: related model/DOM regressions 81/81, including 7 Composition contract
-checks, plus 27/27 point/gesture/insertion checks; production Edge/CSP dropdown, numeric Position, actual canvas drag (including one instance inside Join),
-painted Transform canvas controls, duplicate, source navigation/edit reflection, Transform wiring, Undo and JSON
-reload passed. Actual exported PNG alpha at background/single/hole/other-instance/
-overlap pixels was [0,128,0,128,192]. Gradient IDs, stroke and nested Image output
-retention were checked. Font production regression again passed DIN, axes,
-Japanese vertical, settings, save/reload and SVG/PNG with explicit native fixtures.
-Native WebView2 IME/high-DPI remains the same LOCAL_WAIT above.
-
-Double-check gate: critic, saved-format/appearance boundary; question: whether
-Composition identity, cycles, cache invalidation and paint/alpha survive without
-silently changing existing Path semantics. Local counterexample review adopted
-explicit paint routing, typed unconfigured-target states and propagation of source
-export restrictions. Consultation not-required; local codec/atomic-command/
-production raster evidence resolves this bounded decision. Zero external sends;
-no material unresolved design decision, cycle 1. Scope excludes external-file
-links and video; edit source paints in the source Composition.
+Handoff: CONTINUE_CURRENT_TASK. Keep progressing through eligible source work;
+only declare human-only remaining work after checking the actual route.

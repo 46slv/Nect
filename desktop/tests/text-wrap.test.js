@@ -94,6 +94,7 @@ test('strict wrap schema, horizontal/path conflicts and atomic setters preserve 
   assert.equal(t.textWrap, undefined);
   Object.assign(t, before);
   setTextWrap(layer, t.id, { width: 90 }, { default: font });
+  doc.schemaVersion = 7; // This assertion intentionally exercises the pre-wrap schema.
   assert.throws(() => validate(doc), /schemaVersion 8/);
   doc.schemaVersion = 8;
   validate(doc);

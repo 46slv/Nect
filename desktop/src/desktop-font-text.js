@@ -1,3 +1,4 @@
+import { validateTextWrap } from './text-wrap.js';
 import { parseOsContours } from './os-font-outline.js';
 const exact = (value, keys) =>
   value &&
@@ -70,17 +71,8 @@ export function validateDesktopAxes(axes) {
 }
 export function desktopTextIntent(n, face, patch = {}) {
   validateDesktopFace(face);
-  if (
-    n?.type !== 'Text' ||
-    n.variation ||
-    n.pathAttachment ||
-    n.textWrap ||
-    n.leading ||
-    n.characterArrangement
-  )
-    throw Error(
-      'Windows Text requires unwrapped text without character/path/asset-variable adjustments',
-    );
+  if (n?.type !== 'Text' || n.variation || n.pathAttachment || n.leading || n.characterArrangement)
+    throw Error('Windows Text requires text without character/path/asset-variable adjustments');
   if (
     ['offsets', 'styles', 'transforms', 'kerningPairs'].some(
       (k) => Object.keys(n.characterPositions?.[k] || {}).length,
@@ -115,8 +107,11 @@ export function desktopTextIntent(n, face, patch = {}) {
   const writingMode = patch.writingMode ?? n.writingMode ?? 'horizontal-tb';
   if (!['horizontal-tb', 'vertical-rl'].includes(writingMode))
     throw Error('Unsupported Windows Text writing mode');
-  const retained = n.osFont?.version === 3 && equalFace(n.osFont.face, face);
-  if (retained || patch.axes !== undefined || writingMode === 'vertical-rl') {
+  const wrap = Object.hasOwn(patch, 'textWrap') ? (patch.textWrap ?? undefined) : n.textWrap;
+  validateTextWrap(wrap, writingMode, n.pathAttachment);
+  if (wrap && Math.fround(wrap.width) <= 0) throw Error('Windows wrap width is too small');
+  const retained = n.osFont?.version >= 3 && equalFace(n.osFont.face, face);
+  if (retained || wrap || patch.axes !== undefined || writingMode === 'vertical-rl') {
     const axes = patch.axes ?? (retained ? validateDesktopAxes(n.osFont.axes) : {});
     if (
       !axes ||
@@ -127,21 +122,27 @@ export function desktopTextIntent(n, face, patch = {}) {
       )
     )
       throw Error('Invalid Windows Text axis request');
-    return { ...result, axes: { ...axes }, writingMode };
+    return {
+      ...result,
+      axes: { ...axes },
+      writingMode,
+      ...(wrap ? { wrapWidth: wrap.width } : {}),
+    };
   }
   return result;
 }
 const equalFace = (a, b) =>
   ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'].every((k) => a[k] === b[k]);
-export function validateDesktopText(n, schemaVersion = 30) {
+export function validateDesktopText(n, schemaVersion = 32) {
   const ref = n.osFont;
-  const extended = ref?.version === 3;
+  const wrapped = ref?.version === 4,
+    extended = ref?.version >= 3;
   if (
-    schemaVersion < (extended ? 30 : 29) ||
+    schemaVersion < (wrapped ? 32 : extended ? 30 : 29) ||
     n.type !== 'Text' ||
     n.font !== 'default' ||
     !exact(ref, ['version', 'family', 'style', 'face', 'outline', ...(extended ? ['axes'] : [])]) ||
-    ![2, 3].includes(ref.version)
+    ![2, 3, 4].includes(ref.version)
   )
     throw Error('Invalid shaped Windows Text schema');
   validateDesktopFace(ref.face);
@@ -166,12 +167,26 @@ export function validateDesktopText(n, schemaVersion = 30) {
       'lineCount',
       'glyphCount',
       ...(extended ? ['axes', 'writingMode', 'advanceHeight'] : []),
+      ...(wrapped ? ['wrapWidth', 'wrapOverflow'] : []),
     ]) ||
-    raw.engine !== (extended ? 'directwrite-v2' : 'directwrite-v1') ||
+    raw.engine !== (wrapped ? 'directwrite-v3' : extended ? 'directwrite-v2' : 'directwrite-v1') ||
     !equalFace(raw.face, ref.face)
   )
     throw Error('Invalid shaped Windows outline snapshot');
   const intent = desktopTextIntent(n, ref.face);
+  if (
+    wrapped
+      ? !Number.isFinite(raw.wrapWidth) ||
+        raw.wrapWidth <= 0 ||
+        raw.wrapWidth > 100000 ||
+        !Number.isFinite(intent.wrapWidth) ||
+        Math.fround(raw.wrapWidth) !== Math.fround(intent.wrapWidth) ||
+        typeof raw.wrapOverflow !== 'boolean' ||
+        raw.wrapOverflow !==
+          Math.fround(raw.advanceWidth) > Math.fround(raw.wrapWidth + Math.fround(0.01))
+      : intent.wrapWidth !== undefined
+  )
+    throw Error('Windows wrap needs fresh preparation');
   if (extended) {
     validateDesktopAxes(ref.axes);
     validateDesktopAxes(raw.axes);
@@ -232,7 +247,8 @@ export function desktopFontTextPath(n, position, size, boundsOf) {
         ? bounds[0][n.crossAlignment === 'center' ? 1 : n.crossAlignment === 'end' ? 2 : 0]
         : raw.advanceWidth - raw.ascent
       : n.referenceBounds === 'advance'
-        ? raw.advanceWidth * (n.alignment === 'center' ? 0.5 : n.alignment === 'end' ? 1 : 0)
+        ? (raw.wrapWidth ?? raw.advanceWidth) *
+          (n.alignment === 'center' ? 0.5 : n.alignment === 'end' ? 1 : 0)
         : bounds[0][n.alignment === 'center' ? 1 : n.alignment === 'end' ? 2 : 0],
     y = vertical
       ? n.referenceBounds === 'advance'
@@ -248,11 +264,13 @@ export function desktopFontTextPath(n, position, size, boundsOf) {
 }
 export function desktopOsReference(raw) {
   return {
-    version: raw.engine === 'directwrite-v2' ? 3 : 2,
+    version: raw.engine === 'directwrite-v3' ? 4 : raw.engine === 'directwrite-v2' ? 3 : 2,
     family: raw.face.family,
     style: raw.face.style,
     face: structuredClone(raw.face),
     outline: structuredClone(raw),
-    ...(raw.engine === 'directwrite-v2' ? { axes: structuredClone(raw.axes) } : {}),
+    ...(['directwrite-v2', 'directwrite-v3'].includes(raw.engine)
+      ? { axes: structuredClone(raw.axes) }
+      : {}),
   };
 }

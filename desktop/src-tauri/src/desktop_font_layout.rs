@@ -25,6 +25,8 @@ pub struct DesktopTextRequest {
     pub axes: Option<std::collections::BTreeMap<String, f32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writing_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap_width: Option<f32>,
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -62,6 +64,10 @@ pub struct DesktopOutline {
     pub writing_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advance_height: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap_width: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap_overflow: Option<bool>,
 }
 #[cfg(windows)]
 mod native {
@@ -105,6 +111,7 @@ mod native {
             axis_values: *const f32,
             axis_count: i32,
             vertical: i32,
+            wrap_width: f32,
             axis_callback: AxisCallback,
             callback: extern "C" fn(
                 *const Point,
@@ -340,6 +347,12 @@ mod native {
             || request.tracking.abs() > 10000.0
             || !request.line_spacing.is_finite()
             || !(0.1..=100.0).contains(&request.line_spacing)
+            || request.wrap_width.is_some_and(|v| {
+                !v.is_finite()
+                    || v <= 0.0
+                    || v > 100000.0
+                    || request.writing_mode.as_deref() == Some("vertical-rl")
+            })
             || request.alignment > 2
             || request.axes.as_ref().is_some_and(|axes| {
                 axes.len() > 32
@@ -360,7 +373,8 @@ mod native {
         let family: Vec<u16> = face.family.encode_utf16().chain(Some(0)).collect();
         let name: Vec<u16> = face.name.encode_utf16().chain(Some(0)).collect();
         let text: Vec<u16> = request.text.encode_utf16().collect();
-        let extended = request.axes.is_some() || request.writing_mode.is_some();
+        let wrapped = request.wrap_width.is_some();
+        let extended = wrapped || request.axes.is_some() || request.writing_mode.is_some();
         let requested_axes = request.axes.clone().unwrap_or_default();
         let axis_tags: Vec<u32> = requested_axes
             .keys()
@@ -368,7 +382,9 @@ mod native {
             .collect();
         let axis_values: Vec<f32> = requested_axes.values().copied().collect();
         let mut result = DesktopOutline {
-            engine: if extended {
+            engine: if wrapped {
+                "directwrite-v3"
+            } else if extended {
                 "directwrite-v2"
             } else {
                 "directwrite-v1"
@@ -398,6 +414,8 @@ mod native {
                 None
             },
             advance_height: if extended { Some(0.0) } else { None },
+            wrap_width: request.wrap_width,
+            wrap_overflow: if wrapped { Some(false) } else { None },
         };
         let status = unsafe {
             nect_shape_desktop_text(
@@ -422,11 +440,15 @@ mod native {
                 } else {
                     0
                 },
+                result.wrap_width.unwrap_or(0.0),
                 outline_axis,
                 outline,
                 &mut result as *mut _ as *mut c_void,
             )
         };
+        if let Some(width) = result.wrap_width {
+            result.wrap_overflow = Some(result.advance_width > width + 0.01);
+        }
         if status != 0 {
             return Err(match status{
             -2147023728=>"Selected Windows font/face is no longer available; saved outlines are preserved".into(),
@@ -534,6 +556,98 @@ mod tests {
             alignment: 0,
             axes: None,
             writing_mode: None,
+            wrap_width: None,
+        }
+    }
+    #[test]
+    fn actual_os_horizontal_wrap_preserves_text_and_refuses_vertical_or_bad_width() {
+        let face = installed()
+            .unwrap()
+            .into_iter()
+            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
+            .expect("Meiryo acceptance font");
+        let mut req = request(
+            face.clone(),
+            "日本語の折返しと文字間隔を確認します。 Latin words AV office\n次の段落です。",
+        );
+        req.size = 32.0;
+        let original = prepare(req.clone()).unwrap();
+        let mut rows = vec![original];
+        req.wrap_width = Some(160.0);
+        let wide = prepare(req.clone()).unwrap();
+        assert_eq!(wide.engine, "directwrite-v3");
+        assert!(wide.line_count > 2);
+        assert_eq!(wide.wrap_width, Some(160.0));
+        assert_eq!(wide.writing_mode.as_deref(), Some("horizontal-tb"));
+        assert_eq!(wide.axes.as_ref().unwrap().len(), 0);
+        let wide_lines = wide.line_count;
+        rows.push(wide);
+        req.wrap_width = Some(96.0);
+        let narrow = prepare(req.clone()).unwrap();
+        assert!(narrow.line_count >= wide_lines);
+        let start = narrow.points.clone();
+        let span = |o: &DesktopOutline| {
+            o.points
+                .iter()
+                .map(|p| p[1])
+                .fold(f32::NEG_INFINITY, f32::max)
+                - o.points.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min)
+        };
+        let original_height = span(&narrow);
+        rows.push(narrow);
+        req.alignment = 1;
+        let centered = prepare(req.clone()).unwrap();
+        assert_ne!(centered.points, start);
+        rows.push(centered);
+        req.alignment = 2;
+        rows.push(prepare(req.clone()).unwrap());
+        req.alignment = 0;
+        req.line_spacing = 2.0;
+        let spaced = prepare(req.clone()).unwrap();
+        assert!(span(&spaced) > original_height);
+        rows.push(spaced);
+        req.line_spacing = 1.2;
+        req.tracking = 2.0;
+        rows.push(prepare(req.clone()).unwrap());
+        req.tracking = 0.0;
+        req.text = "Supercalifragilisticexpialidocious".into();
+        req.wrap_width = None;
+        let word = prepare(req.clone()).unwrap();
+        req.wrap_width = Some(32.0);
+        let overflow = prepare(req.clone()).unwrap();
+        assert_eq!(overflow.wrap_overflow, Some(true));
+        assert_eq!(overflow.line_count, 1);
+        assert_eq!(word.points, overflow.points);
+        assert_eq!(word.glyph_count, overflow.glyph_count);
+        rows.push(overflow);
+        req.text = " \n   ".into();
+        let blank = prepare(req.clone()).unwrap();
+        assert!(blank.points.is_empty());
+        rows.push(blank);
+        let mut ui = request(face, &rows[0].text);
+        ui.size = 32.0;
+        ui.wrap_width = Some(320.0);
+        rows.push(prepare(ui.clone()).unwrap());
+        ui.wrap_width = None;
+        ui.axes = Some(std::collections::BTreeMap::new());
+        ui.writing_mode = Some("horizontal-tb".into());
+        rows.push(prepare(ui.clone()).unwrap());
+        ui.wrap_width = Some(160.123456789);
+        rows.push(prepare(ui.clone()).unwrap());
+        ui.wrap_width = Some(96.0);
+        ui.text.push_str("追加");
+        rows.push(prepare(ui.clone()).unwrap());
+        ui.text.clear();
+        rows.push(prepare(ui).unwrap());
+        for width in [0.0, -1.0, f32::NAN, 100001.0] {
+            req.wrap_width = Some(width);
+            assert!(prepare(req.clone()).is_err());
+        }
+        req.wrap_width = Some(96.0);
+        req.writing_mode = Some("vertical-rl".into());
+        assert!(prepare(req).is_err());
+        if let Some(path) = std::env::var_os("NECT_OS_WRAP_SMOKE_OUTPUT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
         }
     }
     #[test]

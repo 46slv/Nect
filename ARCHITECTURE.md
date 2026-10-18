@@ -204,3 +204,14 @@ export restrictions propagate separately from editable character provenance.
 The structural/geometry/depth budgets refuse expansion rather than truncating it.
 Old documents keep their schema until this feature is authored. No external-file
 identity, storage or render authority is introduced by this reference.
+
+
+OS Text horizontal wrap (schema32, OS reference v4 / directwrite-v3) reuses
+textWrap.width in the common prepared-text command. The immutable outline records
+requested wrapWidth and overflow, axes and writing mode; source text retains only
+its explicit newlines. DirectWrite whole-word breaks preserve long unbreakable
+spans without clipping, while width/spacing/alignment/text and generated geometry
+commit atomically. Layout advances and visible-bound anchoring keep their existing
+coordinate meanings. Horizontal layout height grows independently of artboard
+size; PNG retains normal artboard clipping. Full Japanese kinsoku and vertical
+wrap are not claimed. Old unwrapped native requests/snapshots retain v1/v2 meanings.

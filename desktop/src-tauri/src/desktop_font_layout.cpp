@@ -223,12 +223,12 @@ extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* d
 using DesktopPathCallback=void(*)(const NativePoint*,const unsigned char*,int,float,float,float,int,int,void*);
 extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wchar_t* faceNameInput,int weight,int style,int stretch,
     const wchar_t* text,int length,float size,float tracking,float lineSpacing,int kerning,int ligatures,int alignment,
-    const UINT32* axisTags,const float* axisValues,int axisCount,int vertical,DesktopAxisCallback axisCallback,DesktopPathCallback callback,void* data){
+    const UINT32* axisTags,const float* axisValues,int axisCount,int vertical,float wrapWidth,DesktopAxisCallback axisCallback,DesktopPathCallback callback,void* data){
     if(length<0||length>4096||!std::isfinite(size)||size<0.01f||size>10000||!std::isfinite(tracking)||std::abs(tracking)>10000||!std::isfinite(lineSpacing)||lineSpacing<0.1f||lineSpacing>100||style<0||style>2||weight<1||weight>999||stretch<1||stretch>9||alignment<0||alignment>2)return E_INVALIDARG;
     ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
     ComPtr<IDWriteFontFace3> face;ComPtr<IDWriteFontFaceReference> reference;
     hr=resolveFace(factory.Get(),fonts.Get(),familyNameInput,faceNameInput,weight,style,stretch,face);if(FAILED(hr))return hr;
-    if(axisCount<-1||axisCount>32||vertical<0||vertical>1)return E_INVALIDARG;
+    if(axisCount<-1||axisCount>32||vertical<0||vertical>1||!std::isfinite(wrapWidth)||wrapWidth<0||wrapWidth>100000||(wrapWidth>0&&vertical))return E_INVALIDARG;
     std::vector<AxisInfo> axes;std::vector<DWRITE_FONT_AXIS_VALUE> resolvedAxes;
     if(axisCount>=0){
         hr=readAxes(face.Get(),axes);if(FAILED(hr))return hr;if(axisCount!=static_cast<int>(axes.size()))return E_INVALIDARG;
@@ -264,9 +264,9 @@ extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wcha
     }
     if(vertical&&(FAILED(format->SetReadingDirection(DWRITE_READING_DIRECTION_TOP_TO_BOTTOM))||FAILED(format->SetFlowDirection(DWRITE_FLOW_DIRECTION_RIGHT_TO_LEFT))))return E_FAIL;
     DWRITE_FONT_METRICS metrics;face->GetMetrics(&metrics);float ascent=size*metrics.ascent/metrics.designUnitsPerEm;
-    if(FAILED(format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP))||FAILED(format->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM,size*lineSpacing,ascent)))return E_INVALIDARG;
+    if(FAILED(format->SetWordWrapping(wrapWidth>0?DWRITE_WORD_WRAPPING_WHOLE_WORD:DWRITE_WORD_WRAPPING_NO_WRAP))||FAILED(format->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM,size*lineSpacing,ascent)))return E_INVALIDARG;
     ComPtr<IDWriteTextLayout> layout;
-    hr=factory->CreateTextLayout(text,length,format.Get(),1000000,1000000,&layout);if(FAILED(hr))return hr;
+    hr=factory->CreateTextLayout(text,length,format.Get(),wrapWidth>0?wrapWidth:1000000,1000000,&layout);if(FAILED(hr))return hr;
     ComPtr<IDWriteTextLayout1> layout1;if(FAILED(layout.As(&layout1)))return E_NOTIMPL;
     ComPtr<IDWriteTextLayout2> layout2;layout.As(&layout2);
     if(vertical&&(!layout2||FAILED(layout2->SetVerticalGlyphOrientation(DWRITE_VERTICAL_GLYPH_ORIENTATION_DEFAULT))))return E_NOTIMPL;
@@ -282,7 +282,7 @@ extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wcha
     DWRITE_TEXT_METRICS textMetrics;if(FAILED(layout->GetMetrics(&textMetrics))||textMetrics.lineCount>256)return E_BOUNDS;
     float advanceHeight=textMetrics.height;DWRITE_TEXT_METRICS1 extendedMetrics;
     if(layout2&&SUCCEEDED(layout2->GetMetrics(&extendedMetrics)))advanceHeight=extendedMetrics.heightIncludingTrailingWhitespace;
-    layout->SetMaxWidth(std::max(1.0f,textMetrics.widthIncludingTrailingWhitespace));
+    if(wrapWidth<=0)layout->SetMaxWidth(std::max(1.0f,textMetrics.widthIncludingTrailingWhitespace));
     if(vertical)layout->SetMaxHeight(std::max(1.0f,advanceHeight));
     layout->SetTextAlignment(alignment==1?DWRITE_TEXT_ALIGNMENT_CENTER:alignment==2?DWRITE_TEXT_ALIGNMENT_TRAILING:DWRITE_TEXT_ALIGNMENT_LEADING);
     ComPtr<IDWriteTextAnalyzer2> analyzer;

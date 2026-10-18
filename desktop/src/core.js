@@ -2435,6 +2435,8 @@ export function evaluate(
         result.fingerprint = signature(result);
       } else if (n.type === 'Text' && n.osFont) {
         result = osFontTextPath(n, read('position'), read('size'), pathBounds);
+        if (n.osFont.outline.wrapOverflow)
+          warnings.push(`${n.name}: Wrap width overflow; all artwork is retained without clipping`);
         const reason =
           'OS font Text character adjustments and canvas caret editing are not supported; edit Text in Inspector';
         textLayouts.set(n.id, {
@@ -3922,7 +3924,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30, 31,
+      27, 28, 29, 30, 31, 32,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -5723,7 +5725,9 @@ export class CommandSession {
         delete source.osFont;
         source.font = 'default';
       } else {
-        const modern = ['directwrite-v1', 'directwrite-v2'].includes(payload.outline?.engine);
+        const modern = ['directwrite-v1', 'directwrite-v2', 'directwrite-v3'].includes(
+          payload.outline?.engine,
+        );
         const settings = payload.settings || {};
         if (
           settings.axes !== undefined &&
@@ -5742,6 +5746,7 @@ export class CommandSession {
                 'alignment',
                 'axes',
                 'writingMode',
+                'textWrap',
               ].includes(k),
           ) ||
           (!modern && Object.keys(settings).length) ||
@@ -5780,12 +5785,14 @@ export class CommandSession {
               next.params[param].value = settings[key];
             }
           }
+          if (Object.hasOwn(settings, 'textWrap'))
+            next.textWrap = settings.textWrap === null ? undefined : clone(settings.textWrap);
           if (settings.kerning !== undefined) next.kerning = settings.kerning;
           if (settings.alignment !== undefined) next.alignment = settings.alignment;
           if (settings.writingMode !== undefined) next.writingMode = settings.writingMode;
           if (
             settings.axes !== undefined &&
-            (next.osFont.version !== 3 ||
+            (![3, 4].includes(next.osFont.version) ||
               Object.keys(settings.axes).length !== next.osFont.axes.length ||
               next.osFont.axes.some(
                 (a) => Math.fround(settings.axes[a.tag]) !== Math.fround(a.value),
@@ -5805,7 +5812,7 @@ export class CommandSession {
         Object.assign(source, next);
         candidate.schemaVersion = Math.max(
           candidate.schemaVersion,
-          source.osFont.version === 3 ? 30 : modern ? 29 : 28,
+          source.osFont.version === 4 ? 32 : source.osFont.version === 3 ? 30 : modern ? 29 : 28,
         );
         validateOsFontText(source, candidate.schemaVersion);
       }
@@ -5845,7 +5852,9 @@ export class CommandSession {
       }
       let path, outlineUnits;
       if (type === 'bake-os-text-outline') {
-        if (['directwrite-v1', 'directwrite-v2'].includes(payload.outline?.engine)) {
+        if (
+          ['directwrite-v1', 'directwrite-v2', 'directwrite-v3'].includes(payload.outline?.engine)
+        ) {
           if (parameters(source).some(([, q]) => q.source || q.expression))
             throw Error('Disconnect Text parameters before direct OS conversion');
           const prepared = {
