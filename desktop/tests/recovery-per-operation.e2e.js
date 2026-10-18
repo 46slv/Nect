@@ -73,6 +73,12 @@ try {
         )
           return [];
         if (command === 'enable_close_guard' || command === 'release_project') return null;
+        if (command === 'choose_unsaved') return 'discard';
+        if (command === 'open_svg_source')
+          return [
+            'fixture.svg',
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="12" height="12" fill="red"/></svg>',
+          ];
         if (command === 'begin_recovery') return `recovery-${++next}`;
         if (command === 'write_recovery') {
           const copy = structuredClone(args),
@@ -282,6 +288,14 @@ try {
   await page.locator('[data-recovery-status]').click();
   await exact();
   rows.push('Write failure and retry');
+  const oldCopy = await page.evaluate(() =>
+    structuredClone(Object.values(window.recoveryDurable).at(-1)),
+  );
+  await page.locator('[data-action="import-svg"]').click();
+  const imported = await exact();
+  assert.notEqual(imported.disk.id, oldCopy.id);
+  assert.deepEqual(await page.evaluate((id) => window.recoveryDurable[id], oldCopy.id), oldCopy);
+  rows.push('Document import keeps prior recovery identity');
   assert.deepEqual(errors, []);
   await mkdir('test-results/recovery-per-operation', { recursive: true });
   await page.screenshot({ path: 'test-results/recovery-per-operation/result.png' });
