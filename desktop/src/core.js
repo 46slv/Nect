@@ -6521,6 +6521,7 @@ export class CommandSession {
         result = appendArtwork(candidate, payload.artworkType, {
           at: payload.at,
           name: payload.name,
+          writingMode: payload.writingMode,
         });
       else if (type === 'create-blank-layer')
         result = appendBlankComposition(candidate, { name: payload.name });

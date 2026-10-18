@@ -14,25 +14,21 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Node picker category scroll (2026-10-19)
+## ACTIVE CHECKPOINT — REQ-210 Text Tool group (2026-10-19)
 
-Goal: Add one-level category toggles whose explicitly opened heading aligns to the
-node picker list top, preserving authored state and unrelated operations.
-Current phase: implemented, verified and development source pushed; Draft PR29 created.
-Proven: Independent copy/branch codex/toggle-list-scroll-20261019 begins at
-e8c9db5225f6e26e36b0d69d3acb3320829b9fb0. Focused tests 18/18 and Vite build
-(124 modules) pass. Actual Chrome on dedicated localhost:5201 verifies final-category
-heading alignment, closed-category search, Japanese alias/Enter/one Undo, short-tail
-space and stable native Left/Right collapse/reopen. Page/dialog remain at zero.
-Evidence: desktop/docs/toggle-list-scroll-20261019.md; ignored local screenshots/logs.
-Remote-verified source: 9830310db16db7ccc7ecf4f96aee4b2577e990bc.
-Draft PR: https://github.com/46slv/Nect/pull/29, targeting the PR28 integration branch.
-Later checkpoint-only commits do not change the tested production source.
-Next task: Review the bounded Draft PR; native/physical IME acceptance remains separate.
-Approach: Ordinary branch commit/push and Draft PR against the exact PR28 branch.
-Done for next: Review the exact published source; any follow-on scope gets separate ownership.
-State: Only picker/catalog/style, focused tests/fixture and checkpoint/evidence docs changed.
-Previous source worktrees, user artwork and existing localhost:5199 remain untouched.
-Authority: Current delegation permits code/tests/docs, dev branch commit/push and Draft PR.
-Mainline merge, release/distribution and auth/permission changes remain excluded.
+Goal: Separate Text Tool activation from authoring, with held horizontal/vertical
+variant selection and explicit Canvas creation using the shared Session command.
+Current phase: implementation and focused verification complete; development publication.
+Proven: Focused unit/DOM tests 27/27 PASS, Vite build PASS (125 modules), actual
+Note Chrome isolated fixture on localhost:5203 verifies non-dirty selection/cancel,
+both directions, one Undo/Redo, Redo retention and existing Text/Inspector preservation.
+Evidence: desktop/docs/req210-text-tool-20261019.md and the reproducible fixture.
+Next task: Publish the scoped development commit and Draft PR against the exact base branch.
+Approach: codex/req210-text-tool-20261019, independent copy from
+80e32d16bf3dcb59625f305284b78b85f3d19948; sole source writer.
+Done for next: Remote full SHA and Draft PR verified; native/physical IME gaps explicit.
+State: Text Tool/controller, shared optional creation direction, focused tests,
+related E2E creation gestures and documentation only. Existing 5199/5201 untouched.
+Authority: Current delegation permits code/tests/docs and dev commit/push/Draft PR.
+Main merge, release/distribution and auth/permission changes remain excluded.
 Handoff: CONTINUE_CURRENT_TASK.

@@ -160,6 +160,38 @@ header {
   padding: 2px;
   font-size: 18px;
 }
+.tools [data-tool='Text'] {
+  position: relative;
+  font-size: 16px;
+  white-space: nowrap;
+}
+.tools [data-tool='Text']::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid currentColor;
+}
+.text-tool-menu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  box-shadow: 0 3px 12px #0002;
+}
+.text-tool-menu button {
+  text-align: left;
+  padding: 6px 10px;
+}
+.text-tool-menu [aria-checked='true'] {
+  font-weight: bold;
+  box-shadow: inset 3px 0 currentColor;
+}
 .middle {
   min-width: 0;
   display: flex;

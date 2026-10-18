@@ -9,6 +9,44 @@ const fixture = () => {
   return { session, send };
 };
 
+test('Text creation direction is a shared atomic command and preserves existing authored Text', () => {
+  const { session: s, send } = fixture();
+  const first = send('create-artwork', { artworkType: 'Text', at: [40, 50] });
+  send('set-text-content', { layerId: first.layerId, nodeId: first.nodeId, text: 'Existing Text' });
+  const existing = s.snapshot().layers.at(-1);
+  for (const writingMode of ['horizontal-tb', 'vertical-rl']) {
+    const before = serialize(s.snapshot()),
+      revision = s.state.expectedRevision;
+    send('create-artwork', { artworkType: 'Text', at: [120, 90], writingMode });
+    const created = serialize(s.snapshot()),
+      text = s.snapshot().layers.at(-1).nodes[0];
+    assert.equal(text.writingMode, writingMode);
+    assert.deepEqual(text.params.position.value, [120, 90]);
+    assert.deepEqual(
+      s.snapshot().layers.find((l) => l.id === first.layerId),
+      existing,
+    );
+    assert.equal(s.state.expectedRevision, revision + 1);
+    send('undo');
+    assert.equal(serialize(s.snapshot()), before);
+    send('redo');
+    assert.equal(serialize(s.snapshot()), created);
+  }
+  send('undo');
+  const before = serialize(s.snapshot()),
+    state = s.state,
+    future = s.historyView.future.length;
+  for (const payload of [
+    { artworkType: 'Text', writingMode: 'sideways' },
+    { artworkType: 'Circle', writingMode: 'vertical-rl' },
+  ]) {
+    assert.throws(() => send('create-artwork', { at: [0, 0], ...payload }), /writing mode/);
+    assert.equal(serialize(s.snapshot()), before);
+    assert.deepEqual(s.state, state);
+    assert.equal(s.historyView.future.length, future);
+  }
+});
+
 test('creation/duplication/order/deletion share stable identities and exact one-step History', () => {
   const { session: s, send } = fixture(),
     original = serialize(s.snapshot());

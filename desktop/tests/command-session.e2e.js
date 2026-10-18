@@ -143,6 +143,7 @@ try {
     created.id,
   );
   await page.locator('[data-tool="Text"]').click();
+  await page.locator('.artboard').click();
   await page
     .locator('.graph .node')
     .filter({ has: page.locator('[data-text]') })

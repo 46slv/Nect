@@ -31,6 +31,7 @@ async function reset() {
     window.nect.load(JSON.stringify(document()));
   });
   await page.locator('[data-tool="Text"]').click();
+  await page.locator('.artboard').click();
   await selectText();
   await page.waitForTimeout(50);
 }
