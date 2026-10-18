@@ -18,7 +18,9 @@ import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
+import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import './style.css';
+const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
   title,
@@ -6179,6 +6181,10 @@ function textDraft(el) {
   return draft;
 }
 function beginCanvasTextEdit(layerId, event) {
+  if (!graphemeEditingAvailable) {
+    notify('Text editing requires grapheme segmentation support in this runtime', true);
+    return false;
+  }
   const layer = history.doc.layers.find((l) => l.id === layerId);
   if (!layer || layer.locked || !layerShown(layer) || session.hasTextComposition) return false;
   const result = evaluate(layer, fonts, history.doc.imageAssets);
@@ -6251,7 +6257,7 @@ function beginCanvasTextEdit(layerId, event) {
 }
 function canvasTextContext(result = renderEvaluation) {
   // Geometry must read the displayed draft; current() deliberately owns committed authoring targets.
-  if (!canvasTextEdit || displayLayer().id !== canvasTextEdit.layerId) return null;
+  if (!canvasTextEdit || result?.error || displayLayer().id !== canvasTextEdit.layerId) return null;
   const n = displayLayer().nodes.find((n) => n.id === canvasTextEdit.nodeId);
   if (!n) return null;
   const occurrence =
@@ -6480,6 +6486,29 @@ app.addEventListener('focusout', (e) => {
   }
 });
 app.addEventListener('beforeinput', (e) => {
+  if (e.target.matches('textarea[data-text],textarea[data-os-text]')) {
+    if (!graphemeEditingAvailable) {
+      e.preventDefault();
+      notify('Text editing requires grapheme segmentation support in this runtime', true);
+      return;
+    }
+    const el = e.target;
+    const range = graphemeDeletionRange(el.value, {
+      start: el.selectionStart,
+      end: el.selectionEnd,
+      inputType: e.inputType,
+      composing: composing || e.isComposing || !!textDrafts.get(el.dataset.text)?.composition,
+    });
+    // Extend only unsafe deletions; keep native input and its Undo history.
+    if (
+      !e.defaultPrevented &&
+      range &&
+      (el.selectionStart !== el.selectionEnd ||
+        (range.start < el.selectionStart && el.selectionStart < range.end) ||
+        [...el.value.slice(range.start, range.end)].length > 1)
+    )
+      el.setSelectionRange(range.start, range.end);
+  }
   if (!e.target.matches('textarea[data-text]')) return;
   const el = e.target,
     draft = textDraft(el);
@@ -6491,6 +6520,65 @@ app.addEventListener('beforeinput', (e) => {
     inputType: e.inputType,
     isComposing: e.isComposing,
   };
+});
+const nativeTextMovements = new WeakMap();
+const nativeTextSelection = (el) => ({
+  start: el.selectionStart,
+  end: el.selectionEnd,
+  selectionDirection: el.selectionDirection,
+});
+const nativeTextFocus = (range) =>
+  range.selectionDirection === 'backward' ? range.start : range.end;
+function settleNativeTextMovement(el) {
+  const before = nativeTextMovements.get(el);
+  nativeTextMovements.delete(el);
+  if (
+    !before ||
+    !el.isConnected ||
+    el.value !== before.raw ||
+    composing ||
+    textDrafts.get(el.dataset.text)?.composition
+  )
+    return;
+  const after = nativeTextSelection(el),
+    delta = nativeTextFocus(after) - nativeTextFocus(before);
+  if (!delta) return;
+  const correction = graphemeMovementCorrection(el.value, {
+    ...after,
+    logicalDirection: delta < 0 ? 'backward' : 'forward',
+    extend: before.extend,
+  });
+  if (correction)
+    el.setSelectionRange(correction.start, correction.end, correction.selectionDirection);
+  if (el.matches('.canvas-text-editor')) updateCanvas(true);
+}
+app.addEventListener('keydown', (e) => {
+  const el = e.target;
+  if (!el.matches('textarea[data-text],textarea[data-os-text]')) return;
+  settleNativeTextMovement(el);
+  if (
+    !graphemeEditingAvailable ||
+    e.defaultPrevented ||
+    e.isComposing ||
+    e.keyCode === 229 ||
+    composing ||
+    textDrafts.get(el.dataset.text)?.composition ||
+    e.ctrlKey ||
+    e.metaKey ||
+    e.altKey ||
+    !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)
+  )
+    return;
+  const before = { ...nativeTextSelection(el), raw: el.value, extend: e.shiftKey };
+  nativeTextMovements.set(el, before);
+  // Run after each native default action, including held-key repeats.
+  setTimeout(() => {
+    if (nativeTextMovements.get(el) === before) settleNativeTextMovement(el);
+  }, 0);
+});
+app.addEventListener('keyup', (e) => {
+  if (e.target.matches('textarea[data-text],textarea[data-os-text]'))
+    settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
   if (e.target.matches('[data-grid-opacity]')) {

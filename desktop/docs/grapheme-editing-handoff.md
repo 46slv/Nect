@@ -1,4 +1,34 @@
-# Grapheme editing module: awaiting application connection
+# Grapheme editing: module and application connection
+
+## Integration checkpoint (2026-10-18)
+
+The parallel integrator connected the module in `main.js` and applied the
+Canvas caret proposal with an additional NFC-layout to original-UTF-16 mapping.
+The adapter extends unsafe native deletion ranges before draft capture and
+corrects native arrow movement after each default action, including repeats.
+Native input and native Undo/Redo retain ownership of text changes. Graph Text,
+Canvas Text and OS Text fields share the boundary adapter; composition bypasses
+it. Missing `Intl.Segmenter` explicitly refuses editing. Graph Ctrl+A remains
+separate from native text Ctrl+A. Failed layout preview does not tear down the
+active native editor or introduce fallback shaping.
+
+The original nine Canvas acceptance TODOs now run as ordinary tests. The 88
+focused tests pass, including raw decomposed/NFC caret mapping. The production
+CSP application test `tests/grapheme-app.e2e.js` covers 14 authored fixtures:
+all use real native keys/deletion/Undo/Redo, draft commit, Session Undo/Redo and
+JSON reopen. ASCII, `ffi` and decomposed `e + acute` also exercise actual Canvas
+pointer and Shift selection. The other 11 use the real Graph Text field because
+the existing layout rejects combining/control sequences or lacks the selected
+font's glyphs. Those existing shaping/font-coverage limits remain explicit;
+this integration does not establish rendering support for those scripts/emoji.
+Actual browser Save download and Open file selection restore the edited JSON
+exactly. A fresh profile with `Intl.Segmenter` removed refuses Canvas/Graph edits
+and preserves authored state. Native desktop filesystem IO is not claimed here.
+Physical IME is unverified; composition bypass is synthetic. Generated receipts
+are under ignored `test-results/grapheme-app/` and `test-results/integration/`.
+
+The following sections retain the original lane's module and experiment evidence.
+Their pending-connection statements describe the pre-integration checkpoint.
 
 ## Ownership and source
 

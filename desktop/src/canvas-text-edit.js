@@ -4,13 +4,24 @@ import {
   multiplyMatrices,
   transformCharacterPoint,
 } from './character-geometry.js';
+import { graphemeBoundaries } from './grapheme-editing.js';
 
 // Carets follow the same evaluated outlines as the Canvas, including mixed fonts,
 // character adjustments and downstream transforms. The native input stays transparent.
 export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults = {}) {
-  const chars = Array.from(node.text.replace(/\r\n?/g, '\n'));
-  const offsets = [0];
-  for (const char of chars) offsets.push(offsets.at(-1) + char.length);
+  const nativeText = node.text.replace(/\r\n?/g, '\n');
+  const boundaries = graphemeBoundaries(nativeText);
+  // Layout source indices address NFC scalars; native textarea indices address
+  // the original UTF-16 string. Map only legal grapheme edges between them.
+  const offsets = new Map([[0, 0]]),
+    ranges = [];
+  for (let i = 1; i < boundaries.length; i++) {
+    const start = boundaries[i - 1],
+      end = boundaries[i];
+    offsets.set(ranges.length, start);
+    for (const char of nativeText.slice(start, end).normalize('NFC')) ranges.push({ start, end });
+    offsets.set(ranges.length, end);
+  }
   const vertical = node.writingMode === 'vertical-rl';
   const matrix = occurrence.matrix;
   const carets = new Map();
@@ -33,9 +44,10 @@ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults 
   };
   const selections = [];
   for (const glyph of layout.characters || []) {
-    const start = offsets[glyph.sourceIndex],
-      end = offsets[glyph.sourceIndex + 1];
-    if (start === undefined || end === undefined) continue;
+    const start = offsets.get(glyph.sourceIndex),
+      end = offsets.get(glyph.sourceIndex + 1),
+      range = ranges[glyph.sourceIndex];
+    if (!range) continue;
     const shape = characterTransform(glyph.pivot, glyph.offset, glyph.scale, glyph.rotation);
     const combined = multiplyMatrices(matrix, shape);
     const advance =
@@ -45,23 +57,24 @@ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults 
       glyph.size;
     const after = [...glyph.base];
     after[vertical ? 1 : 0] += advance;
-    carets.set(start, {
-      index: start,
-      points: lineFor(
-        glyph.base,
-        glyph.size,
-        fonts[glyph.font],
-        glyph.width,
-        glyph.height,
-        combined,
-      ),
-    });
-    if (!carets.has(end))
+    if (start !== undefined)
+      carets.set(start, {
+        index: start,
+        points: lineFor(
+          glyph.base,
+          glyph.size,
+          fonts[glyph.font],
+          glyph.width,
+          glyph.height,
+          combined,
+        ),
+      });
+    if (end !== undefined && !carets.has(end))
       carets.set(end, {
         index: end,
         points: lineFor(after, glyph.size, fonts[glyph.font], glyph.width, glyph.height, combined),
       });
-    selections.push({ start, end, points: characterBoxPoints(glyph, matrix) });
+    selections.push({ ...range, points: characterBoxPoints(glyph, matrix) });
   }
   // Empty text/lines still have an editable insertion position.
   const first = layout.characters?.[0];
@@ -72,7 +85,8 @@ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults 
     ? layout.lines
     : [{ sourceStart: 0, sourceEnd: 0 }]
   ).entries()) {
-    const index = offsets[line.sourceStart] ?? node.text.length;
+    const index =
+      offsets.get(line.sourceStart) ?? ranges[line.sourceStart]?.start ?? nativeText.length;
     if (carets.has(index)) continue;
     const base = [...origin];
     const distance = layout.lineOffsets?.[i] ?? i * size * (defaults.lineSpacing || 1.2);
@@ -82,7 +96,10 @@ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults 
       base[1] = (first?.base[1] ?? origin[1]) + distance - (layout.lineOffsets?.[firstLine] || 0);
     carets.set(index, { index, points: lineFor(base, size, fonts[node.font]) });
   }
-  return { carets: [...carets.values()].sort((a, b) => a.index - b.index), selections };
+  return {
+    carets: [...carets.values()].sort((a, b) => a.index - b.index),
+    selections,
+  };
 }
 
 export function nearestTextCaret(geometry, point) {
