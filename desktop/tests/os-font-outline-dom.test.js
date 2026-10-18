@@ -243,7 +243,10 @@ test('OS font picker commits geometry only and rejects cancel, pending duplicate
   $('.inspector-body [data-cancel-os-text]').click();
   assert.equal($('.inspector-body [data-os-text]').value, '日本語');
   $('.inspector-body [data-clear-os-text]').click();
-  assert.equal(live().osFont, undefined);
+  assert.equal($('.inspector-body [data-clear-os-text]').textContent, 'Use DejaVu Sans');
+  assert.equal(live().osFont.family, 'DIN Alternate');
+  assert.equal(serialize(win.nect.document), good);
+  assert.match($('.message').textContent, /OS font retained:.*Missing glyphs/);
   // Restore a geometry-only saved document even when preparation cannot run.
   win.nect.load(good);
   assert.equal(

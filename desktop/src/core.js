@@ -6015,6 +6015,20 @@ export class CommandSession {
         validateOsFontText(source, candidate.schemaVersion);
       }
       validate(candidate);
+      if (type === 'clear-os-font-text') {
+        // Replacing a saved OS appearance must be all-or-nothing. Validation
+        // alone checks IDs/types, not coverage or layout in the replacement face.
+        const replacement = evaluate(
+          { ...layer, output: source.id },
+          resolveFonts(candidate, this.#fonts()),
+          candidate.imageAssets,
+          candidate,
+        );
+        if (replacement.error)
+          throw Error(
+            `OS font retained: replacement font cannot render this Text. ${replacement.error}`,
+          );
+      }
       serialize(candidate);
       return { candidate, result: { nodeId: source.id } };
     }

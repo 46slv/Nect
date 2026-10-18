@@ -2075,7 +2075,7 @@ function textControls(n) {
           : osFontFamilies?.some(
               (f) => f.family === n.osFont.family && f.styles.includes(n.osFont.style),
             );
-    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${!desktop ? 'Saved outlines · Windows required to edit' : osFontCatalogPending ? 'Checking font…' : active ? '' : osFontFamilies ? 'Font unavailable · saved outlines retained' : 'Font availability not checked'}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Switch to regular Text</button></div>`;
+    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${!desktop ? 'Saved outlines · Windows required to edit' : osFontCatalogPending ? 'Checking font…' : active ? '' : osFontFamilies ? 'Font unavailable · saved outlines retained' : 'Font availability not checked'}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
   }
   const osControls = desktop
     ? `<section class="os-font-outlines"><button class="mini" data-os-text-font="${n.id}" ${current().locked ? 'disabled' : ''}>Choose OS font…</button><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
@@ -5584,7 +5584,7 @@ app.addEventListener('click', async (e) => {
       notify('Apply or cancel the Text edit first', true);
       return;
     }
-    commandChange('clear-os-font-text', { nodeId: d.clearOsText }, 'Regular Text selected');
+    commandChange('clear-os-font-text', { nodeId: d.clearOsText }, 'Font replaced: DejaVu Sans');
     return;
   }
   if (d.refreshOsFonts !== undefined) {

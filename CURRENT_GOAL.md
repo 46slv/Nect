@@ -14,50 +14,35 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Image Keyer and appearance Mask
+## ACTIVE CHECKPOINT — Explicit safe font replacement
 
-Goal: Non-destructive color Keyer after Image and closed shape Mask after Image
-or Composition appearance. Keep original alpha, editable nodes, common preview/
-SVG/PNG, Undo and exact reopen. This bounded checkpoint is implemented/delivered.
-Current phase: Verified Windows trial delivered; parent owns user follow-up.
-Proven: Source9cde8a44e8028c1527310da0a73d902a035be939, schema35. Focused model/
-DOM38 pass. Production Edge/CSP checks actual node creation/settings, Bypass,
-Mask output upgrade, inversion, Alpha Viewer, Undo/reopen exact SVG and PNG
-download; source alpha128/255 preserved. Actual isolated Windows EXE/WebView2
-repeats controls/Undo/reopen/pixel checks, real native IPC returns654 faces,
-no stub/page errors. Owned diagnostic PID33608 stopped; user's process/document
-never attached to or modified.14 packaged examples re-export exact SVG offline.
-Evidence: desktop/tests/image-effects*, desktop/docs/image-effects.md;
-task/native-image-effects/receipt.json, package IMAGE-EFFECTS-UI-RECEIPT.json and
-NATIVE-IMAGE-EFFECTS-RECEIPT.json. Older image-tone tests retain7 schema/fingerprint/
-CLI fixture failures, also reproduced at c4fcfb0 in an isolated source copy.
-Delivery: Library libfile_d60022e6d96c81918b7825b50fde0858;
-task/Nect-Desktop-trial-20261018-9cde8a4.zip,4,058,140 bytes/65 entries.
-ZIP SHA256 36A8009DBCE05F64C1780C14AA14C640EA8D8208A3EBF9C29CBC923BA3AF9470.
-EXE9,790,464 bytes, SHA256
-E17BBA8BD66DE747133818793B80A429E632262E3006183B628EBE8308F15553.
-Library finalize succeeded; returned EA version0 applied and hash unchanged.
-Private QR replacement remains separate: libfile_d837e47e864481918f8a3bdf52a8d81c,
-bold-3-to-2-svg-qr-verified.json, schema33, compatible a85aa74 onward. Prior real
-EXE load/SVG/QR decode confirmed. No private design or font software in Git/ZIP.
-Approach: Keyer RGB distance/range/softness multiplies original alpha, retains
-straight partial RGB and zeroes fully transparent RGB; bounded4MP PNG processing,
-8 active Keyers/document. Tiny evaluated recipes use one derived-asset resolver
-for rendering and luminance. Mask preserves painted-group children, closed Path,
-invert and source blockers; shared SVG luminance mask. Explicit Use as output
-upgrades Image Output to regular Output, stable ID/custom name/one Undo; locks
-protected. Mask is PaintedPath; lossy geometric conversion is refused. Viewer
-checkerboard/Alpha are temporary inspection state. No feather, AI cutout, video,
-dedicated texel eyedropper, or image-only downstream consumers after Mask.
-Next task: Parent supplies the verified Library links and collects actual-use
-feedback. Hands-on Windows chooser/IME/high-DPI remains unverified; do not infer
-it from browser controls. No further source/build worker is active or needed.
-Done for next: Current delegated features and trial are concrete/reviewable;
-follow-up work follows the latest parent/user instruction.
-State: codex/desktop-production-20261016; source9cde8a4 normally pushed, remote SHA
-verified. This delivery-record update changes docs only. Single source/build
-writer remains this task until parent explicitly reassigns it.
-Authority: Latest parent-delegated user requests. Edit/test/commit/dev push/PR,
-EXE and Library permitted. No main merge/release/force/auth changes/Notion writes.
-Double-check: Bounded local contract/reuse/pixel review; no external sends.
-Handoff: CONTINUE_CURRENT_TASK for authorized follow-up; parent receives outcome.
+Goal: Close one remaining missing-font/substitution path without duplicating the
+existing DirectWrite exact-face guard or font-picker preview validation.
+Current phase: Implemented and production-browser verified; commit/Windows trial
+and a narrow isolated native check are next. No broad font-completeness claim.
+Proven: The old clear-os-font-text removed the stored OS appearance without
+testing the bundled replacement's coverage/layout. It now evaluates the complete
+replacement Text before committing. Failure retains JSON, saved outlines,
+revision and history. The UI names source OS face and the replacement action
+Use DejaVu Sans; success names DejaVu Sans too. Supported replacement is one Undo.
+Focused model/DOM12 passed, including missing replacement font, Japanese glyph
+refusal and supported Latin replacement/Undo/Redo/reopen. Production Edge/CSP
+tests/font-switch.e2e.js passes actual controls and exact SVG after reopen.
+Keyer/Mask8 model checks passed. No native source/schema changes.
+Approach: Reuse common evaluator and its missing-glyph/layout refusal; do not
+introduce fallback chains or replace any exact-face DirectWrite repairs. One
+source/build writer. Never operate on the user's running window/document.
+Next task: Commit verified source, one Windows build and narrow native font-switch
+acceptance; deliver a versioned trial and source/Library evidence to parent.
+Done for next: Concrete usable checkpoint, normal dev push/PR, exact source and
+binary hashes, focused evidence and honest manual-acceptance limits.
+State: codex/desktop-production-20261016 at d775951; only this font-switch slice
+is dirty. Last delivered source9cde8a4 and Library libfile_d60022e6d96c81918b7825b50fde0858
+remain unchanged. QR libfile_d837e47e864481918f8a3bdf52a8d81c also unchanged.
+Authority: Parent delegated current user font follow-up; edit/test/commit/dev
+push/PR/EXE/Library authorized. No main merge/release/permission/reset use/Notion.
+Double-check: Skill invoked; local critic of atomic failure, exact source/target
+labels, coverage and one Undo. Consultation not-required: existing common
+evaluator plus failing-before/passing-after tests settle the bounded fix.
+External sends0, no unresolved saved-format or authority decision, cycle1.
+Handoff: CONTINUE_CURRENT_TASK.

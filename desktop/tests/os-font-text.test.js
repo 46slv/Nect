@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { parseFont } from '../src/fonts.js';
 import {
   CommandSession,
   document,
@@ -25,7 +27,7 @@ const raw = (text = 'ABC', family = 'Available OS font') => ({
   ],
   types: [0, 1, 1, 161],
 });
-function fixture() {
+function fixture(options) {
   const doc = document(),
     layer = doc.layers[0],
     text = node('Text'),
@@ -35,7 +37,7 @@ function fixture() {
   fill.params.path.source = text.id;
   output.params.path.source = fill.id;
   layer.nodes = [text, fill, output];
-  const session = new CommandSession(doc),
+  const session = new CommandSession(doc, options),
     send = (type, payload = {}) =>
       session.dispatch({
         ...session.state,
@@ -136,9 +138,38 @@ test('cached OS Text permits position/size changes and conversion to paths while
   assert.equal(f.live().osFont, undefined);
   f.send('undo');
   assert.equal(f.live().type, 'Text');
+  const preserved = serialize(f.session.snapshot());
+  assert.throws(() => f.send('clear-os-font-text'), /OS font retained/);
+  assert.equal(serialize(f.session.snapshot()), preserved);
+});
+test('explicit default-face replacement preflights coverage/layout, preserves failures and is one Undo', async () => {
+  const bytes = await fs.readFile(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
+    font = parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+    f = fixture({ fonts: () => ({ default: font }) });
+  f.send('set-os-font-text', { text: '日本語', outline: raw('日本語') });
+  const saved = serialize(f.session.snapshot()),
+    revision = f.session.state.expectedRevision,
+    svg = exportSVG(f.session.snapshot());
+  assert.throws(() => f.send('clear-os-font-text'), /OS font retained:.*Missing glyphs/);
+  assert.equal(serialize(f.session.snapshot()), saved);
+  assert.equal(f.session.state.expectedRevision, revision);
+  assert.equal(exportSVG(f.session.snapshot()), svg);
+  f.send('set-os-font-text', { text: 'ABC', outline: raw() });
+  const before = serialize(f.session.snapshot());
   f.send('clear-os-font-text');
   assert.equal(f.live().osFont, undefined);
   assert.equal(f.live().font, 'default');
+  const after = serialize(f.session.snapshot());
+  assert.notEqual(after, before);
+  assert.equal(evaluate(f.session.snapshot().layers[0], { default: font }).error, null);
+  assert.equal(
+    exportSVG(deserialize(after), { default: font }),
+    exportSVG(f.session.snapshot(), { default: font }),
+  );
+  f.send('undo');
+  assert.equal(serialize(f.session.snapshot()), before);
+  f.send('redo');
+  assert.equal(serialize(f.session.snapshot()), after);
 });
 test('existing character identity maps survive a supported OS text edit', () => {
   const f = fixture(),
