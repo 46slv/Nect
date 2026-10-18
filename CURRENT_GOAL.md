@@ -14,39 +14,43 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Text canvas drag repair
+## ACTIVE CHECKPOINT — Local recovery autosave
 
-Goal: Restore Select/Move dragging of Text/OS Font, preserving text/font/outline
-data, clear text-edit distinction, locks,1 drag/Undo and transformed coordinates.
-Current phase: Reproduced and fixed; production UI passed, commit/build and narrow
-isolated EXE acceptance are next. Deliver this usable fix before autosave.
-Proven: At9f2db9c a click followed immediately by drag opened the text editor on
-the second pointer-down and left position220/240 instead of250/260. The new
-pointer-up decision only accepts completed stationary clicks;>=3px movement,
-including out-and-back, cancellation/stale Session/revision cannot enter editing.
-Source: desktop/src/main.js. No schema/core/font/native/storage change.
-Browser evidence: tests/text-drag.e2e.js, test-results/text-drag/receipt.json;
-8 movement variants (normal/saved OS Text, rotation/negative Transform, zoom,
-locked source position with movable parent),4 lock cases, intentional double
-click/Escape, net-zero drag, exact one Undo/Redo. Text/font/OS snapshot unchanged.
-7 existing canvas gesture/caret checks pass. Initial pre-fix probe is retained
-under test-results/text-drag/before-fix.json. Explicit Move node stage is unchanged;
-an overlapping source marker was classified as test-point setup and excluded
-from final-artwork drag tests, rather than altering its intended semantics.
-Approach: Reuse existing move resolver/gesture and supported graph capsule.
-No conversion to outlines, new font, implicit Transform or graph expansion.
-Next task: One Windows trial and isolated actual pointer/Undo/reopen checks,
-including real saved Windows Text; then immediate Library/source/hash report.
-Done for next: Usable verified Text drag trial, normal dev push/PR and clean state.
-State: codex/desktop-production-20261016 atdf04323; only Text drag UI/test/docs dirty.
-Copy/Paste source9f2db9c, Library libfile_4d2327cc40988191b52293428b3bca97 remains
-delivered. Font fix0fcffc8 and Mask/Keyer are preserved. No user window touched.
-Queue: next local recovery autosave (debounce, status, restart choice, app-owned
-isolated storage, atomic replacement/bounded good copy, no manual-file overwrite
-or existing-data deletion); then remaining font work. Desktop storage/lifecycle
-read showed no autosave hook yet; legacy LiveSave still needs a focused lookup.
+Goal: Recover editing after restart through app-owned local autosave, without
+automatically overwriting a manually chosen project file.
+Current phase: Authorized next checkpoint; read-only reconnaissance only.
+Proven: Desktop storage/lifecycle and main.js have no autosave hook found yet.
+Legacy LiveSave still needs a focused lookup before deciding whether to reuse it.
+Approach: Debounce document mutations; show success/failure status; offer recovery
+on restart. Keep different documents/windows distinct. Preserve embedded images
+and fonts. Use atomic replacement, a last-good copy and small bounded retention.
+Never delete existing user recovery data or touch the live user document/window.
+Next task: Read desktop/src/storage.js, document-lifecycle.js, native
+document_storage.rs/acceptance_storage.rs and locate legacy LiveSave. Implement
+through existing storage authority and common Session boundaries. Verify isolated
+mutation -> autosave -> restart -> restore equality and a write-failure case.
+Done for next: Focused checks plus isolated real-EXE recovery, usable trial,
+normal dev push/PR, confirmed Library artifact and exact source/hash report.
+State: codex/desktop-production-20261016; Text source6861ee4 built and uploaded.
+No autosave code changes yet. Remaining font work follows recovery autosave.
 Authority: Parent-delegated accepted user priorities; one writer, edit/test/
 commit/dev push/PR/EXE/Library. No main merge/release/permission/reset/Notion.
-Double-check: Existing gate invoked; local evidence settles the bounded UI
-arbitration, consultation not-required, external sends0. Debugging owner reused.
-Handoff: CONTINUE_CURRENT_TASK; deliver repair before the autosave checkpoint.
+Handoff: NEW_TASK; completed Text repair delivery and context compaction mark a
+safe boundary before the independent storage/lifecycle checkpoint. Parent owns
+coordination; do not create a second source/build writer.
+
+Latest delivered Text repair: source6861ee4ee98730f6b677bc2d9393d305cf2392d3,
+Library libfile_55dc531b24008191ae1818877d34c278,
+task/Nect-Desktop-trial-20261018-6861ee4.zip (4,095,783 bytes /79 entries),
+ZIP SHA256 9B45BE5E191EDBBF85F49E285264910BAD0FC5C77C12D611E3C5AAC7CD3FB740;
+EXE SHA256 2963FF1FF0E61FFC704F9FE91EA96D7E92FA12C1E9A1CC6BCF5DDB6398B2B197.
+Verified:7 canvas model checks; production8 movement/4 lock cases; intentional
+double-click and net-zero drag; actual isolated EXE normal/negative Transform/
+real Windows saved Text pointer drag, one Undo/Redo, reopen exact SVG and unchanged
+text/font/outline snapshots. Native diagnostic stopped; live user app untouched.
+Evidence: desktop/docs/text-drag-repair.md and distributed BUILD/STARTUP,
+NATIVE-TEXT-DRAG-RECEIPT/TEXT-DRAG-UI-RECEIPT. Existing16 examples retained without
+mass retest;1 new native example checked. Physical pointer/IME/high-DPI unverified.
+Schema35; Copy/Paste9f2db9c, font fix0fcffc8 and Mask/Keyer remain included.
+Text gate: local evidence sufficient, external sends0; no schema/core/font/native/
+storage change. Autosave is explicitly absent from this delivered trial.
