@@ -18,8 +18,10 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Add incoming/outgoing Angle° and Length to the existing Curve/Multi Path
 point panel, synchronized with Canvas, retaining Vector2 JSON and existing X/Y.
-Current phase: implementation and focused verification complete; publishing a
-bounded development checkpoint against codex/req210-text-tool-20261019.
+Current phase: implementation and focused verification complete; source pushed,
+Draft PR31 open against codex/req210-text-tool-20261019.
+Remote-verified implementation: 39a5800e5168c08542f18f18ed1b5d7df0c1909c.
+Draft PR: https://github.com/46slv/Nect/pull/31. No CI checks/reviews are reported yet.
 Proven: 31/31 focused core regression tests and production build PASS; Note Chrome
 155 disposable fixture PASS for both handles, all modes, both synchronization
 directions, invalid values/Escape, Undo/Redo, JSON, protection and focus/scroll.

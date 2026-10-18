@@ -4,6 +4,10 @@ Base: `f35a4659d6569b13a5a5448b1526ea5fac7ab6d9` on
 `codex/req210-text-tool-20261019`; development branch:
 `codex/req31-handle-polar-20261019`.
 
+Remote-verified implementation: `39a5800e5168c08542f18f18ed1b5d7df0c1909c`.
+[Draft PR31](https://github.com/46slv/Nect/pull/31), stacked on PR30; no CI checks
+or external reviews are reported at this checkpoint.
+
 Confirmed/Must source: [REQ-31](https://app.notion.com/p/3e0fd279a6f38157b288ea8e88d56052).
 Its direction/length acceptance is implemented for Curve and Multi Path owned
 points. This is a bounded gap closure, not full Inspector acceptance or release.
