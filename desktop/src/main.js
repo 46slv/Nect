@@ -434,7 +434,13 @@ import {
   listDesktopFontAxes,
   shapeDesktopText,
   DocumentLifecycle,
+  beginRecovery,
+  writeRecovery,
+  listRecovery,
+  readRecovery,
+  acknowledgeRecovery,
 } from './storage.js';
+import { RecoveryAutosave } from './recovery-autosave.js';
 import {
   parseFont,
   resolveFonts,
@@ -798,6 +804,12 @@ const documents = new DocumentLifecycle({
       )
     ),
 });
+const recovery = desktop ? new RecoveryAutosave({
+  begin: beginRecovery,
+  write: writeRecovery,
+  acknowledge: acknowledgeRecovery,
+  status: updateRecoveryStatus,
+}) : null;
 let openRequest = 0,
   imageRequest = 0,
   imagePick = null,
@@ -2427,7 +2439,7 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -4673,6 +4685,40 @@ function updateDocumentStatus() {
   document.title = `${dirty ? '* ' : ''}${name} — Nect`;
   const status = document.querySelector('[data-document-status]');
   if (status) status.textContent = documents.saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved';
+  recovery?.observe({ generation: documents.generation, contents: readDocument(), name: history.doc.name || 'Untitled', dirty });
+  updateRecoveryStatus();
+}
+function updateRecoveryStatus() {
+  const el = document.querySelector('[data-recovery-status]');
+  if (!el || !recovery) return;
+  const state = recovery.state;
+  el.textContent = ({ ready: 'Recovery ready', pending: 'Recovery pending', saving: 'Saving recovery…', saved: 'Recovery saved', failed: 'Recovery failed · Retry' })[state.phase];
+  el.title = state.error || (state.savedAt ? new Date(state.savedAt).toLocaleString() : '');
+  el.classList.toggle('error', state.phase === 'failed');
+}
+async function showRecoveryCopies(startup = false) {
+  const before = readDocument(), generation = documents.generation;
+  const copies = await listRecovery();
+  if (!copies.length) { if (!startup) notify('No recovery copies'); return; }
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) return;
+  const dialog = document.createElement('dialog');
+  dialog.dataset.recoveryDialog = '';
+  dialog.innerHTML = `<form method="dialog"><h3>Recover editing</h3><select aria-label="Recovery copy">${copies.map((item, i) => `<option value="${i}">${esc(item.name)} · ${esc(new Date(item.savedAt).toLocaleString())}${item.previous ? ' · Previous copy' : ''}</option>`).join('')}</select><p>Recovery opens as an unsaved document.</p><button value="restore">Restore copy</button> <button value="later">Later</button></form>`;
+  document.body.append(dialog);
+  const chosen = await new Promise((resolve) => {
+    dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'restore' ? copies[Number(dialog.querySelector('select').value)] : null); dialog.remove(); }, { once: true });
+    dialog.showModal();
+  });
+  if (!chosen) return;
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) throw Error('Document changed; choose the recovery copy again');
+  if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
+  const contents = await readRecovery(chosen.id), next = deserialize(contents);
+  await preflightImages(next);
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) throw Error('Document changed; current document preserved');
+  await prepareOpenDocument(next);
+  render(true);
+  const protectedCopy = await recovery.preserve(chosen.id);
+  notify(protectedCopy ? 'Recovery restored · Save As to keep a project file' : 'Recovery restored; recovery write failed', !protectedCopy);
 }
 function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
   sourceEpoch++;
@@ -10330,7 +10376,9 @@ window.addEventListener('beforeunload', (e) => {
 render();
 registerClose(async () => {
   try {
-    return await documents.guard('closing Nect');
+    const canClose = await documents.guard('closing Nect');
+    if (canClose) await recovery?.flush();
+    return canClose;
   } catch (error) {
     notify(error.message, true);
     return false;
@@ -10339,6 +10387,9 @@ registerClose(async () => {
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
 if (desktop && typeof listOsOutlineFonts === 'function') void refreshOsFontCatalog();
 updateDocumentStatus();
+if (desktop) showRecoveryCopies(true).catch((error) => {
+  recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
+});
 if (desktop)
   listSystemFonts()
     .then((items) => {
@@ -10368,6 +10419,7 @@ document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
+  get recoveryState() { return recovery && { ...recovery.state }; },
   get gestureState() {
     return session.gestureState;
   },
@@ -10415,3 +10467,12 @@ app.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && event.target.matches('[data-grid-opacity]')) cancelGridOpacity();
 });
 document.addEventListener('pointercancel', cancelGridOpacity);
+
+app.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-recovery-open], [data-recovery-retry]');
+  if (!button || !recovery) return;
+  try {
+    if (button.hasAttribute('data-recovery-open')) await showRecoveryCopies();
+    else if (recovery.state.phase === 'failed') await recovery.retry();
+  } catch (error) { notify(error.message || String(error), true); }
+});

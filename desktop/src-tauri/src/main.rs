@@ -13,6 +13,8 @@ use tauri::Manager;
 #[rustfmt::skip]
 mod system_fonts;
 use acceptance_storage::RunStorage;
+mod recovery_storage;
+use recovery_storage::{Recovery, begin_recovery, write_recovery, list_recovery, read_recovery, acknowledge_recovery};
 use system_fonts::{list_system_fonts, read_system_font, Catalog};
 
 #[tauri::command]
@@ -140,6 +142,7 @@ fn run() -> Result<(), String> {
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
+        .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
             open_document,
             open_svg_source,
@@ -157,7 +160,12 @@ fn run() -> Result<(), String> {
             release_project,
             choose_unsaved,
             enable_close_guard,
-            finish_close
+            finish_close,
+            begin_recovery,
+            write_recovery,
+            list_recovery,
+            read_recovery,
+            acknowledge_recovery
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -170,6 +178,14 @@ fn run() -> Result<(), String> {
             }
         })
         .setup(move |app| {
+            // Acceptance EXEs keep restartable recovery beside their disposable
+            // profiles, wholly separate from the user's ordinary app data.
+            let recovery_root = if let Some(paths) = &window_storage.0 {
+                paths.check_directories().map(|_| paths.webview.parent().unwrap().parent().unwrap().join("nect-svg-acceptance-recovery"))
+            } else {
+                app.path().app_local_data_dir().map(|p| p.join("recovery-v1")).map_err(|e| e.to_string())
+            };
+            app.state::<Recovery>().initialize(recovery_root);
             if let Some(config) = window {
                 let paths = window_storage
                     .0
