@@ -9,6 +9,7 @@ import { document, node, serialize } from '../src/core.js';
 const outlines = JSON.parse(await readFile(process.env.NECT_DESKTOP_FONT_SMOKE_OUTPUT, 'utf8'));
 const variants = outlines.filter((r) => r.face.family === 'Meiryo' && r.face.weight === 400),
   raw = variants[0];
+const din = outlines.find((r) => r.face.family === 'DIN Alternate');
 assert.ok(variants.length >= 8, 'Run Windows native typography test with fixture output first');
 const doc = document(),
   layer = doc.layers[0],
@@ -58,7 +59,7 @@ try {
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(
-    ({ variants }) => {
+    ({ variants, din }) => {
       window.isTauri = true;
       window.fontCalls = [];
       window.fontSaves = [];
@@ -70,10 +71,10 @@ try {
           window.fontCalls.push(command);
           if (command === 'list_system_fonts' || command === 'list_os_outline_fonts') return [];
           if (command === 'list_desktop_font_faces')
-            return window.fontAvailable ? [variants[0].face] : [];
+            return window.fontAvailable ? [variants[0].face, ...(din ? [din.face] : [])] : [];
           if (command === 'shape_desktop_text') {
             if (!window.fontAvailable) throw Error('Font unavailable; saved outlines retained');
-            const r = variants.find(
+            const r = [...variants, ...(din ? [din] : [])].find(
               (r) =>
                 [
                   'text',
@@ -107,7 +108,7 @@ try {
         },
       };
     },
-    { variants },
+    { variants, din },
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
@@ -209,6 +210,43 @@ try {
     text.id,
   );
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
+  if (din) {
+    const dinDoc = structuredClone(doc),
+      target = dinDoc.layers[0].nodes.find((n) => n.id === text.id);
+    target.text = din.text;
+    target.params.size.value = din.size;
+    target.params.lineSpacing.value = din.lineSpacing;
+    await page.evaluate(() => (window.fontAvailable = true));
+    await page.evaluate((contents) => window.nect.load(contents), serialize(dinDoc));
+    await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+    await page.locator('.inspector-body [data-os-text-font]').click();
+    const picker = page.getByRole('dialog', { name: 'OS font outlines' });
+    await picker.getByRole('combobox').fill('DIN Alternate');
+    assert.match(
+      await picker.getByRole('option').textContent(),
+      new RegExp(`${din.face.name}.*${din.face.weight}`),
+    );
+    await picker.getByRole('option').click();
+    await picker.getByRole('button', { name: 'Use font for Text', exact: true }).click();
+    await page.waitForFunction(
+      (id) =>
+        window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont?.family ===
+        'DIN Alternate',
+      text.id,
+    );
+    const portable = await page.evaluate(() => JSON.stringify(window.nect.document)),
+      dinSvg = await page.evaluate(() => window.nect.export());
+    await page.evaluate(() => (window.fontAvailable = false));
+    await page.evaluate((contents) => window.nect.load(contents), portable);
+    assert.equal(await page.evaluate(() => window.nect.export()), dinSvg);
+    await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+    await page.locator('.inspector-body [data-bake-text-outline]').click();
+    await page.waitForFunction(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).type === 'Multi Path',
+      text.id,
+    );
+    assert.equal(await page.evaluate(() => window.nect.export()), dinSvg);
+  }
   assert.deepEqual(errors, []);
   assert.ok(!(await page.evaluate(() => window.fontCalls)).includes('read_system_font'));
   await mkdir('test-results/desktop-font-text', { recursive: true });
@@ -229,6 +267,7 @@ try {
     svgPathEquality: true,
     pngSignature: true,
     missingFontPreserved: true,
+    dinExactFaceMultiline: !!din,
     pageErrors: errors,
     nativeWebView2: false,
   };

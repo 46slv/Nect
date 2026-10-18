@@ -2,6 +2,45 @@
 
 2026-10-18 implementation checkpoint, supplementing [editable OS Text](os-font-text.md).
 
+## DIN catalog repair (05:35 UTC)
+
+The subsequent read-only diagnosis reproduced process-local catalog loss: two
+fresh GDI enumerations returned 637 families including DIN Alternate; creating
+the shared DirectWrite factory then reduced that same process's GDI enumeration
+to 365 without DIN. Low- and medium-integrity processes in user session 1 both
+independently produced the same DIN 377-point geometry before that interaction.
+An isolated DirectWrite factory preserves all 637 families across repeated
+catalog/preparation calls. No font activation, account or permission change was
+needed. The earlier claim that the user needed to reactivate DIN was unproven.
+
+The unified catalog also obtains real face references through the public GDI
+interop API for families absent from the ordinary DirectWrite collection. It
+rejects synthetic faces, verifies the selected GDI family and reports actual
+face/weight/style/stretch. This host's DIN Alternate is **Bold / 700 / normal**,
+even when GDI was asked for Regular. It is now shown with that real metadata.
+The outline renderer uses IDWriteFontFace5::Equals when available, including
+axes in the identity; older systems retain the exact face-reference comparison.
+DIN's face-reference aliases compared unequal while Windows' face equality
+returned true. Font-name equality alone never authorizes a substituted run.
+
+The repaired unified catalog exposes 633 real faces. Three native typography
+tests pass, including unchanged repeated GDI catalogs, actual DIN lowercase and
+multiline shaping, strict Japanese-in-DIN refusal, and existing Unicode/spacing
+checks. The captured DIN geometry passes pure JSON/evaluation/SVG/path equality
+and production Edge/CSP selection with the Bold/700 label, multiline Text,
+reload without fonts and exact conversion output. Browser IPC remains an
+explicit native-geometry fixture; native WebView2 acceptance remains unverified.
+
+Creative Cloud and CoreSync were running. The existing Adobe Fonts DIN search
+page showed several added DIN families, and its management menu distinguishes
+installing fonts for other applications through Creative Cloud. That web state
+does not identify DIN Alternate's supplier or prove all those families are
+installed for desktop apps. Native UI is not exposed by the current tools; no
+activation or account UI action was taken and no user action is presently needed
+for the proven DIN repair.
+
+## Initial schema 29 contract
+
 Choose OS font lists real DirectWrite faces by family, actual face label and
 weight. Simulated faces and color fonts are excluded. GDI-only families remain
 available through the previous geometry adapter (including DIN Alternate when

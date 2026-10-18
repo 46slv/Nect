@@ -21,23 +21,29 @@ before the deferred Illustrator-style path backlog. Preserve authoring and never
 extract/copy/embed Adobe cache/font software. Windows OS references may return
 geometry only. No universal all-font/all-script completion claim is authorized.
 
-Current phase: Verify/package the schema 29 shaped Windows Text checkpoint on
-SS-Note-ROG. Notion remains the parent's responsibility.
+Current phase: Continue font completion after delivery of bc5ad1a. DIN's
+process-local catalog loss is reproduced and repaired; extend OS variable axes
+and Japanese vertical layout next. Notion remains the parent's responsibility.
 
 Proven: Point Delete ownership is in bad7a6c; OS geometry and DIN Alternate GDI
 output were distributed in 6021b3e. Editable schema 28 OS Text is in 0662979.
-The current candidate adds real DirectWrite face/weight selection, exact-face
+The delivered bc5ad1a adds real DirectWrite face/weight selection, exact-face
 Unicode shaping, multiline, size/tracking/line spacing/kerning/standard ligatures,
 portable schema 29 snapshots and missing-font preservation. See
 desktop/docs/windows-text-shaping.md for exact contracts, test evidence and limits.
 Thirty native tests, 18 OS model/DOM tests, 43 existing outline/variable tests and
-the production Edge/CSP typography flow pass. Native startup/package are pending
-at this source checkpoint; browser IPC was explicitly stubbed with independently
-captured native geometry and is not WebView2 acceptance.
+the production Edge/CSP typography flow pass. Its native build/startup and Library
+upload succeeded: libfile_cf685ae2da148191bf0ee28b6ff90571. Browser IPC was explicitly
+stubbed with independently captured native geometry, not WebView2 acceptance.
+The DIN repair preserves 637 GDI families after DirectWrite initialization and
+exposes 633 unified real faces, including DIN Alternate Bold/700. Native and
+production fixture workflows prove lowercase/multiline DIN, portable reload and
+exact SVG/path output. No reactivation/account change is needed for that repair.
 
-Next task: Build the exact committed source, verify isolated native startup,
-package EXE/ZIP separately from earlier deliveries, upload via the current Library
-workflow and report confirmed IDs, SHA256, checks and unverified acceptance.
+Next task: Implement bounded OS font-axis metadata/preparation and Japanese
+vertical layout, then verify actual font geometry, portable save/reload and
+matching output. Commit/push and ZIP delivery are checkpoints; keep progressing
+within the authorized font scope rather than stopping at those boundaries.
 
 Approach: One source/build writer; bounded native read-only adapters; common JS
 Session validates candidates and owns Undo/codec. Pure evaluation/export use
@@ -45,10 +51,11 @@ persisted contours without font services. All unsupported operations fail
 atomically. Preserve existing variable axes/named instances and static vertical,
 rich/path layout rather than silently flattening or replacing them.
 
-Done for next: A separately versioned package with source SHA, checksums and
-truthful evidence; then continue practical font acceptance before path extensions.
+Done for next: Actual OS variable-axis and vertical/multiline font evidence,
+portable geometry snapshots and a separately versioned verified package; continue
+practical font acceptance before path extensions.
 
-State: codex/desktop-production-20261016, candidate based on 0662979. Blank/old
+State: codex/desktop-production-20261016, candidate based on bc5ad1a. Blank/old
 documents remain schema 27 or their prior version until new features are authored;
 schema 28/29 documents require the new reader. Existing 6021b3e/bad7a6c and older
 b9fe3f/schema19 packages remain unchanged and are not the new font checkpoint.

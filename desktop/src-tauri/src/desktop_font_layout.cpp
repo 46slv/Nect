@@ -9,6 +9,8 @@
 #include <cmath>
 #include <algorithm>
 using Microsoft::WRL::ComPtr;
+using GdiFamilyCallback=void(*)(const wchar_t*,int,void*);
+extern "C" int nect_list_os_fonts(GdiFamilyCallback callback,void* data);
 namespace {
 std::wstring localized(IDWriteLocalizedStrings* names) {
     if (!names || !names->GetCount()) return {};
@@ -20,7 +22,9 @@ std::wstring localized(IDWriteLocalizedStrings* names) {
     return value.data();
 }
 HRESULT system(ComPtr<IDWriteFactory3>& factory,ComPtr<IDWriteFontCollection>& fonts) {
-    HRESULT hr=DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,__uuidof(IDWriteFactory3),reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
+    // Shared factory creation dropped GDI-only families in this process on the
+    // Windows acceptance host. An isolated factory preserves both catalogs.
+    HRESULT hr=DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED,__uuidof(IDWriteFactory3),reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
     if (FAILED(hr)) return hr;
     return static_cast<IDWriteFactory*>(factory.Get())->GetSystemFontCollection(&fonts,TRUE);
 }
@@ -31,6 +35,43 @@ std::wstring familyName(IDWriteFontFamily* family) {
 std::wstring faceName(IDWriteFont* font) {
     ComPtr<IDWriteLocalizedStrings> names;
     return SUCCEEDED(font->GetFaceNames(&names))?localized(names.Get()):L"";
+}
+HRESULT gdiFace(IDWriteFactory3* factory,const wchar_t* family,int weight,int style,ComPtr<IDWriteFontFace3>& face) {
+    LOGFONTW logical={};logical.lfHeight=-100;logical.lfWeight=weight;
+    logical.lfItalic=style!=DWRITE_FONT_STYLE_NORMAL;logical.lfCharSet=DEFAULT_CHARSET;
+    if(wcslen(family)>=LF_FACESIZE)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    wcscpy_s(logical.lfFaceName,family);
+    HDC dc=CreateCompatibleDC(nullptr);if(!dc)return E_FAIL;
+    HFONT font=CreateFontIndirectW(&logical);if(!font){DeleteDC(dc);return E_FAIL;}
+    HGDIOBJ prior=SelectObject(dc,font);HRESULT result=HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    if(prior&&prior!=HGDI_ERROR){
+        wchar_t actual[LF_FACESIZE]={};
+        if(GetTextFaceW(dc,LF_FACESIZE,actual)>0&&lstrcmpiW(actual,family)==0){
+            ComPtr<IDWriteGdiInterop> interop;ComPtr<IDWriteFontFace> base;
+            result=factory->GetGdiInterop(&interop);
+            if(SUCCEEDED(result))result=interop->CreateFontFaceFromHdc(dc,&base);
+            if(SUCCEEDED(result))result=base.As(&face);
+            if(SUCCEEDED(result)&&face->GetSimulations()!=DWRITE_FONT_SIMULATIONS_NONE)result=E_NOTIMPL;
+        }
+        SelectObject(dc,prior);
+    }
+    DeleteObject(font);DeleteDC(dc);return result;
+}
+HRESULT resolveFace(IDWriteFactory3* factory,IDWriteFontCollection* fonts,const wchar_t* familyInput,const wchar_t* faceInput,int weight,int style,int stretch,ComPtr<IDWriteFontFace3>& face){
+    UINT32 index=0;BOOL exists=FALSE;
+    if(SUCCEEDED(fonts->FindFamilyName(familyInput,&index,&exists))&&exists){
+        ComPtr<IDWriteFontFamily> family;fonts->GetFontFamily(index,&family);
+        for(UINT32 i=0;i<family->GetFontCount();++i){
+            ComPtr<IDWriteFont> font;family->GetFont(i,&font);
+            if(font->GetWeight()==weight&&font->GetStyle()==style&&font->GetStretch()==stretch&&font->GetSimulations()==DWRITE_FONT_SIMULATIONS_NONE&&faceName(font.Get())==faceInput){
+                ComPtr<IDWriteFontFace> base;HRESULT hr=font->CreateFontFace(&base);return FAILED(hr)?hr:base.As(&face);
+            }
+        }
+    }
+    HRESULT hr=gdiFace(factory,familyInput,weight,style,face);if(FAILED(hr))return hr;
+    ComPtr<IDWriteLocalizedStrings> names;face->GetFaceNames(&names);
+    if(face->GetWeight()!=weight||face->GetStyle()!=style||face->GetStretch()!=stretch||localized(names.Get())!=faceInput)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
+    return S_OK;
 }
 struct NativePoint { float x,y; };
 struct Geometry { std::vector<NativePoint> points;std::vector<unsigned char> types;bool failed=false;HRESULT failure=S_OK;UINT32 glyphs=0; };
@@ -57,10 +98,10 @@ public:
     HRESULT STDMETHODCALLTYPE Close()override{return out.failed?E_FAIL:S_OK;}
 };
 class Renderer final:public IDWriteTextRenderer {
-    LONG refs=1;ComPtr<IDWriteFontFaceReference> expected;Geometry& out;
+    LONG refs=1;ComPtr<IDWriteFontFaceReference> expected;ComPtr<IDWriteFontFace5> expectedFace;Geometry& out;
     HRESULT refuse(HRESULT error){if(SUCCEEDED(out.failure))out.failure=error;return error;}
 public:
-    Renderer(IDWriteFontFaceReference* expected,Geometry& out):expected(expected),out(out){}
+    Renderer(IDWriteFontFace3* face,IDWriteFontFaceReference* expected,Geometry& out):expected(expected),out(out){face->QueryInterface(IID_PPV_ARGS(&expectedFace));}
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id,void** object)override{
         if(!object)return E_POINTER;*object=nullptr;
         if(id==__uuidof(IUnknown)||id==__uuidof(IDWriteTextRenderer)||id==__uuidof(IDWritePixelSnapping)){*object=static_cast<IDWriteTextRenderer*>(this);AddRef();return S_OK;}return E_NOINTERFACE;
@@ -71,12 +112,22 @@ public:
     HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*,DWRITE_MATRIX* matrix)override{*matrix={1,0,0,1,0,0};return S_OK;}
     HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*,FLOAT* value)override{*value=1;return S_OK;}
     HRESULT STDMETHODCALLTYPE DrawGlyphRun(void*,FLOAT x,FLOAT y,DWRITE_MEASURING_MODE,const DWRITE_GLYPH_RUN* run,const DWRITE_GLYPH_RUN_DESCRIPTION*,IUnknown*)override{
+        if(!run->glyphCount)return S_OK;
         ComPtr<IDWriteFontFace3> face;ComPtr<IDWriteFontFaceReference> actual;
-        if(FAILED(run->fontFace->QueryInterface(IID_PPV_ARGS(&face)))||FAILED(face->GetFontFaceReference(&actual))||!expected->Equals(actual.Get())){
+        if(FAILED(run->fontFace->QueryInterface(IID_PPV_ARGS(&face)))||
+           (expectedFace?!expectedFace->Equals(face.Get()):(FAILED(face->GetFontFaceReference(&actual))||!expected->Equals(actual.Get())))){
             if(_wgetenv(L"NECT_DESKTOP_FONT_TRACE")){
                 ComPtr<IDWriteFontFace3> wanted;ComPtr<IDWriteLocalizedStrings> wantNames,gotNames;
                 expected->CreateFontFace(&wanted);if(wanted)wanted->GetFamilyNames(&wantNames);if(face)face->GetFamilyNames(&gotNames);
                 fwprintf(stderr,L"FACE_REFUSAL expected=%ls actual=%ls glyphs=%u\n",localized(wantNames.Get()).c_str(),localized(gotNames.Get()).c_str(),run->glyphCount);
+                if(wanted&&face){
+                    ComPtr<IDWriteFontFace5> wanted5;ComPtr<IDWriteLocalizedStrings> wantFace,gotFace;
+                    wanted->GetFaceNames(&wantFace);face->GetFaceNames(&gotFace);
+                    fwprintf(stderr,L"FACE_ID expected=%ls weight=%u style=%u stretch=%u sim=%u actual=%ls weight=%u style=%u stretch=%u sim=%u face5equals=%d\n",
+                        localized(wantFace.Get()).c_str(),wanted->GetWeight(),wanted->GetStyle(),wanted->GetStretch(),wanted->GetSimulations(),
+                        localized(gotFace.Get()).c_str(),face->GetWeight(),face->GetStyle(),face->GetStretch(),face->GetSimulations(),
+                        SUCCEEDED(wanted.As(&wanted5))?wanted5->Equals(face.Get()):-1);
+                }
             }
             return refuse(HRESULT_FROM_WIN32(ERROR_NO_UNICODE_TRANSLATION));
         }
@@ -96,10 +147,11 @@ public:
 using DesktopFaceCallback=void(*)(const wchar_t*,const wchar_t*,int,int,int,int,int,void*);
 extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* data){
     ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
-    UINT32 total=0;
+    UINT32 total=0;std::vector<std::wstring> normalFamilies;
     for(UINT32 i=0;i<fonts->GetFontFamilyCount()&&total<8192;++i){
         ComPtr<IDWriteFontFamily> family;if(FAILED(fonts->GetFontFamily(i,&family)))continue;
         auto name=familyName(family.Get());if(name.empty())continue;
+        normalFamilies.push_back(name);
         for(UINT32 j=0;j<family->GetFontCount()&&total<8192;++j){
             ComPtr<IDWriteFont> font;ComPtr<IDWriteFontFace> face;ComPtr<IDWriteFontFace2> face2;
             if(FAILED(family->GetFont(j,&font))||font->GetSimulations()!=DWRITE_FONT_SIMULATIONS_NONE||FAILED(font->CreateFontFace(&face)))continue;
@@ -108,6 +160,23 @@ extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* d
             callback(name.c_str(),label.c_str(),font->GetWeight(),font->GetStyle(),font->GetStretch(),face->GetType(),color?1:0,data);++total;
         }
     }
+    struct ExtraFonts {IDWriteFactory3* factory;const std::vector<std::wstring>& normal;DesktopFaceCallback callback;void* data;UINT32& count;};
+    ExtraFonts extra={factory.Get(),normalFamilies,callback,data,total};
+    int gdiStatus=nect_list_os_fonts([](const wchar_t* name,int styles,void* pointer){
+        auto& c=*static_cast<ExtraFonts*>(pointer);
+        if(std::find(c.normal.begin(),c.normal.end(),name)!=c.normal.end())return;
+        for(int style=0;style<=3&&c.count<8192;++style){
+            if(!(styles&(1<<style)))continue;
+            ComPtr<IDWriteFontFace3> face;HRESULT result=gdiFace(c.factory,name,(style&1)?700:400,(style&2)?DWRITE_FONT_STYLE_ITALIC:DWRITE_FONT_STYLE_NORMAL,face);
+            if(FAILED(result))continue;
+            ComPtr<IDWriteFontFaceReference> reference;if(FAILED(face->GetFontFaceReference(&reference)))continue;
+            ComPtr<IDWriteLocalizedStrings> families,names;face->GetFamilyNames(&families);face->GetFaceNames(&names);
+            auto family=localized(families.Get()),label=localized(names.Get());
+            if(family!=name||label.empty())continue;
+            c.callback(family.c_str(),label.c_str(),face->GetWeight(),face->GetStyle(),face->GetStretch(),face->GetType(),face->IsColorFont()?1:0,c.data);++c.count;
+        }
+    },&extra);
+    if(gdiStatus)return E_FAIL;
     return 0;
 }
 using DesktopPathCallback=void(*)(const NativePoint*,const unsigned char*,int,float,float,int,int,void*);
@@ -115,13 +184,9 @@ extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wcha
     const wchar_t* text,int length,float size,float tracking,float lineSpacing,int kerning,int ligatures,int alignment,DesktopPathCallback callback,void* data){
     if(length<0||length>4096||!std::isfinite(size)||size<0.01f||size>10000||!std::isfinite(tracking)||std::abs(tracking)>10000||!std::isfinite(lineSpacing)||lineSpacing<0.1f||lineSpacing>100||style<0||style>2||weight<1||weight>999||stretch<1||stretch>9||alignment<0||alignment>2)return E_INVALIDARG;
     ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
-    UINT32 familyIndex=0;BOOL exists=FALSE;if(FAILED(fonts->FindFamilyName(familyNameInput,&familyIndex,&exists))||!exists)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-    ComPtr<IDWriteFontFamily> family;fonts->GetFontFamily(familyIndex,&family);ComPtr<IDWriteFont> selected;
-    for(UINT32 i=0;i<family->GetFontCount();++i){ComPtr<IDWriteFont> font;family->GetFont(i,&font);
-        if(font->GetWeight()==weight&&font->GetStyle()==style&&font->GetStretch()==stretch&&font->GetSimulations()==DWRITE_FONT_SIMULATIONS_NONE&&faceName(font.Get())==faceNameInput){selected=font;break;}}
-    if(!selected)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
-    ComPtr<IDWriteFontFace> baseFace;ComPtr<IDWriteFontFace3> face;ComPtr<IDWriteFontFaceReference> reference;
-    if(FAILED(selected->CreateFontFace(&baseFace))||FAILED(baseFace.As(&face))||FAILED(face->GetFontFaceReference(&reference)))return E_FAIL;
+    ComPtr<IDWriteFontFace3> face;ComPtr<IDWriteFontFaceReference> reference;
+    hr=resolveFace(factory.Get(),fonts.Get(),familyNameInput,faceNameInput,weight,style,stretch,face);if(FAILED(hr))return hr;
+    if(FAILED(face->GetFontFaceReference(&reference)))return E_FAIL;
     if(face->IsColorFont())return E_NOTIMPL;
     // A collection containing only this active face keeps matching exact. Any
     // fallback run is still rejected by the renderer's face-reference equality.
@@ -143,7 +208,7 @@ extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wcha
     DWRITE_TEXT_METRICS textMetrics;if(FAILED(layout->GetMetrics(&textMetrics))||textMetrics.lineCount>256)return E_BOUNDS;
     layout->SetMaxWidth(std::max(1.0f,textMetrics.widthIncludingTrailingWhitespace));
     layout->SetTextAlignment(alignment==1?DWRITE_TEXT_ALIGNMENT_CENTER:alignment==2?DWRITE_TEXT_ALIGNMENT_TRAILING:DWRITE_TEXT_ALIGNMENT_LEADING);
-    Geometry output;ComPtr<Renderer> renderer;renderer.Attach(new Renderer(reference.Get(),output));
+    Geometry output;ComPtr<Renderer> renderer;renderer.Attach(new Renderer(face.Get(),reference.Get(),output));
     hr=layout->Draw(nullptr,renderer.Get(),0,0);if(FAILED(output.failure))return output.failure;if(FAILED(hr)||output.failed)return FAILED(hr)?hr:E_BOUNDS;
     UINT32 lineCount=0;layout->GetLineMetrics(nullptr,0,&lineCount);std::vector<DWRITE_LINE_METRICS> lines(lineCount);
     if(lineCount&&SUCCEEDED(layout->GetLineMetrics(lines.data(),lineCount,&lineCount)))ascent=lines[0].baseline;

@@ -310,13 +310,53 @@ mod tests {
         }
     }
     #[test]
+    fn exact_gdi_faces_preserve_catalog_and_shape_without_reference_alias_rejection() {
+        let before = crate::os_font_outlines::installed().unwrap();
+        let first = installed().unwrap();
+        let second = installed().unwrap();
+        let after = crate::os_font_outlines::installed().unwrap();
+        let mut old: Vec<_> = before.iter().map(|f| f.family.clone()).collect();
+        old.sort();
+        let mut new: Vec<_> = after.iter().map(|f| f.family.clone()).collect();
+        new.sort();
+        assert_eq!(old, new, "DirectWrite must not remove active GDI families");
+        let ids = |faces: &Vec<DesktopFace>| {
+            faces
+                .iter()
+                .map(|f| (&f.family, &f.name, f.weight, f.style, f.stretch))
+                .map(|(a, b, c, d, e)| (a.clone(), b.clone(), c, d, e))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&first), ids(&second));
+        if before.iter().any(|f| f.family == "DIN Alternate") {
+            let face = first
+                .iter()
+                .find(|f| f.family == "DIN Alternate")
+                .expect("Active GDI DIN must expose an exact DirectWrite face");
+            println!(
+                "DIN_EXACT_FACE {face:?}; GDI families before={} after={}",
+                before.len(),
+                after.len()
+            );
+            for text in ["DIN ABC 0123", "office fi", "DIN ABC 0123\nTEXT ABC 123"] {
+                let outline = prepare(request(face.clone(), text)).unwrap();
+                assert!(!outline.points.is_empty());
+                assert_eq!(outline.line_count, if text.contains('\n') { 2 } else { 1 });
+            }
+            assert!(prepare(request(face.clone(), "日本語"))
+                .unwrap_err()
+                .contains("substitution"));
+        }
+    }
+    #[test]
     fn actual_faces_unicode_multiline_and_strict_no_fallback() {
         let faces = installed().unwrap();
         assert!(faces.len() > 10);
         println!("DIRECTWRITE_FACES={}", faces.len());
-        for f in faces.iter().filter(|f| {
-            f.family.to_lowercase().contains("din") || f.name.to_lowercase().contains("din")
-        }) {
+        for f in faces
+            .iter()
+            .filter(|f| f.family == "DIN Alternate" || f.family.starts_with("DIN "))
+        {
             println!(
                 "DIRECTWRITE_DIN family={} face={} weight={} style={}",
                 f.family, f.name, f.weight, f.style
