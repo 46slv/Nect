@@ -536,6 +536,7 @@ import {
   rotationHandleAngle,
   rotationHandleDelta,
   rotationFromHandle,
+  expression,
 } from './core.js';
 const app = document.querySelector('#app');
 const osTextDrafts = new Map();
@@ -10374,6 +10375,47 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
+  const numericExpressionInput = e.target.matches?.('input[type="number"], input[data-numeric-expression]');
+  if (
+    numericExpressionInput &&
+    !e.isComposing &&
+    e.key.length === 1 &&
+    /[+\-*\/%().]/.test(e.key) &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.altKey
+  ) {
+    // Native number controls reject operators before the draft can reach the
+    // shared change/command path. Keep the control's number semantics until a
+    // draft actually needs expression syntax.
+    e.target.dataset.numericExpression = 'true';
+    e.target.type = 'text';
+    e.target.inputMode = 'decimal';
+  }
+  if (
+    numericExpressionInput &&
+    e.key === 'Enter' &&
+    !e.isComposing &&
+    e.keyCode !== 229
+  ) {
+    const input = e.target;
+    const source = input.value.trim();
+    if (source && /[+\-*\/%()]/.test(source)) {
+      e.preventDefault();
+      try {
+        input.value = String(expression(source, undefined, false, Number(input.defaultValue)));
+        input.type = 'number';
+        delete input.dataset.numericExpression;
+        input.dispatchEvent(new window.Event('change', { bubbles: true }));
+      } catch (error) {
+        input.value = input.defaultValue;
+        input.type = 'number';
+        delete input.dataset.numericExpression;
+        notify('Invalid calculation', true);
+      }
+      return;
+    }
+  }
   if (e.target.matches?.('[data-rename-name]')) {
     if (e.isComposing || e.keyCode === 229 || nameEdit?.composing) return;
     if (e.key === 'Enter' || e.key === 'Escape') {
