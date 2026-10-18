@@ -101,7 +101,7 @@ test('Halftone and Ordered Dither are discoverable, wired as PaintedPath control
     query(`.node[data-id="${effect.id}"] .font-note`).textContent,
     /top-left.*cell \(0, 0\).*Y increases downward/i,
   );
-  assert.equal(win.nect.document.schemaVersion, 21);
+  assert.equal(win.nect.document.schemaVersion, 36);
   const bypass = query(`[data-bypass="${effect.id}"]`);
   assert.equal(bypass.disabled, false);
   bypass.click();
