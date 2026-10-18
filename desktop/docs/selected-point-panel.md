@@ -25,6 +25,38 @@ when at least one batch point is checked. Checkbox state survives point-panel
 filtering and paging. Generated topology editing is not added; typed Remap
 controls and retained-edit rebind remain available on displayed rows.
 
+## Owned handle angle and length (REQ-31, 2026-10-19)
+
+Curve and Multi Path point rows expose Incoming (handleA) and Outgoing (handleB)
+Angle° / Length beside the existing X/Y controls, in the graph and Inspector.
+Angles are document-local degrees clockwise from +X (+Y points down); lengths
+are document units. Display uses three decimals; editing one component retains
+the other component's full stored precision. Values remain relative Vector2
+parameters in JSON: no schema change or additional saved angle state.
+
+A zero-length handle displays 0° with its Angle input disabled. Increasing its
+Length starts along +X; set a non-zero length before choosing another angle.
+Negative lengths, empty and non-finite values are rejected. The shared safe
+arithmetic input evaluator works with Enter; Escape discards the input draft.
+These added fields support typing and native number steps, with no drag scrub.
+
+Each accepted edit uses the same curve-point Session gesture as Canvas dragging,
+including corner/smooth/symmetric coupling, locked/driven protection and one
+History entry. An unchanged value preserves Undo/Redo. A zero-length edit follows
+Canvas's existing coupling behavior (including collapsing the opposite handle
+for linked modes); no NaN or remembered direction is introduced. Canvas edits,
+X/Y edits, Undo/Redo and JSON reload recalculate the displayed polar values.
+Focused point-panel edits retain focus and nested scroll across rendering.
+Path Remap and multi-point batch editing are unchanged.
+
+Focused checks: `node --test tests/handle-polar.test.js
+tests/canvas-gesture-session.test.js`; real Chrome fixture:
+`BASE_URL=http://127.0.0.1:5205 node tests/handle-polar.e2e.js` with the dev server
+running on a disposable port. Set `CHROME_PATH` when necessary. The test creates
+its own temporary browser profile and generated documents, then closes it.
+It writes `test-results/handle-polar/receipt.json` and `inspector.png` locally.
+Native Tauri/EXE and physical IME remain unverified.
+
 ## Verification boundary
 
 Focused synthetic DOM tests cover empty/one/multiple selection, active ID,

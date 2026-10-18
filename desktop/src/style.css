@@ -1983,6 +1983,14 @@ input[data-scrub-step].scrubbing {
 .base-component input {
   width: 100%;
 }
+.handle-polar .field-controls > label {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+}
+.handle-polar input {
+  width: 100%;
+}
 .parameter-result,
 .base-hint {
   display: block;
