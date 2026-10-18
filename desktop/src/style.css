@@ -2128,3 +2128,17 @@ input[data-scrub-step].scrubbing {
   max-width: 100%;
   white-space: normal;
 }
+
+.node-preset-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.node-preset-controls input,
+.node-preset-controls select {
+  width: 140px;
+  min-width: 80px;
+}

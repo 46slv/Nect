@@ -1034,6 +1034,99 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
   if (append) layer.nodes.push(...copies);
   return copies;
 }
+
+const NODE_PRESET_SCHEMA_VERSION = 39;
+function presetName(name) {
+  if (typeof name !== 'string' || !name.trim() || name.trim().length > 100)
+    throw Error('Preset name must contain 1–100 characters');
+  return name.trim();
+}
+// Saved nodes live in a separate identity namespace. Reuse all ordinary graph
+// validation, including retained dependencies, without installing them as artwork.
+function validateNodePreset(doc, preset) {
+  if (!Array.isArray(preset.nodes) || !preset.nodes.length || preset.nodes.length >= 2000)
+    throw Error('Preset must contain 1–1999 source/effect nodes');
+  const ids = new Set(preset.nodes.map((n) => n.id));
+  for (const n of preset.nodes) {
+    if (['Output', 'Image Output', 'Composition Reference'].includes(n.type))
+      throw Error('Preset cannot contain Output or Composition Reference nodes');
+    if (nodeDependencies(n).some((d) => !ids.has(d.source)))
+      throw Error('Preset has an external node reference; select its sources too');
+  }
+  const fontIds = new Set(
+    preset.nodes
+      .filter((n) => n.type === 'Text')
+      .flatMap((n) => [
+        n.font,
+        ...Object.values(n.characterPositions?.styles || {}).map((s) => s.font),
+      ])
+      .filter((id) => id && id !== 'default'),
+  );
+  const imageIds = new Set(preset.nodes.filter((n) => n.type === 'Image').map((n) => n.asset));
+  for (const [key, required] of [
+    ['fontAssets', fontIds],
+    ['imageAssets', imageIds],
+  ]) {
+    const assets = preset[key];
+    if (
+      !assets ||
+      typeof assets !== 'object' ||
+      Array.isArray(assets) ||
+      Object.keys(assets).length !== required.size
+    )
+      throw Error('Invalid preset assets');
+    for (const id of required)
+      if (
+        !assets[id] ||
+        !doc[key]?.[id] ||
+        JSON.stringify(assets[id]) !== JSON.stringify(doc[key][id])
+      )
+        throw Error('Preset asset is missing or changed in this Document');
+  }
+  const layer = blankLayer('Preset validation');
+  layer.nodes.push(...clone(preset.nodes));
+  const isolated = {
+    schemaVersion: NODE_PRESET_SCHEMA_VERSION,
+    name: 'Preset validation',
+    width: doc.width,
+    height: doc.height,
+    layers: [layer],
+    fontAssets: preset.fontAssets,
+    imageAssets: preset.imageAssets,
+  };
+  validate(isolated);
+  // Detect the existing edited-Remap/source refusal before saving unusable data.
+  duplicateNodes({ nodes: preset.nodes }, [...ids], { append: false });
+}
+function captureNodePreset(doc, layer, nodeIds, name, id) {
+  if (
+    !Array.isArray(nodeIds) ||
+    !nodeIds.length ||
+    new Set(nodeIds).size !== nodeIds.length ||
+    nodeIds.some((id) => !layer.nodes.some((n) => n.id === id))
+  )
+    throw Error('Select distinct nodes in this composition');
+  const nodes = clone(layer.nodes.filter((n) => nodeIds.includes(n.id)));
+  const fonts = new Set(
+    nodes
+      .filter((n) => n.type === 'Text')
+      .flatMap((n) => [
+        n.font,
+        ...Object.values(n.characterPositions?.styles || {}).map((s) => s.font),
+      ])
+      .filter((id) => id && id !== 'default'),
+  );
+  const images = new Set(nodes.filter((n) => n.type === 'Image').map((n) => n.asset));
+  const preset = {
+    id,
+    name: presetName(name),
+    nodes,
+    fontAssets: clone(Object.fromEntries([...fonts].map((id) => [id, doc.fontAssets?.[id]]))),
+    imageAssets: clone(Object.fromEntries([...images].map((id) => [id, doc.imageAssets?.[id]]))),
+  };
+  validateNodePreset(doc, preset);
+  return preset;
+}
 export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
 }
@@ -4071,7 +4164,8 @@ export function validate(doc) {
     ].includes(doc.schemaVersion) &&
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
-      doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION)
+      doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
+      doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4641,6 +4735,23 @@ export function validate(doc) {
     doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type)))
   )
     doc.schemaVersion = Math.max(doc.schemaVersion, DITHER_SCHEMA_VERSION);
+  if (doc.nodePresets !== undefined) {
+    if (
+      sourceSchemaVersion < NODE_PRESET_SCHEMA_VERSION ||
+      !Array.isArray(doc.nodePresets) ||
+      doc.nodePresets.length > 100
+    )
+      throw Error('Invalid node presets or preset schema');
+    const names = new Set();
+    for (const preset of doc.nodePresets) {
+      if (!preset || typeof preset !== 'object') throw Error('Invalid node preset');
+      id(preset.id);
+      if (presetName(preset.name) !== preset.name || names.has(preset.name))
+        throw Error('Duplicate or invalid preset name');
+      names.add(preset.name);
+      validateNodePreset(doc, preset);
+    }
+  }
   return doc;
 }
 export function serialize(doc) {
@@ -5913,7 +6024,13 @@ export class CommandSession {
     if (this.#busy() || this.hasTextComposition)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
     if (
-      ['copy-nodes', 'paste-nodes'].includes(type) &&
+      [
+        'copy-nodes',
+        'paste-nodes',
+        'save-node-preset',
+        'update-node-preset',
+        'apply-node-preset',
+      ].includes(type) &&
       [...this.#textDrafts.values()].some(
         (d) => d.revision === this.#history.revision && d.state.changed,
       )
@@ -6713,6 +6830,9 @@ export class CommandSession {
         'create-node',
         'duplicate-nodes',
         'paste-nodes',
+        'save-node-preset',
+        'update-node-preset',
+        'apply-node-preset',
         'delete-node',
         'delete-nodes',
         'preview-node',
@@ -6791,7 +6911,46 @@ export class CommandSession {
       transformNode.params[payload.key] = clone(virtual);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
     }
-    if (type === 'rename') {
+    if (type === 'save-node-preset' || type === 'update-node-preset') {
+      const presets = candidate.nodePresets ?? [];
+      const index = presets.findIndex((p) => p.id === payload.presetId);
+      if (type === 'save-node-preset' && index !== -1) throw Error('Preset ID already exists');
+      if (type === 'update-node-preset' && index === -1) throw Error('Missing preset');
+      const id =
+        type === 'update-node-preset' ? payload.presetId : (payload.presetId ?? uid('preset'));
+      const saved = captureNodePreset(
+        candidate,
+        target,
+        payload.nodeIds,
+        payload.name ?? (type === 'update-node-preset' ? presets[index].name : undefined),
+        id,
+      );
+      if (presets.some((p, i) => i !== index && p.name === saved.name))
+        throw Error('Preset name already exists');
+      if (index === -1) presets.push(saved);
+      else presets[index] = saved;
+      candidate.nodePresets = presets;
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, NODE_PRESET_SCHEMA_VERSION);
+      result = { presetId: id };
+    } else if (type === 'apply-node-preset') {
+      const preset = candidate.nodePresets?.find((p) => p.id === payload.presetId);
+      if (!preset) throw Error('Missing preset');
+      validateNodePreset(candidate, preset);
+      const offset = payload.offset ?? [30, 30];
+      if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite))
+        throw Error('Invalid preset offset');
+      if (target.nodes.length + preset.nodes.length > 2000) throw Error('Too many nodes');
+      const copies = duplicateNodes(
+        { nodes: preset.nodes },
+        preset.nodes.map((n) => n.id),
+        { append: false },
+      );
+      copies.forEach((n, i) => {
+        n.position = preset.nodes[i].position.map((v, axis) => v + offset[axis]);
+      });
+      target.nodes.push(...copies);
+      result = { presetId: preset.id, nodeIds: copies.map((n) => n.id) };
+    } else if (type === 'rename') {
       const item =
         payload.nodeId === undefined
           ? target
@@ -7512,6 +7671,8 @@ export class CommandSession {
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
     validate(candidate);
+    if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
+      serialize(candidate);
     if (type === 'set-parameter-base')
       evaluate(
         target,

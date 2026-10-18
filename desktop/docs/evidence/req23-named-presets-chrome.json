@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "browser": "155.0.8059.80",
+  "checks": [
+    "UI named save is one Undo/Redo",
+    "UI applies detached snapshot to another Comp with fresh IDs, internal connection and original Output/graph preserved; one Undo/Redo",
+    "applied node edits through ordinary Inspector, independent of preset, with Undo/Redo",
+    "UI update retains preset identity, changes name and snapshot in one Undo/Redo",
+    "name/ID collisions, Output, invalid offset and external-reference commands reject atomically through shared API",
+    "missing snapshot asset refuses at load boundary without changing document or revision",
+    "saved document reloads with named preset and updated ordinary-node snapshot; invalid saved snapshot refuses without replacing document"
+  ],
+  "pageErrors": [],
+  "native": "unverified",
+  "physicalIME": "unverified"
+}
