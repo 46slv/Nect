@@ -483,6 +483,14 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
   {
+    typeId: 'Composition Reference',
+    categoryId: 'combine',
+    labelJa: 'Composition参照',
+    aliases: ['コンポジション参照', 'コンポ', 'composition output', 'parts'],
+    description: '別Compositionの出力を配置',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Reference',
     categoryId: 'value',
     labelJa: '参照',

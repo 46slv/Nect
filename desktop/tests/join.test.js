@@ -58,7 +58,7 @@ test('Join preserves independent holes and opposite-winding overlaps as separate
   assert.equal(new Set(repeated.contours.flatMap((c) => c.points.map((p) => p.id))).size, 16);
   assert.throws(
     () => connect(l, l.nodes.find((n) => n.type === 'Fill').id, join.id, 'a'),
-    /PaintedPath/,
+    /cycle/i,
   );
 });
 test('Join groups survive shared Transform, Remap and Repeater; changed sources suspend edits', () => {

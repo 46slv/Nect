@@ -1,3 +1,11 @@
+import {
+  validateCompositionReference,
+  assertCompositionAcyclic,
+  isPaintedGroup,
+  paintedGroup,
+  groupGeometry,
+} from './composition-reference.js';
+export { compositionReferenceTargets } from './composition-reference.js';
 import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
 import { validateOsFontText, osFontTextPath } from './os-font-text.js';
@@ -307,6 +315,7 @@ export const definitions = {
   Vector: { value: p('Vector2', [300, 250]) },
   Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
+  'Composition Reference': { position: p('Vector2', [0, 0]) },
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
   'Linear Gradient Fill': {
@@ -527,6 +536,7 @@ export function node(type, x = 40, y = 40) {
     ...(type === 'Image' ? { asset: '' } : {}),
     ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
     ...(type === 'Reference' ? { reference: null } : {}),
+    ...(type === 'Composition Reference' ? { compositionReference: null } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -613,6 +623,8 @@ export function outputPorts(n) {
       : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
+  if (n.type === 'Composition Reference' || n.paintMode)
+    return port === undefined ? 'PaintedPath' : undefined;
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
   if (port !== undefined) return undefined;
@@ -973,6 +985,8 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
     !!q &&
     (socketCompatible(sourceType, q.type) ||
       (sourceType === 'PaintedPath' &&
+        ((target.type === 'Transform' && key === 'path') || target.type === 'Join Geometry')) ||
+      (sourceType === 'PaintedPath' &&
         target.type === 'Convert to Path' &&
         key === 'path' &&
         q.type === 'Path') ||
@@ -1007,7 +1021,7 @@ function normalizeJoinInputs(n, compact = false, migration = false) {
   const last = n.params[n.joinInputOrder.at(-1)];
   if ((last.source || last.locked) && n.joinInputOrder.length < JOIN_SLOT_LIMIT) {
     const key = migration ? 'input_legacy_spare' : `input_${uid('slot')}`;
-    n.params[key] = p('Path', null);
+    n.params[key] = p(n.paintMode ? 'PaintedPath' : 'Path', null);
     n.joinInputOrder.push(key);
   }
 }
@@ -2043,7 +2057,47 @@ export function pathArea(path) {
 }
 const evaluationCaches = new WeakMap();
 let revision = 0;
-export function evaluate(layer, fonts = {}, imageAssets = {}) {
+export function evaluate(
+  layer,
+  fonts = {},
+  imageAssets = {},
+  documentContext = null,
+  compositionContext = null,
+) {
+  const context = compositionContext || { active: new Set(), results: new Map() };
+  function referencedOutput(n) {
+    const targetId = n.compositionReference?.compositionId;
+    if (!targetId)
+      throw Object.assign(Error('Choose a source Composition'), {
+        code: 'COMPOSITION_TARGET_UNSET',
+      });
+    if (!documentContext) throw Error('Composition reference requires its document');
+    if (targetId === layer.id || context.active.has(targetId))
+      throw Error('Composition reference cycle detected');
+    const target = documentContext.layers.find((l) => l.id === targetId);
+    if (!target)
+      throw Object.assign(Error(`Missing Composition: ${targetId}`), {
+        code: 'COMPOSITION_TARGET_MISSING',
+      });
+    if (!context.results.has(targetId)) {
+      context.active.add(layer.id);
+      context.active.add(targetId);
+      try {
+        context.results.set(
+          targetId,
+          evaluate(target, fonts, imageAssets, documentContext, context),
+        );
+      } finally {
+        context.active.delete(targetId);
+        context.active.delete(layer.id);
+      }
+    }
+    const result = context.results.get(targetId);
+    if (result.error)
+      throw Object.assign(Error(`${target.name}: ${result.error}`), { code: result.errorCode });
+    warnings.push(...result.warnings.map((message) => `${target.name}: ${message}`));
+    return result;
+  }
   let cache = evaluationCaches.get(layer);
   if (!cache) {
     cache = new Map();
@@ -2168,6 +2222,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
       const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
       if (n.type === 'Reference') referenceTarget(layer, n);
+      const external = n.type === 'Composition Reference' ? referencedOutput(n) : null;
       const parameterVersions = new Map();
       for (const dep of deps) {
         if (dep.parameterKey)
@@ -2208,6 +2263,9 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
                 n.type,
                 !!n.bypassed,
                 n.reference,
+                n.compositionReference,
+                n.paintMode,
+                external?.outputRevision,
                 inputs,
                 n.type === 'Fill' ? layer.fill : null,
                 n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
@@ -2284,6 +2342,12 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result = clone(read(bypassInput(n)));
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
         assertValue(outputType(n), result);
+      } else if (n.type === 'Composition Reference') {
+        const position = read('position');
+        result = paintedGroup([external.path], { matrix: [1, 0, 0, 1, ...position], prefix: n.id });
+        result.fingerprint = fingerprint(
+          JSON.stringify([n.compositionReference, n.id, position, external.path]),
+        );
       } else if (n.type === 'Reference') {
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
@@ -2490,6 +2554,18 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result.unstable = true;
         result.fingerprint = signature(result);
         item.remove();
+      } else if (n.type === 'Join Geometry' && n.paintMode) {
+        const inputs = joinInputKeys(n)
+          .filter((key) => n.params[key].source)
+          .map((key) => read(key));
+        if (!inputs.length) throw Error('Connect a path to Join Geometry');
+        result = paintedGroup(inputs, { prefix: n.id });
+        result.fingerprint = fingerprint(JSON.stringify([n.id, inputs]));
+      } else if (n.type === 'Transform' && n.paintMode) {
+        const source = read('path');
+        if (!source) throw Error('Connect a PaintedPath input');
+        result = paintedGroup([source], { matrix: transformValues(n, read).matrix, prefix: n.id });
+        result.fingerprint = fingerprint(JSON.stringify([n.id, source, result.matrix]));
       } else if (n.type === 'Join Geometry') {
         const inputs = joinInputKeys(n)
           .filter((key) => n.params[key].source)
@@ -3213,7 +3289,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
       } else if (n.type === 'Convert to Path') {
         const source = read('path');
         if (!source) throw Error('Connect a Path or PaintedPath input');
-        result = clone(source);
+        result = isPaintedGroup(source) ? groupGeometry(source) : clone(source);
         if (
           outputType(byId.get(n.params.path.source), n.params.path.sourcePort) === 'PaintedPath'
         ) {
@@ -3307,6 +3383,8 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
         result = clone(result);
+        if (isPaintedGroup(result) && n.type !== 'Output')
+          throw Error('Edit paint in the source Composition, or use Convert to Path');
         if (n.type === 'Fill') result.fill = read('color');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
@@ -3427,6 +3505,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
   for (const key of cache.keys()) if (!byId.has(key.split('\0')[0])) cache.delete(key);
   return {
     path,
+    outputRevision: versions.get(outputKey(layer.output)),
     error,
     ...(errorCode ? { errorCode } : {}),
     warnings,
@@ -3496,11 +3575,13 @@ export function assertTextPathChange(
   fonts = {},
   imageAssets = {},
   previousFonts = fonts,
+  documentContext = null,
+  previousDocumentContext = documentContext,
 ) {
   const attached = layer.nodes.filter((n) => n.type === 'Text' && (n.pathAttachment || n.textWrap));
   if (!attached.length) return;
   assertAcyclic(layer);
-  const current = evaluate(layer, fonts, imageAssets);
+  const current = evaluate(layer, fonts, imageAssets, documentContext);
   let previous;
   for (const n of attached) {
     try {
@@ -3510,7 +3591,7 @@ export function assertTextPathChange(
         (x) => x.id === n.id && (x.pathAttachment || x.textWrap),
       );
       if (old) {
-        previous ??= evaluate(previousLayer, previousFonts, imageAssets);
+        previous ??= evaluate(previousLayer, previousFonts, imageAssets, previousDocumentContext);
         try {
           previous.run(n.id);
         } catch (before) {
@@ -3586,8 +3667,18 @@ export function assertClosedOffsetChange(
   fonts = {},
   imageAssets = {},
   previousFonts = fonts,
+  documentContext = null,
+  previousDocumentContext = documentContext,
 ) {
-  assertTextPathChange(layer, previousLayer, fonts, imageAssets, previousFonts);
+  assertTextPathChange(
+    layer,
+    previousLayer,
+    fonts,
+    imageAssets,
+    previousFonts,
+    documentContext,
+    previousDocumentContext,
+  );
   // Keep bounded geometry modifiers transactional, including upstream edits.
   const bounded = new Set([
     'Join Geometry',
@@ -3630,7 +3721,7 @@ export function assertClosedOffsetChange(
             ? ['path', 'points', 'alignTangent'].map((key) => n.params[key]?.source)
             : [n.params.path?.source];
   if (!layer.nodes.some((n) => bounded.has(n.type) && boundedInputs(n).some(Boolean))) return;
-  const current = evaluate(layer, fonts, imageAssets);
+  const current = evaluate(layer, fonts, imageAssets, documentContext);
   let previous;
   for (const n of layer.nodes.filter(
     (n) => bounded.has(n.type) && boundedInputs(n).some(Boolean),
@@ -3639,12 +3730,16 @@ export function assertClosedOffsetChange(
       current.run(n.id);
     } catch (error) {
       // Missing inputs are an ordinary intermediate wiring state.
-      if (/^Connect (a |both )/.test(error.message)) continue;
+      if (
+        /^Connect (a |both )/.test(error.message) ||
+        ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code)
+      )
+        continue;
       const old = previousLayer?.nodes.find(
         (x) => x.id === n.id && bounded.has(x.type) && boundedInputs(x).some(Boolean),
       );
       if (old) {
-        previous ??= evaluate(previousLayer, previousFonts, imageAssets);
+        previous ??= evaluate(previousLayer, previousFonts, imageAssets, previousDocumentContext);
         try {
           previous.run(n.id);
         } catch (before) {
@@ -3654,6 +3749,31 @@ export function assertClosedOffsetChange(
       throw error;
     }
   }
+}
+function normalizePaintRouting(layer) {
+  const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  for (let pass = 0; pass < layer.nodes.length; pass++) {
+    let changed = false;
+    for (const n of layer.nodes)
+      if (['Transform', 'Join Geometry'].includes(n.type) && !n.paintMode) {
+        const keys = n.type === 'Transform' ? ['path'] : joinInputKeys(n);
+        if (
+          keys.some(
+            (key) =>
+              n.params[key].source && outputType(byId.get(n.params[key].source)) === 'PaintedPath',
+          )
+        ) {
+          n.paintMode = true;
+          for (const key of keys) n.params[key].type = 'PaintedPath';
+          changed = true;
+        }
+      }
+    if (!changed) break;
+  }
+  for (const n of layer.nodes)
+    for (const [key, q] of parameters(n))
+      if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
+        throw Error('Painted output requires a PaintedPath socket or Convert to Path');
 }
 export function connect(layer, sourceId, targetId, key, validating = false, sourcePort) {
   let from = layer.nodes.find((n) => n.id === sourceId),
@@ -3681,9 +3801,20 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   if (!socketCompatibleFor(from, to, key, sourcePort))
     throw Error(`Cannot connect ${outputType(from, sourcePort)} to ${q.type}`);
   if (validating) {
+    if (
+      outputType(from, sourcePort) === 'PaintedPath' &&
+      ['Transform', 'Join Geometry'].includes(to.type) &&
+      !to.paintMode
+    )
+      throw Error('Painted input requires saved paint routing');
     assertAcyclic(layer);
     return;
   }
+  const routing = layer.nodes.map((n) => [
+    n,
+    n.paintMode,
+    Object.entries(n.params).map(([key, q]) => [key, q.type]),
+  ]);
   const old = q.source,
     oldPort = q.sourcePort;
   q.source = sourceId;
@@ -3691,7 +3822,13 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   else delete q.sourcePort;
   try {
     assertAcyclic(layer);
+    normalizePaintRouting(layer);
   } catch (e) {
+    for (const [n, mode, types] of routing) {
+      if (mode === undefined) delete n.paintMode;
+      else n.paintMode = mode;
+      for (const [key, type] of types) n.params[key].type = type;
+    }
     if (old) q.source = old;
     else delete q.source;
     if (oldPort !== undefined) q.sourcePort = oldPort;
@@ -3785,7 +3922,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30,
+      27, 28, 29, 30, 31,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3821,6 +3958,14 @@ export function validate(doc) {
     for (const n of l.nodes) {
       id(n.id);
       validateReference(n);
+      validateCompositionReference(n, sourceSchemaVersion);
+      if (
+        n.paintMode !== undefined &&
+        (n.paintMode !== true ||
+          sourceSchemaVersion < 31 ||
+          !['Transform', 'Join Geometry'].includes(n.type))
+      )
+        throw Error('Paint routing requires schemaVersion 31 and Transform or Join Geometry');
       text(n.name);
       if (n.bypassed !== undefined && (typeof n.bypassed !== 'boolean' || sourceSchemaVersion < 10))
         throw Error('Node bypass requires a boolean and schemaVersion 10');
@@ -3995,7 +4140,7 @@ export function validate(doc) {
           throw Error('Invalid Join input order');
         for (const key of keys) {
           const q = n.params[key];
-          param(q, 'Path');
+          param(q, n.paintMode ? 'PaintedPath' : 'Path');
           if (
             q.expression ||
             Object.keys(q).some(
@@ -4022,7 +4167,11 @@ export function validate(doc) {
       if (n.params.skew && Math.abs(n.params.skew.value) >= 89.9)
         throw Error('Skew must be between -89.9 and 89.9 degrees');
       for (const [key, def] of Object.entries(definitions[n.type]))
-        param(n.params[key], def.type, n.type === 'Fill' && key === 'color');
+        param(
+          n.params[key],
+          n.paintMode && def.type === 'Path' ? 'PaintedPath' : def.type,
+          n.type === 'Fill' && key === 'color',
+        );
       if (
         n.type === 'Resample Path' &&
         (!Number.isInteger(n.params.count.value) ||
@@ -4266,6 +4415,7 @@ export function validate(doc) {
         }
     assertAcyclic(l);
   }
+  assertCompositionAcyclic(doc);
   const hasNodeType = (type) =>
     doc.layers.some((layer) => layer.nodes.some((n) => n.type === type));
   const hasImageLuminanceConnection = doc.layers.some((layer) => {
@@ -4342,6 +4492,8 @@ export function renderElement(
   attributes = '',
   gradientId = 'nect-gradient-0',
 ) {
+  if (isPaintedGroup(value))
+    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${value.matrix.join(' ')})">${value.children.map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`)).join('')}</g>`;
   if (value.kind === 'image') {
     const asset = assets[value.asset];
     if (!asset) throw Error('Missing image asset');
@@ -4382,8 +4534,10 @@ function exportValidatedScene(doc, fonts) {
   return doc.layers
     .filter((l) => l.visible && !l.guide)
     .map((l) => {
-      const result = evaluate(l, fonts, doc.imageAssets);
+      const result = evaluate(l, fonts, doc.imageAssets, doc);
       if (result.error) throw Error(`${l.name}: ${result.error}`);
+      if (result.path?.exportBlockers?.length)
+        throw Error(`${l.name}: ${result.path.exportBlockers.join('; ')}`);
       const arrangedSuspension = result.path?.characterOccurrences?.find(
         (o) => o.arrangementStatus?.suspended,
       );
@@ -4490,7 +4644,12 @@ export function updateTextTypography(target, ids, patch, doc, layer, fonts = {})
   );
   doc.schemaVersion = Math.max(doc.schemaVersion, target.characterPositions?.version >= 4 ? 6 : 5);
   validate(doc);
-  const check = evaluate({ ...layer, output: target.id }, resolveFonts(doc, fonts));
+  const check = evaluate(
+    { ...layer, output: target.id },
+    resolveFonts(doc, fonts),
+    doc.imageAssets,
+    doc,
+  );
   if (check.error) throw Error(check.error);
   const layout = check.textLayout(target.id);
   if (layout.reason) throw Error(layout.reason);
@@ -4595,6 +4754,7 @@ export class CommandSession {
         { ...layer, output: node.id },
         resolveFonts(base, this.#fonts()),
         base.imageAssets,
+        base,
       ),
       layout = result.textLayout(node.id);
     if (result.error || layout.reason) throw Error(result.error || layout.reason);
@@ -4707,6 +4867,7 @@ export class CommandSession {
         { ...layerPreview, output: target.nodeId },
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       );
       if (checked.error) throw Error(checked.error);
       return candidate;
@@ -4815,6 +4976,7 @@ export class CommandSession {
                 'Star',
                 'Text',
                 'Image',
+                'Composition Reference',
                 'Vector',
                 'Null',
               ].includes(node.type)
@@ -4828,7 +4990,7 @@ export class CommandSession {
                     : 'offset'
                   : node.type === 'Vector'
                     ? 'value'
-                    : ['Text', 'Image', 'Null'].includes(node.type)
+                    : ['Text', 'Image', 'Null', 'Composition Reference'].includes(node.type)
                       ? 'position'
                       : 'center'
               ],
@@ -4878,6 +5040,7 @@ export class CommandSession {
             layer,
             resolveFonts(candidate, this.#fonts()),
             candidate.imageAssets,
+            candidate,
           ).run(node.params.path.source);
           for (const pointId of pointIds) {
             const existing = node.edits.find((e) => e.pointId === pointId);
@@ -4897,6 +5060,8 @@ export class CommandSession {
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
         resolveFonts(base, this.#fonts()),
+        candidate,
+        base,
       );
       return candidate;
     }
@@ -4994,6 +5159,7 @@ export class CommandSession {
         { ...layer, output: node.id },
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       );
       if (result.error || result.textLayout(node.id).reason)
         throw Error(result.error || result.textLayout(node.id).reason);
@@ -5003,6 +5169,8 @@ export class CommandSession {
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
         resolveFonts(base, this.#fonts()),
+        candidate,
+        base,
       );
       return candidate;
     }
@@ -5187,6 +5355,8 @@ export class CommandSession {
         resolveFonts(candidate, fonts),
         candidate.imageAssets,
         resolveFonts(this.#history.doc, this.#fonts()),
+        candidate,
+        this.#history.doc,
       );
     const token = Object.freeze({});
     this.#prepared = { token, ticket, bridge, candidate, expectedRevision, type, sequence };
@@ -5468,6 +5638,7 @@ export class CommandSession {
         { ...layer, output: item.id },
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       );
       if (evaluated.error) throw Error(evaluated.error);
       if (evaluated.path.remapSuspended)
@@ -5708,6 +5879,7 @@ export class CommandSession {
           { ...layer, output: source.id },
           resolveFonts(before, this.#fonts()),
           before.imageAssets,
+          before,
         );
         if (evaluated.error)
           throw Object.assign(
@@ -5775,6 +5947,7 @@ export class CommandSession {
         layer,
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       ).transformState(n.id);
       if (!state.input?.contours.some((c) => c.points.length))
         throw Error('Connect nonempty input geometry');
@@ -5822,6 +5995,7 @@ export class CommandSession {
           layer,
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
+          base,
         ).transformValues(n.id)[payload.key];
       const unchanged =
         !q.source &&
@@ -5834,6 +6008,7 @@ export class CommandSession {
           layer,
           resolveFonts(base, this.#fonts()),
           base.imageAssets,
+          base,
         ).transformValues(n.id).anchor;
         n.params.position = { ...clone(transformExtensions.position), value: clone(anchor) };
         base.schemaVersion = Math.max(base.schemaVersion, 11);
@@ -6070,6 +6245,7 @@ export class CommandSession {
         'preview-node',
         'set-node-bypassed',
         'set-reference',
+        'set-composition-reference',
         'set-node-settings',
         'insert-path-point',
         'create-point',
@@ -6096,6 +6272,7 @@ export class CommandSession {
         { ...target, output: transformNode.id },
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       );
       if (!check.error && check.textLayout(transformNode.id)?.arrangementStatus?.active) {
         const axis = transformNode.characterArrangement.axis === 'x' ? 0 : 1;
@@ -6129,6 +6306,7 @@ export class CommandSession {
             target,
             resolveFonts(candidate, this.#fonts()),
             candidate.imageAssets,
+            candidate,
           ).transformValues(transformNode.id)[payload.key],
         );
       if (
@@ -6153,6 +6331,8 @@ export class CommandSession {
       item.name = payload.name.trim();
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      if (created.type === 'Composition Reference')
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
       if (created.type === 'Join Geometry')
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 23);
       if (created.type === 'Multi Path')
@@ -6263,6 +6443,7 @@ export class CommandSession {
         { ...target, output: item.id },
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       );
       if (evaluated.error) throw Error(evaluated.error);
       const split = splitPathSegment(
@@ -6344,6 +6525,7 @@ export class CommandSession {
           target,
           resolveFonts(candidate, this.#fonts()),
           candidate.imageAssets,
+          candidate,
         ).run(item.params.path.source);
         if (payload.action === 'translate')
           translateRemapPoints(item, input, payload.pointIds, payload.delta);
@@ -6374,6 +6556,18 @@ export class CommandSession {
     } else if (type === 'set-node-bypassed') {
       setNodeBypassed(target, payload.nodeId, payload.bypassed);
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 10);
+    } else if (type === 'set-composition-reference') {
+      const item = target.nodes.find((n) => n.id === payload.nodeId);
+      if (item?.type !== 'Composition Reference') throw Error('Select a Composition Reference');
+      if (
+        payload.target !== null &&
+        !candidate.layers.some((l) => l.id === payload.target?.compositionId)
+      )
+        throw Error('Missing source Composition');
+      item.compositionReference = clone(payload.target);
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
+      validateCompositionReference(item, candidate.schemaVersion);
+      assertCompositionAcyclic(candidate);
     } else if (type === 'set-reference')
       setReference(target, payload.nodeId, clone(payload.target));
     else if (type === 'set-node-settings') {
@@ -6434,6 +6628,7 @@ export class CommandSession {
             { ...target, output: node.id },
             resolveFonts(candidate, this.#fonts()),
             candidate.imageAssets,
+            candidate,
           );
           if (result.error) throw Error(result.error);
           return { result, layout: result.textLayout(node.id) };
@@ -6595,6 +6790,7 @@ export class CommandSession {
           { ...target, output: node.id },
           resolveFonts(candidate, this.#fonts()),
           candidate.imageAssets,
+          candidate,
         );
         if (check.error) throw Error(check.error);
         if (check.textLayout(node.id).reason) throw Error(check.textLayout(node.id).reason);
@@ -6709,6 +6905,7 @@ export class CommandSession {
               target,
               resolveFonts(candidate, this.#fonts()),
               candidate.imageAssets,
+              candidate,
             );
             const resolve = (ref) => {
               const referenced = referenceParameter(target, ref);
@@ -6735,6 +6932,7 @@ export class CommandSession {
               target,
               resolveFonts(candidate, this.#fonts()),
               candidate.imageAssets,
+              candidate,
             ).transformValues(node.id).scaleWidth;
             node.params.scaleWidth = { ...clone(transformExtensions.scaleWidth), value: width };
           }
@@ -6750,12 +6948,19 @@ export class CommandSession {
         }
       }
     }
+    if (
+      candidate.layers.some((l) =>
+        l.nodes.some((n) => n.paintMode || n.type === 'Composition Reference'),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
     validate(candidate);
     if (type === 'set-parameter-base')
       evaluate(
         target,
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       ).parameterValue(payload.nodeId, payload.key);
     if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))
@@ -6763,6 +6968,7 @@ export class CommandSession {
         target,
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
+        candidate,
       ).transformValues(transformNode.id);
     assertClosedOffsetChange(
       target,
@@ -6770,6 +6976,8 @@ export class CommandSession {
       resolveFonts(candidate, this.#fonts()),
       candidate.imageAssets,
       resolveFonts(before, this.#fonts()),
+      candidate,
+      before,
     );
     return { candidate, result, committingDraft };
   }

@@ -72,6 +72,10 @@ test('expandable Join Geometry renders stable input sockets, spare labels, wires
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
+  source = source.replace(
+    /from '([.][^']+)'/g,
+    (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
+  );
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((resolve) => setTimeout(resolve, 100));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 10));

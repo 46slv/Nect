@@ -21,10 +21,10 @@ before the deferred Illustrator-style path backlog. Preserve authoring and never
 extract/copy/embed Adobe cache/font software. Windows OS references may return
 geometry only. No universal all-font/all-script completion claim is authorized.
 
-Current phase: Preserve/build the coherent font checkpoint after a6e7f57's DIN
-repair. OS variable axes and Japanese vertical layout now pass native, model and
-production fixture UI checks. Then implement the user's new same-document
-Composition Output reference request. Notion remains the parent's responsibility.
+Current phase: The font checkpoint is preserved at 4c4af2f (schema 30),
+with verified Library ZIP libfile_2644c94a2edc819198b6fc4226bfb6a2. The new
+same-document Composition Output reference is implemented; validate and build
+its separate schema 31 checkpoint. Notion remains the parent's responsibility.
 
 Proven: Point Delete ownership is in bad7a6c; OS geometry and DIN Alternate GDI
 output were distributed in 6021b3e. Editable schema 28 OS Text is in 0662979.
@@ -64,7 +64,7 @@ Done for next: Actual OS variable-axis and vertical/multiline font evidence,
 portable geometry snapshots and a separately versioned verified package; continue
 practical font acceptance before path extensions.
 
-State: codex/desktop-production-20261016, candidate based on a6e7f57. Blank/old
+State: codex/desktop-production-20261016, Composition candidate based on 4c4af2f. Blank/old
 documents remain schema 27 or their prior version until new features are authored;
 schema 28/29/30 documents require their corresponding reader. Existing bc5ad1a,
 6021b3e/bad7a6c and older
@@ -87,3 +87,34 @@ Alt one-sided handles and endpoint extension remain deferred behind fonts.
 Handoff: CONTINUE_CURRENT_TASK through this coherent font checkpoint. Earlier
 requirements/history remain in Git and the existing canonical Notion references;
 do not recreate a parallel tracker or expose private artwork/font bytes.
+
+
+## Composition Output reference checkpoint — 2026-10-18
+
+The user's 14:51 JST request adds same-document reusable Composition parts.
+Composition Reference stores a stable compositionId, reads the source's live
+Output even when hidden, and retains an explicit missing target. Self/indirect
+cycles reject atomically. The node's Position, normal artwork Move, duplication,
+paint-aware Transform and ordered Join preserve independent fill/stroke/gradient/
+image appearance and transparent holes. No background is baked. Geometry-only
+consumers require explicit Convert to Path; source typography export restrictions
+and warnings remain effective. Schema 31 persists references and paint routing;
+old documents retain their prior schema until the new feature is authored.
+
+Evidence: related model/DOM regressions 81/81, including 7 Composition contract
+checks, plus 27/27 point/gesture/insertion checks; production Edge/CSP dropdown, numeric Position, actual canvas drag (including one instance inside Join),
+painted Transform canvas controls, duplicate, source navigation/edit reflection, Transform wiring, Undo and JSON
+reload passed. Actual exported PNG alpha at background/single/hole/other-instance/
+overlap pixels was [0,128,0,128,192]. Gradient IDs, stroke and nested Image output
+retention were checked. Font production regression again passed DIN, axes,
+Japanese vertical, settings, save/reload and SVG/PNG with explicit native fixtures.
+Native WebView2 IME/high-DPI remains the same LOCAL_WAIT above.
+
+Double-check gate: critic, saved-format/appearance boundary; question: whether
+Composition identity, cycles, cache invalidation and paint/alpha survive without
+silently changing existing Path semantics. Local counterexample review adopted
+explicit paint routing, typed unconfigured-target states and propagation of source
+export restrictions. Consultation not-required; local codec/atomic-command/
+production raster evidence resolves this bounded decision. Zero external sends;
+no material unresolved design decision, cycle 1. Scope excludes external-file
+links and video; edit source paints in the source Composition.

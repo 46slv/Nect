@@ -457,7 +457,7 @@ import {
   expressionReferenceTargets,
   referenceTarget,
   socketCompatibleFor,
-  evaluate,
+  evaluate as evaluateCore,
   enableRemapPoint,
   pathData,
   signature,
@@ -880,6 +880,8 @@ const displayDocument = () =>
   drag?.preview ||
   (textPreviewRevision === session.state.expectedRevision && textPreview) ||
   history.doc;
+const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) =>
+  evaluateCore(layer, fonts, imageAssets, doc);
 const displayLayer = () => {
   const doc = displayDocument();
   return penDraft?.layer || doc.layers.find((layer) => layer.id === activeLayer) || doc.layers[0];
@@ -2065,6 +2067,19 @@ function positionReferenceControls(n) {
   return `<div class="field"><label>Position reference</label><select data-position-reference="${n.id}" aria-label="Object Position reference">${options.map(([value, label]) => `<option value="${value}" ${(n.positionReference || 'origin') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><p class="font-note">Bounds exclude stroke. Position stays fixed when the reference or size changes.${n.type === 'Image' ? ' Image bounds include transparent pixels.' : ''}</p>`;
 }
 function referenceControls(n, result, compact = false) {
+  if (n.type === 'Composition Reference') {
+    const targetId = n.compositionReference?.compositionId || '',
+      source = history.doc.layers.find((l) => l.id === targetId);
+    return `<div class="field"><label>Source Composition</label><select data-composition-target="${n.id}" aria-label="Source Composition" ${current().locked ? 'disabled' : ''}><option value="">Choose Composition…</option>${targetId && !source ? `<option value="${esc(targetId)}" selected disabled>Missing: ${esc(targetId)}</option>` : ''}${history.doc.layers
+      .filter((l) => l.id !== current().id)
+      .map(
+        (l) =>
+          `<option value="${esc(l.id)}" ${l.id === targetId ? 'selected' : ''}>${esc(l.name)}</option>`,
+      )
+      .join(
+        '',
+      )}</select></div>${source ? `<button class="mini" data-composition-jump="${esc(source.id)}">Open source</button>` : ''}`;
+  }
   if (n.type !== 'Reference') return '';
   const targets = vectorReferenceTargets(current(), n.id),
     value = n.reference ? JSON.stringify([n.reference.nodeId, n.reference.portId]) : '',
@@ -3137,6 +3152,12 @@ function canvasOverlay(n, result) {
       `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>` +
       nodeStageMoveMarker(n, path)
     );
+  if (n.type === 'Composition Reference' || (n.type === 'Transform' && n.paintMode))
+    return (
+      `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
+      nodeStageMoveMarker(n, path) +
+      (n.type === 'Transform' ? transformOverlay(n, result) : '')
+    );
   if (outputType(n) !== 'Path') return '';
   let out =
     `<path class="node-stage-hit" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" d="${esc(pathData(path))}"/><path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
@@ -3208,6 +3229,7 @@ function nodeStageMoveMarker(n, path) {
       'Multi Path',
       'Transform',
       'Image',
+      'Composition Reference',
     ].includes(n.type)
   )
     return '';
@@ -3282,7 +3304,10 @@ function drawCanvas() {
         l,
         drag.before.layers.find((x) => x.id === l.id),
         fonts,
-        history.doc.imageAssets,
+        display.imageAssets,
+        fonts,
+        display,
+        drag.before,
       );
     } catch (error) {
       cancelInteraction();
@@ -5220,6 +5245,17 @@ app.addEventListener('click', async (e) => {
     }
     render();
   }
+  if (d.compositionJump) {
+    if (history.doc.layers.some((l) => l.id === d.compositionJump)) {
+      activeLayer = d.compositionJump;
+      selected = null;
+      selection = new Set();
+      artworkTarget = null;
+      artworkSelection = new Set();
+      render();
+    }
+    return;
+  }
   if (d.referenceJump) {
     const ref = current().nodes.find((n) => n.id === d.referenceJump);
     try {
@@ -6778,6 +6814,7 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (
+    d.compositionTarget ||
     d.referenceTarget ||
     d.vectorPositionHandle ||
     d.strokeCap ||
@@ -6788,7 +6825,14 @@ app.addEventListener('change', async (e) => {
     d.dimension
   ) {
     try {
-      if (d.referenceTarget) {
+      if (d.compositionTarget) {
+        commandChange(
+          'set-composition-reference',
+          { nodeId: d.compositionTarget, target: el.value ? { compositionId: el.value } : null },
+          undefined,
+          true,
+        );
+      } else if (d.referenceTarget) {
         const target = el.value ? JSON.parse(el.value) : null;
         commandChange(
           'set-reference',
@@ -8230,6 +8274,7 @@ app.addEventListener('pointerdown', (e) => {
           'Curve',
           'Multi Path',
           'Image',
+          'Composition Reference',
         ].includes(n.type),
       ))
   ) {
@@ -8239,7 +8284,7 @@ app.addEventListener('pointerdown', (e) => {
         : [
             n.type === 'Transform'
               ? 'offset'
-              : ['Text', 'Image'].includes(n.type)
+              : ['Text', 'Image', 'Composition Reference'].includes(n.type)
                 ? 'position'
                 : 'center',
           ];

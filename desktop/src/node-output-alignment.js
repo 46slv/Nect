@@ -7,6 +7,7 @@ const positions = {
   Null: 'position',
   Text: 'position',
   Image: 'position',
+  'Composition Reference': 'position',
   Circle: 'center',
   Ellipse: 'center',
   Rectangle: 'center',
@@ -36,7 +37,7 @@ export function resolveNodeOutputTargets(doc, layerId, nodeIds, options = {}) {
       throw Error('Select 1–100 distinct node outputs.');
     const selected = new Set(nodeIds),
       byId = new Map(layer.nodes.map((n) => [n.id, n]));
-    const evaluated = evaluate(layer, options.fonts || {}, doc.imageAssets);
+    const evaluated = evaluate(layer, options.fonts || {}, doc.imageAssets, doc);
     const final = resolveArtworkMoveTarget(doc, layerId, options);
     const finalRoute = final.supported
       ? new Set(final.target.route.map((n) => n.nodeId))
@@ -68,7 +69,10 @@ export function resolveNodeOutputTargets(doc, layerId, nodeIds, options = {}) {
         route.add(n.id);
       }
       if (n.bypassed || n.pathAttachment) fail('This output cannot be translated safely.');
-      const key = ['Transform', 'Vector Transform'].includes(n.type) && n.params.position ? 'position' : positions[n.type];
+      const key =
+        ['Transform', 'Vector Transform'].includes(n.type) && n.params.position
+          ? 'position'
+          : positions[n.type];
       if (!key && n.type !== 'Curve') fail('This output has no supported position control.');
       for (const [name, q] of Object.entries(n.params)) {
         if (name !== key && name !== 'path' && (q.source || q.expression))
@@ -126,7 +130,12 @@ export function resolveNodeOutputTargets(doc, layerId, nodeIds, options = {}) {
         outputId,
         route: [...route],
         bounds,
-        key: owner.id + ':' + ((['Transform', 'Vector Transform'].includes(owner.type) && owner.params.position ? 'position' : positions[owner.type]) || 'points'),
+        key:
+          owner.id +
+          ':' +
+          ((['Transform', 'Vector Transform'].includes(owner.type) && owner.params.position
+            ? 'position'
+            : positions[owner.type]) || 'points'),
         target: { kind: 'nodes-translate', layerId, nodeIds: [owner.id] },
       });
     }

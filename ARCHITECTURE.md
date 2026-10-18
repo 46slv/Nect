@@ -184,3 +184,23 @@ Choose flush/cadence/retention/recovery-loss bounds with the persistence impleme
 | Host/codec/plugin runtime | Adapter plus actual capability gaps | No second authority; explicit unsupported result |
 
 Use the smallest correct boundary, not the fewest lines at any cost. If an invariant blocks a real requirement, propose its bounded replacement and migration rather than preserving a known defect or rewriting unrelated subsystems.
+
+
+## Same-document Composition output references (schema 31)
+
+Composition Reference stores a stable compositionId and numeric Position. The
+common Session owns selection/retarget/duplication edits; evaluate receives the
+document explicitly, resolves source Output independently of layer visibility,
+and includes its output revision in dependent cache keys. Missing IDs remain
+saved and diagnosed; self/indirect cycles are rejected, including unused nodes.
+
+Appearance reuse is a derived painted-group value, never saved scene snapshots:
+ordered paint/image children and affine matrices render the source appearance,
+while aggregate contours are only geometry for bounds/handles. Transform and Join
+persist an explicit paintMode with PaintedPath sockets/output. Plain Path-only
+consumers still require Convert to Path. Nested groups preserve per-child alpha,
+holes, gradient IDs and image data without an artboard/background bake. Source
+export restrictions propagate separately from editable character provenance.
+The structural/geometry/depth budgets refuse expansion rather than truncating it.
+Old documents keep their schema until this feature is authored. No external-file
+identity, storage or render authority is introduced by this reference.

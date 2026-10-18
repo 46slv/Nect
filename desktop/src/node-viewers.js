@@ -40,7 +40,7 @@ export function resolveViewer(doc, slot, fonts = {}, evaluations = new Map()) {
   try {
     let result = evaluations.get(layer.id);
     if (!result) {
-      result = evaluate(layer, fonts, doc.imageAssets);
+      result = evaluate(layer, fonts, doc.imageAssets, doc);
       evaluations.set(layer.id, result);
     }
     const value = result.run(node.id, b.port);

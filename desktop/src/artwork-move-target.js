@@ -83,7 +83,19 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     );
 
   let generator, transform, target, parameter, kind, route;
-  if (output.type === 'Image Output') {
+  if (
+    output.type === 'Output' &&
+    (last.type === 'Composition Reference' || (last.type === 'Transform' && last.paintMode))
+  ) {
+    transform = last.type === 'Transform' ? last : null;
+    generator = transform ? pathSource(transform, 'PaintedPath') : last;
+    if (generator?.type !== 'Composition Reference')
+      return unsupported('unsupported-graph', 'Select a Composition Reference or its Transform.');
+    target = transform || generator;
+    parameter = transform ? (transform.params.position ? 'position' : 'offset') : 'position';
+    kind = transform ? 'terminal-transform-offset' : 'composition-position';
+    route = transform ? [generator, transform, output] : [generator, output];
+  } else if (output.type === 'Image Output') {
     if (last.type !== 'Image')
       return unsupported(
         'unsupported-graph',
@@ -248,7 +260,12 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
     )
       return unsupported('invalid-parameters', 'The artwork capsule has unexpected parameters.');
     for (const [key, input] of Object.entries(n.params)) {
-      if (!input || input.type !== expected[key].type || typeof input.locked !== 'boolean')
+      if (
+        !input ||
+        input.type !==
+          (n.paintMode && expected[key].type === 'Path' ? 'PaintedPath' : expected[key].type) ||
+        typeof input.locked !== 'boolean'
+      )
         return unsupported(
           'invalid-parameters',
           'The artwork capsule has invalid parameter types.',
@@ -269,7 +286,12 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
   // clone so neither document state nor its evaluation cache is touched.
   let value, bounds;
   try {
-    const result = evaluate(structuredClone(layer), fonts, imageAssets ?? doc.imageAssets ?? {});
+    const result = evaluate(
+      structuredClone(layer),
+      fonts,
+      imageAssets ?? doc.imageAssets ?? {},
+      doc,
+    );
     if (result.error) return unsupported('unavailable-output', result.error);
     value = result.path;
     if (!value || (value.kind !== 'image' && !value.contours?.some((c) => c.points.length)))
@@ -279,7 +301,7 @@ export function resolveArtworkMoveTarget(doc, layerId, { fonts = {}, imageAssets
       return unsupported('invalid-output', 'The final artwork bounds are not finite.');
     if (bounds.some(([min, , max]) => max <= min))
       return unsupported('empty-output', 'The final artwork has no nonzero area.');
-    if (value.kind !== 'image' && (!value.fill || value.fill.alpha <= 0))
+    if (!['image', 'painted-group'].includes(value.kind) && (!value.fill || value.fill.alpha <= 0))
       return unsupported('empty-output', 'The final artwork has no visible solid Fill.');
   } catch (error) {
     return unsupported('unavailable-output', error.message || 'The final artwork is unavailable.');
