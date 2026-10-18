@@ -143,6 +143,9 @@ export async function outlineOsText(intent) {
 export async function listDesktopFontFaces() {
   return desktop ? invoke('list_desktop_font_faces').catch(nativeError) : [];
 }
+export async function listDesktopFontAxes(face) {
+  return desktop ? invoke('list_desktop_font_axes', { face }).catch(nativeError) : [];
+}
 export async function shapeDesktopText(request) {
   if (!desktop) throw Error('Windows font shaping requires the Windows app');
   return invoke('shape_desktop_text', { request }).catch(nativeError);

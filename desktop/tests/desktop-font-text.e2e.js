@@ -10,6 +10,12 @@ const outlines = JSON.parse(await readFile(process.env.NECT_DESKTOP_FONT_SMOKE_O
 const variants = outlines.filter((r) => r.face.family === 'Meiryo' && r.face.weight === 400),
   raw = variants[0];
 const din = outlines.find((r) => r.face.family === 'DIN Alternate');
+const axisRows = process.env.NECT_OS_AXES_SMOKE_OUTPUT
+  ? JSON.parse(await readFile(process.env.NECT_OS_AXES_SMOKE_OUTPUT, 'utf8'))
+  : [];
+const verticalRows = process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT
+  ? JSON.parse(await readFile(process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT, 'utf8'))
+  : [];
 assert.ok(variants.length >= 8, 'Run Windows native typography test with fixture output first');
 const doc = document(),
   layer = doc.layers[0],
@@ -59,7 +65,7 @@ try {
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(
-    ({ variants, din }) => {
+    ({ variants, din, axisRows, verticalRows }) => {
       window.isTauri = true;
       window.fontCalls = [];
       window.fontSaves = [];
@@ -71,10 +77,32 @@ try {
           window.fontCalls.push(command);
           if (command === 'list_system_fonts' || command === 'list_os_outline_fonts') return [];
           if (command === 'list_desktop_font_faces')
-            return window.fontAvailable ? [variants[0].face, ...(din ? [din.face] : [])] : [];
+            return window.fontAvailable
+              ? [
+                  variants[0].face,
+                  ...(din ? [din.face] : []),
+                  ...(axisRows.length ? [axisRows[0].face] : []),
+                ]
+              : [];
+          if (command === 'list_desktop_font_axes')
+            return axisRows.length && JSON.stringify(args.face) === JSON.stringify(axisRows[0].face)
+              ? axisRows[0].axes
+              : [];
           if (command === 'shape_desktop_text') {
             if (!window.fontAvailable) throw Error('Font unavailable; saved outlines retained');
-            const r = [...variants, ...(din ? [din] : [])].find(
+            const ranges = axisRows.find(
+              (r) => JSON.stringify(r.face) === JSON.stringify(args.request.face),
+            )?.axes;
+            if (
+              args.request.axes &&
+              ranges &&
+              Object.entries(args.request.axes).some(([tag, value]) => {
+                const a = ranges.find((a) => a.tag === tag);
+                return !a || value < a.min || value > a.max;
+              })
+            )
+              throw Error('Axis outside declared range');
+            const r = [...variants, ...(din ? [din] : []), ...axisRows, ...verticalRows].find(
               (r) =>
                 [
                   'text',
@@ -85,7 +113,15 @@ try {
                   'ligatures',
                   'alignment',
                 ].every((k) => r[k] === args.request[k]) &&
-                JSON.stringify(r.face) === JSON.stringify(args.request.face),
+                JSON.stringify(r.face) === JSON.stringify(args.request.face) &&
+                r.writingMode === args.request.writingMode &&
+                (r.axes === undefined
+                  ? args.request.axes === undefined
+                  : args.request.axes &&
+                    r.axes.length === Object.keys(args.request.axes).length &&
+                    r.axes.every(
+                      (a) => Math.fround(a.value) === Math.fround(args.request.axes[a.tag]),
+                    )),
             );
             if (!r) throw Error('No captured native fixture for requested text/settings');
             return structuredClone(r);
@@ -108,7 +144,7 @@ try {
         },
       };
     },
-    { variants, din },
+    { variants, din, axisRows, verticalRows },
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
@@ -247,6 +283,169 @@ try {
     );
     assert.equal(await page.evaluate(() => window.nect.export()), dinSvg);
   }
+  const exampleDoc = (outline, position) => {
+    const result = structuredClone(doc),
+      n = result.layers[0].nodes.find((n) => n.id === text.id);
+    n.text = outline.text;
+    n.params.size.value = outline.size;
+    n.params.letterSpacing.value = outline.tracking;
+    n.params.lineSpacing.value = outline.lineSpacing;
+    n.kerning = outline.kerning;
+    n.alignment = ['start', 'center', 'end'][outline.alignment];
+    n.params.position.value = position;
+    return result;
+  };
+  const choose = async (contents, family) => {
+    await page.evaluate(() => (window.fontAvailable = true));
+    await page.evaluate((contents) => window.nect.load(contents), serialize(contents));
+    await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+    await page.locator('.inspector-body [data-os-text-font]').click();
+    const picker = page.getByRole('dialog', { name: 'OS font outlines' });
+    await picker.getByRole('combobox').fill(family);
+    await picker.getByRole('option').click();
+    await picker.getByRole('button', { name: 'Use font for Text', exact: true }).click();
+    await page.waitForFunction(
+      ({ id, family }) =>
+        window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont?.family === family,
+      { id: text.id, family },
+    );
+  };
+  const waitOutline = (raw) =>
+    page.waitForFunction(
+      ({ id, raw }) =>
+        JSON.stringify(
+          window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont.outline,
+        ) === JSON.stringify(raw),
+      { id: text.id, raw },
+    );
+  const cachedRoundtrip = async (name) => {
+    const saved = await page.evaluate(() => JSON.stringify(window.nect.document)),
+      svg = await page.evaluate(() => window.nect.export());
+    const jsonCount = await page.evaluate(
+      () => window.fontSaves.filter((s) => s.kind === 'json').length,
+    );
+    await page.locator('[data-action="save"]').click();
+    await page.waitForFunction(
+      (count) => window.fontSaves.filter((s) => s.kind === 'json').length > count,
+      jsonCount,
+    );
+    assert.deepEqual(
+      JSON.parse(
+        await page.evaluate(
+          () => window.fontSaves.filter((s) => s.kind === 'json').at(-1).contents,
+        ),
+      ),
+      JSON.parse(saved),
+    );
+    await page.evaluate(() => (window.fontAvailable = false));
+    await page.evaluate((contents) => window.nect.load(contents), saved);
+    assert.equal(await page.evaluate(() => window.nect.export()), svg);
+    await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+    await page.locator('.inspector-body [data-bake-text-outline]').click();
+    await page.waitForFunction(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).type === 'Multi Path',
+      text.id,
+    );
+    assert.equal(await page.evaluate(() => window.nect.export()), svg);
+    await mkdir('test-results/desktop-font-extended', { recursive: true });
+    await writeFile(`test-results/desktop-font-extended/${name}.json`, saved);
+    await writeFile(`test-results/desktop-font-extended/${name}.svg`, svg);
+    const count = await page.evaluate(
+      () => window.fontSaves.filter((s) => s.kind === 'png').length,
+    );
+    await page.locator('[data-action="export-png"]').click();
+    await page.waitForFunction(
+      (count) => window.fontSaves.filter((s) => s.kind === 'png').length > count,
+      count,
+    );
+    const bytes = await page.evaluate(
+      () => window.fontSaves.filter((s) => s.kind === 'png').at(-1).bytes,
+    );
+    assert.deepEqual(bytes.slice(0, 8), [137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(`test-results/desktop-font-extended/${name}.png`, Buffer.from(bytes));
+  };
+  if (axisRows.length) {
+    const base = axisRows[0],
+      low = axisRows[1],
+      high = axisRows[2];
+    await choose(exampleDoc(base, [60, 160]), base.face.family);
+    await waitOutline(base);
+    const input = () => page.locator('.inspector-body [data-os-axis="wght"]');
+    await input().fill(String(low.axes.find((a) => a.tag === 'wght').value));
+    await input().dispatchEvent('change');
+    await waitOutline(low);
+    await page.locator('.canvas-stage').focus();
+    await page.keyboard.press('Control+z');
+    await waitOutline(base);
+    await page.keyboard.press('Control+Shift+z');
+    await waitOutline(low);
+    await input().fill(String(high.axes.find((a) => a.tag === 'wght').value));
+    await input().dispatchEvent('change');
+    await waitOutline(high);
+    const before = await page.evaluate(() => JSON.stringify(window.nect.document));
+    await input().fill(String(high.axes.find((a) => a.tag === 'wght').max + 1));
+    await input().dispatchEvent('change');
+    await page.waitForFunction(() =>
+      document.querySelector('.message').textContent.includes('Axis outside declared range'),
+    );
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
+    assert.equal(await input().isEnabled(), true);
+    await page.locator('.inspector-body [data-reset-os-axes]').click();
+    await waitOutline(base);
+    const width = axisRows.find(
+      (r) =>
+        r.axes.some((a) => a.tag === 'wdth' && a.value === a.min) &&
+        r.axes.find((a) => a.tag === 'wght').value ===
+          base.axes.find((a) => a.tag === 'wght').value,
+    );
+    if (width) {
+      const el = page.locator('.inspector-body [data-os-axis="wdth"]');
+      await el.fill(String(width.axes.find((a) => a.tag === 'wdth').value));
+      await el.dispatchEvent('change');
+      await waitOutline(width);
+    }
+    await cachedRoundtrip('windows-variable-axes');
+  }
+  if (verticalRows.length) {
+    const horizontal = verticalRows.find((r) => r.size === 32 && r.engine === 'directwrite-v1'),
+      vertical = verticalRows.find(
+        (r) => r.size === 32 && r.writingMode === 'vertical-rl' && r.tracking === 0,
+      ),
+      track = verticalRows.find(
+        (r) =>
+          r.size === 32 &&
+          r.writingMode === 'vertical-rl' &&
+          r.tracking === 4 &&
+          r.lineSpacing === 1.2,
+      ),
+      spaced = verticalRows.find(
+        (r) =>
+          r.size === 32 &&
+          r.writingMode === 'vertical-rl' &&
+          r.tracking === 4 &&
+          r.lineSpacing === 2,
+      );
+    await choose(exampleDoc(horizontal, [720, 40]), horizontal.face.family);
+    await waitOutline(horizontal);
+    const mode = () => page.locator('.inspector-body [data-os-setting="writingMode"]');
+    await mode().selectOption('vertical-rl');
+    await waitOutline(vertical);
+    await page.locator('.canvas-stage').focus();
+    await page.keyboard.press('Control+z');
+    await waitOutline(horizontal);
+    await page.keyboard.press('Control+Shift+z');
+    await waitOutline(vertical);
+    for (const [key, value, raw] of [
+      ['tracking', 4, track],
+      ['lineSpacing', 2, spaced],
+    ]) {
+      const el = page.locator(`.inspector-body [data-os-setting="${key}"]`);
+      await el.fill(String(value));
+      await el.dispatchEvent('change');
+      await waitOutline(raw);
+    }
+    await cachedRoundtrip('windows-japanese-vertical');
+  }
   assert.deepEqual(errors, []);
   assert.ok(!(await page.evaluate(() => window.fontCalls)).includes('read_system_font'));
   await mkdir('test-results/desktop-font-text', { recursive: true });
@@ -268,6 +467,8 @@ try {
     pngSignature: true,
     missingFontPreserved: true,
     dinExactFaceMultiline: !!din,
+    osVariableAxes: !!axisRows.length,
+    japaneseVertical: !!verticalRows.length,
     pageErrors: errors,
     nativeWebView2: false,
   };

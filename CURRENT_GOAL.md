@@ -21,9 +21,10 @@ before the deferred Illustrator-style path backlog. Preserve authoring and never
 extract/copy/embed Adobe cache/font software. Windows OS references may return
 geometry only. No universal all-font/all-script completion claim is authorized.
 
-Current phase: Continue font completion after delivery of bc5ad1a. DIN's
-process-local catalog loss is reproduced and repaired; extend OS variable axes
-and Japanese vertical layout next. Notion remains the parent's responsibility.
+Current phase: Preserve/build the coherent font checkpoint after a6e7f57's DIN
+repair. OS variable axes and Japanese vertical layout now pass native, model and
+production fixture UI checks. Then implement the user's new same-document
+Composition Output reference request. Notion remains the parent's responsibility.
 
 Proven: Point Delete ownership is in bad7a6c; OS geometry and DIN Alternate GDI
 output were distributed in 6021b3e. Editable schema 28 OS Text is in 0662979.
@@ -39,11 +40,19 @@ The DIN repair preserves 637 GDI families after DirectWrite initialization and
 exposes 633 unified real faces, including DIN Alternate Bold/700. Native and
 production fixture workflows prove lowercase/multiline DIN, portable reload and
 exact SVG/path output. No reactivation/account change is needed for that repair.
+The schema 30 candidate adds geometry-only variable axes and vertical snapshots.
+Native 33/33, OS model/DOM 20/20 and existing outline/variable/point 49/49 pass.
+Production Edge/CSP covers axes/reset/range failure, vertical mode/spacing, Undo,
+JSON save/reload, cached-font absence, SVG/path parity and PNG; IPC remains a
+fixture using separately tested native output. Actual WebView2 IME/DPI is open.
 
-Next task: Implement bounded OS font-axis metadata/preparation and Japanese
-vertical layout, then verify actual font geometry, portable save/reload and
-matching output. Commit/push and ZIP delivery are checkpoints; keep progressing
-within the authorized font scope rather than stopping at those boundaries.
+Next task: Commit and separately build/package this font checkpoint. Then inspect
+the existing Reference/evaluation model and add or extend the smallest equivalent
+for another same-document Composition's Output: stable target ID, live source
+updates, normal placement/Transform/duplication, alpha/holes without a baked
+background, save/reload, explicit missing targets and self/indirect cycle refusal.
+The user's 14:51 JST request authorizes this next bounded feature; external-file
+links and video are excluded. Do not stop at commit/push or ZIP boundaries.
 
 Approach: One source/build writer; bounded native read-only adapters; common JS
 Session validates candidates and owns Undo/codec. Pure evaluation/export use
@@ -55,17 +64,18 @@ Done for next: Actual OS variable-axis and vertical/multiline font evidence,
 portable geometry snapshots and a separately versioned verified package; continue
 practical font acceptance before path extensions.
 
-State: codex/desktop-production-20261016, candidate based on bc5ad1a. Blank/old
+State: codex/desktop-production-20261016, candidate based on a6e7f57. Blank/old
 documents remain schema 27 or their prior version until new features are authored;
-schema 28/29 documents require the new reader. Existing 6021b3e/bad7a6c and older
+schema 28/29/30 documents require their corresponding reader. Existing bc5ad1a,
+6021b3e/bad7a6c and older
 b9fe3f/schema19 packages remain unchanged and are not the new font checkpoint.
 
 LOCAL_WAIT: Actual WebView2 IME/high-DPI/picker and subjective typography acceptance.
 The exposed host tools have no native UI controller; browser automation and actual
 native adapter tests are available. Resume this row on native-control capability
 or the user's hands-on evidence; it does not block independent font work.
-New OS-route variable axes, vertical, wrap, rich/path/character adjustments and
-color/bitmap fonts remain explicit limits; other existing routes retain their
+OS-route wrap, custom leading, rich/path/character adjustments and color/bitmap
+fonts remain explicit limits; other existing routes retain their
 documented abilities. Legacy GDI-only families retain their narrower script and
 single-line limits. Do not describe font support as universally complete.
 

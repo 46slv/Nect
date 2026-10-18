@@ -3785,7 +3785,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29,
+      27, 28, 29, 30,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -5552,12 +5552,26 @@ export class CommandSession {
         delete source.osFont;
         source.font = 'default';
       } else {
-        const modern = payload.outline?.engine === 'directwrite-v1';
+        const modern = ['directwrite-v1', 'directwrite-v2'].includes(payload.outline?.engine);
         const settings = payload.settings || {};
+        if (
+          settings.axes !== undefined &&
+          (!settings.axes || Object.getPrototypeOf(settings.axes) !== Object.prototype)
+        )
+          throw Error('Invalid font-axis settings');
         if (
           Object.keys(settings).some(
             (k) =>
-              !['size', 'tracking', 'lineSpacing', 'kerning', 'ligatures', 'alignment'].includes(k),
+              ![
+                'size',
+                'tracking',
+                'lineSpacing',
+                'kerning',
+                'ligatures',
+                'alignment',
+                'axes',
+                'writingMode',
+              ].includes(k),
           ) ||
           (!modern && Object.keys(settings).length) ||
           (settings.ligatures !== undefined && settings.ligatures !== payload.outline.ligatures)
@@ -5597,6 +5611,16 @@ export class CommandSession {
           }
           if (settings.kerning !== undefined) next.kerning = settings.kerning;
           if (settings.alignment !== undefined) next.alignment = settings.alignment;
+          if (settings.writingMode !== undefined) next.writingMode = settings.writingMode;
+          if (
+            settings.axes !== undefined &&
+            (next.osFont.version !== 3 ||
+              Object.keys(settings.axes).length !== next.osFont.axes.length ||
+              next.osFont.axes.some(
+                (a) => Math.fround(settings.axes[a.tag]) !== Math.fround(a.value),
+              ))
+          )
+            throw Error('Mismatched prepared font axes');
           desktopTextIntent(next, next.osFont.face);
         } else
           osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
@@ -5608,7 +5632,10 @@ export class CommandSession {
             nextRaw: next.text,
           }).record;
         Object.assign(source, next);
-        candidate.schemaVersion = Math.max(candidate.schemaVersion, modern ? 29 : 28);
+        candidate.schemaVersion = Math.max(
+          candidate.schemaVersion,
+          source.osFont.version === 3 ? 30 : modern ? 29 : 28,
+        );
         validateOsFontText(source, candidate.schemaVersion);
       }
       validate(candidate);
@@ -5647,7 +5674,7 @@ export class CommandSession {
       }
       let path, outlineUnits;
       if (type === 'bake-os-text-outline') {
-        if (payload.outline?.engine === 'directwrite-v1') {
+        if (['directwrite-v1', 'directwrite-v2'].includes(payload.outline?.engine)) {
           if (parameters(source).some(([, q]) => q.source || q.expression))
             throw Error('Disconnect Text parameters before direct OS conversion');
           const prepared = {

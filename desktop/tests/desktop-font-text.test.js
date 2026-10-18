@@ -43,6 +43,7 @@ function fixture(outline) {
     fill = node('Fill');
   n.text = outline?.text ?? '日本語\nمرحبا';
   if (outline) {
+    if (outline.writingMode) n.writingMode = outline.writingMode;
     n.params.size.value = outline.size;
     n.params.letterSpacing.value = outline.tracking;
     n.params.lineSpacing.value = outline.lineSpacing;
@@ -171,3 +172,63 @@ if (process.env.NECT_DESKTOP_FONT_SMOKE_OUTPUT)
       assert.equal(exportSVG(f.s.snapshot()), svg, outline.face.family);
     }
   });
+for (const [kind, key] of [
+  ['axes', 'NECT_OS_AXES_SMOKE_OUTPUT'],
+  ['vertical', 'NECT_OS_VERTICAL_SMOKE_OUTPUT'],
+]) {
+  if (process.env[key])
+    test(`actual OS ${kind} snapshots retain schema 30, codec, output and one-step history`, () => {
+      const outlines = JSON.parse(fs.readFileSync(process.env[key], 'utf8')).filter(
+        (r) => r.engine === 'directwrite-v2',
+      );
+      for (const outline of outlines) {
+        const f = fixture(outline),
+          before = serialize(f.s.snapshot());
+        f.send('set-os-font-text', { outline });
+        assert.equal(f.s.snapshot().schemaVersion, 30);
+        assert.equal(f.live().osFont.version, 3);
+        const saved = serialize(f.s.snapshot()),
+          loaded = deserialize(saved),
+          a = evaluate(loaded.layers[0], {});
+        assert.equal(a.error, null);
+        assert.equal(Object.keys(loaded.fontAssets || {}).length, 0);
+        const svg = exportSVG(loaded);
+        f.send('bake-text-outline');
+        assert.equal(exportSVG(f.s.snapshot()), svg);
+        f.send('undo');
+        assert.equal(serialize(f.s.snapshot()), saved);
+        f.send('undo');
+        assert.equal(serialize(f.s.snapshot()), before);
+        const invalid = deserialize(saved);
+        invalid.schemaVersion = 29;
+        assert.throws(() => deserialize(serialize(invalid)));
+        const stale = deserialize(saved);
+        stale.layers[0].nodes[0].writingMode =
+          outline.writingMode === 'vertical-rl' ? 'horizontal-tb' : 'vertical-rl';
+        assert.throws(() => deserialize(serialize(stale)));
+        if (outline.axes.length) {
+          const bad = deserialize(saved);
+          bad.layers[0].nodes[0].osFont.axes[0].value += 0.25;
+          assert.throws(() => deserialize(serialize(bad)));
+        }
+      }
+      if (kind === 'axes') {
+        const [base, low] = outlines,
+          f = fixture(base);
+        f.send('set-os-font-text', { outline: base });
+        const saved = serialize(f.s.snapshot());
+        const axes = Object.fromEntries(low.axes.map((a) => [a.tag, a.value]));
+        f.send('set-os-font-text', { outline: low, settings: { axes } });
+        assert.deepEqual(
+          Object.fromEntries(f.live().osFont.axes.map((a) => [a.tag, a.value])),
+          axes,
+        );
+        f.send('undo');
+        assert.equal(serialize(f.s.snapshot()), saved);
+        assert.throws(() =>
+          f.send('set-os-font-text', { outline: low, settings: { axes: { JUNK: 0 } } }),
+        );
+        assert.equal(serialize(f.s.snapshot()), saved);
+      }
+    });
+}

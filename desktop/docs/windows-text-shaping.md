@@ -39,6 +39,27 @@ installed for desktop apps. Native UI is not exposed by the current tools; no
 activation or account UI action was taken and no user action is presently needed
 for the proven DIN repair.
 
+## Schema 30 axes and vertical extension
+
+The next checkpoint adds schema 30 / OS reference version 3 / `directwrite-v2`
+snapshots for OS variable axes and vertical writing. Axis metadata includes the
+OS range, font default, selected-face base, current value and hidden flag (max 32
+axes). Unknown, incomplete or out-of-range axes refuse instead of clamping.
+The exact varied face is used by shaping and the renderer's identity check;
+automatic optical-size adjustment is disabled when explicit axes are supplied.
+Vertical layout uses Windows' per-run orientation transform, upright Japanese,
+rotated Latin and right-to-left columns. Snapshots additionally retain writing
+mode and advance height; pure evaluation positions their stored geometry on the
+corresponding inline/cross axes. Versions 1/2 remain readable without migration.
+Bahnschrift width/weight and Segoe UI Variable optical-size/weight were measured
+at both range limits. Real Meiryo glyph geometry confirms Japanese orientation,
+Latin rotation and column direction. The production fixture workflow covers axis
+edits/reset/failure, vertical mode/spacing, Undo, JSON save/reload and exact SVG
+and cached path output; PNGs were visually inspected. Actual WebView2 IME/DPI
+remains unverified. The saved-format review gate was invoked: external submission
+not required because the accepted geometry-only boundary and local native/codec
+tests settle this bounded extension. External submissions: zero.
+
 ## Initial schema 29 contract
 
 Choose OS font lists real DirectWrite faces by family, actual face label and
