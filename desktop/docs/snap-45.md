@@ -13,22 +13,22 @@ guides after graph autopan.
 
 ## Inventory and behavior
 
-| Existing operation | Existing snap / constraint | 45 degree behavior |
-| --- | --- | --- |
-| Final artwork / multi-selection / source generators | XY edges, centers, guides, artboard, grid; Shift H/V | Shift selects nearest H/V/+45/-45 line, held for the gesture; one translation for all sources |
-| Text characters | Ink edges/centers/equal gaps, same XY solver | Same displayed-space constraint, then inverse occurrence transform; maintained-gap restrictions retained |
-| Null / opted-in Vector / shape or Text position | Same XY solver | Same direction constraint |
-| Curve / Multi Path / retained Remap points | Same XY solver | Same constraint, before inverse source transform |
-| Existing Bezier handles / Alt-created paired handles | XY endpoint snap / anchor-relative vector | Nearest 45 degree handle angle about the vertex, updated while dragging; preserve independent/coupled mode |
-| Pen new vertices / continuation | XY snap on press | 45 degree ray from previous draft vertex, then inverse retained route transform |
-| Pen new handles | XY endpoint snap | 45 degree vector from the new anchor; press cursor and snapped anchor kept distinct |
-| Multi Path units | XY movement | Same direction constraint and inverse route conversion |
-| Transform Anchor | Output-space pivot movement | Same direction constraint, command retains pivot compensation |
-| Graph nodes / groups | Edges/centers, 6 CSS px, Ctrl/Cmd bypass, origin clamp | Shift H/V/45; automatic 45 fallback, rigid group motion and direction guide; preserve origin clamp along the ray |
-| Transform rotation | Shift absolute 15 degree steps | Already includes every 45 degree multiple, retained unchanged |
-| Composition Guides / Layout Grid / ordinary Grid | Axis-aligned scalar target coordinates | All remain eligible for intersection with a constrained diagonal; visible guide denotes an actually reached target |
-| Guide drag | One-axis position | Retains one axis; there is no second degree of freedom to constrain |
-| Numeric inputs / scrub / object dimensions / scale ray | Exact values or scalar rounding/projection | Retained; these are not XY direction constraints |
+| Existing operation                                     | Existing snap / constraint                             | 45 degree behavior                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Final artwork / multi-selection / source generators    | XY edges, centers, guides, artboard, grid; Shift H/V   | Shift selects nearest H/V/+45/-45 line, held for the gesture; one translation for all sources                      |
+| Text characters                                        | Ink edges/centers/equal gaps, same XY solver           | Same displayed-space constraint, then inverse occurrence transform; maintained-gap restrictions retained           |
+| Null / opted-in Vector / shape or Text position        | Same XY solver                                         | Same direction constraint                                                                                          |
+| Curve / Multi Path / retained Remap points             | Same XY solver                                         | Same constraint, before inverse source transform                                                                   |
+| Existing Bezier handles / Alt-created paired handles   | XY endpoint snap / anchor-relative vector              | Nearest 45 degree handle angle about the vertex, updated while dragging; preserve independent/coupled mode         |
+| Pen new vertices / continuation                        | XY snap on press                                       | 45 degree ray from previous draft vertex, then inverse retained route transform                                    |
+| Pen new handles                                        | XY endpoint snap                                       | 45 degree vector from the new anchor; press cursor and snapped anchor kept distinct                                |
+| Multi Path units                                       | XY movement                                            | Same direction constraint and inverse route conversion                                                             |
+| Transform Anchor                                       | Output-space pivot movement                            | Same direction constraint, command retains pivot compensation                                                      |
+| Graph nodes / groups                                   | Edges/centers, 6 CSS px, Ctrl/Cmd bypass, origin clamp | Shift H/V/45; automatic 45 fallback, rigid group motion and direction guide; preserve origin clamp along the ray   |
+| Transform rotation                                     | Shift absolute 15 degree steps                         | Already includes every 45 degree multiple, retained unchanged                                                      |
+| Composition Guides / Layout Grid / ordinary Grid       | Axis-aligned scalar target coordinates                 | All remain eligible for intersection with a constrained diagonal; visible guide denotes an actually reached target |
+| Guide drag                                             | One-axis position                                      | Retains one axis; there is no second degree of freedom to constrain                                                |
+| Numeric inputs / scrub / object dimensions / scale ray | Exact values or scalar rounding/projection             | Retained; these are not XY direction constraints                                                                   |
 
 Other controls without an existing positional snapping route (for example
 gradient control geometry) are not silently advertised as newly supported Snap
@@ -89,3 +89,17 @@ Review: codex-review / shared coding review owner, exact module + integration
 patch scope. External double-check invoked; status `not-required`, submissions
 zero: local source, 45 focused checks and real production operations resolve the
 implementation decisions. No external consultation is claimed.
+
+## Integration checkpoint
+
+Applied on the schema-37 Repeater/Dither integration branch. The import hunk
+needed a three-way application because grapheme editing already added an import;
+both connections are retained. Unrelated formatting hunks were omitted. Only
+`main.js` gesture/guide wiring and the two Graph regression expectations change;
+no schema or core authored-state format changes.
+
+The 45 focused Snap checks and 120 Repeater/recovery/text checks pass. Eight
+production-CSP browser paths pass: the 17 Snap scenarios, Repeater full
+Canvas/SVG/PNG RGBA equality, Points, Dither, grapheme-app, Graph clipboard,
+per-operation recovery and SVG-part insertion. The original unrelated
+`artwork-snap-dom.test.js` injection limitation remains excluded explicitly.

@@ -132,8 +132,8 @@ test('graph alignment integrates with real DOM handlers, preview, history, cance
     fire(element(b.id).querySelector('.node-head'), 'pointerdown', 500, 500, { shiftKey: true });
   start();
   fire(document, 'pointermove', 104, 105);
-  assert.equal(element(a.id).style.left, '104px');
-  assert.equal(element(b.id).style.left, '504px');
+  assert.equal(element(a.id).style.left, '104.5px');
+  assert.equal(element(b.id).style.left, '504.5px');
   fire(document, 'pointerup');
   assert.deepEqual(
     pos(b.id).map((v, i) => v - pos(a.id)[i]),
@@ -177,7 +177,7 @@ test('graph alignment integrates with real DOM handlers, preview, history, cance
     'autopan recalculates unsnapped world pointer',
   );
   assert.equal(
-    $('.graph-snap-guides').children.length,
+    $('.graph-snap-guides').querySelectorAll('line:not([data-snap-kind])').length,
     0,
     'old alignment guides clear after autopan moves away',
   );

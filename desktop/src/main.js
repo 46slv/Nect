@@ -18,6 +18,13 @@ import { createViewerState, mountViewers, updateViewers } from './node-viewers.j
 import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
+import { transformCharacterPoint } from './character-geometry.js';
+import {
+  constrainDirectionDrag,
+  snapDirectionTranslation,
+  directionGuidePath,
+  snapGraphDirection,
+} from './direction-snapping.js';
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
@@ -413,7 +420,6 @@ import { resolveArtworkOrderTarget } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
   adjacentNodeOffset,
-  snapGraphNodes,
   fitScale,
   unionBounds,
   anchoredPan,
@@ -492,7 +498,6 @@ import {
   History,
   CommandSession,
   createVariableDocumentPreparer,
-  constrainAxisDrag,
   scrubNumericValues,
   guideDefaults,
   guideSettings,
@@ -2498,7 +2503,7 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard and grid; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -2510,7 +2515,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -2757,13 +2762,15 @@ function guidesOverlay() {
     layoutOverlay() +
     snapMatches
       .map((m) =>
-        m.kind === 'character-gap'
-          ? `<path class="snap-match" data-snap-kind="character-gap" d="${characterGapGuidePath(m, canvasScale())}" fill="none"/>`
-          : guideLine(
-              m.axis ? 'y' : 'x',
-              m.position,
-              `class="snap-match" data-snap-kind="${m.kind}"`,
-            ),
+        m.kind === 'direction'
+          ? `<path class="snap-match" data-snap-kind="direction" d="${directionGuidePath(m)}" fill="none"/>`
+          : m.kind === 'character-gap'
+            ? `<path class="snap-match" data-snap-kind="character-gap" d="${characterGapGuidePath(m, canvasScale())}" fill="none"/>`
+            : guideLine(
+                m.axis ? 'y' : 'x',
+                m.position,
+                `class="snap-match" data-snap-kind="${m.kind}"`,
+              ),
       )
       .join('')
   );
@@ -2804,17 +2811,32 @@ function canvasScale() {
   const ctm = document.querySelector('.artboard')?.getScreenCTM();
   return Math.hypot(ctm?.a ?? 1, ctm?.b ?? 0) || 1;
 }
-function snapped(sources, delta, event, excludedGuide = null) {
-  const result = snapTranslation(
-    history.doc,
+function snapped(
+  sources,
+  delta,
+  event,
+  excludedGuide = null,
+  direction = null,
+  origin = drag?.directionOrigin || drag?.start || [0, 0],
+  offset = drag?.directionOffset || [0, 0],
+) {
+  const scale = canvasScale();
+  const result = snapDirectionTranslation(
+    (allowed, value, targetScale) =>
+      snapTranslation(
+        history.doc,
+        allowed,
+        value,
+        targetScale,
+        event.altKey,
+        excludedGuide,
+        snapLayerBounds.guides,
+        snapLayerBounds.artwork,
+        drag?.type === 'character' ? drag.snapCandidates : [],
+      ),
     sources,
     delta,
-    canvasScale(),
-    event.altKey,
-    excludedGuide,
-    snapLayerBounds.guides,
-    snapLayerBounds.artwork,
-    drag?.type === 'character' ? drag.snapCandidates : [],
+    { direction, scale, origin, offset, enabled: guideSettings(history.doc).snap && !event.altKey },
   );
   snapMatches = result.matches;
   return result.delta;
@@ -2822,20 +2844,36 @@ function snapped(sources, delta, event, excludedGuide = null) {
 // Apply the constraint before snapping and suppress every forbidden-axis target.
 // Character drags call this before their inverse output-transform conversion.
 function artworkDelta(sources, delta, event) {
-  const constraint = constrainAxisDrag(
-    drag,
-    delta,
+  const offset = drag.directionOffset || [0, 0];
+  const handle =
+    ['pen', 'point-handles'].includes(drag.type) ||
+    (['point', 'remap'].includes(drag.type) && drag.key !== 'position');
+  const constraint = constrainDirectionDrag(
+    handle ? {} : drag,
+    delta.map((v, i) => v + offset[i]),
     [event.clientX - drag.startClient[0], event.clientY - drag.startClient[1]],
     event.shiftKey,
   );
   const allowed = sources.map((values, axis) =>
-    constraint.pending || (constraint.axis !== null && constraint.axis !== axis) ? [] : values,
+    constraint.pending || (constraint.direction && !constraint.direction[axis]) ? [] : values,
   );
-  return snapped(allowed, constraint.delta, event);
+  const movement = constraint.pending ? [0, 0] : constraint.delta.map((v, i) => v - offset[i]);
+  return snapped(allowed, movement, event, null, constraint.direction);
 }
 const artworkDrag = () =>
   ['character', 'position-controller', 'shape', 'point', 'remap', 'artwork'].includes(drag?.type);
+const directionDrag = () =>
+  artworkDrag() ||
+  ['pen', 'point-handles', 'path-unit'].includes(drag?.type) ||
+  (drag?.type === 'transform' && drag.key === 'anchor');
 function captureArtworkPointer(event, capture) {
+  if (['point', 'remap'].includes(drag.type) && drag.key !== 'position') {
+    const context = directPointContext(selectedNode());
+    const path = context?.path || renderEvaluation.run(drag.nodeId);
+    const p = path.contours.flatMap((c) => c.points).find((p) => p.id === drag.pointId);
+    drag.directionOrigin = [...p.position];
+    drag.directionOffset = [...p[drag.key]];
+  }
   drag.startClient = [event.clientX, event.clientY];
   drag.pointerId = event.pointerId;
   drag.capture = capture;
@@ -5361,7 +5399,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal or vertical; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -7569,12 +7607,14 @@ function updateCanvasGesture(target, update) {
 function moveGraphNodes() {
   if (drag?.type !== 'node' || current().locked) return;
   const point = graphPoint(...drag.pointer);
-  const { delta, guides } = snapGraphNodes(
+  const { delta, guides } = snapGraphDirection(
     drag.boxes.filter((box) => drag.originals.some((node) => node.id === box.id)),
     drag.boxes,
     point.map((value, axis) => value - drag.startWorld[axis]),
     graphZoom,
     drag.snapBypass,
+    6,
+    { state: drag, shift: drag.shiftKey },
   );
   const preview = updateGraphGesture({ delta });
   if (!preview) return;
@@ -7589,6 +7629,8 @@ function moveGraphNodes() {
   const overlay = document.querySelector('.graph-snap-guides');
   overlay.innerHTML = guides
     .map((guide) => {
+      if (guide.kind === 'direction')
+        return `<line data-snap-kind="direction" x1="${guide.start[0]}" y1="${guide.start[1]}" x2="${guide.end[0]}" y2="${guide.end[1]}"/>`;
       const { axis, coordinate, start, end } = guide;
       return axis === 0
         ? `<line x1="${coordinate}" y1="${start - 12 / graphZoom}" x2="${coordinate}" y2="${end + 12 / graphZoom}"/>`
@@ -8201,6 +8243,7 @@ app.addEventListener('pointerdown', (e) => {
     drag = {
       type: 'node',
       snapBypass: e.ctrlKey || e.metaKey,
+      shiftKey: e.shiftKey,
       boxes: current().nodes.map((node) => {
         const el = document.querySelector(`.node[data-id="${node.id}"]`);
         return {
@@ -8252,7 +8295,11 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   if (!stage || wiring) return;
-  if (tool === 'direct' && e.button === 0 && !e.target.closest('[data-point]')) {
+  if (
+    tool === 'direct' &&
+    e.button === 0 &&
+    !e.target.closest('[data-point],[data-path-unit-move]')
+  ) {
     const doc = displayDocument(),
       point = canvasPoint(e),
       hitLayer = e.target.closest('[data-layer]')?.dataset.layer;
@@ -8502,7 +8549,30 @@ app.addEventListener('pointerdown', (e) => {
         null,
         pathBounds,
       );
-    pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
+    const previous = penDraft && penSource().points.find((p) => p.id === penDraft.token.pointId);
+    const penOrigin =
+      previous &&
+      (penDraft.matrix
+        ? transformCharacterPoint(penDraft.matrix, previous.position.value)
+        : previous.position.value);
+    if (penOrigin) {
+      const delta = pos.map((v, i) => v - penOrigin[i]);
+      const constraint = constrainDirectionDrag(
+        {},
+        delta,
+        delta.map((v) => v * canvasScale()),
+        e.shiftKey,
+      );
+      pos = snapped(
+        [[penOrigin[0]], [penOrigin[1]]],
+        constraint.delta,
+        e,
+        null,
+        constraint.direction,
+        penOrigin,
+        [0, 0],
+      ).map((v, i) => v + penOrigin[i]);
+    } else pos = snapped([[pos[0]], [pos[1]]], [0, 0], e).map((v, i) => v + pos[i]);
     if (!pos.every(Number.isFinite)) return;
     if (
       penDraft &&
@@ -8551,7 +8621,10 @@ app.addEventListener('pointerdown', (e) => {
         type: 'pen',
         pointId: token.pointId,
         nodeId: penId,
-        start: pos,
+        start: canvasPoint(e),
+        anchor: pos,
+        directionOrigin: pos,
+        startClient: [e.clientX, e.clientY],
         pointerId: e.pointerId,
       };
       render();
@@ -8581,6 +8654,7 @@ app.addEventListener('pointerdown', (e) => {
   if (pathUnit && n?.type === 'Multi Path') {
     drag = {
       type: 'path-unit',
+      matrix: directPointContext(n)?.matrix,
       nodeId: n.id,
       unitId: pathUnit,
       start: pos,
@@ -8980,7 +9054,7 @@ function movePointer(e) {
     moveGraphMarquee(e);
     return;
   }
-  if (artworkDrag())
+  if (directionDrag())
     drag.lastPointer = {
       clientX: e.clientX,
       clientY: e.clientY,
@@ -9052,7 +9126,13 @@ function movePointer(e) {
       if (
         !updateCanvasGesture(
           { kind: 'transform-anchor', layerId: current().id, nodeId: drag.nodeId },
-          { delta: pos.map((v, i) => v - drag.start[i]) },
+          {
+            delta: artworkDelta(
+              [[drag.geometry.pivot[0]], [drag.geometry.pivot[1]]],
+              pos.map((v, i) => v - drag.start[i]),
+              e,
+            ),
+          },
         )
       )
         return;
@@ -9344,6 +9424,7 @@ function movePointer(e) {
     }
     drag.pointer = [e.clientX, e.clientY];
     drag.snapBypass = e.ctrlKey || e.metaKey;
+    drag.shiftKey = e.shiftKey;
     moveGraphNodes();
     return;
   }
@@ -9366,7 +9447,7 @@ function movePointer(e) {
           nodeId: drag.nodeId,
           unitIds: [drag.unitId],
         },
-        { delta },
+        { delta: drag.matrix ? inverseAffineDelta(drag.matrix, delta) : delta },
       )
     )
       updateCanvas();
@@ -9379,6 +9460,7 @@ function movePointer(e) {
     )
       return;
     drag.started = true;
+    delta = artworkDelta([[drag.start[0]], [drag.start[1]]], delta, e);
     if (
       updateCanvasGesture(
         {
@@ -9440,7 +9522,8 @@ function movePointer(e) {
     delta = artworkDelta(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
     drag.started = true;
     drag.lastDelta = delta;
-  } else delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
+  } else if (drag.type === 'pen') delta = artworkDelta([[anchor[0]], [anchor[1]]], delta, e);
+  else delta = snapped(drag.anchors || [[anchor[0]], [anchor[1]]], delta, e);
   if (['remap', 'shape', 'point'].includes(drag.type)) {
     const target =
       drag.type === 'shape'
@@ -10076,8 +10159,13 @@ document.addEventListener('keydown', (e) => {
       return;
     }
   }
-  if (artworkDrag() && e.key === 'Shift') {
+  if (directionDrag() && e.key === 'Shift') {
     if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: true, altKey: e.altKey });
+    return;
+  }
+  if (drag?.type === 'node' && e.key === 'Shift') {
+    drag.shiftKey = true;
+    moveGraphNodes();
     return;
   }
   if (drag?.type === 'path-insert' && e.key === 'Escape') {
@@ -10501,9 +10589,15 @@ app.addEventListener('keydown', (e) => {
   }
 });
 document.addEventListener('keyup', (e) => {
-  if (artworkDrag() && e.key === 'Shift') {
+  if (directionDrag() && e.key === 'Shift') {
     drag.axis = null;
+    drag.direction = null;
     if (drag.lastPointer) movePointer({ ...drag.lastPointer, shiftKey: false, altKey: e.altKey });
+  }
+  if (drag?.type === 'node' && e.key === 'Shift') {
+    drag.shiftKey = false;
+    drag.direction = null;
+    moveGraphNodes();
   }
   if (e.code === 'Space') {
     space = false;
