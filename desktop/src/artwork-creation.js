@@ -6,6 +6,7 @@ export {
   duplicateArtworkLayer,
   resolveArtworkDuplicateSelection,
   duplicateArtworkLayers,
+  duplicateLayerGeneric,
 } from './artwork-duplication.js';
 
 export const ARTWORK_TYPES = Object.freeze([

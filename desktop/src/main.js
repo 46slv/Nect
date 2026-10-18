@@ -417,6 +417,7 @@ import { artworkAlignments } from './artwork-alignment.js';
 import { artworkDistributions } from './artwork-distribution.js';
 import { artworkGapDistributions } from './artwork-gap-distribution.js';
 import { resolveArtworkOrderTarget } from './artwork-ordering.js';
+import { moveArtworkLayerBefore } from './artwork-ordering.js';
 import {
   findFreeNodePosition,
   adjacentNodeOffset,
@@ -736,8 +737,14 @@ const sessionOptions = {
     // before associating its committed state with a recovery document identity.
     queueMicrotask(() => {
       if (state.sessionId !== session.id) return;
-      try { updateDocumentStatus(); }
-      catch (error) { recovery?.report(recovery.current, { phase: 'failed', error: error.message || String(error) }); }
+      try {
+        updateDocumentStatus();
+      } catch (error) {
+        recovery?.report(recovery.current, {
+          phase: 'failed',
+          error: error.message || String(error),
+        });
+      }
     });
   },
   // A numeric pointer reservation first commits any typed value, before it
@@ -760,6 +767,9 @@ let history = session.historyView,
   selected = null,
   artworkTarget = null,
   artworkSelection = new Set(),
+  layerClipboard = null,
+  layerDragId = null,
+  layerDragStart = null,
   tool = 'select',
   zoom = 1,
   canvasFit = true,
@@ -823,12 +833,14 @@ const documents = new DocumentLifecycle({
       )
     ),
 });
-const recovery = desktop ? new RecoveryAutosave({
-  begin: beginRecovery,
-  write: writeRecovery,
-  acknowledge: acknowledgeRecovery,
-  status: updateRecoveryStatus,
-}) : null;
+const recovery = desktop
+  ? new RecoveryAutosave({
+      begin: beginRecovery,
+      write: writeRecovery,
+      acknowledge: acknowledgeRecovery,
+      status: updateRecoveryStatus,
+    })
+  : null;
 let openRequest = 0,
   imageRequest = 0,
   imagePick = null,
@@ -2134,7 +2146,11 @@ function textControls(n) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
-      availability = osFontAvailability(n.osFont, { ...osFontCatalog, desktop, pending: osFontCatalogPending });
+      availability = osFontAvailability(n.osFont, {
+        ...osFontCatalog,
+        desktop,
+        pending: osFontCatalogPending,
+      });
     return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${esc(availability)}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
   }
   const osControls = desktop
@@ -2560,6 +2576,7 @@ function render(resetView = false, artworkResolution = null) {
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
   });
   prepareNumericInputs(app);
+  for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
   // one optional help disclosure per editing region.
   for (const region of app.querySelectorAll('.node-body, .inspector-body')) {
@@ -4471,6 +4488,26 @@ function duplicateArtwork(layerId, selectionKey) {
     notify(error.message, true);
   }
 }
+function duplicateFocusedLayer(layerId) {
+  if (deletionBusy()) return;
+  try {
+    const priorUI = selectionSnapshot(true);
+    const created = session.dispatch({
+      ...session.state,
+      type: 'duplicate-layer',
+      payload: { layerId },
+    });
+    activeLayer = created.layerId;
+    artworkTarget = created.layerId;
+    artworkSelection = new Set([created.layerId]);
+    selectionHistory.set(history.past.at(-1), priorUI);
+    selectionHistory.set(history.doc, selectionSnapshot(true));
+    notify('Layer duplicated');
+    render();
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
 function alignArtwork(button) {
   const targets = alignmentTargets();
   // Reject stale or forced controls before the generic click path can finish Pen.
@@ -4748,10 +4785,15 @@ async function openCompositionImportDialog() {
       });
   if (!opened) return;
   let source;
-  try { source = deserialize(opened.contents); }
-  catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); return; }
+  try {
+    source = deserialize(opened.contents);
+  } catch (error) {
+    notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+    return;
+  }
   const dialog = document.createElement('dialog');
-  dialog.innerHTML = '<form method="dialog"><h3>Project composition</h3><label>Composition <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+  dialog.innerHTML =
+    '<form method="dialog"><h3>Project composition</h3><label>Composition <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
   const select = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
   for (const layer of source.layers) {
@@ -4766,9 +4808,14 @@ async function openCompositionImportDialog() {
     dialog.remove();
     if (value !== 'import' || !select.value) return;
     try {
-      session.dispatch({ ...session.state, type: 'import-composition', payload: {
-        sourceText: opened.contents, compositionId: select.value,
-      }});
+      session.dispatch({
+        ...session.state,
+        type: 'import-composition',
+        payload: {
+          sourceText: opened.contents,
+          compositionId: select.value,
+        },
+      });
       resetTransient();
       render();
       notify('Composition imported');
@@ -4840,7 +4887,13 @@ function updateDocumentStatus() {
   document.title = `${dirty ? '* ' : ''}${name} — Nect`;
   const status = document.querySelector('[data-document-status]');
   if (status) status.textContent = documents.saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved';
-  recovery?.observe({ generation: documents.generation, contents: readDocument(), name: history.doc.name || 'Untitled', dirty, revision: session.state.expectedRevision });
+  recovery?.observe({
+    generation: documents.generation,
+    contents: readDocument(),
+    name: history.doc.name || 'Untitled',
+    dirty,
+    revision: session.state.expectedRevision,
+  });
   updateRecoveryStatus();
 }
 function updateRecoveryStatus() {
@@ -4848,33 +4901,63 @@ function updateRecoveryStatus() {
   if (!el || !recovery) return;
   const state = recovery.state;
   const saved = state.savedRevision === null ? 'none' : `r${state.savedRevision}`;
-  el.textContent = ({ ready: 'Recovery ready', pending: `Recovery queued r${state.requestedRevision} · saved ${saved}`, saving: `Saving recovery r${state.savingRevision} · saved ${saved}`, saved: `Recovery saved ${saved}`, failed: `Recovery failed r${state.failedRevision ?? state.requestedRevision} · Retry` })[state.phase];
+  el.textContent = {
+    ready: 'Recovery ready',
+    pending: `Recovery queued r${state.requestedRevision} · saved ${saved}`,
+    saving: `Saving recovery r${state.savingRevision} · saved ${saved}`,
+    saved: `Recovery saved ${saved}`,
+    failed: `Recovery failed r${state.failedRevision ?? state.requestedRevision} · Retry`,
+  }[state.phase];
   el.title = state.error || (state.savedAt ? new Date(state.savedAt).toLocaleString() : '');
   el.classList.toggle('error', state.phase === 'failed');
 }
 async function showRecoveryCopies(startup = false) {
-  const before = readDocument(), generation = documents.generation;
+  const before = readDocument(),
+    generation = documents.generation;
   const copies = await listRecovery();
-  if (!copies.length) { if (!startup) notify('No recovery copies'); return; }
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) return;
+  if (!copies.length) {
+    if (!startup) notify('No recovery copies');
+    return;
+  }
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+    return;
   const dialog = document.createElement('dialog');
   dialog.dataset.recoveryDialog = '';
   dialog.innerHTML = `<form method="dialog"><h3>Recover editing</h3><select aria-label="Recovery copy">${copies.map((item, i) => `<option value="${i}">${esc(item.name)} · ${esc(new Date(item.savedAt).toLocaleString())}${item.previous ? ' · Previous copy' : ''}</option>`).join('')}</select><p>Recovery opens as an unsaved document.</p><button value="restore">Restore copy</button> <button value="later">Later</button></form>`;
   document.body.append(dialog);
   const chosen = await new Promise((resolve) => {
-    dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'restore' ? copies[Number(dialog.querySelector('select').value)] : null); dialog.remove(); }, { once: true });
+    dialog.addEventListener(
+      'close',
+      () => {
+        resolve(
+          dialog.returnValue === 'restore'
+            ? copies[Number(dialog.querySelector('select').value)]
+            : null,
+        );
+        dialog.remove();
+      },
+      { once: true },
+    );
     dialog.showModal();
   });
   if (!chosen) return;
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) throw Error('Document changed; choose the recovery copy again');
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+    throw Error('Document changed; choose the recovery copy again');
   if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
-  const contents = await readRecovery(chosen.id), next = deserialize(contents);
+  const contents = await readRecovery(chosen.id),
+    next = deserialize(contents);
   await preflightImages(next);
-  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft()) throw Error('Document changed; current document preserved');
+  if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
+    throw Error('Document changed; current document preserved');
   await prepareOpenDocument(next);
   render(true);
   const protectedCopy = await recovery.preserve(chosen.id);
-  notify(protectedCopy ? 'Recovery restored · Save As to keep a project file' : 'Recovery restored; recovery write failed', !protectedCopy);
+  notify(
+    protectedCopy
+      ? 'Recovery restored · Save As to keep a project file'
+      : 'Recovery restored; recovery write failed',
+    !protectedCopy,
+  );
 }
 function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
   sourceEpoch++;
@@ -5279,8 +5362,14 @@ app.addEventListener('click', async (e) => {
           document.querySelector('#image-file').click();
           break;
         case 'import-composition':
-          try { await openCompositionImportDialog(); }
-          catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); }
+          try {
+            await openCompositionImportDialog();
+          } catch (error) {
+            notify(
+              `Composition import rejected; current document preserved: ${error.message}`,
+              true,
+            );
+          }
           break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
@@ -5470,7 +5559,10 @@ app.addEventListener('click', async (e) => {
               'graph-pan-left': [-amount, 0],
               'graph-pan-right': [amount, 0],
             }[d.action];
-            const scroll = [Math.max(0, viewport.scrollLeft + delta[0]), Math.max(0, viewport.scrollTop + delta[1])];
+            const scroll = [
+              Math.max(0, viewport.scrollLeft + delta[0]),
+              Math.max(0, viewport.scrollTop + delta[1]),
+            ];
             updateGraphBounds(scroll);
             viewport.scrollTo(scroll[0], scroll[1]);
             updateGraphOverview(false);
@@ -5600,7 +5692,9 @@ app.addEventListener('click', async (e) => {
     selectArtwork(d.selectLayer, { toggle: e.shiftKey });
     render();
     if (!e.shiftKey) nameClicked(d.selectLayer, null, e);
-    if (!nameEdit) document.querySelector('.canvas-stage').focus({ preventScroll: true });
+    if (!nameEdit)
+      (b.closest('[data-layer]')?.setAttribute('tabindex', '0'),
+        b.closest('[data-layer]')?.focus({ preventScroll: true }));
     return;
   }
   if (d.visible || d.layerLock || d.layerSolo) {
@@ -5940,7 +6034,10 @@ async function readCurrentOsFontCatalog() {
   const request = ++osFontCatalogRequest;
   osFontCatalogPending = true;
   render();
-  const catalog = await readOsFontCatalog({ listFamilies: listOsOutlineFonts, listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined });
+  const catalog = await readOsFontCatalog({
+    listFamilies: listOsOutlineFonts,
+    listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined,
+  });
   if (request === osFontCatalogRequest) {
     osFontCatalog = catalog;
     osFontCatalogPending = false;
@@ -6187,7 +6284,8 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
   try {
     notify('Finding active OS fonts…');
     const catalog = await readCurrentOsFontCatalog();
-    const families = catalog.families || [], faces = catalog.faces || [];
+    const families = catalog.families || [],
+      faces = catalog.faces || [];
     if (osOutlinePending !== request || !valid())
       throw Error('Selection changed; reopen OS font outlines');
     const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
@@ -6218,7 +6316,12 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
           },
         })),
     );
-    if (!items.length) throw Error(catalog.familiesError || catalog.facesError ? 'Font check failed; refresh fonts' : 'No OS outline fonts are active');
+    if (!items.length)
+      throw Error(
+        catalog.familiesError || catalog.facesError
+          ? 'Font check failed; refresh fonts'
+          : 'No OS outline fonts are active',
+      );
     picker = editorPicker = openSearchPanel({
       title: 'OS font outlines',
       items,
@@ -6649,6 +6752,45 @@ app.addEventListener(
 );
 app.addEventListener('pointerdown', (e) => {
   if (e.target.closest('[data-style-text-range], [data-kern-text-cursor]')) e.preventDefault();
+});
+
+// Layer rows use an in-document clipboard and a single committed drag reorder.
+app.addEventListener('pointerdown', (e) => {
+  const row = e.target.closest('[data-layer]');
+  if (!row || e.target.closest('button, input, select, textarea') || deletionBusy()) return;
+  layerDragId = row.dataset.layer;
+  layerDragStart = [e.clientX, e.clientY];
+  row.setPointerCapture?.(e.pointerId);
+});
+app.addEventListener('pointerup', (e) => {
+  if (!layerDragId) return;
+  const sourceId = layerDragId;
+  layerDragId = null;
+  const start = layerDragStart;
+  layerDragStart = null;
+  if (!start || Math.hypot(e.clientX - start[0], e.clientY - start[1]) < 6) return;
+  const row = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-layer]');
+  if (!row || row.dataset.layer === sourceId) return;
+  try {
+    const beforeLayerId = row.dataset.layer;
+    const source = history.doc.layers.find((item) => item.id === sourceId);
+    if (!source || source.locked) return;
+    const preview = structuredClone(history.doc);
+    const result = moveArtworkLayerBefore(preview, sourceId, beforeLayerId);
+    if (!result.moved) return;
+    const priorUI = selectionSnapshot(true);
+    session.dispatch({
+      ...session.state,
+      type: 'reorder-layer',
+      payload: { layerId: sourceId, beforeLayerId },
+    });
+    selectionHistory.set(history.past.at(-1), priorUI);
+    selectionHistory.set(history.doc, selectionSnapshot(true));
+    notify('Layer reordered');
+    render();
+  } catch (error) {
+    notify(error.message, true);
+  }
 });
 // A refused row action must not blur/commit an inline name or another live edit.
 app.addEventListener(
@@ -10722,9 +10864,10 @@ registerClose(async () => {
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
 if (desktop && typeof listOsOutlineFonts === 'function') void refreshOsFontCatalog();
 updateDocumentStatus();
-if (desktop) showRecoveryCopies(true).catch((error) => {
-  recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
-});
+if (desktop)
+  showRecoveryCopies(true).catch((error) => {
+    recovery.report(recovery.current, { phase: 'failed', error: error.message || String(error) });
+  });
 if (desktop)
   listSystemFonts()
     .then((items) => {
@@ -10754,7 +10897,9 @@ document.addEventListener('pointerup', updateLayerDeletionControls);
 document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
-  get recoveryState() { return recovery && { ...recovery.state }; },
+  get recoveryState() {
+    return recovery && { ...recovery.state };
+  },
   get gestureState() {
     return session.gestureState;
   },
@@ -10809,7 +10954,9 @@ app.addEventListener('click', async (event) => {
   try {
     if (button.hasAttribute('data-recovery-open')) await showRecoveryCopies();
     else if (recovery.state.phase === 'failed') await recovery.retry();
-  } catch (error) { notify(error.message || String(error), true); }
+  } catch (error) {
+    notify(error.message || String(error), true);
+  }
 });
 
 // Keep the command surface compact without changing command ownership.
@@ -10854,6 +11001,29 @@ const commandMenuObserver = new MutationObserver(() => {
 });
 commandMenuObserver.observe(app, { childList: true });
 app.append(document.createComment('command-menu-init'));
+document.addEventListener('keydown', (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing || event.repeat)
+    return;
+  if (event.target.closest?.('input, textarea, select, [contenteditable="true"], dialog')) return;
+  const row = event.target.closest?.('[data-layer]');
+  if (!row || !app.contains(row)) return;
+  const layerId = row.dataset.layer;
+  if (event.key.toLowerCase() === 'c') {
+    layerClipboard = [layerId];
+    event.preventDefault();
+    notify('Layer copied');
+  } else if (event.key.toLowerCase() === 'v' && layerClipboard?.length) {
+    event.preventDefault();
+    const sourceId = layerClipboard.find((id) =>
+      history.doc.layers.some((layer) => layer.id === id),
+    );
+    if (!sourceId) return;
+    duplicateFocusedLayer(sourceId);
+  } else if (event.key.toLowerCase() === 'd') {
+    event.preventDefault();
+    duplicateFocusedLayer(layerId);
+  }
+});
 render();
 document.addEventListener('click', (event) => {
   if (event.target.closest('.command-menu')) return;
