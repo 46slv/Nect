@@ -14,55 +14,54 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Native entry repair and Japanese basic wrapping
+## ACTIVE CHECKPOINT — Image Keyer and appearance Mask
 
-Goal: Repair silent Add-node entry on locked source Compositions and preserve
-touching SVG rectangle coverage, finish bounded Japanese kinsoku/vertical wrap,
-then build/distribute the next Windows checkpoint. Non-destructive Image Keyer is
-the next independent requested feature after this delivery.
-Current phase: Implementation/review and integrated verification complete;
-coherent commit, native build and distribution are next. The user's running EXE
-matched a85aa74 exactly. It was not closed or debug-attached. An isolated copy of
-that same EXE/profile reproduced the hidden locked first Composition; choosing an
-editable Composition enabled real Add-node and Undo with no JS exceptions.
-Actual native font IPC succeeded. Startup is not the reported failure class.
-Proven: Focused model/DOM88 and native36 pass. Production Edge/CSP SVG/Layer
-workflow passes initial editable Composition selection, locked-picker feedback,
-SVG preflight before chooser, prior Add/Import/Solo/scroll/save/PNG behavior.
-Production typography workflow passes Japanese basic horizontal/vertical,
-tracking, line spacing, fixed-box alignment, Undo/reload, SVG and PNG. Native
-boundary probes cover every named policy character in both modes at8/64px.
-A private QR replacement was separately delivered and loaded in the real a85aa74
-EXE. Existing Composition/output IDs, references, placement, six outside layers,
-embedded fonts and original images were retained. Local QR decoding matches the
-original PNG and supplied SVG. Its private receipts/files stay outside Git.
-Approach: Initial editor selection prefers populated visible unlocked artwork;
-authored order/visibility/locks never change. SVG target checks share the common
-command gate and run before chooser. Opaque unnamed rectangle batches separate
-touching bounds; native rect-vs-path AA differences remain explicit. The new
-opt-in textWrap.policy japanese-basic-v1 uses width horizontally and distinct
-height vertically, schema34/OS ref5/directwrite-v4 with exact original UTF-16 line
-spans. Legacy horizontal settings/older outlines retain their geometry. Review
-found and fixed missing-policy default and stale ref4 relabeling loopholes;
-regressions cover both. No font software enters an OS outline snapshot.
-Next task: Build and verify the new EXE with isolated actual WebView2 controls,
-package public examples/receipts, normal dev push/PR update and Library delivery.
-Then implement Image→Keyer→Image Output: RGB color/range/softness and alpha preview,
-multiply original alpha, preserve source assets/straight RGB, bypass, save/Undo/
-PNG consistency with synthetic RGBA fixtures. Read-only integration review done.
-Done for next: New EXE/ZIP hashes and confirmed Library ID; native GUI evidence
-distinguished from manual chooser/IME/DPI acceptance, then continue Keyer.
-State: codex/desktop-production-20261016 candidate from5916421. One writer owns
-source/build; read-only worker made no edits. Private helper modules were moved
-outside the repository. Prior a85aa74/f055541/de2b589 distributions are unchanged;
-the existing SVG package already includes A/nudge/Alt/endpoint continuation.
-Authority: Parent's latest delegated 2026-10-18 user requirements and continuous
-development authorization. Edit/test/commit/dev push/PR/package permitted; no
-main merge, release, force push, auth changes or Notion writes. Personal design
-and embedded font bytes must never enter GitHub or the public trial package.
-Native OS chooser/manual IME/high-DPI acceptance remains LOCAL_WAIT. Official
-WebView2 CDP on an explicitly isolated owned process now supports actual app
-controls and JS diagnosis; it never attaches to the user's live document.
-Double-check: Exact local contracts, independent bounded reviews and real native
-oracles settle this checkpoint; external consultation not required, zero sends.
+Goal: Add non-destructive color Keyer to Image pipelines and shape Mask after
+Image or Composition appearance, with original alpha, editable source nodes,
+shared preview/export, Undo and exact reopen behavior. No AI cutout/video/feather
+expansion. User's 2026-10-18 requests are delegated by the parent Mission owner.
+Current phase: Shared image/appearance integration inspected; implement next.
+Proven: The prior entry/SVG/Japanese-wrap checkpoint is built from
+1641e0c788e25072c01581f59755b02be055416c and normally pushed. Model/DOM88, native36,
+production Edge/CSP and actual isolated WebView2 controls/real typography IPC
+passed. Twelve packaged examples re-export exact SVG offline. User's running
+EXE/document was not modified; owned diagnostic processes stopped. Manual OS
+chooser/IME/high-DPI acceptance remains separate. The private QR replacement
+was separately delivered, loaded in the real prior EXE and locally decoded to
+the same payload as its source; design/font data are outside Git and the package.
+Delivery: Library libfile_a100b6bb60648191a424687c4524370a;
+task/Nect-Desktop-trial-20261018-1641e0c.zip,4,033,663 bytes/56 entries.
+ZIP SHA256 5D419904EDDCA8B22C6047ABA4B8EC435AF53BABD062811CFFCACE9B91FD6998.
+EXE9,780,736 bytes, SHA256
+95BD6DFD1035577C2FFC03B428C316F828AB2F450E4424022DA36F9522A2C8E9.
+PR evidence: https://github.com/46slv/Nect/pull/24#issuecomment-6248062911.
+Approach: One writer, schema35 for the two new nodes. Keyer accepts/returns Image;
+key RGB/range/softness multiply original alpha, retain straight partial RGB and
+zero fully transparent RGB. Reuse bounded PNG decoder; pure canonical PNG
+encoder,4MP processing limit,8 active Keyers/document. Evaluated Image carries a
+small effect recipe, not a large cloned derived PNG; one bounded result cache.
+One image resolver must serve rendering, Keyer chains and luminance consumers.
+Mask accepts Image or PaintedPath appearance plus closed Path and invert, returns
+PaintedPath using existing painted groups. Keep source alpha and paint/order;
+SVG masking is shared by preview and SVG→PNG. Preserve export blockers. Explicit
+Use as output can upgrade an Image Output to regular Output, same ID/one Undo;
+do not change sockets just by creating a node. Refuse geometric conversion of a
+masked appearance rather than discarding its mask. Bounds include conservative
+stroke padding. Viewer alpha/checkerboard are temporary inspection state and
+must never alter authored artwork or export. Reuse normal Color/node controls;
+dedicated image-texel eyedropper is optional, not a blocker.
+Next task: Implement bounded processing and Mask model/rendering, then focused
+synthetic RGBA/appearance tests and real UI wiring, Bypass, Undo/reload/SVG/PNG.
+Done for next: Coherent tested source, normal dev push/PR checkpoint and a new
+combined Windows trial only when this image-effects checkpoint is verified.
+State: codex/desktop-production-20261016; code is1641e0c, this record changes docs
+only. No image-effects edits yet. Source/build owner remains this task alone.
+Authority: Latest parent-delegated user requests. Edit/test/commit/dev push/PR and
+EXE/Library permitted. No main merge/release/force push/auth changes/Notion writes.
+Never publish personal design, original attachment or embedded font software.
+Official WebView2 CDP may control explicitly isolated owned acceptance processes;
+never attach to or close the user's live window/document. Native manual OS
+chooser/IME/DPI remains LOCAL_WAIT, not a shared coding blocker.
+Double-check: Bounded local contract/reuse review; external consultation not
+required at present, zero external sends. Parent owns the broader spec audit.
 Handoff: CONTINUE_CURRENT_TASK.
