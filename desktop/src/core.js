@@ -900,12 +900,12 @@ function validateReference(n) {
 }
 // Duplicate a selected group as one operation. Internal node dependencies are
 // remapped; dependencies outside the group, including dangling IDs, stay intact.
-export function duplicateNodes(layer, ids) {
+export function duplicateNodes(layer, ids, { append = true } = {}) {
   const wanted = new Set(ids),
     originals = layer.nodes.filter((n) => wanted.has(n.id));
   if (originals.length !== wanted.size || !originals.length)
     throw Error('Missing nodes to duplicate');
-  if (layer.nodes.length + originals.length > 2000) throw Error('Too many nodes');
+  if ((append ? layer.nodes.length : 0) + originals.length > 2000) throw Error('Too many nodes');
   if (
     originals.some(
       (n) => n.type === 'Path Remap' && n.edits.length && wanted.has(n.params.path.source),
@@ -980,7 +980,7 @@ export function duplicateNodes(layer, ids) {
       copy.reference.nodeId = remap.get(copy.reference.nodeId);
     return copy;
   });
-  layer.nodes.push(...copies);
+  if (append) layer.nodes.push(...copies);
   return copies;
 }
 export function socketCompatible(sourceType, targetType) {
@@ -4722,6 +4722,7 @@ export class CommandSession {
   #gesture = null;
   #prepared = null;
   #prepareSequence = 0;
+  #nodeClipboard = null;
   constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
@@ -5527,6 +5528,7 @@ export class CommandSession {
         this.#history.doc = p.candidate;
       });
     p.bridge.activate(p.ticket);
+    if (p.type === 'import-svg') this.#nodeClipboard = null;
     this.#prepared = null;
     return { ...this.state, changed: revision !== this.#history.revision };
   }
@@ -5741,6 +5743,63 @@ export class CommandSession {
     }
     if (this.#busy() || this.hasTextComposition)
       throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
+    if (
+      ['copy-nodes', 'paste-nodes'].includes(type) &&
+      [...this.#textDrafts.values()].some(
+        (d) => d.revision === this.#history.revision && d.state.changed,
+      )
+    )
+      throw Error('Finish or cancel the Text draft before copying/pasting nodes');
+    if (type === 'copy-nodes') {
+      const doc = this.#history.doc,
+        layer = doc.layers.find((l) => l.id === payload.layerId);
+      if (
+        !layer ||
+        !Array.isArray(payload.nodeIds) ||
+        !payload.nodeIds.length ||
+        new Set(payload.nodeIds).size !== payload.nodeIds.length ||
+        payload.nodeIds.some((id) => !layer.nodes.some((n) => n.id === id))
+      )
+        throw Error('Select distinct nodes in this composition');
+      const selected = layer.nodes.filter((n) => payload.nodeIds.includes(n.id)),
+        nodes = selected.filter((n) => !['Output', 'Image Output'].includes(n.type));
+      if (!nodes.length)
+        throw Error('Copy source/effect nodes; each Composition keeps its own Output');
+      const ids = new Set(nodes.map((n) => n.id)),
+        externalNodeIds = [
+          ...new Set(
+            nodes
+              .flatMap((n) => nodeDependencies(n).map((d) => d.source))
+              .filter((id) => !ids.has(id)),
+          ),
+        ];
+      const fontIds = new Set(
+          nodes
+            .filter((n) => n.type === 'Text')
+            .flatMap((n) => [
+              n.font,
+              ...Object.values(n.characterPositions?.styles || {}).map((s) => s.font),
+            ])
+            .filter((id) => id && id !== 'default'),
+        ),
+        imageIds = new Set(nodes.filter((n) => n.type === 'Image').map((n) => n.asset));
+      this.#nodeClipboard = {
+        nodes: clone(nodes),
+        sourceLayerId: layer.id,
+        schemaVersion: doc.schemaVersion,
+        pasteCount: 0,
+        externalNodeIds,
+        fonts: Object.fromEntries([...fontIds].map((id) => [id, doc.fontAssets?.[id]])),
+        images: Object.fromEntries([...imageIds].map((id) => [id, doc.imageAssets?.[id]])),
+      };
+      return {
+        ...this.state,
+        changed: false,
+        copiedCount: nodes.length,
+        externalInputCount: externalNodeIds.length,
+        skippedOutputs: selected.length - nodes.length,
+      };
+    }
     if (type === 'undo' || type === 'redo') {
       const next = (type === 'undo' ? this.#history.past : this.#history.future).at(-1);
       if (next) assertVariableDocumentReady(next, resolveFonts(next, this.#fonts()));
@@ -5779,6 +5838,9 @@ export class CommandSession {
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
+    if (type === 'paste-nodes' && revision !== this.#history.revision)
+      this.#nodeClipboard.pasteCount++;
+    if (type === 'import-svg') this.#nodeClipboard = null;
     for (const [id] of arrangementDrafts) this.#textDrafts.delete(id);
     if (committingDraft) this.#textDrafts.delete(payload.draftId);
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
@@ -6472,6 +6534,7 @@ export class CommandSession {
         'rename',
         'create-node',
         'duplicate-nodes',
+        'paste-nodes',
         'delete-node',
         'delete-nodes',
         'preview-node',
@@ -6575,6 +6638,61 @@ export class CommandSession {
       if (created.type === 'Vector Transform')
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 11);
       result = { nodeId: created.id };
+    } else if (type === 'paste-nodes') {
+      const clipboard = this.#nodeClipboard;
+      if (!clipboard)
+        throw Error(
+          'Node clipboard is empty. Copy in this document’s graph; OS/other-document paste is not supported',
+        );
+      if (target.nodes.length + clipboard.nodes.length > 2000) throw Error('Too many nodes');
+      if (
+        clipboard.externalNodeIds.length &&
+        (clipboard.sourceLayerId !== target.id ||
+          clipboard.externalNodeIds.some((id) => !target.nodes.some((n) => n.id === id)))
+      )
+        throw Error(
+          `Paste needs ${clipboard.externalNodeIds.length} unselected input/reference node(s) in the original Composition. Copy those sources too`,
+        );
+      for (const [id, asset] of Object.entries(clipboard.fonts))
+        if (!asset || candidate.fontAssets?.[id]?.data !== asset.data)
+          throw Error('Copied font is no longer present unchanged in this Document; copy again');
+      for (const [id, asset] of Object.entries(clipboard.images))
+        if (
+          !asset ||
+          candidate.imageAssets?.[id]?.data !== asset.data ||
+          candidate.imageAssets[id].width !== asset.width ||
+          candidate.imageAssets[id].height !== asset.height
+        )
+          throw Error('Copied image is no longer present unchanged in this Document; copy again');
+      for (const n of clipboard.nodes)
+        if (
+          n.compositionReference &&
+          !candidate.layers.some((l) => l.id === n.compositionReference.compositionId)
+        )
+          throw Error('Copied Composition reference is missing; restore its source or copy again');
+      // Use exactly the existing duplication identity contracts. Clipboard nodes
+      // are a frozen-in-time authored snapshot, not IDs read again at Paste.
+      const source = { nodes: clone(clipboard.nodes) },
+        copies = duplicateNodes(
+          source,
+          source.nodes.map((n) => n.id),
+          { append: false },
+        ),
+        offset = payload.offset ?? [
+          30 * (clipboard.pasteCount + 1),
+          30 * (clipboard.pasteCount + 1),
+        ];
+      if (!Array.isArray(offset) || offset.length !== 2 || !offset.every(Number.isFinite))
+        throw Error('Invalid paste offset');
+      copies.forEach((copy, i) => {
+        copy.position = clipboard.nodes[i].position.map((v, axis) => v + offset[axis]);
+      });
+      target.nodes.push(...copies);
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, clipboard.schemaVersion);
+      result = {
+        nodeIds: copies.map((n) => n.id),
+        externalInputCount: clipboard.externalNodeIds.length,
+      };
     } else if (type === 'duplicate-nodes') {
       if (
         !Array.isArray(payload.nodeIds) ||

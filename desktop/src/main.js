@@ -9502,6 +9502,45 @@ function duplicateGraphNodes(nodeId) {
     revealNode(selected);
   }
 }
+function copyGraphNodes() {
+  if (deletionBusy() || variableAction) return;
+  if (osTextDrafts.size) {
+    notify('Apply or cancel the Text edit before copying nodes', true);
+    return;
+  }
+  try {
+    const result = session.dispatch({
+      ...session.state,
+      type: 'copy-nodes',
+      payload: { layerId: current().id, nodeIds: [...selection] },
+    });
+    notify(
+      `${result.copiedCount} nodes copied · this Document only${result.externalInputCount ? ` · ${result.externalInputCount} external input(s) need the original Composition` : ''}${result.skippedOutputs ? ` · ${result.skippedOutputs} Output skipped` : ''}`,
+    );
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+function pasteGraphNodes() {
+  if (deletionBusy() || variableAction) return;
+  if (osTextDrafts.size) {
+    notify('Apply or cancel the Text edit before pasting nodes', true);
+    return;
+  }
+  const result = commandChange('paste-nodes', {}, 'Nodes pasted', true);
+  if (!result) return;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  pointSelection = { nodeId: null, ids: new Set() };
+  selected = result.nodeIds[0];
+  selection = new Set(result.nodeIds);
+  render();
+  notify(
+    `${result.nodeIds.length} nodes pasted${result.externalInputCount ? ' · external inputs still use original nodes' : ''}`,
+  );
+  document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+  revealNode(selected);
+}
 function closeNodeContextMenu(restore = false) {
   if (!nodeContextMenu) return;
   nodeContextMenu.remove();
@@ -9569,6 +9608,8 @@ function openNodeContextMenu(nodeId, x, y) {
         ? 'Delete selected nodes; Output nodes are retained'
         : 'Delete the selected nodes (one Undo)',
     ],
+    ['copy', 'Copy nodes · Ctrl+C', '', 'Copy selected source/effect nodes in this Document'],
+    ['paste', 'Paste nodes · Ctrl+V', locked, 'Paste copied nodes into this Composition'],
   ];
   const menu = document.createElement('div');
   menu.className = 'node-context-menu';
@@ -9595,7 +9636,9 @@ function openNodeContextMenu(nodeId, x, y) {
       variableAction
     )
       return;
-    if (action === 'output')
+    if (action === 'copy') copyGraphNodes();
+    else if (action === 'paste') pasteGraphNodes();
+    else if (action === 'output')
       commandChange('preview-node', { nodeId, position: freePosition('Fill') }, 'Output connected');
     if (action === 'duplicate') duplicateGraphNodes(nodeId);
     if (action === 'delete') {
@@ -9697,6 +9740,29 @@ app.addEventListener(
 );
 // Own this shortcut only inside the graph. Consume repeats and blocked edits
 // here as well, so a graph shortcut cannot become a browser bookmark command.
+document.addEventListener('keydown', (event) => {
+  const key = event.key.toLowerCase();
+  if (
+    event.defaultPrevented ||
+    !(event.ctrlKey || event.metaKey) ||
+    event.shiftKey ||
+    event.altKey ||
+    !['c', 'v'].includes(key) ||
+    navigationExcluded(event.target) ||
+    !event.target.closest?.('.graph-scroll,.graph-toolbar') ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    composing
+  )
+    return;
+  // Keep ordinary text Copy, including a native selected text range.
+  if (key === 'c' && window.getSelection()?.toString()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (event.repeat) return;
+  if (key === 'c') copyGraphNodes();
+  else pasteGraphNodes();
+});
 document.addEventListener('keydown', (event) => {
   if (
     event.defaultPrevented ||

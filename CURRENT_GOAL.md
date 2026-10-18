@@ -14,35 +14,44 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Explicit safe font replacement
+## ACTIVE CHECKPOINT — Priority Graph Copy/Paste
 
-Goal: Close one remaining missing-font/substitution path without duplicating the
-existing DirectWrite exact-face guard or font-picker preview validation.
-Current phase: Implemented and production-browser verified; commit/Windows trial
-and a narrow isolated native check are next. No broad font-completeness claim.
-Proven: The old clear-os-font-text removed the stored OS appearance without
-testing the bundled replacement's coverage/layout. It now evaluates the complete
-replacement Text before committing. Failure retains JSON, saved outlines,
-revision and history. The UI names source OS face and the replacement action
-Use DejaVu Sans; success names DejaVu Sans too. Supported replacement is one Undo.
-Focused model/DOM12 passed, including missing replacement font, Japanese glyph
-refusal and supported Latin replacement/Undo/Redo/reopen. Production Edge/CSP
-tests/font-switch.e2e.js passes actual controls and exact SVG after reopen.
-Keyer/Mask8 model checks passed. No native source/schema changes.
-Approach: Reuse common evaluator and its missing-glyph/layout refusal; do not
-introduce fallback chains or replace any exact-face DirectWrite repairs. One
-source/build writer. Never operate on the user's running window/document.
-Next task: Commit verified source, one Windows build and narrow native font-switch
-acceptance; deliver a versioned trial and source/Library evidence to parent.
-Done for next: Concrete usable checkpoint, normal dev push/PR, exact source and
-binary hashes, focused evidence and honest manual-acceptance limits.
-State: codex/desktop-production-20261016 at d775951; only this font-switch slice
-is dirty. Last delivered source9cde8a4 and Library libfile_d60022e6d96c81918b7825b50fde0858
-remain unchanged. QR libfile_d837e47e864481918f8a3bdf52a8d81c also unchanged.
-Authority: Parent delegated current user font follow-up; edit/test/commit/dev
-push/PR/EXE/Library authorized. No main merge/release/permission/reset use/Notion.
-Double-check: Skill invoked; local critic of atomic failure, exact source/target
-labels, coverage and one Undo. Consultation not-required: existing common
-evaluator plus failing-before/passing-after tests settle the bounded fix.
-External sends0, no unresolved saved-format or authority decision, cycle1.
-Handoff: CONTINUE_CURRENT_TASK.
+Goal: Ctrl+C/Ctrl+V for selected graph nodes, including internal connections and
+settings, across Compositions in the same open Document; one Paste/one Undo.
+Current phase: Implemented; focused24 and production Edge/CSP shortcuts passed.
+Commit/build/isolated actual EXE check and immediate Library delivery are next.
+Proven: Copy captures authored node snapshots without changing revision/history;
+Paste reuses duplicateNodes identity rules for fresh node/point/contour IDs and
+internal socket/expression/Reference/Text-path remapping, relative placement and
+selection. Actual SVG part references, embedded Image/fonts, Text, Composition
+Reference and Mask/Keyer preserve same-document data. Graph/IME/input focus,
+one Undo/Redo, locked target, external input refusal and exact JSON reopen/SVG
+were checked. Context/duplicate tests preserve existing Ctrl+D and menu behavior.
+Evidence: tests/node-clipboard*, tests/node-context-menu-dom.test.js,
+test-results/node-clipboard/receipt.json; desktop/docs/node-copy-paste.md.
+Approach: Private Session clipboard only; New/Open/import clears it. No OS or
+cross-Document clipboard. Output nodes skipped with count; destination Output
+unchanged. External inputs stay original in the same Composition with notice;
+cross-Composition paste requires those sources included, otherwise refuses.
+Missing/changed assets, missing Composition targets and cycles refuse atomically.
+Existing edited Path Remap group refusal stays. No blind reference rebinding.
+Next task: One versioned Windows trial; actual owned WebView2 Ctrl+C/Ctrl+V,
+Undo/save-reopen checks; Library/ZIP/hash report without waiting for other features.
+Done for next: Immediate usable Copy/Paste delivery and synchronized source/PR.
+State: codex/desktop-production-20261016 at0fcffc8; only Clipboard slice dirty.
+Previous font fix0fcffc82721c83c69a16b1b959936dc9cfc8c823 is committed/pushed,
+model/DOM12 and browser checks passed; its own native check/distribution was
+preempted. Owned font diagnostic PID51260 stopped; no user window touched.
+Prior Keyer/Mask source9cde8a4 and Library libfile_d60022e6d96c81918b7825b50fde0858
+remain preserved. QR libfile_d837e47e864481918f8a3bdf52a8d81c remains unchanged.
+Queue after Copy/Paste: Text canvas drag regression (reproduce, repair selection/
+editing distinction, locks and transformed coordinates), then recovery autosave
+(existing LiveSave reuse, app-owned isolated recovery, atomic writes/bounded good
+copies, failure status/restart choice, no manual-file overwrite), then font gaps.
+Authority: Parent-delegated latest user priority and accepted recovery request.
+Edit/test/commit/dev push/PR/EXE/Library permitted. No main merge/release, auth or
+permission changes, usage reset, or Notion writes. Single writer remains here.
+Double-check: Skill invoked, local dependency/identity/lifetime/Undo review;
+external consultation not-required, sends0. Debugging owner classified browser
+failure as test selection preparation, not product error; no selection change.
+Handoff: CONTINUE_CURRENT_TASK; deliver Clipboard outcome before queued work.

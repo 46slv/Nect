@@ -350,4 +350,39 @@ test('node header context actions through real DOM handlers', async (t) => {
     assert.equal(menu(), null);
     assert.equal(document.activeElement, $('.graph-scroll'));
   });
+  await t.test(
+    'Graph Copy/Paste preserves selection links in one Undo and leaves input/IME copy native',
+    () => {
+      reset();
+      clickNode(fill.id, true);
+      const before = snapshot(),
+        past = state().past;
+      assert.equal(key('c', $('.graph-scroll'), { ctrlKey: true }), false);
+      assert.equal(snapshot(), before);
+      assert.equal(state().past, past);
+      assert.equal(key('v', $('.graph-scroll'), { ctrlKey: true }), false);
+      assert.equal(nodes().length, 7);
+      assert.equal(state().selection.length, 3);
+      assert.equal(state().past, past + 1);
+      const copies = nodes().filter((n) => state().selection.includes(n.id));
+      assert.equal(
+        copies.find((n) => n.type === 'Fill').params.path.source,
+        copies.find((n) => n.type === 'Circle').id,
+      );
+      key('z', $('.graph-scroll'), { ctrlKey: true });
+      assert.equal(snapshot(), before);
+      const input = $('.inspector input');
+      assert.equal(key('c', input, { ctrlKey: true }), true);
+      assert.equal(key('v', input, { ctrlKey: true }), true);
+      assert.equal(key('c', $('.graph-scroll'), { ctrlKey: true, isComposing: true }), true);
+      assert.equal(key('v', $('.graph-scroll'), { ctrlKey: true, keyCode: 229 }), true);
+      assert.equal(key('v', $('.canvas-stage'), { ctrlKey: true }), true);
+      assert.equal(snapshot(), before);
+      reset();
+      const empty = snapshot();
+      key('v', $('.graph-scroll'), { ctrlKey: true });
+      assert.equal(snapshot(), empty);
+      assert.match($('.message').textContent, /clipboard is empty/);
+    },
+  );
 });
