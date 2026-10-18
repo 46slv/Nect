@@ -13,7 +13,7 @@ import { imageData } from './artwork-deletion.js';
 
 export function duplicationDocument(type = 'Rectangle', transformed = false) {
   const doc = blankDocument();
-  doc.schemaVersion = 10;
+  doc.schemaVersion = Math.max(doc.schemaVersion, 10);
   doc.width = 720;
   doc.height = 480;
   doc.imageAssets = {

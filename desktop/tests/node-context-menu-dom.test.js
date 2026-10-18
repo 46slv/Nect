@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { document as makeDocument, node, serialize } from '../src/core.js';
+import { document as makeDocument, blankLayer, node, serialize } from '../src/core.js';
 
 // Synthetic DOM integration: not browser/WebView visual acceptance.
 test('node header context actions through real DOM handlers', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver']) globalThis[key] = win[key];
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -310,7 +310,8 @@ test('node header context actions through real DOM handlers', async (t) => {
     assert.equal(fire(input, 'contextmenu', 0, 0, { button: 2 }), true);
     assert.equal(menu(), null);
     assert.equal(fire(card(b.id).querySelector('.node-body'), 'contextmenu'), false);
-    assert.equal(menu(), null);
+    assert.ok(menu());
+    key('Escape', document.activeElement);
   });
   await t.test('active rename and composition keep their editing context', () => {
     reset();
@@ -349,6 +350,112 @@ test('node header context actions through real DOM handlers', async (t) => {
     key('Tab', document.activeElement);
     assert.equal(menu(), null);
     assert.equal(document.activeElement, $('.graph-scroll'));
+  });
+  await t.test(
+    'native menu guard covers Layers, portals, dialogs and margins; editing stays native',
+    () => {
+      reset();
+      for (const target of [$('.layers'), $('.inspector'), $('header'), document.body])
+        assert.equal(fire(target, 'contextmenu', 4, 5, { button: 2 }), false);
+      open(a.id);
+      assert.equal(fire(menu(), 'contextmenu', 4, 5, { button: 2 }), false);
+      assert.equal(menu(), null);
+      const dialog = document.createElement('dialog');
+      dialog.innerHTML =
+        '<input><textarea></textarea><div contenteditable="true">Draft</div><button>Close</button>';
+      document.body.append(dialog);
+      assert.equal(fire(dialog.querySelector('button'), 'contextmenu'), false);
+      for (const field of dialog.querySelectorAll('input,textarea,[contenteditable]'))
+        assert.equal(fire(field, 'contextmenu'), true);
+      dialog.remove();
+    },
+  );
+  await t.test('queued restored scroll keeps a new menu; changed scroll dismisses it', () => {
+    reset();
+    open(a.id);
+    const viewport = $('.graph-scroll');
+    fire(viewport, 'scroll');
+    assert.ok(menu());
+    viewport.scrollLeft += 1;
+    fire(viewport, 'scroll');
+    assert.equal(menu(), null);
+    open(a.id);
+    document.documentElement.scrollTop += 1;
+    fire(document, 'scroll');
+    assert.equal(menu(), null);
+  });
+  await t.test(
+    'Layer and Canvas actions retain selected groups and replace unselected targets safely',
+    () => {
+      reset();
+      const second = blankLayer('Second'),
+        third = blankLayer('Third');
+      doc.layers.push(second, third);
+      win.nect.load(serialize(doc));
+      const selectLayer = (id, shiftKey = false) =>
+        fire($(`[data-select-layer="${id}"]`), 'click', 0, 0, { shiftKey });
+      const openLayer = (id) =>
+        fire($(`.layer[data-layer="${id}"] .name`), 'contextmenu', 30, 40, { button: 2 });
+      const remove = () => menu().querySelector('[data-artwork-context-action="delete"]');
+      const initial = snapshot();
+      openLayer(third.id);
+      const duplicate = menu().querySelector('[data-artwork-context-action="duplicate"]');
+      assert.equal(duplicate.disabled, false, 'empty layers share the generic layer command');
+      duplicate.click();
+      assert.equal(win.nect.document.layers.length, 4);
+      key('z', $('.canvas-stage'), { ctrlKey: true });
+      assert.equal(snapshot(), initial);
+      selectLayer(doc.layers[0].id);
+      selectLayer(second.id, true);
+      const before = snapshot(),
+        past = state().past;
+      openLayer(second.id);
+      assert.match(remove().textContent, /Delete 2 layers/);
+      remove().click();
+      assert.deepEqual(
+        win.nect.document.layers.map((l) => l.id),
+        [third.id],
+      );
+      assert.equal(state().past, past + 1);
+      key('z', $('.canvas-stage'), { ctrlKey: true });
+      assert.equal(snapshot(), before);
+      openLayer(third.id);
+      assert.match(remove().textContent, /^Delete layer$/);
+      remove().click();
+      assert.deepEqual(
+        win.nect.document.layers.map((l) => l.id),
+        [doc.layers[0].id, second.id],
+      );
+      key('z', $('.canvas-stage'), { ctrlKey: true });
+      // A right click on the artwork uses its own layer, even if another layer was active.
+      const shape = $(`.artboard [data-layer="${doc.layers[0].id}"]`);
+      assert.ok(shape);
+      fire(shape, 'contextmenu', 50, 50, { button: 2 });
+      assert.match(menu().getAttribute('aria-label'), /Artwork actions/);
+      const stale = remove();
+      win.nect.load(serialize(doc));
+      stale.click();
+      assert.equal(snapshot(), serialize(win.nect.document));
+      assert.equal(win.nect.document.layers.length, 3);
+      openLayer(third.id);
+      key('Escape', document.activeElement);
+      assert.equal(document.activeElement, $('.canvas-stage'));
+    },
+  );
+  await t.test('Layer row shortcuts use the shared generic command and preserve one Undo', () => {
+    reset();
+    const before = snapshot();
+    const row = () => $('.layer[data-layer]');
+    assert.equal(key('c', row(), { ctrlKey: true }), false);
+    assert.equal(key('v', row(), { ctrlKey: true }), false);
+    assert.equal(win.nect.document.layers.length, 2);
+    key('z', $('.canvas-stage'), { ctrlKey: true });
+    assert.equal(snapshot(), before);
+    assert.equal(key('d', row(), { ctrlKey: true }), false);
+    assert.equal(win.nect.document.layers.length, 2);
+    key('z', $('.canvas-stage'), { ctrlKey: true });
+    assert.equal(snapshot(), before);
+    assert.equal(key('v', $('.inspector input'), { ctrlKey: true }), true);
   });
   await t.test(
     'Graph Copy/Paste preserves selection links in one Undo and leaves input/IME copy native',

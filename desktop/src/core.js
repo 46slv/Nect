@@ -1,5 +1,6 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
+import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
 import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { maskAppearance } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
@@ -83,7 +84,7 @@ import {
   duplicateArtworkLayers,
   duplicateLayerGeneric,
 } from './artwork-creation.js';
-import { removeArtworkLayer } from './artwork-deletion.js';
+import { removeArtworkLayer, removeArtworkLayers } from './artwork-deletion.js';
 import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
@@ -2562,6 +2563,7 @@ export function evaluate(
           fonts,
           fontId: n.font,
           variation: n.variation,
+          fontFeatures: n.fontFeatures,
           size: read('size'),
           writingMode: n.writingMode,
           alignment: attachment ? 'start' : n.alignment,
@@ -4068,7 +4070,8 @@ export function validate(doc) {
       27, 28, 29, 30, 31, 32, 33, 34, 35,
     ].includes(doc.schemaVersion) &&
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
-      doc.schemaVersion !== REPEATER_SCHEMA_VERSION)
+      doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
+      doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4128,6 +4131,7 @@ export function validate(doc) {
       text(n.text);
       text(n.font);
       validateOsFontText(n, sourceSchemaVersion);
+      validateTextFeatures(n, sourceSchemaVersion, doc.fontAssets?.[n.font]);
       if (
         n.canvasPositionHandle !== undefined &&
         (n.type !== 'Vector' || typeof n.canvasPositionHandle !== 'boolean')
@@ -6499,6 +6503,7 @@ export class CommandSession {
         'create-blank-layer',
         'create-demo-layer',
         'delete-layer',
+        'delete-layers',
         'order-layer',
         'reorder-layer',
         'duplicate-artworks',
@@ -6524,6 +6529,7 @@ export class CommandSession {
         candidate.layers.push(created);
         result = { layerId: created.id, nodeId: created.nodes[0].id };
       } else if (type === 'delete-layer') result = removeArtworkLayer(candidate, payload.layerId);
+      else if (type === 'delete-layers') result = removeArtworkLayers(candidate, payload.layerIds);
       else if (type === 'order-layer')
         result = moveArtworkLayer(candidate, payload.layerId, payload.direction);
       else if (type === 'reorder-layer')
@@ -6900,10 +6906,10 @@ export class CommandSession {
       if (ids.some((id) => !target.nodes.some((node) => node.id === id)))
         throw Error('Missing node');
       const protectedIds = target.nodes
-        .filter((n) => n.id === target.output || ['Output', 'Image Output'].includes(n.type))
+        .filter((n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type))
         .map((n) => n.id);
       if (type === 'delete-node' && protectedIds.some((id) => selected.has(id)))
-        throw Error('Cannot delete the Output node');
+        throw Error('Cannot delete a locked or Output node');
       result = {
         deletedNodeIds: ids.filter((id) => !protectedIds.includes(id)),
         retainedNodeIds: ids.filter((id) => protectedIds.includes(id)),
@@ -7348,6 +7354,7 @@ export class CommandSession {
               ![
                 'font',
                 'leading',
+                'fontFeatures',
                 'pathAttachment',
                 'textWrap',
                 'referenceBounds',
@@ -7360,12 +7367,20 @@ export class CommandSession {
         )
           throw Error('Invalid Text settings');
         for (const [key, value] of Object.entries(settings)) {
-          if (['leading', 'pathAttachment', 'textWrap'].includes(key) && value === null)
+          if (['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) && value === null)
             delete node[key];
           else node[key] = clone(value);
         }
         if (Object.hasOwn(settings, 'leading'))
           candidate.schemaVersion = Math.max(candidate.schemaVersion, 6);
+        if (node.fontFeatures)
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
+        if (Object.hasOwn(settings, 'fontFeatures') || node.fontFeatures) {
+          const preflight = evaluate(
+            { ...target, output: node.id }, resolveFonts(candidate, baseFonts), candidate.imageAssets,
+          );
+          if (preflight.error) throw Error(preflight.error);
+        }
         if (node.pathAttachment) candidate.schemaVersion = Math.max(candidate.schemaVersion, 7);
         if (node.textWrap)
           candidate.schemaVersion = Math.max(

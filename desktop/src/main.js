@@ -1,4 +1,5 @@
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
+import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
@@ -851,6 +852,7 @@ let openRequest = 0,
   exportInFlight = false;
 let selection = new Set();
 let nodeContextMenu = null;
+let contextMenuScroll = new Map();
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
 function selectionSnapshot(withEditSelection = false) {
@@ -2076,6 +2078,12 @@ async function selectVariableInstance(el, preview = false) {
     preview,
   );
 }
+function openTypeControls(n) {
+  const reason = textFeatureReason(n, fonts[n.font]),
+    supported = !reason && standardLigatureSupport(fonts[n.font]),
+    value = n.fontFeatures === undefined ? '' : n.fontFeatures.liga ? 'on' : 'off';
+  return `<div class="field"><label>Standard ligatures (liga)</label><select data-text-ligatures="${n.id}" aria-label="Standard ligatures (liga)" ${current().locked || reason ? 'disabled' : ''}><option value="" ${value === '' ? 'selected' : ''}>Legacy layout</option><option value="off" ${value === 'off' ? 'selected' : ''}>Off</option><option value="on" ${value === 'on' ? 'selected' : ''} ${supported ? '' : 'disabled'}>On</option></select></div><p class="font-note" data-text-feature-status>${esc(reason || (supported ? 'Latin standard ligatures only. Joined glyphs use Graph Text editing; character and Canvas caret editing require ligatures Off. Other OpenType tags are unsupported.' : 'This font has no supported Latin liga lookup. Other OpenType tags are unsupported.'))}</p>`;
+}
 function variableControls(n) {
   const metadata = fonts[n.font]?.nectVariable,
     axes = metadata?.axes,
@@ -2168,7 +2176,7 @@ function textControls(n) {
       )
       .join(
         '',
-      )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
+      )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}${openTypeControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
   );
 }
 function unitPointIds(n, unit) {
@@ -7427,6 +7435,7 @@ app.addEventListener('change', async (e) => {
     ['crossAlignment', 'crossAlignment'],
     ['textAlignment', 'alignment'],
     ['textKerning', 'kerning'],
+    ['textLigatures', 'fontFeatures'],
     ['writingMode', 'writingMode'],
   ].find(([key]) => d[key]);
   const textSettingId =
@@ -7499,6 +7508,9 @@ app.addEventListener('change', async (e) => {
           leading = { mode: 'manual', value: Number(el.value) };
         }
         settings = { leading };
+      } else if (d.textLigatures) {
+        if (!['', 'on', 'off'].includes(el.value)) throw Error('Invalid ligature setting');
+        settings = { fontFeatures: el.value ? { liga: el.value === 'on' } : null };
       } else
         settings = {
           [settingEntry[1]]: settingEntry[1] === 'kerning' ? el.checked : el.value,
@@ -10094,9 +10106,11 @@ function pasteGraphNodes() {
 }
 function closeNodeContextMenu(restore = false) {
   if (!nodeContextMenu) return;
+  const focus = nodeContextMenu.dataset.restoreFocus || '.graph-scroll';
   nodeContextMenu.remove();
   nodeContextMenu = null;
-  if (restore) document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+  contextMenuScroll.clear();
+  if (restore) document.querySelector(focus)?.focus({ preventScroll: true });
 }
 function openNodeContextMenu(nodeId, x, y) {
   closeNodeContextMenu();
@@ -10117,7 +10131,7 @@ function openNodeContextMenu(nodeId, x, y) {
     layerId = current().id;
   const nodes = current().nodes.filter((n) => selection.has(n.id));
   const deletable = nodes.filter(
-    (n) => n.id !== current().output && !['Output', 'Image Output'].includes(n.type),
+    (n) => !n.locked && n.id !== current().output && !['Output', 'Image Output'].includes(n.type),
   );
   const output = current().nodes.find((n) => n.id === current().output);
   const locked = current().locked ? 'Composition is locked' : '';
@@ -10154,9 +10168,9 @@ function openNodeContextMenu(nodeId, x, y) {
     [
       'delete',
       deletable.length > 1 ? `Delete ${deletable.length} nodes` : 'Delete',
-      locked || (!deletable.length ? 'Output nodes cannot be deleted' : ''),
+      locked || (!deletable.length ? 'Locked and Output nodes cannot be deleted' : ''),
       nodes.length !== deletable.length
-        ? 'Delete selected nodes; Output nodes are retained'
+        ? 'Delete selected nodes; Output nodes are retained; locked nodes are retained'
         : 'Delete the selected nodes (one Undo)',
     ],
     ['copy', 'Copy nodes · Ctrl+C', '', 'Copy selected source/effect nodes in this Document'],
@@ -10208,13 +10222,147 @@ function openNodeContextMenu(nodeId, x, y) {
     }
     document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
   });
+  placeContextMenu(menu, x, y);
+}
+function placeContextMenu(menu, x, y, focus = '.graph-scroll') {
+  menu.dataset.restoreFocus = focus;
   document.body.append(menu);
   nodeContextMenu = menu;
   const rect = menu.getBoundingClientRect();
   menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
   menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
   (menu.querySelector('button:not(:disabled)') || menu).focus({ preventScroll: true });
+  // render() restores these scroll owners synchronously; their queued scroll
+  // events must not dismiss the menu that was just opened at those positions.
+  contextMenuScroll = new Map(
+    [
+      document,
+      document.documentElement,
+      document.body,
+      ...app.querySelectorAll('.graph-scroll,.inspector,.layers,.guides-panel,.guide-list'),
+    ].map((el) => {
+      const owner = el === document ? document.scrollingElement || document.documentElement : el;
+      return [el, [owner.scrollLeft || 0, owner.scrollTop || 0]];
+    }),
+  );
 }
+function openArtworkContextMenu(layerId, x, y) {
+  closeNodeContextMenu();
+  if (deletionBusy() || variableAction) return;
+  const layer = history.doc.layers.find((layer) => layer.id === layerId);
+  if (!layer) return;
+  // Unlike a plain click, an intentionally empty Layer remains an exact target.
+  if (!artworkTarget || !artworkSelection.has(layerId)) artworkSelection = new Set([layerId]);
+  activeLayer = artworkTarget = layerId;
+  selected = null;
+  selection = new Set();
+  selectedGuide = null;
+  characterEdit = null;
+  pointSelection = { nodeId: null, ids: new Set() };
+  render();
+  const owner = session,
+    revision = session.state.expectedRevision,
+    ids = [...artworkSelection],
+    selectionKey = JSON.stringify(ids),
+    layers = history.doc.layers.filter((layer) => artworkSelection.has(layer.id)),
+    locked = layers.some((layer) => layer.locked) ? 'Unlock selected layers first' : '',
+    duplication =
+      ids.length > 1
+        ? resolveArtworkDuplicateSelection(history.doc, artworkSelection, { fonts })
+        : {
+            supported: history.doc.layers.length < 100,
+            reason: 'Duplicate requires fewer than 100 layers.',
+          };
+  const menu = document.createElement('div');
+  menu.className = 'node-context-menu artwork-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', `Artwork actions: ${layer.name}`);
+  menu.tabIndex = -1;
+  menu.innerHTML = [
+    [
+      'duplicate',
+      ids.length > 1 ? `Duplicate ${ids.length} layers` : 'Duplicate layer',
+      locked || (!duplication.supported ? duplication.reason : ''),
+    ],
+    ['delete', ids.length > 1 ? `Delete ${ids.length} layers` : 'Delete layer', locked],
+  ]
+    .map(
+      ([action, label, reason]) =>
+        `<button type="button" role="menuitem" data-artwork-context-action="${action}" ${reason ? 'disabled' : ''} title="${esc(reason || label)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
+    )
+    .join('');
+  menu.addEventListener('click', (event) => {
+    if (nodeContextMenu !== menu) return;
+    const button = event.target.closest('button');
+    if (!button || button.disabled) return;
+    const action = button.dataset.artworkContextAction;
+    closeNodeContextMenu(true);
+    if (
+      session !== owner ||
+      session.state.expectedRevision !== revision ||
+      artworkTarget !== layerId ||
+      JSON.stringify([...artworkSelection]) !== selectionKey ||
+      deletionBusy() ||
+      variableAction
+    )
+      return;
+    if (action === 'duplicate') {
+      if (ids.length === 1) duplicateFocusedLayer(layerId);
+      else duplicateArtwork(layerId, selectionKey);
+    } else if (action === 'delete') deleteArtworkSelection(ids);
+  });
+  placeContextMenu(menu, x, y, '.canvas-stage');
+}
+function deleteArtworkSelection(layerIds) {
+  if (deletionBusy() || variableAction) return;
+  const priorUI = selectionSnapshot(true);
+  const result = commandChange('delete-layers', { layerIds }, 'Layers deleted', true);
+  if (!result) return;
+  resetTransient();
+  activeLayer = result.nextLayerId;
+  selected = artworkTarget = null;
+  selection = new Set();
+  artworkSelection = new Set();
+  tool = 'select';
+  selectionHistory.set(history.past.at(-1), priorUI);
+  selectionHistory.set(history.doc, selectionSnapshot(true));
+  render();
+  document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+}
+function openGraphBackgroundMenu(x, y) {
+  closeNodeContextMenu();
+  if (deletionBusy() || variableAction) return;
+  const owner = session,
+    revision = session.state.expectedRevision,
+    layerId = current().id;
+  const menu = document.createElement('div');
+  menu.className = 'node-context-menu';
+  menu.setAttribute('role', 'menu');
+  menu.setAttribute('aria-label', 'Graph actions');
+  menu.tabIndex = -1;
+  menu.innerHTML = `<button type="button" role="menuitem" data-node-context-action="paste" ${current().locked ? 'disabled' : ''}>Paste nodes · Ctrl+V</button>`;
+  menu.addEventListener('click', (event) => {
+    if (nodeContextMenu !== menu || !event.target.closest('button:not(:disabled)')) return;
+    closeNodeContextMenu(true);
+    if (
+      session === owner &&
+      session.state.expectedRevision === revision &&
+      current().id === layerId
+    )
+      pasteGraphNodes();
+  });
+  placeContextMenu(menu, x, y);
+}
+// One document-wide guard also covers portals, menus, dialogs and body margins.
+// Text fields keep the platform's ordinary selection/Cut/Copy/Paste menu.
+document.addEventListener(
+  'contextmenu',
+  (event) => {
+    if (!editingControl(event.target)) event.preventDefault();
+    if (!app.contains(event.target) || editingControl(event.target)) closeNodeContextMenu();
+  },
+  true,
+);
 document.addEventListener(
   'pointerdown',
   (event) => {
@@ -10257,28 +10405,34 @@ window.addEventListener('resize', () => closeNodeContextMenu());
 document.addEventListener(
   'scroll',
   (event) => {
-    if (nodeContextMenu && !nodeContextMenu.contains(event.target)) closeNodeContextMenu();
+    if (!nodeContextMenu || nodeContextMenu.contains(event.target)) return;
+    const prior = contextMenuScroll.get(event.target);
+    const owner =
+      event.target === document
+        ? document.scrollingElement || document.documentElement
+        : event.target;
+    if (prior && prior[0] === (owner.scrollLeft || 0) && prior[1] === (owner.scrollTop || 0))
+      return;
+    closeNodeContextMenu();
   },
   true,
 );
 app.addEventListener('contextmenu', (e) => {
-  // Keep native text editing menus, but never expose browser navigation/save
-  // commands over the editor's graph or artwork surfaces.
   if (editingControl(e.target)) return;
-  const head = e.target.closest('.graph .node-head');
-  if (head) {
-    e.preventDefault();
-    openNodeContextMenu(head.closest('.node').dataset.id, e.clientX, e.clientY);
+  closeNodeContextMenu();
+  const input = e.target.closest('.input');
+  if (input) {
+    if (!deletionBusy() && !variableAction) {
+      const f = input.closest('.field');
+      commandChange('disconnect', { nodeId: f.dataset.node, key: f.dataset.key }, 'Disconnected');
+    }
     return;
   }
-  closeNodeContextMenu();
-  if (e.target.closest('.graph-scroll,.canvas-stage')) e.preventDefault();
-  let input = e.target.closest('.input');
-  if (input) {
-    e.preventDefault();
-    let f = input.closest('.field');
-    commandChange('disconnect', { nodeId: f.dataset.node, key: f.dataset.key }, 'Disconnected');
-  }
+  const card = e.target.closest('.graph .node');
+  if (card) return openNodeContextMenu(card.dataset.id, e.clientX, e.clientY);
+  const layer = e.target.closest('.layer[data-layer],.artboard [data-layer],[data-artwork-selection]');
+  if (layer) return openArtworkContextMenu(layer.dataset.layer || layer.dataset.artworkSelection, e.clientX, e.clientY);
+  if (e.target.closest('.graph-scroll')) openGraphBackgroundMenu(e.clientX, e.clientY);
 });
 app.addEventListener(
   'toggle',
