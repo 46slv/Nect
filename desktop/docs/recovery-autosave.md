@@ -1,11 +1,26 @@
 # Local recovery autosave
 
-Desktop observes committed Session encodings. Changes settle for 1 second before
-writing; continuous commits request a copy within 10 seconds. Canvas/IME drafts
-are not committed snapshots. Successful imports and restored unsaved documents
-also receive a copy. Initial launch artwork is only a baseline.
+Desktop requests recovery after every committed Session operation, including
+Undo/Redo, paste/delete, Inspector changes and Text commits. The adapter observes
+the operation's final document lifetime in a microtask; there is no debounce
+timer. Canvas/IME drafts and gesture previews are not committed snapshots.
+Successful imports and restored unsaved documents also receive a copy. Initial
+launch artwork is only a baseline.
 
-The header keeps manual Saved/Unsaved separate from Recovery pending/saved/failed.
+Writes are asynchronous and globally serialized. While one immutable snapshot is
+in flight, each document keeps only its latest waiting state. Fast or synchronous
+bursts can coalesce intermediate revisions; the latest pending state drains
+automatically after the active write. Every operation requests protection, but
+an operation is durable only after its write succeeds. A crash before that can
+lose queued/in-flight edits. There is no promise to retain every intermediate
+operation or an unbounded history of recovery files. JSON encoding/validation
+still costs time proportional to document size; disk I/O is not awaited by edits.
+
+The header keeps manual Saved/Unsaved separate from Recovery pending/saved/failed
+and shows requested/saving and last saved revisions. Revision numbers identify
+the current editing Session; restore starts a new Session. Existing recovery
+records retain their full contents, time and document/window identity, without
+an authored-schema change or a requirement for a persisted revision counter.
 Click a failed recovery status to retry. Recovery copies opens the restore picker;
 startup offers inactive, unsaved copies. Later preserves them. Restore creates an
 unbound, unsaved Session: Save As chooses the user's project destination. Image
@@ -36,9 +51,12 @@ failure beyond atomic replacement is outside the guarantee.
 The separate C++/Qt recovery system uses a different document contract and stays
 unchanged. No schema, graph, Undo, font shaping or source-file authority changes.
 
-Verification: `tests/recovery-autosave.test.js` and existing lifecycle checks;
-native `recovery_storage::tests`; isolated real-EXE restart/restore, full snapshot
-equality, write failure and retry receipts accompany the trial build.
+Verification: `tests/recovery-autosave.test.js`,
+`tests/session-commit-notification.test.js` and existing lifecycle/Text/gesture
+checks; `tests/recovery-per-operation.e2e.js` explicitly simulates slow/failing
+disk in production CSP UI. Native `recovery_storage::tests` and the existing
+atomic/window/two-generation storage stay unchanged. Actual EXE latest-state
+restart, failure and retry receipts accompany the trial build.
 
 Review gate invoked for failure recovery/storage design. Existing ownership and
 the local isolation/failure tests settle the bounded contract; external review

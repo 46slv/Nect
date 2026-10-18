@@ -4718,18 +4718,20 @@ export class CommandSession {
   #history;
   #fonts;
   #busy;
+  #onCommitted;
   #textDrafts = new Map();
   #gesture = null;
   #prepared = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
-  constructor(doc, { fonts = () => ({}), busy = () => false } = {}) {
+  constructor(doc, { fonts = () => ({}), busy = () => false, onCommitted = () => {} } = {}) {
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
     this.#history = new History(cloneDocument(doc));
     this.#fonts = fonts;
     this.#busy = busy;
+    this.#onCommitted = onCommitted;
     this.id = uid('session');
   }
   get historyView() {
@@ -5505,7 +5507,18 @@ export class CommandSession {
       fonts: { ...this.#fonts(), ...p.bridge.preparedFonts(p.ticket) },
     };
   }
-  commitPrepared(token) {
+  #observeCommit(action) {
+    const before = this.#history.revision;
+    try { return action(); }
+    finally {
+      if (this.#history.revision !== before) {
+        // An adapter cannot roll back an already committed edit.
+        try { this.#onCommitted(Object.freeze(this.state)); } catch {}
+      }
+    }
+  }
+  commitPrepared(token) { return this.#observeCommit(() => this.#commitPrepared(token)); }
+  #commitPrepared(token) {
     const p = this.#prepared;
     if (
       !p ||
@@ -5537,7 +5550,8 @@ export class CommandSession {
     this.#prepareSequence++;
     bridge.cancel();
   }
-  dispatch({ sessionId, expectedRevision, type, payload = {} }) {
+  dispatch(command) { return this.#observeCommit(() => this.#dispatch(command)); }
+  #dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
     // Cleanup can release the caller's exact token even after a legacy edit made
     // its baseline stale. It never writes the committed document.
