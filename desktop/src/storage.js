@@ -131,3 +131,12 @@ export async function readSystemFont(id) {
   const bytes = await invoke('read_system_font', { id });
   return bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes).buffer;
 }
+
+export async function listOsOutlineFonts() {
+  if (!desktop) return [];
+  return invoke('list_os_outline_fonts').catch(nativeError);
+}
+export async function outlineOsText(intent) {
+  if (!desktop) throw Error('OS font outlines require the Windows app');
+  return invoke('outline_os_text', intent).catch(nativeError);
+}

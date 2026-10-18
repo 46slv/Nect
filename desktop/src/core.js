@@ -1,4 +1,5 @@
 import { splitPathSegment } from './path-point-insertion.js';
+import { osOutlineGeometry } from './os-font-outline.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -5515,7 +5516,7 @@ export class CommandSession {
       validate(candidate);
       return { candidate, result: {} };
     }
-    if (type === 'bake-text-outline') {
+    if (['bake-text-outline', 'bake-os-text-outline'].includes(type)) {
       const layer = before.layers.find((l) => l.id === payload.layerId);
       const source = layer?.nodes.find((n) => n.id === payload.nodeId);
       if (source?.type !== 'Text') throw Error('Select a Text node to bake');
@@ -5545,22 +5546,40 @@ export class CommandSession {
             'Text Position or parameter references are in use; disconnect them before baking',
           );
       }
-      const evaluated = evaluate(
-        { ...layer, output: source.id },
-        resolveFonts(before, this.#fonts()),
-        before.imageAssets,
-      );
-      if (evaluated.error)
-        throw Object.assign(
-          Error(evaluated.error),
-          evaluated.errorCode ? { code: evaluated.errorCode } : {},
+      let path, outlineUnits;
+      if (type === 'bake-os-text-outline') {
+        path = osOutlineGeometry(payload.outline, source, uid);
+        const bounds = pathBounds(path),
+          x = bounds[0][source.alignment === 'center' ? 1 : source.alignment === 'end' ? 2 : 0],
+          y =
+            source.crossAlignment && source.crossAlignment !== 'origin'
+              ? bounds[1][
+                  source.crossAlignment === 'center' ? 1 : source.crossAlignment === 'end' ? 2 : 0
+                ]
+              : payload.outline.ascent;
+        const delta = [source.params.position.value[0] - x, source.params.position.value[1] - y];
+        for (const contour of path.contours)
+          for (const pt of contour.points) pt.position = pt.position.map((v, k) => v + delta[k]);
+        outlineUnits = [{ id: uid('unit'), contours: path.contours.map((c) => c.id) }];
+      } else {
+        const evaluated = evaluate(
+          { ...layer, output: source.id },
+          resolveFonts(before, this.#fonts()),
+          before.imageAssets,
         );
-      const path = evaluated.path;
-      const arrangement = evaluated.textLayout(source.id).arrangementStatus;
-      if (arrangement?.suspended)
-        throw Error(`Maintained ink gaps suspended: ${arrangement.reason}`);
-      if (path.characterOccurrences?.some((o) => o.suspended))
-        throw Error('Character adjustments are suspended; repair them before baking');
+        if (evaluated.error)
+          throw Object.assign(
+            Error(evaluated.error),
+            evaluated.errorCode ? { code: evaluated.errorCode } : {},
+          );
+        path = evaluated.path;
+        const arrangement = evaluated.textLayout(source.id).arrangementStatus;
+        if (arrangement?.suspended)
+          throw Error(`Maintained ink gaps suspended: ${arrangement.reason}`);
+        if (path.characterOccurrences?.some((o) => o.suspended))
+          throw Error('Character adjustments are suspended; repair them before baking');
+        outlineUnits = clone(evaluated.textLayout(source.id).outlineUnits);
+      }
       if (!path.contours.some((c) => c.points.length)) throw Error('Text has no outlines to bake');
       if (
         path.contours.length > 10000 ||
@@ -5581,7 +5600,7 @@ export class CommandSession {
           ...(group !== undefined ? { group } : {}),
           points: points.map((pt) => pt.id),
         })),
-        units: clone(evaluated.textLayout(source.id).outlineUnits),
+        units: outlineUnits,
         points: path.contours.flatMap((c) =>
           c.points.map((pt) => ({
             id: pt.id,

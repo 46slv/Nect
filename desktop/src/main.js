@@ -1,3 +1,4 @@
+import { osTextIntent } from './os-font-outline.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
@@ -415,6 +416,8 @@ import {
   registerClose,
   listSystemFonts,
   readSystemFont,
+  listOsOutlineFonts,
+  outlineOsText,
   DocumentLifecycle,
 } from './storage.js';
 import {
@@ -1941,16 +1944,22 @@ function variableControls(n) {
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
-  return `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
-    history.doc.fontAssets || {},
-  )
-    .map(
-      ([id, asset]) =>
-        `<option value="${id}" ${n.font === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
+  const osControls = desktop
+    ? `<section class="os-font-outlines"><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Choose an active Windows font and convert this plain ASCII line to editable paths. Saves geometry only; no font data. Undo restores Text.</p></section>`
+    : '';
+  return (
+    osControls +
+    `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
+      history.doc.fontAssets || {},
     )
-    .join(
-      '',
-    )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
+      .map(
+        ([id, asset]) =>
+          `<option value="${id}" ${n.font === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
+      )
+      .join(
+        '',
+      )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
+  );
 }
 function unitPointIds(n, unit) {
   return n.contours.filter((c) => unit.contours.includes(c.id)).flatMap((c) => c.points);
@@ -5150,6 +5159,10 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.duplicate) duplicateGraphNodes(d.duplicate);
+  if (d.osTextOutline) {
+    void openOsOutlinePicker(d.osTextOutline);
+    return;
+  }
   if (d.bakeTextOutline) {
     const result = commandChange(
       'bake-text-outline',
@@ -5249,6 +5262,98 @@ function commitFont(bytes, name, request) {
   });
   notify(`Loaded ${result.fontName} · saved JSON will include this font`);
   render();
+}
+let osOutlinePending = null;
+async function openOsOutlinePicker(nodeId) {
+  if (!desktop || editorPicker || osOutlinePending || current().locked || deletionBusy()) return;
+  if (!flushArrangementText(nodeId)) return;
+  const source = current().nodes.find((n) => n.id === nodeId);
+  let intent;
+  try {
+    intent = osTextIntent(source);
+  } catch (error) {
+    notify(error.message, true);
+    return;
+  }
+  const owner = session,
+    envelope = session.state,
+    layerId = current().id;
+  const request = { preparing: false };
+  osOutlinePending = request;
+  const valid = () =>
+    session === owner &&
+    current().id === layerId &&
+    selected === nodeId &&
+    session.state.expectedRevision === envelope.expectedRevision;
+  let picker;
+  try {
+    notify('Finding active OS fonts…');
+    const families = await listOsOutlineFonts();
+    if (osOutlinePending !== request || !valid())
+      throw Error('Selection changed; reopen OS font outlines');
+    const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
+    const items = families.flatMap(({ family, styles }) =>
+      styles.map((style) => ({
+        id: `${family}:${style}`,
+        family,
+        style,
+        label: `${family} · OS ${labels[style]}`,
+        metadata: { family },
+      })),
+    );
+    if (!items.length) throw Error('No OS outline fonts are active');
+    picker = editorPicker = openSearchPanel({
+      title: 'OS font outlines',
+      items,
+      action: 'Convert to paths',
+      fallbackFocus: () => document.querySelector('.canvas-stage')?.focus(),
+      onCancel: () => {
+        if (osOutlinePending === request) osOutlinePending = null;
+        if (editorPicker === picker) editorPicker = null;
+      },
+      onCommit: async (item) => {
+        if (request.preparing || picker.closed) return;
+        request.preparing = true;
+        picker.status('Preparing outlines; Escape cancels…', false);
+        try {
+          if (!valid()) throw Error('Document or selection changed; reopen OS font outlines');
+          const outline = await outlineOsText({
+            family: item.family,
+            style: item.style,
+            ...intent,
+          });
+          if (picker.closed || osOutlinePending !== request) return;
+          if (picker.activeId !== item.id) throw Error('Font choice changed; convert again');
+          if (outline.family !== item.family || outline.style !== item.style)
+            throw Error('Unmatched OS font response; no outlines were applied');
+          if (!valid()) throw Error('Document or selection changed; OS outlines were not applied');
+          const result = commandChange(
+            'bake-os-text-outline',
+            { nodeId, outline },
+            `${item.label} converted to paths; no font data saved`,
+            false,
+            envelope,
+          );
+          if (result) {
+            characterEdit = null;
+            pointSelection = { nodeId: null, ids: new Set() };
+            picker.close();
+            editorPicker = null;
+            osOutlinePending = null;
+            render();
+          } else
+            picker.status('Conversion refused; document preserved. Close and repair the source.');
+        } catch (error) {
+          picker.status(error.message || String(error));
+        } finally {
+          request.preparing = false;
+        }
+      },
+    });
+  } catch (error) {
+    if (osOutlinePending === request) osOutlinePending = null;
+    notify(error.message || String(error), true);
+  }
 }
 async function loadInstalledFont(id, nodeId, characters) {
   if (!id) return;

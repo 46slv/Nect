@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
 mod document_storage;
+mod os_font_outlines;
+use os_font_outlines::{list_os_outline_fonts, outline_os_text};
 use document_storage::{
     choose_unsaved, enable_close_guard, finish_close, open_project, release_project, save_project,
     CloseGuard, Documents,
@@ -121,6 +123,8 @@ fn run() -> Result<(), String> {
             save_png,
             list_system_fonts,
             read_system_font,
+            list_os_outline_fonts,
+            outline_os_text,
             open_project,
             save_project,
             release_project,
