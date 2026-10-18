@@ -5698,10 +5698,9 @@ export class CommandSession {
     if (type === 'import-composition') {
       if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
         throw Error('Invalid composition import payload');
+      const imported = prepareCompositionImport(this.#history.doc, payload.sourceText, payload.compositionId);
       this.#history.apply((candidate) => {
-        const imported = prepareCompositionImport(candidate, payload.sourceText, payload.compositionId);
-        Object.keys(candidate).forEach((key) => delete candidate[key]);
-        Object.assign(candidate, imported);
+        this.#history.doc = imported;
       });
       return this.state;
     }

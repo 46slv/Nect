@@ -4734,12 +4734,15 @@ async function openCompositionImportDialog() {
   const opened = desktop
     ? await openFile()
     : await new Promise((resolve) => {
-        const input = document.querySelector('#open-file');
-        if (!input) return resolve(null);
-        input.value = '';
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.hidden = true;
+        document.body.append(input);
         input.onchange = async () => {
           const file = input.files?.[0];
           resolve(file ? { name: file.name, contents: await file.text() } : null);
+          input.remove();
         };
         input.click();
       });
@@ -4767,7 +4770,6 @@ async function openCompositionImportDialog() {
         sourceText: opened.contents, compositionId: select.value,
       }});
       resetTransient();
-      documents.replace();
       render();
       notify('Composition imported');
     } catch (error) {
@@ -5277,10 +5279,8 @@ app.addEventListener('click', async (e) => {
           document.querySelector('#image-file').click();
           break;
         case 'import-composition':
-          if (desktop) {
-            try { await openCompositionImportDialog(); }
-            catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); }
-          } else notify('Project composition import is available in the desktop app', true);
+          try { await openCompositionImportDialog(); }
+          catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); }
           break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
