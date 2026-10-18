@@ -55,6 +55,7 @@ try {
   await page.locator(`.graph .node[data-id="${repeat.id}"] .node-head strong`).click();
   const operation = page.locator(`.inspector-body [data-operation="${repeat.id}"]`);
   await operation.selectOption('ae-2d');
+  assert.equal(await page.evaluate(() => window.nect.document.schemaVersion), 37);
   const field = (key) =>
     page.locator(`.inspector-body .field[data-node="${repeat.id}"][data-key="${key}"]`);
   assert.equal(await field('step').count(), 0);

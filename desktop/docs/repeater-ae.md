@@ -86,3 +86,15 @@ commit/patch. Integration assigns schema 37 to Repeater while retaining schema 3
 for Dither/Points. Legacy schema-36 Repeater nodes receive new defaults without
 advancing their saved version; selecting `ae-2d` promotes to 37. No Dither,
 Instance on Points, autosave, native binding or private font files were edited.
+
+### Integrated schema-37 verification
+
+At the integration branch, 23 Repeater/creation/Mirror/Join checks pass,
+including schema-36 Dither preservation, legacy Repeater backfill without a
+version bump, promotion to 37, strict new-mode validation, Undo/Redo and JSON
+reopen. The existing 97 recovery/text checks and 70 Dither/Points checks pass.
+Production-CSP Edge verifies Repeater Inspector controls, schema promotion,
+native downloads/reopen and the same full Canvas/SVG/PNG pixel digest above.
+The Points, Dither, Graph clipboard, grapheme editing and per-operation recovery
+production-browser regressions also pass. No second-batch EXE is built yet;
+the parent-confirmed Snap commit remains the next integration dependency.

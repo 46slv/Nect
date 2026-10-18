@@ -185,6 +185,51 @@ test('legacy modes preserve geometry and defaults on migration, new mode require
   repeat.operation = 'ae-2d';
   assert.throws(() => deserialize(JSON.stringify(doc)), /schemaVersion 37/);
 });
+
+test('schema-36 Dither survives Repeater migration, promotion, Undo and JSON reopen', () => {
+  const { doc, l, repeat } = scene();
+  doc.schemaVersion = 36;
+  repeat.operation = 'linear';
+  const dither = node('Ordered Dither');
+  dither.operation = 'star';
+  dither.params.dotSize.value = 19;
+  l.nodes.push(dither);
+  const ditherBefore = structuredClone(dither);
+  const legacyGeometry = evaluate(l).path;
+  for (const key of REPEATER_KEYS) delete repeat.params[key];
+  const restored = deserialize(serialize(doc));
+  assert.equal(restored.schemaVersion, 36, 'backfill does not promote a Dither document');
+  assert.deepEqual(restored.layers[0].nodes.at(-1), ditherBefore);
+  assert.deepEqual(evaluate(restored.layers[0]).path, legacyGeometry);
+  const session = new CommandSession(restored);
+  const before = serialize(session.snapshot());
+  const send = (type, payload) =>
+    session.dispatch({
+      ...session.state,
+      type,
+      payload: { layerId: l.id, nodeId: repeat.id, ...payload },
+    });
+  send('set-operation', { operation: 'ae-2d' });
+  const promoted = session.snapshot();
+  assert.equal(promoted.schemaVersion, 37);
+  assert.deepEqual(promoted.layers[0].nodes.at(-1), ditherBefore);
+  const saved = serialize(promoted);
+  assert.equal(serialize(deserialize(saved)), saved);
+  const missing = structuredClone(promoted);
+  delete missing.layers[0].nodes[1].params.offset;
+  assert.throws(
+    () => deserialize(serialize(missing)),
+    /parameter|params/i,
+    'schema37 requires the new authored controls',
+  );
+  const wrongVersion = structuredClone(promoted);
+  wrongVersion.schemaVersion = 36;
+  assert.throws(() => deserialize(serialize(wrongVersion)), /schemaVersion 37/);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), before);
+  send('redo');
+  assert.equal(serialize(session.snapshot()), saved);
+});
 test('driven Copies/Offset enforce the same integer limits and parameter locks reject edits', () => {
   const { doc, l, repeat } = scene(),
     session = new CommandSession(doc);
