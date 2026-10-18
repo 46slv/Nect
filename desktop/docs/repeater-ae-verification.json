@@ -5,55 +5,23 @@
   "jsonRestore": true,
   "canvasPixels": {
     "digest": "d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b",
-    "size": [
-      160,
-      100
-    ],
-    "overlap": [
-      62,
-      0,
-      193,
-      135
-    ]
+    "size": [160, 100],
+    "overlap": [62, 0, 193, 135]
   },
   "svgPixels": {
     "digest": "d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b",
-    "size": [
-      160,
-      100
-    ],
-    "overlap": [
-      62,
-      0,
-      193,
-      135
-    ]
+    "size": [160, 100],
+    "overlap": [62, 0, 193, 135]
   },
   "pngPixels": {
     "digest": "d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b",
-    "size": [
-      160,
-      100
-    ],
-    "overlap": [
-      62,
-      0,
-      193,
-      135
-    ]
+    "size": [160, 100],
+    "overlap": [62, 0, 193, 135]
   },
   "behindPixels": {
     "digest": "578cd0c37a4644c51293f2248ebd81cd0d4d09d325046130824e05562c6129d1",
-    "size": [
-      160,
-      100
-    ],
-    "overlap": [
-      85,
-      0,
-      170,
-      135
-    ]
+    "size": [160, 100],
+    "overlap": [85, 0, 170, 135]
   },
   "pageErrors": [],
   "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
