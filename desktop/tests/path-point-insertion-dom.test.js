@@ -274,5 +274,36 @@ test('Pen inserts selected source segments atomically and keeps gesture ownershi
       assert.equal(ui().past, 1);
     },
   );
+  await t.test('Canvas Delete and Backspace delete points, preserve nodes and use one Undo', () => {
+    for (const name of ['Delete', 'Backspace']) {
+      const f = setupPath(),
+        before = saved();
+      for (const p of [
+        [100, 100],
+        [400, 100],
+      ]) {
+        fire($('.artboard'), 'pointerdown', p, { shiftKey: true });
+        fire(document, 'pointerup', p, { shiftKey: true });
+      }
+      assert.equal(ui().pointIds.length, 2);
+      assert.equal(key(stage(), name, { repeat: true }), true);
+      assert.equal(saved(), before);
+      assert.equal(key(stage(), name, { isComposing: true }), false);
+      assert.equal(saved(), before);
+      const input = document.createElement('input');
+      stage().append(input);
+      key(input, name);
+      assert.equal(saved(), before);
+      assert.equal(key(stage(), name), true);
+      assert.ok(f.live());
+      assert.equal(f.live().points.length, 1);
+      assert.equal(ui().past, 1);
+      const after = saved();
+      key(stage(), name, { repeat: true });
+      assert.equal(saved(), after);
+      key(stage(), 'z', { ctrlKey: true });
+      assert.equal(saved(), before);
+    }
+  });
   win.happyDOM.abort();
 });

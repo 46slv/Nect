@@ -242,6 +242,12 @@ test('Text outline conversion, contained units and Alt handles through DOM', asy
         [canvasId],
       );
       assert.ok(rows(remap.id)[0].classList.contains('point-active'));
+      const beforeDelete = serialize(win.nect.document);
+      for (const name of ['Delete', 'Backspace']) {
+        key(name, $('.canvas-stage'));
+        assert.equal(serialize(win.nect.document), beforeDelete);
+        assert.ok(win.nect.document.layers[0].nodes.some((n) => n.id === remap.id));
+      }
       fire(
         $(`.canvas-stage .point-hit[data-point="${canvasId}"]:not([data-handle])`),
         'pointerdown',

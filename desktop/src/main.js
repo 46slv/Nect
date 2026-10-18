@@ -9000,7 +9000,33 @@ document.addEventListener('keydown', (e) => {
     document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
-  if (e.key === 'Delete' && deletionBusy()) {
+  if (['Delete', 'Backspace'].includes(e.key) && e.target.matches?.('.canvas-stage') && e.repeat) {
+    e.preventDefault();
+    return;
+  }
+  if (
+    ['Delete', 'Backspace'].includes(e.key) &&
+    e.target.matches?.('.canvas-stage') &&
+    pointSelection.ids.size
+  ) {
+    // Point selection owns both delete keys, including rejected/generated
+    // targets. Never let these keys cascade into whole-node/artwork deletion.
+    e.preventDefault();
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || deletionBusy()) return;
+    const n = current().nodes.find((node) => node.id === pointSelection.nodeId);
+    if (!n || !['Curve', 'Multi Path'].includes(n.type)) {
+      notify('Select an editable source path to delete points', true);
+      return;
+    }
+    commandChange(
+      'delete-point',
+      { nodeId: n.id, pointIds: [...pointSelection.ids] },
+      'Selected points removed',
+    );
+    document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+    return;
+  }
+  if (['Delete', 'Backspace'].includes(e.key) && deletionBusy()) {
     e.preventDefault();
     return;
   }

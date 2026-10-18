@@ -14,6 +14,42 @@ function setup() {
       session.dispatch({ ...session.state, type, payload: { layerId: l.id, ...payload } });
   return { l, curve, a, b, session, send };
 }
+
+test('point deletion batches stable IDs in one undo and refuses missing or locked selections atomically', () => {
+  const { curve, session, send } = setup();
+  const before = serialize(session.snapshot());
+  const ids = curve.points.slice(0, 2).map((p) => p.id);
+  assert.throws(
+    () => send('delete-point', { nodeId: curve.id, pointIds: [...ids, 'missing'] }),
+    /Missing/,
+  );
+  assert.equal(serialize(session.snapshot()), before);
+  send('delete-point', { nodeId: curve.id, pointIds: ids });
+  assert.equal(
+    session.snapshot().layers[0].nodes.find((n) => n.id === curve.id).points.length,
+    curve.points.length - 2,
+  );
+  assert.equal(session.historyView.past.length, 1);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), before);
+  send('redo');
+  assert.equal(session.historyView.past.length, 1);
+  const locked = session.snapshot();
+  const live = locked.layers[0].nodes.find((n) => n.id === curve.id);
+  live.points[0].position.locked = true;
+  const s = new CommandSession(locked),
+    saved = serialize(s.snapshot());
+  assert.throws(
+    () =>
+      s.dispatch({
+        ...s.state,
+        type: 'delete-point',
+        payload: { layerId: locked.layers[0].id, nodeId: curve.id, pointId: live.points[0].id },
+      }),
+    /locked/,
+  );
+  assert.equal(serialize(s.snapshot()), saved);
+});
 test('batch node deletion preserves Output, disconnects survivors and has a single undo', () => {
   const { l, curve, a, b, session, send } = setup(),
     before = serialize(session.snapshot());

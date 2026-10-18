@@ -6140,14 +6140,22 @@ export class CommandSession {
         item.points.push(created);
         result = { pointId: created.id };
       } else {
-        const pt = item.points.find((pt) => pt.id === payload.pointId);
-        if (!pt) throw Error('Missing point');
         if (type === 'delete-point') {
-          item.points = item.points.filter((p) => p !== pt);
+          // Resolve the entire selection before mutating the candidate. The row
+          // action and Canvas shortcut share one atomic, undoable command.
+          const ids = [...new Set(payload.pointIds ?? [payload.pointId])];
+          if (!ids.length || ids.some((id) => !item.points.some((pt) => pt.id === id)))
+            throw Error('Missing point');
+          const points = item.points.filter((pt) => ids.includes(pt.id));
+          if (points.some((pt) => ['position', 'handleA', 'handleB'].some((key) => pt[key].locked)))
+            throw Error('Point is locked; unlock before deleting');
+          item.points = item.points.filter((pt) => !ids.includes(pt.id));
           if (item.type === 'Multi Path')
             for (const contour of item.contours)
-              contour.points = contour.points.filter((id) => id !== pt.id);
+              contour.points = contour.points.filter((id) => !ids.includes(id));
         } else {
+          const pt = item.points.find((pt) => pt.id === payload.pointId);
+          if (!pt) throw Error('Missing point');
           if (!['corner', 'smooth', 'symmetric'].includes(payload.mode))
             throw Error('Invalid handle type');
           if (
