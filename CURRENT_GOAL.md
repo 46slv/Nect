@@ -20,8 +20,15 @@ Goal: Add non-destructive color Keyer to Image pipelines and shape Mask after
 Image or Composition appearance, with original alpha, editable source nodes,
 shared preview/export, Undo and exact reopen behavior. No AI cutout/video/feather
 expansion. User's 2026-10-18 requests are delegated by the parent Mission owner.
-Current phase: Shared image/appearance integration inspected; implement next.
-Proven: The prior entry/SVG/Japanese-wrap checkpoint is built from
+Current phase: Shared image/appearance implementation and production browser
+acceptance passed. Commit/build and isolated native acceptance are next.
+Proven: Image-effects model/DOM38 pass. Production Edge/CSP verifies actual node
+creation, settings, Bypass, Use as output, inversion, alpha128 pixels, sRGB Alpha
+Viewer, Undo/reopen exact SVG and transparent PNG download. Existing image-tone
+tests retain7 older schema/fingerprint/CLI fixture failures, reproduced at old
+c4fcfb0 in an isolated copy; these were not changed. Source images stay immutable.
+See desktop/tests/image-effects* and desktop/test-results/image-effects-receipt.json.
+The prior entry/SVG/Japanese-wrap checkpoint is built from
 1641e0c788e25072c01581f59755b02be055416c and normally pushed. Model/DOM88, native36,
 production Edge/CSP and actual isolated WebView2 controls/real typography IPC
 passed. Twelve packaged examples re-export exact SVG offline. User's running
@@ -50,12 +57,13 @@ masked appearance rather than discarding its mask. Bounds include conservative
 stroke padding. Viewer alpha/checkerboard are temporary inspection state and
 must never alter authored artwork or export. Reuse normal Color/node controls;
 dedicated image-texel eyedropper is optional, not a blocker.
-Next task: Implement bounded processing and Mask model/rendering, then focused
-synthetic RGBA/appearance tests and real UI wiring, Bypass, Undo/reload/SVG/PNG.
+Next task: One combined Windows build, isolated native startup/controls, package
+the public synthetic example and receipts, then normal push/PR and Library upload.
 Done for next: Coherent tested source, normal dev push/PR checkpoint and a new
 combined Windows trial only when this image-effects checkpoint is verified.
 State: codex/desktop-production-20261016; code is1641e0c, this record changes docs
-only. No image-effects edits yet. Source/build owner remains this task alone.
+only at HEAD; image-effects source/UI edits are uncommitted WIP. Source/build
+owner remains this task alone.
 Authority: Latest parent-delegated user requests. Edit/test/commit/dev push/PR and
 EXE/Library permitted. No main merge/release/force push/auth changes/Notion writes.
 Never publish personal design, original attachment or embedded font software.

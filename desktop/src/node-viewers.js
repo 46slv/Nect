@@ -14,6 +14,20 @@ export function createViewerState() {
     ],
   };
 }
+// Alpha is read-only inspection; the normal common renderer remains the source.
+export function viewerMarkup(value, assets, index, alpha = false) {
+  const id = `nect-viewer-${index}-alpha`;
+  const rendered = renderElement(
+    value,
+    { name: `viewer-${index}` },
+    assets,
+    '',
+    `nect-viewer-${index}-gradient`,
+  );
+  return alpha
+    ? `<defs><filter id="${id}" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 1"/></filter></defs><g filter="url(#${id})">${rendered}</g>`
+    : rendered;
+}
 export function bindViewer(state, index, layer, node, port) {
   if (!outputPorts(node).some((p) => p.id === port)) throw Error('Select a public output');
   state.slots[index].binding = { layerId: layer.id, nodeId: node.id, port, label: node.name };
@@ -127,9 +141,18 @@ export function updateViewers(root, state, doc, fonts, evaluations = new Map()) 
       .join(' · ');
     panel.querySelector('[data-viewer-status]').textContent = result.status;
     const body = panel.querySelector('.node-viewer-body');
+    body.dataset.alpha = String(!!slot.alpha);
+    body.dataset.transparency = String(['Image', 'PaintedPath'].includes(result.type));
+    const alpha = panel.querySelector('[data-viewer-alpha]');
+    alpha.disabled = !result.value;
+    alpha.setAttribute('aria-pressed', String(!!slot.alpha));
+    alpha.onclick = () => {
+      slot.alpha = !slot.alpha;
+      updateViewers(root, state, doc, fonts);
+    };
     try {
       body.innerHTML = result.value
-        ? `<svg aria-label="Viewer ${index + 1} result" viewBox="${(slot.view || [0, 0, doc.width, doc.height]).join(' ')}">${renderElement(result.value, { name: `viewer-${index}` }, doc.imageAssets, '', `nect-viewer-${index}-gradient`)}</svg>${result.type === 'Path' ? '<span class="viewer-inspection-note">Path · inspection outline</span>' : ''}`
+        ? `<svg aria-label="Viewer ${index + 1} result" viewBox="${(slot.view || [0, 0, doc.width, doc.height]).join(' ')}">${viewerMarkup(result.value, doc.imageAssets, index, slot.alpha)}</svg>${result.type === 'Path' ? '<span class="viewer-inspection-note">Path · inspection outline</span>' : ''}`
         : `<p class="viewer-value">${escape(result.detail || '')}</p>`;
     } catch (error) {
       panel.querySelector('[data-viewer-status]').textContent = 'Error';
@@ -161,7 +184,7 @@ export function mountViewers(
   panels.innerHTML = state.slots
     .map(
       (_, i) =>
-        `<section class="node-viewer" aria-label="Viewer ${i + 1}"><div class="node-viewer-header"><strong>Viewer ${i + 1}</strong><output data-viewer-status></output><button data-viewer-fit>Fit</button><button data-viewer-clear="${i}" aria-label="Clear Viewer ${i + 1}">Clear</button></div><div data-viewer-label></div><div class="node-viewer-body" tabindex="0" aria-label="Viewer ${i + 1} read-only viewport" title="Wheel to pan; Ctrl/Alt + wheel to zoom. Read-only inspection."></div></section>`,
+        `<section class="node-viewer" aria-label="Viewer ${i + 1}"><div class="node-viewer-header"><strong>Viewer ${i + 1}</strong><output data-viewer-status></output><button data-viewer-alpha aria-pressed="false">Alpha</button><button data-viewer-fit>Fit</button><button data-viewer-clear="${i}" aria-label="Clear Viewer ${i + 1}">Clear</button></div><div data-viewer-label></div><div class="node-viewer-body" tabindex="0" aria-label="Viewer ${i + 1} read-only viewport" title="Wheel to pan; Ctrl/Alt + wheel to zoom. Read-only inspection."></div></section>`,
     )
     .join('');
   wrap.prepend(tabs);

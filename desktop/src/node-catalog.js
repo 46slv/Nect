@@ -35,6 +35,22 @@ export const nodeCategories = [
 ];
 export const nodeCatalog = [
   {
+    typeId: 'Keyer',
+    categoryId: 'image',
+    labelJa: 'カラーキー',
+    aliases: ['Keyer', 'Chroma key', '透過', 'クロマキー'],
+    description: '指定色を透明にする。範囲と境界の柔らかさを調整。',
+    creationRoute: 'add',
+  },
+  {
+    typeId: 'Mask',
+    categoryId: 'image',
+    labelJa: 'マスク',
+    aliases: ['Mask', '切り抜き', 'クリップ'],
+    description: '画像・Compositionを閉じたパスで切り抜く。',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Circle',
     categoryId: 'create',
     labelJa: '円',

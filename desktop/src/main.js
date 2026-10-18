@@ -1192,6 +1192,7 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  if (n.type === 'Keyer' && ['tolerance', 'softness'].includes(key)) return [0, 1];
   if (n.params.tonePower && key === 'tonePower') return [0.1, 10];
   if (n.type === 'Luminance Instances') {
     if (['minScale', 'maxScale'].includes(key)) return [0, 100];
@@ -1548,7 +1549,7 @@ function field(n, key, q) {
         key === 'scaleWidth' &&
         (renderEvaluation?.transformValues(n.id).uniformScale ?? true));
   const factor = isTransform(n) && ['scale', 'scaleWidth'].includes(key) ? 100 : 1;
-  const name =
+  let name =
     n.type === 'Join Geometry'
       ? !q.source && !q.locked && key === n.joinInputOrder.at(-1)
         ? 'Add path'
@@ -1660,6 +1661,11 @@ function field(n, key, q) {
                                                 : key.includes('.')
                                                   ? key.split('.').at(-1)
                                                   : key;
+  if (n.type === 'Keyer')
+    name =
+      { path: 'Image', keyColor: 'Key color', tolerance: 'Range', softness: 'Softness' }[key] ||
+      key;
+  if (n.type === 'Mask') name = { path: 'Appearance', mask: 'Shape', invert: 'Invert' }[key] || key;
   let control;
   const connectLabel =
     n.type === 'Convert to Path' && key === 'path'
@@ -1688,7 +1694,7 @@ function field(n, key, q) {
       .join('')}</select>`;
   else if (q.type === 'Color') {
     const color = displayed || { hex: current().fill, alpha: 1 };
-    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}><input type="number" data-scrub-step="0.01" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`;
+    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" data-scrub-step="0.01" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`}`;
   } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
@@ -9531,9 +9537,11 @@ function openNodeContextMenu(nodeId, x, y) {
       ? 'This is already an Output node'
       : !['Path', 'PaintedPath', 'Image'].includes(outputType(n))
         ? 'This node has no artwork output'
-        : !output || !socketCompatibleFor(n, output, 'path')
+        : !output ||
+            (!socketCompatibleFor(n, output, 'path') &&
+              !(n.type === 'Mask' && output.type === 'Image Output'))
           ? 'Incompatible with this composition’s Output'
-          : output.params.path.locked
+          : output.locked || output.params.path.locked
             ? 'Output input is locked'
             : '');
   const duplicateReason =

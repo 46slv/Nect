@@ -1,5 +1,7 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
+import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
+import { maskAppearance } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
 import {
   validateCompositionReference,
@@ -177,6 +179,13 @@ const p = (type, value) => ({ type, value, expression: '', locked: false });
 export const definitions = {
   Image: { position: p('Vector2', [100, 100]), size: p('Vector2', [320, 240]) },
   'Image Output': { path: p('Image', null) },
+  Keyer: {
+    path: p('Image', null),
+    keyColor: p('Color', { hex: '#00ff00', alpha: 1 }),
+    tolerance: p('Scalar', 0.1),
+    softness: p('Scalar', 0.05),
+  },
+  Mask: { path: p('PaintedPath', null), mask: p('Path', null), invert: p('Boolean', false) },
   Circle: { center: p('Vector2', [350, 250]), radius: p('Scalar', 120) },
   Ellipse: { center: p('Vector2', [350, 250]), size: p('Vector2', [240, 160]) },
   Rectangle: { center: p('Vector2', [460, 250]), size: p('Vector2', [180, 220]) },
@@ -648,7 +657,8 @@ export function outputType(n, port) {
   )
     return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
-  if (n.type === 'Image' || n.type === 'Image Output') return 'Image';
+  if (n.type === 'Image' || n.type === 'Image Output' || n.type === 'Keyer') return 'Image';
+  if (n.type === 'Mask') return 'PaintedPath';
   return ['Value', 'Expression', 'Math'].includes(n.type)
     ? 'Scalar'
     : ['Vector', 'Combine Vector', 'Null', 'Reference', 'Vector Transform'].includes(n.type)
@@ -659,6 +669,8 @@ export function outputType(n, port) {
 }
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
+  Keyer: 'path',
+  Mask: 'path',
   Boolean: 'a',
   'Join Geometry': 'a',
   Math: 'a',
@@ -995,7 +1007,7 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
         q.type === 'Path') ||
       (sourceType === 'Image' &&
         sourcePort === undefined &&
-        imageLuminanceTargets.has(target.type) &&
+        (imageLuminanceTargets.has(target.type) || target.type === 'Mask') &&
         key === 'path' &&
         q.type === 'PaintedPath'))
   );
@@ -2344,6 +2356,7 @@ export function evaluate(
       if (n.bypassed) {
         result = clone(read(bypassInput(n)));
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
+        if (n.type === 'Mask') result = paintedGroup([result], { prefix: n.id });
         assertValue(outputType(n), result);
       } else if (n.type === 'Composition Reference') {
         const position = read('position');
@@ -2400,6 +2413,23 @@ export function evaluate(
         if (size.some((v) => v <= 0 || v > 100000))
           throw Error('Image size must be positive and at most 100000');
         result = { kind: 'image', asset: n.asset, position: read('position'), size };
+      } else if (n.type === 'Keyer') {
+        result = keyedImage(
+          read('path'),
+          read('keyColor'),
+          read('tolerance'),
+          read('softness'),
+          imageAssets,
+        );
+      } else if (n.type === 'Mask') {
+        const source = read('path'),
+          shape = read('mask');
+        if (!source || !shape) throw Error('Connect appearance and closed shape to Mask');
+        result = maskAppearance(source, shape, {
+          invert: read('invert'),
+          prefix: n.id,
+          bounds: pathBounds(source),
+        });
       } else if (n.type === 'Curve')
         result = {
           contours: [
@@ -3057,7 +3087,7 @@ export function evaluate(
         let field, mask;
         if (source.kind === 'image') {
           field = sampleImageLuminanceGrid(
-            imageAssets[source.asset],
+            imageAssetFor(source, imageAssets),
             source.position,
             source.size,
             options,
@@ -3210,7 +3240,7 @@ export function evaluate(
           throw Error('Line Screen orientation must be horizontal or vertical');
         if (source.kind === 'image') {
           const field = sampleImageLuminanceGrid(
-              imageAssets[source.asset],
+              imageAssetFor(source, imageAssets),
               source.position,
               source.size,
               { pitch, origin, invert, tonePower },
@@ -3892,6 +3922,7 @@ export function migratePaint(doc) {
   return doc;
 }
 export function validate(doc) {
+  let activeKeyers = 0;
   const idPattern = nodeIdPattern;
   const ids = new Set();
   function id(value) {
@@ -3927,7 +3958,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30, 31, 32, 33, 34,
+      27, 28, 29, 30, 31, 32, 33, 34, 35,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3963,6 +3994,10 @@ export function validate(doc) {
     if (!Array.isArray(l.nodes) || l.nodes.length > 2000) throw Error('Invalid composition');
     for (const n of l.nodes) {
       id(n.id);
+      if (['Keyer', 'Mask'].includes(n.type) && sourceSchemaVersion < 35)
+        throw Error('Keyer and Mask require schemaVersion 35');
+      if (n.type === 'Keyer' && !n.bypassed && ++activeKeyers > MAX_ACTIVE_KEYERS)
+        throw Error('At most 8 active Keyers per document');
       validateReference(n);
       validateCompositionReference(n, sourceSchemaVersion);
       if (
@@ -4180,6 +4215,8 @@ export function validate(doc) {
           n.paintMode && def.type === 'Path' ? 'PaintedPath' : def.type,
           n.type === 'Fill' && key === 'color',
         );
+      if (n.type === 'Keyer')
+        keyerSettings(n.params.keyColor.value, n.params.tolerance.value, n.params.softness.value);
       if (
         n.type === 'Resample Path' &&
         (!Number.isInteger(n.params.count.value) ||
@@ -4500,11 +4537,21 @@ export function renderElement(
   attributes = '',
   gradientId = 'nect-gradient-0',
 ) {
-  if (isPaintedGroup(value))
-    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${value.matrix.join(' ')})">${value.children.map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`)).join('')}</g>`;
+  if (isPaintedGroup(value)) {
+    const content = value.children
+      .map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`))
+      .join('');
+    const mask = value.mask;
+    const id = `${gradientId}-mask`;
+    const definition = mask
+      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
+      : '';
+    // The mask and its source share the group's local coordinates. A later
+    // appearance transform moves both, preserving nested masks and source alpha.
+    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${value.matrix.join(' ')})">${mask ? `${definition}<g mask="url(#${id})">${content}</g>` : content}</g>`;
+  }
   if (value.kind === 'image') {
-    const asset = assets[value.asset];
-    if (!asset) throw Error('Missing image asset');
+    const asset = imageAssetFor(value, assets);
     return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
   const fill = value.fill,
@@ -6502,6 +6549,8 @@ export class CommandSession {
       item.name = payload.name.trim();
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      if (['Keyer', 'Mask'].includes(created.type))
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 35);
       if (created.type === 'Composition Reference')
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
       if (created.type === 'Join Geometry')
@@ -6568,6 +6617,15 @@ export class CommandSession {
     } else if (type === 'preview-node') {
       const source = target.nodes.find((node) => node.id === payload.nodeId);
       if (!source) throw Error('Missing node');
+      const output = target.nodes.find((node) => node.id === target.output);
+      if (output?.locked) throw Error('Output node is locked');
+      if (source.type === 'Mask' && output?.type === 'Image Output') {
+        if (output.params.path.locked) throw Error('Output input is locked');
+        if (output.params.path.expression) throw Error('Output input is driven by an expression');
+        output.type = 'Output';
+        if (output.name === 'Image Output') output.name = 'Output';
+        output.params.path.type = 'PaintedPath';
+      }
       if (outputType(source) === 'Path') {
         const paint = node('Fill', ...(payload.position ?? [40, 40]));
         target.nodes.push(paint);

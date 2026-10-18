@@ -239,6 +239,10 @@ function rgbaFor(asset) {
   cachedRgba = decoded;
   return decoded;
 }
+/** Mutable straight-RGBA copy for bounded image effects; never expose the cache. */
+export function copyImageRgba(asset) {
+  return rgbaFor(asset).slice();
+}
 
 function hasOnlyKeys(value, keys) {
   return (

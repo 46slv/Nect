@@ -117,7 +117,18 @@ export function paintedGroup(values, { matrix = [1, 0, 0, 1, 0, 0], prefix = 'co
     }
   }
   for (const value of children) strip(value);
-  const exportBlockers = [
+  const exportBlockers = appearanceExportBlockers(values);
+  return {
+    kind: 'painted-group',
+    children,
+    matrix: [...matrix],
+    contours,
+    unstable: true,
+    ...(exportBlockers.length ? { exportBlockers } : {}),
+  };
+}
+export function appearanceExportBlockers(values) {
+  return [
     ...new Set(
       values.flatMap((value) => [
         ...(value.exportBlockers || []),
@@ -131,16 +142,13 @@ export function paintedGroup(values, { matrix = [1, 0, 0, 1, 0, 0], prefix = 'co
       ]),
     ),
   ];
-  return {
-    kind: 'painted-group',
-    children,
-    matrix: [...matrix],
-    contours,
-    unstable: true,
-    ...(exportBlockers.length ? { exportBlockers } : {}),
-  };
+}
+export function hasAppearanceMask(value) {
+  return !!value?.mask || (isPaintedGroup(value) && value.children.some(hasAppearanceMask));
 }
 export function groupGeometry(value) {
+  if (hasAppearanceMask(value))
+    throw Error('Masked appearance cannot be converted to geometry; keep Mask before Output');
   return {
     contours: structuredClone(value.contours),
     unstable: true,
