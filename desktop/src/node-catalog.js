@@ -35,6 +35,14 @@ export const nodeCategories = [
 ];
 export const nodeCatalog = [
   {
+    typeId: 'Luminance to Points',
+    categoryId: 'image',
+    labelJa: '輝度をポイントへ',
+    aliases: ['Luminance to Points', '輝度', 'ポイント', '網点'],
+    description: '輝度からサイズと回転を持つ点を生成。Instance on Pointsに接続。',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Keyer',
     categoryId: 'image',
     labelJa: 'カラーキー',

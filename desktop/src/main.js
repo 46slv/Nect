@@ -1227,7 +1227,7 @@ function numericLimits(n, key) {
     if (key === 'dotRotation') return [-360, 360];
     if (key === 'starInnerRatio') return [0.05, 0.95];
   }
-  if (n.type === 'Luminance Instances') {
+  if (['Luminance Instances', 'Luminance to Points'].includes(n.type)) {
     if (['minScale', 'maxScale'].includes(key)) return [0, 100];
     if (['minRotation', 'maxRotation'].includes(key)) return [-360, 360];
   }
@@ -1238,6 +1238,7 @@ function numericLimits(n, key) {
       'Line Screen',
       'Error Diffusion Dither',
       'Luminance Instances',
+      'Luminance to Points',
     ].includes(n.type) &&
     key === 'pitch'
   )
@@ -1249,6 +1250,7 @@ function numericLimits(n, key) {
       'Line Screen',
       'Error Diffusion Dither',
       'Luminance Instances',
+      'Luminance to Points',
     ].includes(n.type) &&
     key === 'gridOrigin'
   )
@@ -1593,6 +1595,7 @@ function field(n, key, q) {
             'Line Screen',
             'Error Diffusion Dither',
             'Luminance Instances',
+            'Luminance to Points',
           ].includes(n.type)
         ? {
             path: 'Source fill',
@@ -1601,9 +1604,12 @@ function field(n, key, q) {
             maxScale: 'Scale at black',
             minRotation: 'Angle at white (°)',
             maxRotation: 'Angle at black (°)',
-            pitch: hasDotControls(n.type)
-              ? 'Dot spacing (px; smaller = denser)'
-              : 'Cell pitch (px)',
+            pitch:
+              n.type === 'Luminance to Points'
+                ? 'Point spacing (px; smaller = denser)'
+                : hasDotControls(n.type)
+                  ? 'Dot spacing (px; smaller = denser)'
+                  : 'Cell pitch (px)',
             dotSize: n.type === 'Halftone' ? 'Maximum dot size (px)' : 'Dot size (px)',
             dotSides: 'Polygon sides / star points',
             dotRotation: 'Dot rotation (degrees)',
@@ -2205,10 +2211,12 @@ function smoothControls(n) {
 }
 function instancePointsControls(n) {
   return n.type === 'Instance on Points'
-    ? '<p class="font-note">Place the source path bounds center on every authored anchor in Points. Align Tangent turns the source so its local +X follows the target tangent: outgoing handle B, reverse incoming handle A, then neighboring anchor chords. Curves are not arc-length-sampled; use Resample Path first when even spacing or denser target anchors are wanted. Target groups and curve interiors are ignored. Copies are materialized geometry with bounded output.</p>'
+    ? '<p class="font-note">Place the source path bounds center on every authored anchor in Points. Luminance to Points supplies per-point size and rotation; these override Align Tangent. Connect any custom Curve, Star, Polygon or other Path as Source. Align Tangent turns the source so its local +X follows the target tangent: outgoing handle B, reverse incoming handle A, then neighboring anchor chords. Curves are not arc-length-sampled; use Resample Path first when even spacing or denser target anchors are wanted. Target groups and curve interiors are ignored. Copies are materialized geometry with bounded output.</p>'
     : '';
 }
 function luminanceControls(n) {
+  if (n.type === 'Luminance to Points')
+    return '<p class="font-note">Sample Source fill or an embedded PNG into disconnected points with per-point scale and rotation. Connect this Path to Instance on Points: Points, and connect any Curve, Star, Polygon or other Path to its Source. Add Fill afterward. Spacing sets grid-center distance in px independently of motif size. Scale/angle interpolate linearly from white to black after linear-light luminance, alpha over white, Invert and Tone power. Zero scale omits a point. Centers are selected inside the source mask/rectangle, including holes; complete motifs are not clipped to cells or the source, and may overlap. Fill opacity is applied afterward; overlapping groups retain independent alpha. Up to 256 active points, 4096 sampled cells and existing geometry/work limits; reduce density or motif complexity if exceeded. Point attributes are derived, saved through node parameters, and consumed by Instance on Points; other Path operations may discard them. Bypass is unavailable because source paint and point output differ.</p>';
   if (n.type === 'Luminance Instances')
     return '<p class="font-note">Place a Path motif at grid centers inside the source mask or image rectangle. Remapped darkness linearly maps white/black scale and angle endpoints; Invert swaps darkness. Pivot is the whole motif bounds center. Zero scale omits a copy. Partial cells whose center is outside are omitted; whole motifs remain unclipped, preserving cubic handles and groups. Output is an unpainted Path: add Fill or Stroke. Bypass passes the motif unchanged. Up to 256 copies/groups and 100000 points; the shared 4096 sampled-cell cap remains. Filled vector sources must be closed and ungrouped; supported PNG images sample nearest texels in linear light over white. Tone power (0.1–10, default 1) raises darkness to that power after luminance/alpha and Invert: below 1 makes heavier marks, above 1 makes lighter marks. The source paint/image stays unchanged.</p>';
 
