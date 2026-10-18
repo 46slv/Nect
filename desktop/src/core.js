@@ -57,6 +57,7 @@ import { instancePointsGeometry } from './instance-points-geometry.js';
 import { sampleLuminanceGrid } from './luminance-field.js';
 import { sampleImageLuminanceGrid } from './image-luminance-field.js';
 import { generateLuminanceMarks } from './luminance-marks.js';
+import { luminanceToPoints } from './luminance-points.js';
 import { prepareLuminanceMask, clipLuminanceMarks } from './luminance-mask.js';
 export { hitPathSegment } from './path-point-insertion.js';
 export { pointControlTargets, hitPointControl } from './point-controls.js';
@@ -319,6 +320,17 @@ export const definitions = {
     maxScale: p('Scalar', 1),
     minRotation: p('Scalar', 0),
     maxRotation: p('Scalar', 90),
+  },
+  'Luminance to Points': {
+    path: p('PaintedPath', null),
+    pitch: p('Scalar', 32),
+    invert: p('Boolean', false),
+    gridOrigin: p('Vector2', [0, 0]),
+    tonePower: p('Scalar', 1),
+    minScale: p('Scalar', 0),
+    maxScale: p('Scalar', 1),
+    minRotation: p('Scalar', 0),
+    maxRotation: p('Scalar', 0),
   },
   'Instance on Points': {
     path: p('Path', null),
@@ -1008,6 +1020,7 @@ export function socketCompatible(sourceType, targetType) {
   return sourceType === targetType || (sourceType === 'Path' && targetType === 'PaintedPath');
 }
 const imageLuminanceTargets = new Set([
+  'Luminance to Points',
   'Luminance Instances',
   'Halftone',
   'Ordered Dither',
@@ -3093,6 +3106,32 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Luminance to Points') {
+        const source = read('path');
+        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
+        const settings = luminanceInstanceSettings(read);
+        result = luminanceToPoints(source, {
+          ...settings,
+          pitch,
+          invert,
+          tonePower,
+          origin: { x: gridOrigin[0], y: gridOrigin[1] },
+          prefix: fingerprint(n.id),
+          asset: source?.kind === 'image' ? imageAssetFor(source, imageAssets) : undefined,
+        });
+        result.unstable = true;
+        result.fingerprint = fingerprint(
+          JSON.stringify([
+            provenance(n.id),
+            source.fingerprint || null,
+            settings,
+            pitch,
+            invert,
+            gridOrigin,
+            tonePower,
+            result.contours,
+          ]),
+        );
       } else if (n.type === 'Luminance Instances') {
         if (!n.params.path.source || !n.params.motif.source)
           throw Error('Connect both Source fill and Motif inputs');
@@ -3778,6 +3817,7 @@ export function assertClosedOffsetChange(
     'Auto Handles',
     'Instance on Points',
     'Luminance Instances',
+    'Luminance to Points',
     'Halftone',
     'Ordered Dither',
     'Error Diffusion Dither',
@@ -4325,7 +4365,7 @@ export function validate(doc) {
       if (['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type))
         luminanceModifierSettings((key) => n.params[key].value);
       readDotSettings(n, (key) => n.params[key].value);
-      if (n.type === 'Luminance Instances') {
+      if (['Luminance Instances', 'Luminance to Points'].includes(n.type)) {
         luminanceModifierSettings((key) => n.params[key].value);
         luminanceInstanceSettings((key) => n.params[key].value);
       }
@@ -4551,7 +4591,10 @@ export function validate(doc) {
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   if (hasNodeType('Join Geometry')) doc.schemaVersion = Math.max(doc.schemaVersion, 23);
-  if (doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type))))
+  if (
+    hasNodeType('Luminance to Points') ||
+    doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type)))
+  )
     doc.schemaVersion = Math.max(doc.schemaVersion, DITHER_SCHEMA_VERSION);
   return doc;
 }

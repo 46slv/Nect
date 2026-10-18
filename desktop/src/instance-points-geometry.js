@@ -1,3 +1,5 @@
+import { pointInstanceTransforms } from './point-instance-attributes.js';
+
 const MAX_CONTOURS = 10_000;
 const MAX_POINTS = 100_000;
 const MAX_INSTANCES = 256;
@@ -140,7 +142,7 @@ function rotateVector(vector, cosine, sine) {
 export function instancePointsGeometry(source, targets, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options))
     throw Error('Instance on Points needs valid options');
-  const { pivot, prefix = 'instances', alignTangent = false, transforms } = options;
+  const { pivot, prefix = 'instances', alignTangent = false } = options;
   if (typeof prefix !== 'string' || !prefix)
     throw Error('Instance on Points needs a nonempty ID prefix');
   if (typeof alignTangent !== 'boolean')
@@ -158,6 +160,7 @@ export function instancePointsGeometry(source, targets, options = {}) {
     }
   }
   if (anchors.length > MAX_INSTANCES) throw Error('Instance on Points exceeds instance budget');
+  const transforms = options.transforms ?? pointInstanceTransforms(targets);
 
   if (
     transforms !== undefined &&
