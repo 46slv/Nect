@@ -1,5 +1,6 @@
-import { node, blankLayer, connect, outputType, evaluate, validate, serialize } from './core.js';
+import { node, connect, outputType, evaluate, validate, serialize } from './core.js';
 import { importSVGTree } from './svg-import.js';
+import { svgComposition } from './svg-composition.js';
 
 // SVG parts reuse saved vector graphs and Composition Reference. There is no
 // browser SVG renderer, external URL, file binding or second scene authority.
@@ -31,45 +32,7 @@ export function appendSVGPart(
   const imported = importSVGTree(source);
   // One hidden, editable source graph retains the original paint order. The
   // parser has already minted all IDs and rejected unsupported markup.
-  const embedded = blankLayer(`SVG source · ${name.trim()}`);
-  embedded.visible = false;
-  embedded.nodes = [];
-  let sources = [];
-  for (const [index, l] of imported.layers.entries()) {
-    const out = l.nodes.find((n) => n.id === l.output);
-    if (!out?.params.path.source) throw Error('SVG contains an empty output');
-    const nodes = l.nodes.filter((n) => n.id !== out.id);
-    for (const n of nodes) n.position = [n.position[0], n.position[1] + index * 180];
-    embedded.nodes.push(...nodes);
-    let sourceId = out.params.path.source;
-    if (outputType(nodes.find((n) => n.id === sourceId)) === 'Path') {
-      const transparent = node('Fill', 1250, index * 180 + 40);
-      transparent.params.color.value.alpha = 0;
-      embedded.nodes.push(transparent);
-      connect(embedded, sourceId, transparent.id, 'path');
-      sourceId = transparent.id;
-    }
-    sources.push(sourceId);
-  }
-  while (sources.length > 1) {
-    const next = [];
-    for (let i = 0; i < sources.length; i += 2) {
-      if (i + 1 === sources.length) {
-        next.push(sources[i]);
-        continue;
-      }
-      const join = node('Join Geometry', 1500, i * 90);
-      embedded.nodes.push(join);
-      connect(embedded, sources[i], join.id, 'a');
-      connect(embedded, sources[i + 1], join.id, 'b');
-      next.push(join.id);
-    }
-    sources = next;
-  }
-  const final = node('Output', 1850, 40);
-  embedded.nodes.push(final);
-  connect(embedded, sources[0], final.id, 'path');
-  embedded.output = final.id;
+  const embedded = svgComposition(imported, name.trim());
   doc.layers.push(embedded);
   const y = Math.max(0, ...target.nodes.map((n) => n.position[1])) + 180;
   const ref = node('Composition Reference', 40, y);
