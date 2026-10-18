@@ -25,6 +25,14 @@ import { canonicalAxes, requireThat as variableCheck } from './variable-font/con
 import { validateCharacterArrangement } from './character-arrangement.js';
 import { validateTonePower } from './luminance-tone.js';
 import {
+  DITHER_SCHEMA_VERSION,
+  isDither,
+  hasDotControls,
+  readDotSettings,
+  dotFingerprint,
+  migrateDither,
+} from './dither-controls.js';
+import {
   luminanceInstanceSettings,
   luminanceInstancesGeometry,
   selectLuminanceCenters,
@@ -347,6 +355,10 @@ export const definitions = {
   Halftone: {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
+    dotSize: p('Scalar', 16),
+    dotSides: p('Scalar', 4),
+    dotRotation: p('Scalar', 0),
+    starInnerRatio: p('Scalar', 0.25),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
     tonePower: p('Scalar', 1),
@@ -354,6 +366,10 @@ export const definitions = {
   'Ordered Dither': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
+    dotSize: p('Scalar', 16),
+    dotSides: p('Scalar', 4),
+    dotRotation: p('Scalar', 0),
+    starInnerRatio: p('Scalar', 0.25),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
     tonePower: p('Scalar', 1),
@@ -361,6 +377,10 @@ export const definitions = {
   'Error Diffusion Dither': {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
+    dotSize: p('Scalar', 16),
+    dotSides: p('Scalar', 4),
+    dotRotation: p('Scalar', 0),
+    starInnerRatio: p('Scalar', 0.25),
     invert: p('Boolean', false),
     gridOrigin: p('Vector2', [0, 0]),
     tonePower: p('Scalar', 1),
@@ -513,8 +533,9 @@ export function node(type, x = 40, y = 40) {
     params: clone(definitions[type]),
     ...(type === 'Join Geometry' ? { joinInputOrder: ['a', 'b'] } : {}),
     points: type === 'Curve' ? [point(250, 150), point(450, 150), point(350, 350)] : [],
-    operation:
-      type === 'Resample Path'
+    operation: isDither(type)
+      ? 'square'
+      : type === 'Resample Path'
         ? 'count'
         : type === 'Taper' || type === 'Bend Points'
           ? 'horizontal'
@@ -1055,6 +1076,9 @@ export function parameters(n) {
   return entries;
 }
 export const operationOptions = {
+  Halftone: ['subtract', 'square', 'circle', 'polygon', 'star'],
+  'Ordered Dither': ['square', 'circle', 'polygon', 'star'],
+  'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
   Taper: ['horizontal', 'vertical'],
   'Bend Points': ['horizontal', 'vertical'],
   'Wave Points': ['vertical', 'horizontal'],
@@ -3235,7 +3259,8 @@ export function evaluate(
                 : n.type === 'Error Diffusion Dither'
                   ? 'error-diffusion'
                   : 'lines',
-          orientation = mode === 'lines' ? n.operation : undefined;
+          orientation = mode === 'lines' ? n.operation : undefined,
+          dots = readDotSettings(n, read);
         if (mode === 'lines' && !operationOptions[n.type].includes(orientation))
           throw Error('Line Screen orientation must be horizontal or vertical');
         if (source.kind === 'image') {
@@ -3266,7 +3291,13 @@ export function evaluate(
                 },
               ],
             }),
-            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation });
+            generated = generateLuminanceMarks({
+              cells: field.cells,
+              pitch,
+              mode,
+              orientation,
+              ...dots,
+            });
           result = clipLuminanceMarks(
             mask,
             generated.marks.map((mark) => mark.vertices),
@@ -3290,7 +3321,13 @@ export function evaluate(
               invert,
               tonePower,
             }),
-            generated = generateLuminanceMarks({ cells: field.cells, pitch, mode, orientation }),
+            generated = generateLuminanceMarks({
+              cells: field.cells,
+              pitch,
+              mode,
+              orientation,
+              ...dots,
+            }),
             polygons = generated.marks.map((mark) => mark.vertices);
           result = clipLuminanceMarks(mask, polygons, fingerprint(n.id));
           result.fill = { hex: '#000000', alpha: 1 };
@@ -3307,6 +3344,7 @@ export function evaluate(
             // Non-default origins participate so downstream edits invalidate correctly.
             ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
             ...(tonePower !== 1 ? [tonePower] : []),
+            ...dotFingerprint(dots, pitch),
             source.fill,
             source.fingerprint || null,
             source.kind === 'image'
@@ -3956,10 +3994,11 @@ export function validate(doc) {
   }
   if (
     !doc ||
-    ![
+    (![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
       27, 28, 29, 30, 31, 32, 33, 34, 35,
-    ].includes(doc.schemaVersion)
+    ].includes(doc.schemaVersion) &&
+      doc.schemaVersion !== DITHER_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4138,6 +4177,7 @@ export function validate(doc) {
         if (!Object.hasOwn(n.params, 'alignTangent'))
           n.params.alignTangent = clone(definitions['Instance on Points'].alignTangent);
       }
+      migrateDither(n, sourceSchemaVersion);
       if (!(operationOptions[n.type] || operationOptions.Boolean).includes(n.operation))
         throw Error('Invalid operation');
       // Older schema-v1 Text nodes omit spacing; migrate only the documented new fields.
@@ -4284,6 +4324,7 @@ export function validate(doc) {
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
       if (['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type))
         luminanceModifierSettings((key) => n.params[key].value);
+      readDotSettings(n, (key) => n.params[key].value);
       if (n.type === 'Luminance Instances') {
         luminanceModifierSettings((key) => n.params[key].value);
         luminanceInstanceSettings((key) => n.params[key].value);
@@ -4510,6 +4551,8 @@ export function validate(doc) {
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   if (hasNodeType('Join Geometry')) doc.schemaVersion = Math.max(doc.schemaVersion, 23);
+  if (doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type))))
+    doc.schemaVersion = Math.max(doc.schemaVersion, DITHER_SCHEMA_VERSION);
   return doc;
 }
 export function serialize(doc) {

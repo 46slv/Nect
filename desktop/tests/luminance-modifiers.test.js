@@ -141,7 +141,7 @@ test('schema-14 luminance nodes backfill origin zero without changing evaluated 
 
     const loaded = deserialize(serialize(legacy)),
       migrated = loaded.layers[0].nodes.find((item) => item.id === f.effect.id);
-    assert.equal(loaded.schemaVersion, 21, `${modifier} schema`);
+    assert.equal(loaded.schemaVersion, modifier === 'Line Screen' ? 21 : 36, `${modifier} schema`);
     assert.deepEqual(migrated.params.gridOrigin, {
       type: 'Vector2',
       value: [0, 0],
@@ -164,7 +164,7 @@ test('schema migrations remain order-independent when a luminance node precedes 
 
   const loaded = deserialize(serialize(f.doc)),
     migrated = new Map(loaded.layers[0].nodes.map((item) => [item.id, item]));
-  assert.equal(loaded.schemaVersion, 21);
+  assert.equal(loaded.schemaVersion, 36);
   assert.deepEqual(migrated.get(f.effect.id).params.gridOrigin.value, [0, 0]);
   assert.equal(migrated.get(resample.id).params.spacing.value, 24);
   assert.equal(migrated.get(instances.id).params.alignTangent.value, false);

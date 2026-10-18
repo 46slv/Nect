@@ -127,7 +127,7 @@ test('pre-21 backfill is node-order independent and current schema rejects a mis
       }
     if (reverse) layer.nodes.reverse();
     const loaded = deserialize(serialize(doc));
-    assert.equal(loaded.schemaVersion, 21);
+    assert.equal(loaded.schemaVersion, 36);
     for (const n of loaded.layers[0].nodes.filter((n) => types.includes(n.type))) {
       assert.equal(n.params.tonePower.value, 1);
       assert.deepEqual(n.params.gridOrigin.value, [0, 0]);
