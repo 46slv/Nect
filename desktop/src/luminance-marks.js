@@ -1,3 +1,5 @@
+import { ditherVertexBuilder } from './dither-controls.js';
+
 const MAX_CELLS = 4096;
 const MAX_VERTICES = 100000;
 const BAYER_BASE = [
@@ -69,7 +71,7 @@ function validateOptions(options) {
 
 // Fixed forward raster scan. Missing cells absorb their share of the error;
 // the field is sampled over full bounds, and shape masks are applied afterward.
-function errorDiffusionMarks(cells, pitch) {
+function errorDiffusionMarks(cells, makeVertices) {
   const ordered = cells.slice().sort((a, b) => a.j - b.j || a.i - b.i),
     key = (i, j) => `${i},${j}`,
     errors = new Map();
@@ -85,7 +87,7 @@ function errorDiffusionMarks(cells, pitch) {
     const value = cell.darkness + errors.get(key(cell.i, cell.j)),
       black = value >= 0.5,
       residual = value - (black ? 1 : 0);
-    if (black) marks.push({ i: cell.i, j: cell.j, vertices: squareVertices(cell, pitch) });
+    if (black) marks.push({ i: cell.i, j: cell.j, vertices: makeVertices(cell) });
     for (const [di, dj, weight] of [
       [1, 0, 7],
       [-1, 1, 3],
@@ -225,13 +227,31 @@ function preflight(options) {
  * Halftone area calibration describes vector geometry, not printed appearance.
  */
 export function generateLuminanceMarks(options) {
-  // Four vertices per cell is bounded by the unchanged 4096-cell cap.
-  if (options?.mode === 'error-diffusion') {
+  if (
+    ['dither', 'error-diffusion'].includes(options?.mode) ||
+    (options?.mode === 'halftone' && options.shape && options.shape !== 'legacy')
+  ) {
     validateOptions(options);
+    const makeVertices = ditherVertexBuilder(
+      {
+        shape: options.shape ?? 'square',
+        dotSize: options.dotSize ?? options.pitch,
+        sides: options.sides,
+        rotation: options.rotation,
+        innerRatio: options.innerRatio,
+      },
+      MAX_VERTICES,
+      options.mode === 'halftone',
+    );
     return {
       mode: options.mode,
       pitch: options.pitch,
-      marks: errorDiffusionMarks(options.cells, options.pitch),
+      marks:
+        options.mode === 'error-diffusion'
+          ? errorDiffusionMarks(options.cells, makeVertices)
+          : options.cells
+              .filter((cell) => markable(cell, options.mode))
+              .map((cell) => ({ i: cell.i, j: cell.j, vertices: makeVertices(cell) })),
     };
   }
   const segments = preflight(options);
