@@ -4623,7 +4623,9 @@ function finishPenDraft(closed = false, redraw = true) {
 }
 
 async function confirmReplace(action = 'opening another document') {
-  return documents.guard(action);
+  const accepted = await documents.guard(action);
+  updateDocumentStatus();
+  return accepted;
 }
 function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
@@ -10377,6 +10379,7 @@ render();
 registerClose(async () => {
   try {
     const canClose = await documents.guard('closing Nect');
+    updateDocumentStatus();
     if (canClose) await recovery?.flush();
     return canClose;
   } catch (error) {
