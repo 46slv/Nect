@@ -14,23 +14,24 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — REQ-210 Text Tool group (2026-10-19)
+## ACTIVE CHECKPOINT — REQ-31 owned handle polar controls (2026-10-19)
 
-Goal: Separate Text Tool activation from authoring, with held horizontal/vertical
-variant selection and explicit Canvas creation using the shared Session command.
-Current phase: implemented, verified and source pushed; Draft PR30 created.
-Proven: Focused unit/DOM tests 27/27 PASS, Vite build PASS (125 modules), actual
-Note Chrome isolated fixture on localhost:5203 verifies non-dirty selection/cancel,
-both directions, one Undo/Redo, Redo retention and existing Text/Inspector preservation.
-Evidence: desktop/docs/req210-text-tool-20261019.md and the reproducible fixture.
-Remote-verified implementation source: f1e4866cd7d66740022a7ff7f71c0c3a1e53d786.
-Draft PR: https://github.com/46slv/Nect/pull/30 (base codex/toggle-list-scroll-20261019).
-Next task: Review this bounded Draft PR; native/physical IME acceptance remains separate.
-Approach: codex/req210-text-tool-20261019, independent copy from
-80e32d16bf3dcb59625f305284b78b85f3d19948; sole source writer.
-Done for next: Review the exact published source and preserve the explicit native/IME gaps.
-State: Text Tool/controller, shared optional creation direction, focused tests,
-related E2E creation gestures and documentation only. Existing 5199/5201 untouched.
-Authority: Current delegation permits code/tests/docs and dev commit/push/Draft PR.
-Main merge, release/distribution and auth/permission changes remain excluded.
+Goal: Add incoming/outgoing Angle° and Length to the existing Curve/Multi Path
+point panel, synchronized with Canvas, retaining Vector2 JSON and existing X/Y.
+Current phase: implementation and focused verification complete; publishing a
+bounded development checkpoint against codex/req210-text-tool-20261019.
+Proven: 31/31 focused core regression tests and production build PASS; Note Chrome
+155 disposable fixture PASS for both handles, all modes, both synchronization
+directions, invalid values/Escape, Undo/Redo, JSON, protection and focus/scroll.
+Evidence: desktop/docs/req31-handle-polar-20261019.md and reproducible E2E receipt.
+Next task: Review the bounded Draft PR at its exact remote SHA.
+Approach: sole source writer in an independent copy, branch
+codex/req31-handle-polar-20261019, base f35a4659d6569b13a5a5448b1526ea5fac7ab6d9.
+Done for next: Preserve native/physical IME gaps and the two baseline-only DOM
+harness failures; no full-suite repair or broader Inspector redesign.
+State: No schema/core command change; reuse curve-point gestures and History.
+Path Remap and multi-point batch remain outside scope. Old 5199/5201/5203 and
+user documents were untouched. Notion writes remain deferred.
+Authority: current delegation permits code/test/docs/dev commit/push/Draft PR;
+mainline merge, release/distribution and auth/permission changes are excluded.
 Handoff: CONTINUE_CURRENT_TASK.

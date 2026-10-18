@@ -30,6 +30,7 @@ import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './ra
 import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import { textToolGroup } from './text-tool.js';
+import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import './style.css';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -1929,6 +1930,33 @@ function pointPanel(n, entries, renderRows) {
   const rows = candidates.slice(page * POINT_PANEL_PAGE_SIZE, (page + 1) * POINT_PANEL_PAGE_SIZE);
   return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${entries.length} points · ${chosen.length} Canvas selected</p>${!chosen.length && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : 'Browse all points'}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
+function ownedHandlePolarFields(n, pt, key, index) {
+  const q = pt[key];
+  let value = q.value,
+    unavailable = false;
+  try {
+    value = renderEvaluation?.parameterValue(n.id, `${pt.id}.${key}`) ?? value;
+  } catch {
+    unavailable = true;
+  }
+  let polar;
+  try {
+    polar = handlePolar(value);
+  } catch {
+    polar = { angle: 0, length: 0 };
+    unavailable = true;
+  }
+  const locked =
+    current().locked ||
+    n.locked ||
+    n.bypassed ||
+    q.locked ||
+    q.source ||
+    q.expression ||
+    unavailable;
+  const name = key === 'handleA' ? 'Incoming' : 'Outgoing';
+  return `<div class="field handle-polar"><label>${name}</label><div class="field-controls">${['angle', 'length'].map((component) => `<label>${component === 'angle' ? 'Angle°' : 'Length'}<input type="number" step="any" ${component === 'length' ? 'min="0"' : ''} data-handle-polar="${component}" data-node="${n.id}" data-point="${pt.id}" data-handle="${key}" aria-label="Point ${index + 1} ${name} ${component}" title="${component === 'angle' ? 'Degrees clockwise from +X; zero-length angle is 0 and unavailable' : 'Document units; growing a zero handle starts along +X'}" value="${Number(polar[component].toFixed(3))}" ${locked || (component === 'angle' && !polar.length) ? 'disabled' : ''}></label>`).join('')}</div></div>`;
+}
 function ownedPointFields(n) {
   if (!n.points.length) return '';
   return pointPanel(
@@ -1938,7 +1966,7 @@ function ownedPointFields(n) {
       rows
         .map(
           ({ pt, index: i }) =>
-            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="${pt.id}" open><summary><button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Point ${i + 1}</button> <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k])).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`,
+            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="${pt.id}" open><summary><button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Point ${i + 1}</button> <button class="mini" data-delete-point="${pt.id}" data-node="${n.id}" title="Delete point">×</button></summary>${['position', 'handleA', 'handleB'].map((k) => field(n, `${pt.id}.${k}`, pt[k]) + (k === 'position' ? '' : ownedHandlePolarFields(n, pt, k, i))).join('')}<select data-handle-type="${pt.id}" data-node="${n.id}" aria-label="Point ${i + 1} handle type">${['corner', 'smooth', 'symmetric'].map((t) => `<option ${pt.handleType === t ? 'selected' : ''}>${t}</option>`).join('')}</select></details>`,
         )
         .join(''),
   );
@@ -2561,6 +2589,10 @@ function render(resetView = false, artworkResolution = null) {
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
+  const pointScroll =
+    !resetView && document.activeElement?.closest('.point-panel')
+      ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
+      : null;
   const canvasEditor =
     !resetView && canvasTextEdit ? app.querySelector('.canvas-text-editor') : null;
   const canvasEditorFocused = canvasEditor === document.activeElement;
@@ -2652,7 +2684,7 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${n.type === 'Curve' ? ownedPointFields(n) : ''}${editorParameters(
+      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
         )
           .filter(
@@ -2744,6 +2776,10 @@ function render(resetView = false, artworkResolution = null) {
   textTools?.sync();
   updateNavigation();
   restoreFocus(app, focused);
+  if (pointScroll)
+    app.querySelectorAll('.point-panel-rows').forEach((el, i) => {
+      el.scrollTop = pointScroll[i] ?? 0;
+    });
   if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
   document.querySelector('.inspector').scrollTop = inspectorScroll;
   document.querySelector('.layers').scrollTop = layersScroll;
@@ -7191,6 +7227,36 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (drag?.type === 'numeric' && drag.started && el === drag.capture) return;
+  if (d.handlePolar) {
+    try {
+      if (el.disabled || !el.value.trim()) throw Error('Expected an editable finite handle value');
+      // Display is rounded; Enter on an untouched field must not quantize geometry.
+      if (el.value === el.defaultValue) return;
+      const result = commitHandlePolar(
+        session,
+        {
+          kind: 'curve-point',
+          layerId: current().id,
+          nodeId: d.node,
+          pointId: d.point,
+          key: d.handle,
+        },
+        d.handlePolar,
+        Number(el.value),
+      );
+      const pt = current()
+        .nodes.find((n) => n.id === d.node)
+        .points.find((p) => p.id === d.point);
+      el.value = String(Number(handlePolar(pt[d.handle].value)[d.handlePolar].toFixed(3)));
+      el.defaultValue = el.value;
+      if (result.changed) notify('Handle updated');
+    } catch (error) {
+      el.value = el.defaultValue;
+      notify(error.message, true);
+    }
+    scheduleRender();
+    return;
+  }
   if (d.characterInstance !== undefined) {
     if (characterEdit) characterEdit.route = el.value || null;
     render();
@@ -10660,7 +10726,9 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
-  const numericExpressionInput = e.target.matches?.('input[type="number"], input[data-numeric-expression]');
+  const numericExpressionInput = e.target.matches?.(
+    'input[type="number"], input[data-numeric-expression]',
+  );
   if (
     numericExpressionInput &&
     !e.isComposing &&
@@ -10681,24 +10749,14 @@ document.addEventListener('keydown', (e) => {
     e.target.value = `${value}${e.key}`;
     e.target.setSelectionRange(e.target.value.length, e.target.value.length);
   }
-  if (
-    numericExpressionInput &&
-    e.key === 'Escape' &&
-    !e.isComposing &&
-    e.keyCode !== 229
-  ) {
+  if (numericExpressionInput && e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) {
     e.preventDefault();
     e.target.value = e.target.defaultValue;
     e.target.type = 'number';
     delete e.target.dataset.numericExpression;
     return;
   }
-  if (
-    numericExpressionInput &&
-    e.key === 'Enter' &&
-    !e.isComposing &&
-    e.keyCode !== 229
-  ) {
+  if (numericExpressionInput && e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
     const input = e.target;
     const source = input.value.trim();
     if (source && /[+\-*\/%()]/.test(source)) {
@@ -10714,6 +10772,11 @@ document.addEventListener('keydown', (e) => {
         delete input.dataset.numericExpression;
         notify('Invalid calculation', true);
       }
+      return;
+    }
+    if (input.dataset.handlePolar) {
+      e.preventDefault();
+      input.dispatchEvent(new window.Event('change', { bubbles: true }));
       return;
     }
   }
