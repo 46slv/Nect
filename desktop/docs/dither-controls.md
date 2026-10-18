@@ -1,18 +1,22 @@
 # Dither shapes, size and spacing
 
+For arbitrary motifs, prefer the separated
+[Luminance to Points → Instance on Points composition](luminance-points.md).
+The controls below remain shortcuts on the existing screening nodes.
+
 Ordered Dither and Error Diffusion Dither retain their existing Bayer 8x8 and
 Floyd-Steinberg algorithms. They now offer Square, Circle, Polygon and Star.
 Halftone shares these shapes for continuous luminance-dependent dot sizing.
 No new threshold, diffusion, smoothing or metaball algorithm is introduced.
 
-| Control | Meaning and limits |
-| --- | --- |
-| Dot shape | Square, Circle, regular Polygon, or alternating-radius Star |
-| Dot size | 1–1024 document px: square side, circle diameter, polygon/star outer circumcircle diameter |
-| Dot spacing | Existing `pitch`, 1–1024 document px between grid centers; smaller means denser |
-| Polygon sides / star points | Integer 3–32; Star has twice that many vertices |
-| Dot rotation | -360–360 degrees, clockwise in the document's downward-Y plane |
-| Star inner radius ratio | 0.05–0.95 of outer radius; 4 points and 0.18 make a narrow four-point star |
+| Control                     | Meaning and limits                                                                         |
+| --------------------------- | ------------------------------------------------------------------------------------------ |
+| Dot shape                   | Square, Circle, regular Polygon, or alternating-radius Star                                |
+| Dot size                    | 1–1024 document px: square side, circle diameter, polygon/star outer circumcircle diameter |
+| Dot spacing                 | Existing `pitch`, 1–1024 document px between grid centers; smaller means denser            |
+| Polygon sides / star points | Integer 3–32; Star has twice that many vertices                                            |
+| Dot rotation                | -360–360 degrees, clockwise in the document's downward-Y plane                             |
+| Star inner radius ratio     | 0.05–0.95 of outer radius; 4 points and 0.18 make a narrow four-point star                 |
 
 Size and spacing are independent authored Scalar parameters, with the usual
 expressions, sockets, locks, CommandSession transactions and Undo/Redo. Changing
