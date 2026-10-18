@@ -8,7 +8,7 @@ import { document as makeDocument, blankLayer, node, serialize } from '../src/co
 test('node header context actions through real DOM handlers', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver']) globalThis[key] = win[key];
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -370,6 +370,20 @@ test('node header context actions through real DOM handlers', async (t) => {
       dialog.remove();
     },
   );
+  await t.test('queued restored scroll keeps a new menu; changed scroll dismisses it', () => {
+    reset();
+    open(a.id);
+    const viewport = $('.graph-scroll');
+    fire(viewport, 'scroll');
+    assert.ok(menu());
+    viewport.scrollLeft += 1;
+    fire(viewport, 'scroll');
+    assert.equal(menu(), null);
+    open(a.id);
+    document.documentElement.scrollTop += 1;
+    fire(document, 'scroll');
+    assert.equal(menu(), null);
+  });
   await t.test(
     'Layer and Canvas actions retain selected groups and replace unselected targets safely',
     () => {
@@ -383,6 +397,14 @@ test('node header context actions through real DOM handlers', async (t) => {
       const openLayer = (id) =>
         fire($(`.layer[data-layer="${id}"] .name`), 'contextmenu', 30, 40, { button: 2 });
       const remove = () => menu().querySelector('[data-artwork-context-action="delete"]');
+      const initial = snapshot();
+      openLayer(third.id);
+      const duplicate = menu().querySelector('[data-artwork-context-action="duplicate"]');
+      assert.equal(duplicate.disabled, false, 'empty layers share the generic layer command');
+      duplicate.click();
+      assert.equal(win.nect.document.layers.length, 4);
+      key('z', $('.canvas-stage'), { ctrlKey: true });
+      assert.equal(snapshot(), initial);
       selectLayer(doc.layers[0].id);
       selectLayer(second.id, true);
       const before = snapshot(),
@@ -420,6 +442,21 @@ test('node header context actions through real DOM handlers', async (t) => {
       assert.equal(document.activeElement, $('.canvas-stage'));
     },
   );
+  await t.test('Layer row shortcuts use the shared generic command and preserve one Undo', () => {
+    reset();
+    const before = snapshot();
+    const row = () => $('.layer[data-layer]');
+    assert.equal(key('c', row(), { ctrlKey: true }), false);
+    assert.equal(key('v', row(), { ctrlKey: true }), false);
+    assert.equal(win.nect.document.layers.length, 2);
+    key('z', $('.canvas-stage'), { ctrlKey: true });
+    assert.equal(snapshot(), before);
+    assert.equal(key('d', row(), { ctrlKey: true }), false);
+    assert.equal(win.nect.document.layers.length, 2);
+    key('z', $('.canvas-stage'), { ctrlKey: true });
+    assert.equal(snapshot(), before);
+    assert.equal(key('v', $('.inspector input'), { ctrlKey: true }), true);
+  });
   await t.test(
     'Graph Copy/Paste preserves selection links in one Undo and leaves input/IME copy native',
     () => {

@@ -852,6 +852,7 @@ let openRequest = 0,
   exportInFlight = false;
 let selection = new Set();
 let nodeContextMenu = null;
+let contextMenuScroll = new Map();
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
 function selectionSnapshot(withEditSelection = false) {
@@ -10108,6 +10109,7 @@ function closeNodeContextMenu(restore = false) {
   const focus = nodeContextMenu.dataset.restoreFocus || '.graph-scroll';
   nodeContextMenu.remove();
   nodeContextMenu = null;
+  contextMenuScroll.clear();
   if (restore) document.querySelector(focus)?.focus({ preventScroll: true });
 }
 function openNodeContextMenu(nodeId, x, y) {
@@ -10230,6 +10232,19 @@ function placeContextMenu(menu, x, y, focus = '.graph-scroll') {
   menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - rect.width - 4))}px`;
   menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - rect.height - 4))}px`;
   (menu.querySelector('button:not(:disabled)') || menu).focus({ preventScroll: true });
+  // render() restores these scroll owners synchronously; their queued scroll
+  // events must not dismiss the menu that was just opened at those positions.
+  contextMenuScroll = new Map(
+    [
+      document,
+      document.documentElement,
+      document.body,
+      ...app.querySelectorAll('.graph-scroll,.inspector,.layers,.guides-panel,.guide-list'),
+    ].map((el) => {
+      const owner = el === document ? document.scrollingElement || document.documentElement : el;
+      return [el, [owner.scrollLeft || 0, owner.scrollTop || 0]];
+    }),
+  );
 }
 function openArtworkContextMenu(layerId, x, y) {
   closeNodeContextMenu();
@@ -10251,29 +10266,50 @@ function openArtworkContextMenu(layerId, x, y) {
     selectionKey = JSON.stringify(ids),
     layers = history.doc.layers.filter((layer) => artworkSelection.has(layer.id)),
     locked = layers.some((layer) => layer.locked) ? 'Unlock selected layers first' : '',
-    duplication = ids.length > 1
-      ? resolveArtworkDuplicateSelection(history.doc, artworkSelection, { fonts })
-      : resolveArtworkDuplicateTarget(history.doc, layerId, { fonts });
+    duplication =
+      ids.length > 1
+        ? resolveArtworkDuplicateSelection(history.doc, artworkSelection, { fonts })
+        : {
+            supported: history.doc.layers.length < 100,
+            reason: 'Duplicate requires fewer than 100 layers.',
+          };
   const menu = document.createElement('div');
   menu.className = 'node-context-menu artwork-context-menu';
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', `Artwork actions: ${layer.name}`);
   menu.tabIndex = -1;
   menu.innerHTML = [
-    ['duplicate', ids.length > 1 ? `Duplicate ${ids.length} layers` : 'Duplicate layer', locked || (!duplication.supported ? duplication.reason : '')],
+    [
+      'duplicate',
+      ids.length > 1 ? `Duplicate ${ids.length} layers` : 'Duplicate layer',
+      locked || (!duplication.supported ? duplication.reason : ''),
+    ],
     ['delete', ids.length > 1 ? `Delete ${ids.length} layers` : 'Delete layer', locked],
-  ].map(([action, label, reason]) => `<button type="button" role="menuitem" data-artwork-context-action="${action}" ${reason ? 'disabled' : ''} title="${esc(reason || label)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`).join('');
+  ]
+    .map(
+      ([action, label, reason]) =>
+        `<button type="button" role="menuitem" data-artwork-context-action="${action}" ${reason ? 'disabled' : ''} title="${esc(reason || label)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
+    )
+    .join('');
   menu.addEventListener('click', (event) => {
     if (nodeContextMenu !== menu) return;
     const button = event.target.closest('button');
     if (!button || button.disabled) return;
     const action = button.dataset.artworkContextAction;
     closeNodeContextMenu(true);
-    if (session !== owner || session.state.expectedRevision !== revision ||
-      artworkTarget !== layerId || JSON.stringify([...artworkSelection]) !== selectionKey ||
-      deletionBusy() || variableAction) return;
-    if (action === 'duplicate') duplicateArtwork(layerId, selectionKey);
-    else if (action === 'delete') deleteArtworkSelection(ids);
+    if (
+      session !== owner ||
+      session.state.expectedRevision !== revision ||
+      artworkTarget !== layerId ||
+      JSON.stringify([...artworkSelection]) !== selectionKey ||
+      deletionBusy() ||
+      variableAction
+    )
+      return;
+    if (action === 'duplicate') {
+      if (ids.length === 1) duplicateFocusedLayer(layerId);
+      else duplicateArtwork(layerId, selectionKey);
+    } else if (action === 'delete') deleteArtworkSelection(ids);
   });
   placeContextMenu(menu, x, y, '.canvas-stage');
 }
@@ -10296,7 +10332,9 @@ function deleteArtworkSelection(layerIds) {
 function openGraphBackgroundMenu(x, y) {
   closeNodeContextMenu();
   if (deletionBusy() || variableAction) return;
-  const owner = session, revision = session.state.expectedRevision, layerId = current().id;
+  const owner = session,
+    revision = session.state.expectedRevision,
+    layerId = current().id;
   const menu = document.createElement('div');
   menu.className = 'node-context-menu';
   menu.setAttribute('role', 'menu');
@@ -10306,17 +10344,25 @@ function openGraphBackgroundMenu(x, y) {
   menu.addEventListener('click', (event) => {
     if (nodeContextMenu !== menu || !event.target.closest('button:not(:disabled)')) return;
     closeNodeContextMenu(true);
-    if (session === owner && session.state.expectedRevision === revision && current().id === layerId)
+    if (
+      session === owner &&
+      session.state.expectedRevision === revision &&
+      current().id === layerId
+    )
       pasteGraphNodes();
   });
   placeContextMenu(menu, x, y);
 }
 // One document-wide guard also covers portals, menus, dialogs and body margins.
 // Text fields keep the platform's ordinary selection/Cut/Copy/Paste menu.
-document.addEventListener('contextmenu', (event) => {
-  if (!editingControl(event.target)) event.preventDefault();
-  if (!app.contains(event.target) || editingControl(event.target)) closeNodeContextMenu();
-}, true);
+document.addEventListener(
+  'contextmenu',
+  (event) => {
+    if (!editingControl(event.target)) event.preventDefault();
+    if (!app.contains(event.target) || editingControl(event.target)) closeNodeContextMenu();
+  },
+  true,
+);
 document.addEventListener(
   'pointerdown',
   (event) => {
@@ -10359,7 +10405,15 @@ window.addEventListener('resize', () => closeNodeContextMenu());
 document.addEventListener(
   'scroll',
   (event) => {
-    if (nodeContextMenu && !nodeContextMenu.contains(event.target)) closeNodeContextMenu();
+    if (!nodeContextMenu || nodeContextMenu.contains(event.target)) return;
+    const prior = contextMenuScroll.get(event.target);
+    const owner =
+      event.target === document
+        ? document.scrollingElement || document.documentElement
+        : event.target;
+    if (prior && prior[0] === (owner.scrollLeft || 0) && prior[1] === (owner.scrollTop || 0))
+      return;
+    closeNodeContextMenu();
   },
   true,
 );

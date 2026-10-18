@@ -86,6 +86,29 @@ test('Session toggle promotes format once, Undo/Redo and JSON reopen retain exac
   assert.equal(exportSVG(f.session.snapshot(), fonts), originalSVG);
 });
 
+test('import, generic duplicate and context deletion retain the promoted schema and one-step Undo', () => {
+  const f = scene();
+  f.set({ liga: true });
+  const source = serialize(f.session.snapshot());
+  const target = new CommandSession(blankDocument(), { fonts: () => fonts });
+  const send = (type, payload = {}) => target.dispatch({ ...target.state, type, payload });
+  const initial = serialize(target.snapshot());
+  send('import-composition', { sourceText: source, compositionId: f.layer.id });
+  assert.equal(target.snapshot().schemaVersion, OPENTYPE_SCHEMA_VERSION);
+  const imported = serialize(target.snapshot());
+  send('undo');
+  assert.equal(serialize(target.snapshot()), initial);
+  send('redo');
+  assert.equal(serialize(target.snapshot()), imported);
+  const copy = send('duplicate-layer', { layerId: f.layer.id });
+  assert.equal(target.snapshot().schemaVersion, OPENTYPE_SCHEMA_VERSION);
+  const duplicated = serialize(target.snapshot());
+  send('delete-layers', { layerIds: [copy.layerId] });
+  assert.equal(serialize(target.snapshot()), imported);
+  send('undo');
+  assert.equal(serialize(target.snapshot()), duplicated);
+});
+
 test('malformed and unsupported authored tags reject without a partial Session commit', () => {
   const f = scene(), before = serialize(f.session.snapshot()), state = f.session.state;
   for (const features of [{ liga: 1 }, { dlig: true }, { onum: true }, { liga: true, kern: false }, {}]) {
