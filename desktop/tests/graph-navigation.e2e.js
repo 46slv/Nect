@@ -59,7 +59,7 @@ async function stillStopped() {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForSelector('.graph-scroll');
   await reset();
   const original = await position(),
     box = await viewport.boundingBox();
