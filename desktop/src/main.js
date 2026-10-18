@@ -869,6 +869,7 @@ let history = session.historyView,
   artworkTarget = null,
   artworkSelection = new Set(),
   layerClipboard = null,
+  selectedNodePreset = null,
   layerDragId = null,
   layerDragStart = null,
   tool = 'select',
@@ -2672,7 +2673,7 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -5744,6 +5745,11 @@ app.addEventListener('click', async (e) => {
             updateGraphOverview(false);
             viewport.focus({ preventScroll: true });
           }
+          break;
+        case 'save-node-preset':
+        case 'update-node-preset':
+        case 'apply-node-preset':
+          changeNodePreset(d.action);
           break;
         case 'graph-fit':
         case 'graph-fit-selection':
@@ -10261,6 +10267,62 @@ function duplicateGraphNodes(nodeId) {
     document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
     revealNode(selected);
   }
+}
+function nodePresetControls() {
+  const presets = history.doc.nodePresets || [];
+  const chosen = presets.find((p) => p.id === selectedNodePreset);
+  const blocked = current().locked || deletionBusy() || variableAction || osTextDrafts.size;
+  return `<div class="node-preset-controls" role="group" aria-label="Node presets">
+    <select id="node-preset" aria-label="Node preset"><option value="">Presets</option>${presets.map((p) => `<option value="${esc(p.id)}" ${p === chosen ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+    <input id="node-preset-name" aria-label="Preset name" placeholder="Preset name" maxlength="100" value="${esc(chosen?.name || '')}">
+    <button data-action="save-node-preset" ${blocked || !selection.size ? 'disabled' : ''}>Save preset</button>
+    <button data-action="apply-node-preset" ${blocked || !chosen ? 'disabled' : ''}>Apply preset</button>
+    <button data-action="update-node-preset" ${blocked || !chosen || !selection.size ? 'disabled' : ''}>Update preset</button>
+  </div>`;
+}
+document.addEventListener('change', (event) => {
+  if (event.target.id !== 'node-preset') return;
+  selectedNodePreset = event.target.value || null;
+  const chosen = history.doc.nodePresets?.find((p) => p.id === selectedNodePreset);
+  const input = document.querySelector('#node-preset-name');
+  if (input) input.value = chosen?.name || '';
+  const blocked = current().locked || deletionBusy() || variableAction || osTextDrafts.size;
+  for (const type of ['apply', 'update']) {
+    const button = document.querySelector(`[data-action="${type}-node-preset"]`);
+    if (button) button.disabled = !!(blocked || !chosen || (type === 'update' && !selection.size));
+  }
+});
+function changeNodePreset(type) {
+  if (deletionBusy() || variableAction || osTextDrafts.size) return;
+  const payload =
+    type === 'apply-node-preset'
+      ? { presetId: selectedNodePreset }
+      : {
+          nodeIds: [...selection],
+          name: document.querySelector('#node-preset-name').value,
+          ...(type === 'update-node-preset' ? { presetId: selectedNodePreset } : {}),
+        };
+  const result = commandChange(
+    type,
+    payload,
+    type === 'apply-node-preset'
+      ? 'Preset applied'
+      : type === 'update-node-preset'
+        ? 'Preset updated'
+        : 'Preset saved',
+    true,
+  );
+  if (!result) return;
+  selectedNodePreset = result.presetId;
+  if (result.nodeIds) {
+    artworkTarget = null;
+    artworkSelection = new Set();
+    pointSelection = { nodeId: null, ids: new Set() };
+    selected = result.nodeIds[0];
+    selection = new Set(result.nodeIds);
+  }
+  render();
+  if (result.nodeIds) revealNode(selected);
 }
 function copyGraphNodes() {
   if (deletionBusy() || variableAction) return;

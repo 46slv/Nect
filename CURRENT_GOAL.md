@@ -14,26 +14,30 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — REQ-31 owned handle polar controls (2026-10-19)
+## ACTIVE CHECKPOINT — REQ-23 named node preset first phase (2026-10-19)
 
-Goal: Add incoming/outgoing Angle° and Length to the existing Curve/Multi Path
-point panel, synchronized with Canvas, retaining Vector2 JSON and existing X/Y.
+Goal: Document-local named snapshots of self-contained selected source/effect
+nodes, additive cross-Composition apply with fresh IDs, ordinary node re-editing,
+explicit update, persistence and one Undo per changed operation.
 Current phase: implementation and focused verification complete; source pushed,
-Draft PR31 open against codex/req210-text-tool-20261019.
-Remote-verified implementation: 39a5800e5168c08542f18f18ed1b5d7df0c1909c.
-Draft PR: https://github.com/46slv/Nect/pull/31. No CI checks/reviews are reported yet.
-Proven: 31/31 focused core regression tests and production build PASS; Note Chrome
-155 disposable fixture PASS for both handles, all modes, both synchronization
-directions, invalid values/Escape, Undo/Redo, JSON, protection and focus/scroll.
-Evidence: desktop/docs/req31-handle-polar-20261019.md and reproducible E2E receipt.
+Draft PR32 open against codex/req31-handle-polar-20261019.
+Remote-verified implementation: 88c4b257df92c4bbe9199e39697be96a6781f1f3.
+Draft PR: https://github.com/46slv/Nect/pull/32.
+Proven: 35 focused tests and production build PASS; actual Note Chrome 155
+fixture PASS for save/apply/edit/update, Undo/Redo, persistence and atomic refusal.
+Evidence: desktop/docs/named-presets.md; desktop/tests/named-presets.test.js and
+named-presets.e2e.js; portable Chrome receipt under desktop/docs/evidence.
 Next task: Review the bounded Draft PR at its exact remote SHA.
-Approach: sole source writer in an independent copy, branch
-codex/req31-handle-polar-20261019, base f35a4659d6569b13a5a5448b1526ea5fac7ab6d9.
-Done for next: Preserve native/physical IME gaps and the two baseline-only DOM
-harness failures; no full-suite repair or broader Inspector redesign.
-State: No schema/core command change; reuse curve-point gestures and History.
-Path Remap and multi-point batch remain outside scope. Old 5199/5201/5203 and
-user documents were untouched. Notion writes remain deferred.
+Approach: sole source writer in independent task-6/Nect-req23, branch
+codex/req23-named-presets-20261019, base ca376c67529364a4518bdf06b6893bd3c8896392.
+Done for next: preserve partial REQ-23 scope and native/physical-IME gaps.
+State: schema39 optional nodePresets; existing version floors/backfills preserved.
+Admission rejects Output/Composition Reference, external node dependencies and
+missing/changed document assets. Apply preserves existing Output and connections.
 Authority: current delegation permits code/test/docs/dev commit/push/Draft PR;
-mainline merge, release/distribution and auth/permission changes are excluded.
+mainline merge, release/distribution and auth/permission changes excluded.
+Native Tauri/EXE and physical IME remain unverified. No global full-suite audit,
+unrelated repairs, old worktree/user-artwork edits or Notion writes.
+Macro public controls, external preset files/shared libraries and effect-stack
+redesign are excluded. This is bounded partial REQ-23 coverage.
 Handoff: CONTINUE_CURRENT_TASK.
