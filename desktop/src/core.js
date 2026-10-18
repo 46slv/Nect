@@ -43,6 +43,12 @@ import { smoothGeometry } from './smooth-geometry.js';
 import { roughenGeometry } from './roughen-geometry.js';
 import { roundCorners } from './corner-round-geometry.js';
 import { mirrorGeometry } from './mirror-geometry.js';
+import {
+  repeatGeometry,
+  repeaterSettings,
+  REPEATER_KEYS,
+  assertRepeaterRoute,
+} from './repeater.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
 import { setClosureGeometry } from './set-closure-geometry.js';
 import { instancePointsGeometry } from './instance-points-geometry.js';
@@ -299,6 +305,14 @@ export const definitions = {
     center: p('Vector2', [480, 270]),
     startAngle: p('Scalar', 0),
     angle: p('Scalar', 360),
+    offset: p('Scalar', 0),
+    anchor: p('Vector2', [0, 0]),
+    position: p('Vector2', [60, 0]),
+    scale: p('Vector2', [100, 100]),
+    rotation: p('Scalar', 0),
+    startOpacity: p('Scalar', 100),
+    endOpacity: p('Scalar', 100),
+    copiesAbove: p('Boolean', true),
   },
   'Luminance Instances': {
     path: p('PaintedPath', null),
@@ -1060,7 +1074,7 @@ export const operationOptions = {
   'Wave Points': ['vertical', 'horizontal'],
   Mirror: ['left-right', 'up-down', 'angle'],
   'Closed Path Offset': ['miter', 'bevel', 'round'],
-  'Geometry Repeater': ['linear', 'radial-fit', 'radial-step'],
+  'Geometry Repeater': ['linear', 'radial-fit', 'radial-step', 'ae-2d'],
   'Resample Path': ['count', 'spacing'],
   'Line Screen': ['horizontal', 'vertical'],
   Boolean: ['union', 'subtract', 'intersect', 'difference'],
@@ -1085,9 +1099,11 @@ export function activeParameters(n) {
     return entries.filter(([key]) => key !== 'angle' || n.operation === 'angle');
   if (n.type === 'Geometry Repeater')
     return entries.filter(([key]) =>
-      (n.operation === 'linear'
-        ? ['path', 'count', 'step']
-        : ['path', 'count', 'center', 'startAngle', 'angle']
+      (n.operation === 'ae-2d'
+        ? ['path', 'count', ...REPEATER_KEYS]
+        : n.operation === 'linear'
+          ? ['path', 'count', 'step']
+          : ['path', 'count', 'center', 'startAngle', 'angle']
       ).includes(key),
     );
   if (n.type === 'Resample Path')
@@ -2037,6 +2053,7 @@ export function signature(path) {
       c.closed,
       c.points.map((p) => [p.position, p.handleA, p.handleB]),
       ...(c.group === undefined ? [] : [c.group]),
+      ...(c.repeaterOpacity === undefined ? [] : [c.repeaterOpacity]),
     ]),
   );
 }
@@ -2215,6 +2232,7 @@ export function evaluate(
     if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
       throw Error('Incompatible socket types');
     assertValue(q.type, value);
+    if (['Path', 'PaintedPath'].includes(q.type)) assertRepeaterRoute(value, n);
     return value;
   }
   function run(id, port) {
@@ -3005,61 +3023,67 @@ export function evaluate(
       } else if (n.type === 'Geometry Repeater') {
         const source = read('path');
         if (!source) throw Error('Connect a Path input');
-        const count = read('count');
-        if (!Number.isInteger(count) || count < 1 || count > 256)
-          throw Error('Repeater count must be an integer from 1 to 256');
-        if (
-          source.contours.length * count > 10000 ||
-          source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000
-        )
-          throw Error('Repeater exceeds geometry budget');
-        const grouped = source.contours.some((c) => c.group !== undefined);
-        const groups = grouped
-          ? new Map(contourGroups(source).map((group, i) => [group[0].group ?? '', i]))
-          : null;
-        if (grouped && groups.size * count > 256)
-          throw Error('Repeater exceeds 256 independent groups');
-        const linear = n.operation === 'linear';
-        if (!operationOptions['Geometry Repeater'].includes(n.operation))
-          throw Error('Invalid repeater operation');
-        const step = linear ? read('step') : [0, 0];
-        const center = linear ? [0, 0] : read('center');
-        const start = linear ? 0 : read('startAngle');
-        const angle = linear ? 0 : read('angle');
-        if (n.operation === 'radial-fit' && Math.abs(angle) > 360)
-          throw Error('Fit arc must be between -360 and 360 degrees');
-        const increment =
-          n.operation === 'radial-fit'
-            ? angle / (Math.abs(angle) === 360 ? count : Math.max(1, count - 1))
-            : angle;
-        result = { contours: [] };
-        const prefix = fingerprint(n.id);
-        for (let copy = 0; copy < count; copy++) {
-          const radians = (((start + increment * copy) % 360) * Math.PI) / 180;
-          const cos = Math.cos(radians),
-            sin = Math.sin(radians);
-          function transform(v, handle = false) {
-            const x = v[0] - (handle ? 0 : center[0]),
-              y = v[1] - (handle ? 0 : center[1]);
-            const next = [
-              x * cos - y * sin + (handle ? 0 : center[0] + step[0] * copy),
-              x * sin + y * cos + (handle ? 0 : center[1] + step[1] * copy),
-            ];
-            assertValue('Vector2', next);
-            return next;
+        if (n.operation === 'ae-2d') {
+          result = repeatGeometry(source, { ...repeaterSettings(read), prefix: fingerprint(n.id) });
+        } else {
+          const count = read('count');
+          if (!Number.isInteger(count) || count < 1 || count > 256)
+            throw Error('Repeater count must be an integer from 1 to 256');
+          if (
+            source.contours.length * count > 10000 ||
+            source.contours.reduce((sum, c) => sum + c.points.length, 0) * count > 100000
+          )
+            throw Error('Repeater exceeds geometry budget');
+          const grouped = source.contours.some((c) => c.group !== undefined);
+          const groups = grouped
+            ? new Map(contourGroups(source).map((group, i) => [group[0].group ?? '', i]))
+            : null;
+          if (grouped && groups.size * count > 256)
+            throw Error('Repeater exceeds 256 independent groups');
+          const linear = n.operation === 'linear';
+          if (!operationOptions['Geometry Repeater'].includes(n.operation))
+            throw Error('Invalid repeater operation');
+          const step = linear ? read('step') : [0, 0];
+          const center = linear ? [0, 0] : read('center');
+          const start = linear ? 0 : read('startAngle');
+          const angle = linear ? 0 : read('angle');
+          if (n.operation === 'radial-fit' && Math.abs(angle) > 360)
+            throw Error('Fit arc must be between -360 and 360 degrees');
+          const increment =
+            n.operation === 'radial-fit'
+              ? angle / (Math.abs(angle) === 360 ? count : Math.max(1, count - 1))
+              : angle;
+          result = { contours: [] };
+          const prefix = fingerprint(n.id);
+          for (let copy = 0; copy < count; copy++) {
+            const radians = (((start + increment * copy) % 360) * Math.PI) / 180;
+            const cos = Math.cos(radians),
+              sin = Math.sin(radians);
+            function transform(v, handle = false) {
+              const x = v[0] - (handle ? 0 : center[0]),
+                y = v[1] - (handle ? 0 : center[1]);
+              const next = [
+                x * cos - y * sin + (handle ? 0 : center[0] + step[0] * copy),
+                x * sin + y * cos + (handle ? 0 : center[1] + step[1] * copy),
+              ];
+              assertValue('Vector2', next);
+              return next;
+            }
+            for (const [ci, c] of source.contours.entries())
+              result.contours.push({
+                id: `${prefix}:copy${copy}:c${ci}`,
+                ...(grouped
+                  ? { group: `${prefix}:copy${copy}:g${groups.get(c.group ?? '')}` }
+                  : {}),
+                closed: c.closed,
+                points: c.points.map((pt, pi) => ({
+                  id: `${prefix}:copy${copy}:c${ci}:p${pi}`,
+                  position: transform(pt.position),
+                  handleA: transform(pt.handleA, true),
+                  handleB: transform(pt.handleB, true),
+                })),
+              });
           }
-          for (const [ci, c] of source.contours.entries())
-            result.contours.push({
-              id: `${prefix}:copy${copy}:c${ci}`,
-              ...(grouped ? { group: `${prefix}:copy${copy}:g${groups.get(c.group ?? '')}` } : {}),
-              closed: c.closed,
-              points: c.points.map((pt, pi) => ({
-                id: `${prefix}:copy${copy}:c${ci}:p${pi}`,
-                position: transform(pt.position),
-                handleA: transform(pt.handleA, true),
-                handleB: transform(pt.handleB, true),
-              })),
-            });
         }
         result.characterOccurrences = routeCharacters(
           source,
@@ -3467,6 +3491,8 @@ export function evaluate(
           transformed.contours.forEach((c, ci) => {
             c.id = result.contours[ci].id;
             if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
+            if (result.contours[ci].repeaterOpacity !== undefined)
+              c.repeaterOpacity = result.contours[ci].repeaterOpacity;
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
           transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
@@ -3958,7 +3984,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30, 31, 32, 33, 34, 35,
+      27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -4124,6 +4150,14 @@ export function validate(doc) {
       if (n.type === 'Expand Stroke' && sourceSchemaVersion < 16) {
         for (const key of ['startWidthMultiplier', 'endWidthMultiplier'])
           if (!Object.hasOwn(n.params, key)) n.params[key] = clone(definitions[n.type][key]);
+      }
+      if (n.type === 'Geometry Repeater') {
+        if (n.operation === 'ae-2d' && sourceSchemaVersion < 36)
+          throw Error('2D Repeater requires schemaVersion 36');
+        if (sourceSchemaVersion < 36)
+          for (const key of REPEATER_KEYS)
+            if (!Object.hasOwn(n.params, key))
+              n.params[key] = clone(definitions['Geometry Repeater'][key]);
       }
       if (n.type === 'Resample Path' && sourceSchemaVersion < 12) {
         if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
@@ -4293,11 +4327,14 @@ export function validate(doc) {
         radialSettings(n.type, (key) => n.params[key].value);
       if (
         n.type === 'Geometry Repeater' &&
+        n.operation !== 'ae-2d' &&
         (!Number.isInteger(n.params.count.value) ||
           n.params.count.value < 1 ||
           n.params.count.value > 256)
       )
         throw Error('Repeater count must be an integer from 1 to 256');
+      if (n.type === 'Geometry Repeater' && n.operation === 'ae-2d')
+        repeaterSettings((key) => n.params[key].value);
       if (
         n.type === 'Corner Round' &&
         (n.params.radius.value < 0 || n.params.radius.value > 100000)
@@ -4572,7 +4609,11 @@ export function renderElement(
   function shape(path, attrs = '') {
     if (path.contours.some((c) => c.group !== undefined))
       return `<g ${attrs} data-layer="${escape(l.name)}">${contourGroups(path)
-        .map((contours) => shape({ ...path, contours: contours.map(({ group, ...c }) => c) }))
+        .map((contours) => {
+          const opacity = contours[0].repeaterOpacity;
+          const content = shape({ ...path, contours: contours.map(({ group, ...c }) => c) });
+          return opacity === undefined ? content : `<g opacity="${opacity}">${content}</g>`;
+        })
         .join('')}</g>`;
     return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
   }
@@ -6964,6 +7005,11 @@ export class CommandSession {
     } else if (type === 'set-operation') {
       setOperation(target, payload.nodeId, payload.operation);
       if (
+        target.nodes.find((node) => node.id === payload.nodeId)?.type === 'Geometry Repeater' &&
+        payload.operation === 'ae-2d'
+      )
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 36);
+      if (
         target.nodes.find((node) => node.id === payload.nodeId)?.type === 'Resample Path' &&
         payload.operation === 'spacing'
       )
@@ -7327,6 +7373,22 @@ export class CommandSession {
         candidate.imageAssets,
         candidate,
       ).parameterValue(payload.nodeId, payload.key);
+    // Validate resolved numeric controls as well as their saved fallbacks. This
+    // works for disconnected nodes and rejects fractional wired/expression edits
+    // before History admits the candidate.
+    const repeaters = target.nodes.filter(
+      (n) => n.type === 'Geometry Repeater' && n.operation === 'ae-2d' && !n.bypassed,
+    );
+    if (repeaters.length) {
+      const evaluation = evaluate(
+        target,
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        candidate,
+      );
+      for (const repeater of repeaters)
+        repeaterSettings((key) => evaluation.parameterValue(repeater.id, key));
+    }
     if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))
       evaluate(
