@@ -49,6 +49,19 @@ function inverseCharacterLinear(m, delta, bounded) {
 export function inverseCharacterDelta(matrix, delta) {
   return inverseCharacterLinear(matrix, delta, true);
 }
+export function inverseAffineDelta(matrix, delta) {
+  try {
+    return inverseCharacterLinear(matrix, delta, false);
+  } catch {
+    throw Error('Cannot map points through this Transform');
+  }
+}
+export function inverseAffinePoint(matrix, point) {
+  return inverseAffineDelta(
+    matrix,
+    point.map((v, i) => v - matrix[4 + i]),
+  );
+}
 export function characterOccurrences(path) {
   return path?.characterOccurrences || [];
 }

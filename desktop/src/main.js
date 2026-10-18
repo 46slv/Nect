@@ -1,4 +1,9 @@
-import { directSelectionSource } from './direct-selection.js';
+import {
+  directSelectionSource,
+  transformDirectPath,
+  inverseAffineDelta,
+  inverseAffinePoint,
+} from './direct-selection.js';
 import { osTextIntent } from './os-font-outline.js';
 import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
@@ -908,7 +913,11 @@ const displayLayer = () => {
   return penDraft?.layer || doc.layers.find((layer) => layer.id === activeLayer) || doc.layers[0];
 };
 const canvasLayers = (doc = history.doc) =>
-  penDraft ? [...doc.layers, penDraft.layer] : doc.layers;
+  penDraft
+    ? penDraft.resuming
+      ? doc.layers.map((l) => (l.id === penDraft.layer.id ? penDraft.layer : l))
+      : [...doc.layers, penDraft.layer]
+    : doc.layers;
 const selectedNode = () =>
   artworkTarget ? undefined : current().nodes.find((n) => n.id === selected);
 function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
@@ -928,6 +937,9 @@ function selectArtwork(layerId, { toggle = false, preserve = false } = {}) {
   selection = new Set();
   characterEdit = null;
   selectedGuide = null;
+  pointSelection = { nodeId: null, ids: new Set() };
+  pointFocus = null;
+  pointHover = null;
 }
 function artworkMove() {
   return artworkSelection.size === 1
@@ -3147,11 +3159,19 @@ function transformOverlay(n, result) {
 }
 
 function directPointContext(n, doc = displayDocument()) {
-  if (tool !== 'direct' || !n) return null;
-  return directSelectionSource(doc, current().id, {
-    sourceId: n.id,
-    fonts: resolveFonts(doc, activeFonts()),
-  });
+  if (!n || !['direct', 'pen'].includes(tool)) return null;
+  const fonts = resolveFonts(doc, activeFonts());
+  if (penDraft?.resuming && n.id === penDraft.token.nodeId) {
+    const matrix = penDraft.matrix;
+    return {
+      supported: true,
+      matrix,
+      path: transformDirectPath(evaluate(penDraft.layer, fonts, doc.imageAssets).run(n.id), matrix),
+      nodeId: n.id,
+    };
+  }
+  const result = directSelectionSource(doc, current().id, { sourceId: n.id, fonts });
+  return tool === 'pen' && !result.supported ? null : result;
 }
 function canvasOverlay(n, result) {
   if (canvasTextEdit) return canvasTextOverlay(result);
@@ -4419,6 +4439,10 @@ function restorePenSelection(state) {
   ({ activeLayer, selected, artworkTarget } = state);
   artworkSelection = new Set(state.artworkSelection);
   selection = new Set(state.selection);
+  pointSelection = state.pointSelection
+    ? structuredClone(state.pointSelection)
+    : { nodeId: null, ids: new Set() };
+  pointFocus = state.pointFocus ? { ...state.pointFocus } : null;
 }
 function releasePenPointer() {
   if (drag?.type !== 'pen') return;
@@ -4456,13 +4480,53 @@ function penCommand(type, payload = {}) {
   }
   return result;
 }
+const penSource = (draft = penDraft) =>
+  draft?.layer.nodes.find((n) => n.id === (draft.token.nodeId ?? draft.layer.nodes[0].id));
+function startPenContinuation(n, pointId, contourId) {
+  const priorUI = selectionSnapshot(true),
+    context = directPointContext(n);
+  if (context?.locked) throw Error('Path route is locked');
+  const result = session.dispatch({
+    ...session.state,
+    type: 'begin-gesture',
+    payload: {
+      target: {
+        kind: 'pen',
+        layerId: current().id,
+        nodeId: n.id,
+        endpointId: pointId,
+        ...(contourId ? { contourId } : {}),
+      },
+    },
+  });
+  const layer = session
+    .previewSnapshot(result.gestureId)
+    .document.layers.find((l) => l.id === result.layerId);
+  penDraft = {
+    layer,
+    priorUI,
+    token: result,
+    resuming: true,
+    matrix: context?.matrix || [1, 0, 0, 1, 0, 0],
+    closingPointId: result.closingPointId,
+  };
+  penId = result.nodeId;
+  activeLayer = layer.id;
+  selected = penId;
+  selection = new Set([selected]);
+  artworkTarget = null;
+  artworkSelection = new Set();
+  render();
+  document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+  notify('Continue path · click to add · Enter to finish · Ctrl+Z to cancel');
+}
 function finishPenDraft(closed = false, redraw = true) {
   // A key or tool change during a pressed point never commits its partial handles.
   if (drag?.type === 'pen') cancelInteraction();
   const draft = penDraft;
   if (!draft) return true;
-  const curve = draft.layer.nodes[0];
-  if (curve.points.length < 2) {
+  const curve = penSource(draft);
+  if (!draft.resuming && curve.points.length < 2) {
     discardPenDraft();
     tool = 'select';
     notify('One-point draft discarded; a path needs two points');
@@ -4472,10 +4536,31 @@ function finishPenDraft(closed = false, redraw = true) {
       penDraft = null;
       penId = null;
       tool = 'select';
-      selectArtwork(created.layerId);
-      selectionHistory.set(history.past.at(-1), draft.priorUI);
-      selectionHistory.set(history.doc, selectionSnapshot());
-      notify(`Added independent ${closed ? 'closed' : 'open'} Curve artwork`);
+      if (draft.resuming) {
+        activeLayer = created.layerId;
+        selected = created.nodeId;
+        selection = new Set([selected]);
+        artworkTarget = null;
+        artworkSelection = new Set();
+        if (
+          directSelectionSource(history.doc, activeLayer, {
+            sourceId: selected,
+            fonts: resolveFonts(history.doc, activeFonts()),
+          }).supported
+        )
+          tool = 'direct';
+      } else selectArtwork(created.layerId);
+      if (created.changed) {
+        selectionHistory.set(history.past.at(-1), draft.priorUI);
+        selectionHistory.set(history.doc, selectionSnapshot(true));
+      }
+      notify(
+        draft.resuming
+          ? created.changed
+            ? 'Path extended'
+            : 'Continuation ended without changes'
+          : `Added independent ${closed ? 'closed' : 'open'} Curve artwork`,
+      );
     } catch (error) {
       notify(error.message, true);
       if (redraw) render();
@@ -5109,6 +5194,17 @@ app.addEventListener('click', async (e) => {
     characterEdit = null;
     tool = d.tool;
     if (tool === 'pen') {
+      if (!['Curve', 'Multi Path', 'Path Remap'].includes(selectedNode()?.type)) {
+        const route = directSelectionSource(history.doc, current().id, {
+          fonts: resolveFonts(history.doc, activeFonts()),
+        });
+        if (route.supported) {
+          selected = route.nodeId;
+          selection = new Set([selected]);
+          artworkTarget = null;
+          artworkSelection = new Set();
+        }
+      }
       penId = null;
       notify(
         'Click a selected source path segment to add a point; click blank canvas for a new path. Alt-click an anchor for handles.',
@@ -7976,7 +8072,9 @@ app.addEventListener('pointerdown', (e) => {
       if (document.querySelector('dialog[open]') || composing) return;
       try {
         stage.focus({ preventScroll: true });
-        const path = evaluate(current(), fonts, history.doc.imageAssets).run(n.id),
+        const path =
+            directPointContext(n)?.path ||
+            evaluate(current(), fonts, history.doc.imageAssets).run(n.id),
           pos = canvasPoint(e),
           anchor = hitPointControl(path, pos, canvasScale()),
           segment = !anchor && hitPathSegment(path, pos, canvasScale());
@@ -7996,6 +8094,17 @@ app.addEventListener('pointerdown', (e) => {
           if (anchor) {
             if (e.altKey) penAltAnchor = true;
             else {
+              const contour =
+                  n.type === 'Multi Path'
+                    ? n.contours.find((c) => c.points.includes(anchor.pointId))
+                    : null,
+                ids = contour?.points || n.points.map((p) => p.id),
+                open = contour ? !contour.closed : !n.params.closed.value;
+              if (!e.shiftKey && open && [ids[0], ids.at(-1)].includes(anchor.pointId)) {
+                startPenContinuation(n, anchor.pointId, contour?.id);
+                e.preventDefault();
+                return;
+              }
               pointFocus = { nodeId: n.id, pointId: anchor.pointId };
               selectPointTarget(n, anchor, e);
               return;
@@ -8052,7 +8161,7 @@ app.addEventListener('pointerdown', (e) => {
     if (!pos.every(Number.isFinite)) return;
     if (
       penDraft &&
-      e.target.dataset.point === penDraft.layer.nodes[0].points[0]?.id &&
+      e.target.dataset.point === (penDraft.closingPointId || penSource().points[0]?.id) &&
       !e.target.dataset.handle
     ) {
       // The clicked vertex is replaced on finish. Cancel native pointer focus
@@ -8061,7 +8170,16 @@ app.addEventListener('pointerdown', (e) => {
       finishPenDraft(true);
       return;
     }
+    if (
+      penDraft?.resuming &&
+      e.target.dataset.point === penDraft.token.pointId &&
+      !e.target.dataset.handle
+    ) {
+      e.preventDefault();
+      return;
+    }
     try {
+      const authored = penDraft?.matrix ? inverseAffinePoint(penDraft.matrix, pos) : pos;
       let token;
       if (!penDraft) {
         const priorUI = selectionSnapshot(),
@@ -8082,7 +8200,7 @@ app.addEventListener('pointerdown', (e) => {
         selected = penId;
         selection = new Set([selected]);
       } else {
-        token = penCommand('append-pen-point', { position: pos });
+        token = penCommand('append-pen-point', { position: authored });
       }
       drag = {
         type: 'pen',
@@ -8097,7 +8215,7 @@ app.addEventListener('pointerdown', (e) => {
       capture.focus({ preventScroll: true });
       capture.setPointerCapture?.(e.pointerId);
       e.preventDefault();
-      if (penDraft.layer.nodes[0].points.length === 1) revealNode(penId);
+      if (penSource().points.length === 1) revealNode(penId);
       notify('Draft path · Enter / Escape: finish · Cancel path: discard');
     } catch (error) {
       notify(error.message, true);
@@ -8924,7 +9042,7 @@ function movePointer(e) {
           nodeId: drag.nodeId,
           pointId: drag.pointId,
         },
-        { delta: drag.matrix ? inverseCharacterDelta(drag.matrix, delta) : delta },
+        { delta: drag.matrix ? inverseAffineDelta(drag.matrix, delta) : delta },
       )
     )
       updateCanvas();
@@ -8995,7 +9113,7 @@ function movePointer(e) {
             key: drag.key,
           };
     if (drag.type === 'point' && drag.key !== 'position') drag.independent ||= e.altKey;
-    const localDelta = drag.matrix ? inverseCharacterDelta(drag.matrix, delta) : delta;
+    const localDelta = drag.matrix ? inverseAffineDelta(drag.matrix, delta) : delta;
     if (
       !updateCanvasGesture(target, {
         delta: localDelta,
@@ -9007,7 +9125,9 @@ function movePointer(e) {
       return;
   } else if (drag.type === 'pen') {
     try {
-      penCommand('update-pen-point', { delta });
+      penCommand('update-pen-point', {
+        delta: penDraft.matrix ? inverseAffineDelta(penDraft.matrix, delta) : delta,
+      });
     } catch (error) {
       notify(error.message, true);
     }
@@ -9719,7 +9839,7 @@ document.addEventListener('keydown', (e) => {
         e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0,
       ];
     try {
-      const delta = context?.matrix ? inverseCharacterDelta(context.matrix, world) : world;
+      const delta = context?.matrix ? inverseAffineDelta(context.matrix, world) : world;
       commandChange(
         'translate-points',
         { nodeId: n.id, pointIds: [...pointSelection.ids], delta },

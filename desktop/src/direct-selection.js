@@ -1,9 +1,10 @@
+export { inverseAffineDelta, inverseAffinePoint } from './character-geometry.js';
 import { evaluate, parameter } from './core.js';
 import {
   identityMatrix,
   multiplyMatrices,
   transformCharacterPoint,
-  inverseCharacterDelta,
+  inverseAffineDelta,
 } from './character-geometry.js';
 const pass = new Set([
   'Output',
@@ -50,7 +51,7 @@ export function directSelectionSource(doc, layerId, { fonts = {}, sourceId } = {
     if (!n || (sourceId && n.id !== sourceId))
       throw Error('Selected source is outside this direct path route');
     try {
-      inverseCharacterDelta(matrix, [0, 0]);
+      inverseAffineDelta(matrix, [0, 0]);
     } catch {
       throw Error('Direct selection requires a nonsingular Transform');
     }

@@ -57,7 +57,7 @@ const pixels = (data, mime = 'image/svg+xml') =>
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const initial = await page.evaluate(async () => {
     const { document, node, connect, layer } = await import('/src/core.js');
     const d = document();
@@ -149,7 +149,7 @@ try {
   await point([600, 140], [620, 110]);
   await point([770, 170]);
   await point([690, 320], [660, 340]);
-  await page.locator('.vertex').first().click();
+  await page.locator('.point-hit[data-point]:not([data-handle])').first().click();
   const closed = JSON.parse(await snapshot()),
     closedJSON = JSON.stringify(closed);
   assert.equal(closed.layers.length, 4);
@@ -170,7 +170,7 @@ try {
   assert.equal(JSON.stringify(JSON.parse(saved.toString())), closedJSON);
   // Cold reopen exercises persistence independently from the session history.
   await page.reload();
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await load(saved.toString());
   assert.equal(await snapshot(), closedJSON);
   assert.equal((await pixels(await page.evaluate(() => window.nect.export()))).all, svgPixels.all);
@@ -476,7 +476,7 @@ try {
     await point([330, 120], [350, 90]);
     await point([500, 170], [530, 200]);
     await point([400, 320], [380, 335]);
-    if (isClosed) await page.locator('.vertex').first().click();
+    if (isClosed) await page.locator('.point-hit[data-point]:not([data-handle])').first().click();
     else await page.keyboard.press('Enter');
     const beforeJSON = await snapshot(),
       before = JSON.parse(beforeJSON),
@@ -539,7 +539,7 @@ try {
     assert.equal(rendered.old, oldPixels.old);
     assert.equal(JSON.stringify(JSON.parse(json.toString())), movedJSON);
     await page.reload();
-    await page.waitForSelector('.shape');
+    await page.waitForFunction(() => window.nect);
     await load(json.toString());
     assert.equal(await snapshot(), movedJSON);
     assert.deepEqual(await pixels(await page.evaluate(() => window.nect.export())), rendered);
@@ -598,14 +598,15 @@ try {
     await hitCurve(id);
     await page.mouse.move(...(await xy([435, 220])), { steps: 3 });
     await page.evaluate(() => window.nect.document.layers.at(-1).nodes[0].points.reverse());
-    const foreign = await snapshot();
+    assert.equal(await snapshot(), beforeJSON, 'public snapshots cannot mutate the active Session');
     await page.mouse.up();
     await page.keyboard.up('Alt');
-    assert.equal(
-      await snapshot(),
-      foreign,
-      'ordered anchor identity is rechecked and newer state survives cancellation',
+    const isolatedMove = JSON.parse(await snapshot()).layers.at(-1).nodes[0];
+    assert.deepEqual(
+      isolatedMove.points.map((p) => p.id),
+      before.layers.at(-1).nodes[0].points.map((p) => p.id),
     );
+    assert.notEqual(await snapshot(), beforeJSON, 'the owned gesture still commits');
     await load(movedJSON);
     await page.locator(`[data-select-layer="${id}"]`).click();
     await page.screenshot({ path: `test-results/pen-placement-${label}.png`, fullPage: true });

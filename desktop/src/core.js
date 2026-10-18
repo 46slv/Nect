@@ -1,3 +1,4 @@
+import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import {
   validateCompositionReference,
   assertCompositionAcyclic,
@@ -4716,8 +4717,16 @@ export class CommandSession {
           ...(draft.penLayer
             ? {
                 layerId: draft.penLayer.id,
-                nodeId: draft.penLayer.nodes[0].id,
-                pointId: draft.penLayer.nodes[0].points.at(-1)?.id,
+                nodeId: draft.penNodeId ?? draft.penLayer.nodes[0].id,
+                pointId: draft.penPointId ?? draft.penLayer.nodes[0].points.at(-1)?.id,
+                ...(draft.resuming
+                  ? {
+                      resuming: true,
+                      side: draft.penSide,
+                      closingPointId: draft.closingPointId,
+                      ...(draft.penContourId ? { contourId: draft.penContourId } : {}),
+                    }
+                  : {}),
                 pointPressed: draft.pressed,
               }
             : {}),
@@ -5264,17 +5273,46 @@ export class CommandSession {
   }
   #penCommand(type, payload, draft) {
     if (draft.target.kind !== 'pen') throw Error('Select a Pen draft');
+    const nodeIn = (layer) =>
+      layer.nodes.find((n) => n.id === (draft.penNodeId ?? layer.nodes[0].id));
     if (type === 'commit-pen') {
       if (draft.pressed) throw Error('Finish or cancel the pressed point');
       if (typeof payload.closed !== 'boolean') throw Error('Choose open or closed path');
-      const layer = clone(draft.penLayer);
-      if (layer.nodes[0].points.length < 2) {
+      const layer = clone(draft.penLayer),
+        curve = nodeIn(layer),
+        ids = penContourIds(curve, draft.penContourId);
+      const created = { layerId: layer.id, nodeId: curve.id };
+      if (ids.length < 2) {
         this.#gesture = null;
-        return { ...this.state, discarded: true };
+        return { ...this.state, ...created, discarded: true, changed: false };
       }
-      layer.nodes[0].params.closed.value = payload.closed;
-      const candidate = cloneDocument(draft.base),
-        created = appendPenArtwork(candidate, layer);
+      if (curve.type === 'Curve') curve.params.closed.value = payload.closed;
+      else curve.contours.find((c) => c.id === draft.penContourId).closed = payload.closed;
+      const candidate = cloneDocument(draft.base);
+      if (draft.resuming) {
+        const original = draft.base.layers.find((l) => l.id === layer.id);
+        resolvePenEndpoint(original, curve.id, draft.target.endpointId, draft.penContourId);
+        if (insertionRemapDependents(original, curve.id).length)
+          throw Error(
+            'Continuation is unavailable while this source feeds retained Path Remap edits',
+          );
+        candidate.layers[candidate.layers.findIndex((l) => l.id === layer.id)] = layer;
+        validate(candidate);
+        assertClosedOffsetChange(
+          layer,
+          original,
+          resolveFonts(candidate, this.#fonts()),
+          candidate.imageAssets,
+          resolveFonts(draft.base, this.#fonts()),
+          candidate,
+          draft.base,
+        );
+      } else appendPenArtwork(candidate, layer);
+      const encoded = serialize(candidate);
+      if (encoded === serialize(draft.base)) {
+        this.#gesture = null;
+        return { ...this.state, ...created, discarded: true, changed: false };
+      }
       this.#history.apply(() => {
         this.#history.doc = candidate;
       });
@@ -5283,22 +5321,26 @@ export class CommandSession {
     }
     let layer = clone(draft.penLayer),
       prior = draft.pressedBefore,
-      pressed = draft.pressed;
-    const curve = layer.nodes[0];
+      pressed = draft.pressed,
+      curve = nodeIn(layer),
+      pointId = draft.penPointId ?? curve.points.at(-1)?.id;
     if (type === 'append-pen-point') {
       if (pressed) throw Error('Finish or cancel the pressed point');
       assertValue('Vector2', payload.position);
       if (curve.points.length >= 10000) throw Error('Pen paths are limited to 10000 points');
       prior = clone(draft.penLayer);
-      curve.points.push(point(...payload.position));
+      const created = point(...payload.position);
+      insertContinuationPoint(curve, draft.penContourId, draft.penSide || 'tail', created);
+      pointId = created.id;
       pressed = true;
     } else {
       if (!pressed) throw Error('No pressed Pen point');
       if (type === 'update-pen-point') {
         assertValue('Vector2', payload.delta);
-        const pt = curve.points.at(-1);
-        pt.handleB.value = clone(payload.delta);
-        pt.handleA.value = payload.delta.map((v) => -v);
+        const pt = curve.points.find((p) => p.id === pointId),
+          head = draft.penSide === 'head';
+        pt[head ? 'handleA' : 'handleB'].value = clone(payload.delta);
+        pt[head ? 'handleB' : 'handleA'].value = payload.delta.map((v) => -v);
         pt.handleType = 'symmetric';
       } else if (type === 'accept-pen-point') {
         pressed = false;
@@ -5309,14 +5351,30 @@ export class CommandSession {
           return { ...this.state, discarded: true };
         }
         layer = clone(prior);
+        curve = nodeIn(layer);
+        const ids = penContourIds(curve, draft.penContourId);
+        pointId = draft.penSide === 'head' ? ids[0] : ids.at(-1);
         prior = null;
         pressed = false;
       } else throw Error('Unsupported Pen command');
     }
     const candidate = cloneDocument(draft.base);
-    candidate.layers.push(layer);
+    if (draft.resuming)
+      candidate.layers[candidate.layers.findIndex((l) => l.id === layer.id)] = layer;
+    else candidate.layers.push(layer);
     validate(candidate);
+    if (draft.resuming)
+      assertClosedOffsetChange(
+        layer,
+        draft.base.layers.find((l) => l.id === layer.id),
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        resolveFonts(draft.base, this.#fonts()),
+        candidate,
+        draft.base,
+      );
     draft.penLayer = layer;
+    draft.penPointId = pointId;
     draft.pressedBefore = prior;
     draft.pressed = pressed;
     draft.candidate = candidate;
@@ -5444,6 +5502,39 @@ export class CommandSession {
         throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
       const target = clone(payload.target),
         base = cloneDocument(this.#history.doc);
+      if (
+        target?.kind === 'pen' &&
+        (target.nodeId !== undefined ||
+          target.endpointId !== undefined ||
+          target.layerId !== undefined)
+      ) {
+        if (payload.position !== undefined)
+          throw Error('Choose an endpoint before adding a new point');
+        const layer = base.layers.find((l) => l.id === target.layerId),
+          source = resolvePenEndpoint(layer, target.nodeId, target.endpointId, target.contourId);
+        if (insertionRemapDependents(layer, source.node.id).length)
+          throw Error(
+            'Continuation is unavailable while this source feeds retained Path Remap edits',
+          );
+        this.#gesture = {
+          id: uid('gesture'),
+          target,
+          base,
+          candidate: cloneDocument(base),
+          revision: this.#history.revision,
+          version: 0,
+          penLayer: clone(layer),
+          penNodeId: source.node.id,
+          penContourId: source.contourId,
+          penSide: source.side,
+          penPointId: source.pointId,
+          closingPointId: source.closingPointId,
+          resuming: true,
+          pressed: false,
+          pressedBefore: null,
+        };
+        return { ...this.state, ...this.gestureState };
+      }
       if (target?.kind === 'pen') {
         const layer = createPenArtworkDraft(base, payload.position),
           candidate = cloneDocument(base);

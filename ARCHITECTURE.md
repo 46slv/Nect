@@ -224,3 +224,13 @@ silently baked or assigned new ownership. Common translate-points uses the same
 Curve/Multi Path/explicit Remap gesture validator, and independent handle drags
 commit corner mode plus one handle in the same transaction. UI point selection
 may be restored by stable ID on Undo, independently of saved authoring data.
+
+Pen continuation extends the existing common Session Pen draft using explicit
+layer/node/contour/endpoint IDs. Its preview replaces the owned layer, while new
+Pen artwork still appends a private layer. Head insertion prepends IDs without
+reversing existing point records or swapping handles; Multi Path global point
+storage and unrelated contours retain identity. World pointer coordinates are
+mapped through the same literal affine route as direct selection. One finish
+commits the entire extension; cancellation and unchanged finish preserve history.
+Retained Remap dependents refuse topology changes instead of silently suspending
+their edits. Procedural sources require explicit authoring conversion elsewhere.

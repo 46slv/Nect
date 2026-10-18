@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { document, node, connect, serialize, evaluate, CommandSession } from '../src/core.js';
-import { directSelectionSource } from '../src/direct-selection.js';
+import {
+  directSelectionSource,
+  inverseAffinePoint,
+  inverseAffineDelta,
+} from '../src/direct-selection.js';
 import { transformCharacterPoint, multiplyMatrices } from '../src/character-geometry.js';
 function fixture() {
   const doc = document(),
@@ -142,4 +146,12 @@ test('independent handle drag changes one vector and corner mode in one Undo, le
   f.send('commit-gesture', token);
   f.send('undo');
   assert.equal(serialize(f.session.snapshot()), before);
+});
+
+test('source point inversion supports authored coordinates independently of character-drag limits', () => {
+  const matrix = [2, 0, 0, 2, -500, 600],
+    point = [200000, -100000];
+  assert.deepEqual(inverseAffinePoint(matrix, transformCharacterPoint(matrix, point)), point);
+  assert.deepEqual(inverseAffineDelta(matrix, [2, -2]), [1, -1]);
+  assert.throws(() => inverseAffinePoint([0, 0, 0, 0, 0, 0], [1, 1]), /Transform/);
 });

@@ -20,11 +20,11 @@ Goal: Complete the user-authorized A direct selection, selected-point nudge,
 Alt independent handle and open-end Pen continuation. Preserve one-operation
 Undo, stable point IDs, generated Remap provenance, locks and point Delete ownership.
 
-Current phase: A, point nudge and independent handles are implemented and pass
-model and production UI acceptance; preserve this checkpoint, then implement the
-remaining endpoint continuation. Existing Alt anchor-to-paired-handles behavior
-is retained. Existing Pen creates independent artwork; it does not resume an
-existing endpoint yet. No duplicate replacement implementation is needed.
+Current phase: All four interactions are implemented. Endpoint continuation now
+passes common Session and production UI checks for both ends of Curve/Multi Path,
+literal Transform placement, closure, cancellation, unchanged finish, Undo/Redo,
+JSON reload and matching SVG/PNG pixels. Package the combined Windows checkpoint.
+Existing independent Pen and Alt anchor-to-paired-handles behavior are retained.
 
 Proven: HEAD f055541 preserves OS Text horizontal wrap (schema32). Library
 libfile_0b7707ec405c8191afbd1120bb51e0eb, ZIP SHA256
@@ -37,11 +37,10 @@ one-handle separation with opposite vector unchanged, Undo, locks, IME/input foc
 toolbar Delete safety and protection of procedural sources; receipt in
  desktop/test-results/direct-selection/receipt.json (generated/ignored).
 
-Next task: Add common-session Pen continuation for explicit owned open endpoint
-IDs, preserving existing point records and all unrelated nodes/contours. Refuse
-closed/interior/locked/driven/generated/suspended/topology-sensitive targets.
-Verify tail/head continuation, cancel/zero/stale handling and one Undo, then
-produce a separate combined path checkpoint and continue eligible work.
+Next task: Finish regression and native build/startup, produce a separate combined
+path checkpoint, upload the actual new ZIP and report exact hashes and limitations.
+Endpoint continuation preserves existing point records and unrelated contours;
+closed/interior/locked/driven/generated/retained-Remap targets reject atomically.
 
 Approach: A resolves one unique Output/paint/literal Transform route to an owned
 Curve/Multi Path or explicit Remap, maps displayed affine geometry to authored
@@ -54,7 +53,9 @@ when focus is on a toolbar. No saved-format change for these path interactions.
 
 Done for next: All four requested interactions work through Canvas and common
 Session with focused regression, reproducible tests and preserved earlier packages.
-State: codex/desktop-production-20261016, base f055541; path changes uncommitted.
+State: codex/desktop-production-20261016, A/nudge/Alt at 2f89184; endpoint continuation
+is the current change. Combined model/DOM regression37 and production endpoint UI
+passed. No schema change; earlier schema32 packages remain preserved.
 
 LOCAL_WAIT: Actual native WebView2 IME/high-DPI/full manual editing. Formal native
 UI controller is unavailable; no repeated inventory without new evidence. This
