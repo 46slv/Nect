@@ -42,6 +42,7 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
+  await page.locator('.artboard').click();
   await page
     .locator('.graph .node')
     .filter({ has: page.locator('[data-text]') })

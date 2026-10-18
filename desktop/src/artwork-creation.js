@@ -23,17 +23,23 @@ export const ARTWORK_TYPES = Object.freeze([
  * `at` is an explicit artboard-space center (shapes) or Position (Text).
  * Callers own selection and wrap one call in one History.apply transaction.
  */
-export function appendArtwork(doc, type, { at, name = type } = {}) {
+export function appendArtwork(doc, type, { at, name = type, writingMode } = {}) {
   if (!ARTWORK_TYPES.includes(type)) throw Error('Unsupported artwork type');
   if (!Array.isArray(at) || at.length !== 2 || !Number.isFinite(at[0]) || !Number.isFinite(at[1]))
     throw Error('Artwork position must be an explicit finite artboard point');
   if (typeof name !== 'string' || name.length > 100000) throw Error('Invalid artwork name');
+  if (
+    writingMode !== undefined &&
+    (type !== 'Text' || !['horizontal-tb', 'vertical-rl'].includes(writingMode))
+  )
+    throw Error('Invalid Text writing mode');
   assertArtworkDocument(doc);
 
   const candidate = candidateDocument(doc),
     generator = node(type, 40, 50),
     artwork = artworkLayer(generator, name);
   generator.params[type === 'Text' ? 'position' : 'center'].value = [...at];
+  if (writingMode !== undefined) generator.writingMode = writingMode;
   candidate.layers.push(artwork);
   validate(candidate);
 

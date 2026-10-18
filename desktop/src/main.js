@@ -29,6 +29,7 @@ import {
 import { prepareImage, preflightImages, pngDimensions, rasterizeSVG } from './raster.js';
 import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
+import { textToolGroup } from './text-tool.js';
 import './style.css';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -870,6 +871,7 @@ let history = session.historyView,
   layerDragId = null,
   layerDragStart = null,
   tool = 'select',
+  textTools = null,
   zoom = 1,
   canvasFit = true,
   composing = false,
@@ -2529,6 +2531,7 @@ function nodeHTML(n, result) {
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function render(resetView = false, artworkResolution = null) {
+  textTools?.cancel();
   const osOwners = new Set(
     history.doc.layers.flatMap((layer) => layer.nodes.filter((n) => n.osFont).map((n) => n.id)),
   );
@@ -2617,7 +2620,7 @@ function render(resetView = false, artworkResolution = null) {
     ['Rectangle', '□', 'Add Rectangle'],
     ['Polygon', '⬡', 'Add Polygon'],
     ['Star', '☆', 'Add Star'],
-    ['Text', 'T', 'Add Text'],
+    ['Text', 'T', 'Horizontal Text'],
   ]
     .map(
       ([id, icon, label]) =>
@@ -2738,6 +2741,7 @@ function render(resetView = false, artworkResolution = null) {
   compactTextInspector();
   if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
     app.querySelector('.canvas-stage').append(canvasEditor);
+  textTools?.sync();
   updateNavigation();
   restoreFocus(app, focused);
   if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
@@ -4709,13 +4713,16 @@ function orderArtwork(layerId, direction) {
   notify(`Layer moved ${direction} one position`);
   render();
 }
-function createArtwork(type) {
+function createArtwork(
+  type,
+  { at = [history.doc.width / 2, history.doc.height / 2], writingMode } = {},
+) {
   try {
     const priorUI = selectionSnapshot();
     const created = session.dispatch({
       ...session.state,
       type: 'create-artwork',
-      payload: { artworkType: type, at: [history.doc.width / 2, history.doc.height / 2] },
+      payload: { artworkType: type, at, ...(writingMode ? { writingMode } : {}) },
     });
     selectArtwork(created.layerId);
     selectionHistory.set(history.past.at(-1), priorUI);
@@ -5093,6 +5100,33 @@ function download(text, name, type) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+textTools = textToolGroup({
+  root: app,
+  active: () => tool === 'Text',
+  available: (canvas = false) => {
+    const field = document.activeElement;
+    const pendingField = field?.matches?.('input,textarea') && field.value !== field.defaultValue;
+    return (
+      !navigationBusy() &&
+      !documents.hasDraft() &&
+      !variableAction &&
+      !sourcePicker &&
+      !canvasTextEdit &&
+      !nameEdit &&
+      !pendingField &&
+      !document.querySelector('dialog[open]') &&
+      (!canvas || !space)
+    );
+  },
+  activate: () => {
+    tool = 'Text';
+    characterEdit = null;
+    render();
+    document.querySelector('[data-tool="Text"]')?.focus({ preventScroll: true });
+  },
+  create: (at, writingMode) => createArtwork('Text', { at, writingMode }),
+  point: canvasPoint,
+});
 app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
