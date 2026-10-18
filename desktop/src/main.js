@@ -722,6 +722,15 @@ document.addEventListener(
 );
 const sessionOptions = {
   fonts: activeFonts,
+  onCommitted: (state) => {
+    // Let the operation finish a document-lifetime transition (e.g. SVG import)
+    // before associating its committed state with a recovery document identity.
+    queueMicrotask(() => {
+      if (state.sessionId !== session.id) return;
+      try { updateDocumentStatus(); }
+      catch (error) { recovery?.report(recovery.current, { phase: 'failed', error: error.message || String(error) }); }
+    });
+  },
   // A numeric pointer reservation first commits any typed value, before it
   // captures a gesture snapshot. Only its started phase owns an authored edit.
   busy: () =>
@@ -4679,14 +4688,15 @@ function updateDocumentStatus() {
   document.title = `${dirty ? '* ' : ''}${name} — Nect`;
   const status = document.querySelector('[data-document-status]');
   if (status) status.textContent = documents.saving ? 'Saving…' : dirty ? 'Unsaved' : 'Saved';
-  recovery?.observe({ generation: documents.generation, contents: readDocument(), name: history.doc.name || 'Untitled', dirty });
+  recovery?.observe({ generation: documents.generation, contents: readDocument(), name: history.doc.name || 'Untitled', dirty, revision: session.state.expectedRevision });
   updateRecoveryStatus();
 }
 function updateRecoveryStatus() {
   const el = document.querySelector('[data-recovery-status]');
   if (!el || !recovery) return;
   const state = recovery.state;
-  el.textContent = ({ ready: 'Recovery ready', pending: 'Recovery pending', saving: 'Saving recovery…', saved: 'Recovery saved', failed: 'Recovery failed · Retry' })[state.phase];
+  const saved = state.savedRevision === null ? 'none' : `r${state.savedRevision}`;
+  el.textContent = ({ ready: 'Recovery ready', pending: `Recovery queued r${state.requestedRevision} · saved ${saved}`, saving: `Saving recovery r${state.savingRevision} · saved ${saved}`, saved: `Recovery saved ${saved}`, failed: `Recovery failed r${state.failedRevision ?? state.requestedRevision} · Retry` })[state.phase];
   el.title = state.error || (state.savedAt ? new Date(state.savedAt).toLocaleString() : '');
   el.classList.toggle('error', state.phase === 'failed');
 }

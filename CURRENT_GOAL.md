@@ -14,49 +14,45 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Saved OS-font discovery status delivery
+## ACTIVE CHECKPOINT — Per-operation recovery saving
 
-Goal: Distinguish an absent source font from a failed availability check without
-silently treating a stale catalog as current or substituting another font.
-Current phase: Implemented, focused/production/native verification passed and
-Library upload confirmed. Final normal dev push/PR record closes this unit.
-Proven: Atc65f4e6/a43ee4b bundle, known available face + rejected catalog refresh
-left status empty. Final source66211d47a3875e5b412dd7159f7a37a5ea27c212 fixes it.
-15 checks pass (catalog3 + existing OS/desktop Text/outline12). Production CSP UI
-distinguishes missing vs check failure, changed format, independent catalog
-failure and refresh recovery; JSON/SVG/revision unchanged, no shaping/font-byte
-calls. Failure is explicitly IPC-stubbed. Actual final EXE with exact socket PID
-and isolated profile verifies real saved Windows face availability and synthetic
-absent-source status, Refresh JSON/SVG/revision equality, pageErrors[]. No native
-catalog failure injection. Source/outline retained; exact owned diagnostic stopped.
-Evidence: desktop/docs/font-availability.md, desktop/test-results/font-availability
-(before-fix/receipt), task/native-font-availability/receipt.json and screenshots.
-Approach: Pure os-font-catalog.js settles discovery sources independently;
-main.js shares the reader with Refresh/OS picker, compares7 face metadata fields
-and prevents older requests updating the inventory. Existing native exact-face/
-glyph substitution guards and explicit Use DejaVu Sans preflight reused.
-State: codex/desktop-production-20261016, built source66211d4. EXE9,956,864 bytes,
-SHA256 DDC57480B89078C6264312C674ECC4045A4215E39458206395F66EED13047C43.
-Library libfile_0ce55e3a792881918ded8fe77bf705da, version0/xattr applied;
-task/Nect-Desktop-trial-20261018-66211d4.zip,4,633,655 bytes/87 entries,
-SHA256 38DEB7BFC6769E83A1C0BE22FA502C173AA154EAD03D7FF55033D0FB160F7C3D.
-No schema/core/native/storage changes. Recoverya43ee4b, Text drag6861ee4,
-Clipboard9f2db9c, Mask/Keyer and font-switch guards remain included. Existing18
-examples retained without mass retest; no new example or private source included.
-DOM test storage fixture caught up with inert recovery mocks after autosave;
-that fixture correction is not a new production recovery change.
-Next task: Parent delivers this bounded repair. Select the next small cluster
-editing or OpenType requirement with current user priorities; neither started.
-Done for next: Confirmed Library/source/hash report, normal dev push/PR evidence,
-remote SHA match and clean working tree. No broad specification audit required.
-Limits: Discovery is not a glyph/coverage guarantee; native preparation remains
-authority. No universal font/Unicode completion claim. Manual physical input,
-IME/high-DPI acceptance remains unverified. No implementation blocker remains.
-Authority: Parent-delegated accepted remaining font work, one source/build writer,
-edit/test/commit/dev push/PR/EXE/Library. No main merge/release/reset/auth/Notion.
-User window and recovery data untouched; no automatic usage-reset use.
-Gate: Local evidence settles bounded status logic; external review not-required,
-external sends0. No action is denied, pending or uncertain for this delivery.
-Handoff: NEW_TASK; completed bounded font-status delivery and context pressure
-are a safe ownership checkpoint before the next font domain. Parent coordinates;
-do not create a second source/build writer.
+Goal: After each committed document operation, request app-owned recovery saving
+without a debounce delay, preserving2 generations, original files and window IDs.
+Current phase: Implemented serialized latest-state queue and common Session
+notification.29 focused lifecycle/Text/gesture/notification/queue checks pass.
+Production CSP UI10 operation/slow-disk/failure scenarios pass; native trial next.
+Proven: Idle writes acknowledge each revision; while a write is held, later
+requests remain interactive, coalesce latest and drain automatically; max1 global
+writer. Failure retains last saved revision and explicit retry saves latest.
+Switching documents retains old pending work with separate native tokens. IME
+stages/Canvas previews do not notify; cleanup precedes commit notification.
+Approach: core.js wraps dispatch and commitPrepared with read-only onCommitted;
+main.js observes the operation's final lifetime in a microtask, so document imports
+cannot be assigned to the prior recovery identity. recovery-autosave.js replaces
+timers with one active immutable request and one latest waiting state/document.
+UI distinguishes requested/saving/saved/failed revisions. Disk writes are async.
+Limits: Every operation requests protection; only acknowledged writes are durable.
+Queued/intermediate revisions can be coalesced or lost before I/O success/crash.
+Two generations remain per document, not every operation. Encoding/validation
+still scales with document size. No manual-original overwrite. Existing native
+recovery format/storage and authored schema stay unchanged; runtime revision
+numbers belong to the current editing Session.
+Next task: Finish production UI checks, commit/build once, isolated EXE operation
+acknowledgements and restart latest-state equality, write failure/retry; deliver
+ZIP/Library/source/hash and normal dev push/PR evidence. No mass retest.
+State: codex/desktop-production-20261016 at9e4cbf9 with autosave-only WIP.
+Shared main.js hunks: sessionOptions~725, updateDocumentStatus~4691,
+updateRecoveryStatus~4698. core.js:constructor~4727, commitPrepared~5510,
+dispatch~5553. Other writes:recovery-autosave.js, focused tests/docs/CURRENT_GOAL.
+Font handoff: no font production WIP; base9e4cbf9040c6e080710ca509765c3340fec53989.
+task/autosave-writer-handoff.md and desktop/docs/grapheme-probe-checkpoint.md
+record task/probe-native-graphemes.mjs + native-grapheme-before-probe.json.
+Other threads separately own Dither, SVG and font. Do not import their changes
+without parent integration instruction; no duplicate EXE builds or source work.
+Authority: User20:03 JST per-operation request plus explicit分散 instruction,
+parent scopes this writer to autosave only. Edit/test/commit/dev push/PR/EXE/Library
+allowed; no main merge/release/reset/auth/Notion. User window/recovery untouched.
+Gate: chatgpt-web-double-check invoked for persistence sequencing; local tests
+settle bounded queue/notification design, external not-required/sends0.
+Done for next: Verified per-operation trial, explicit guarantee limits and clean
+remote-matching dev branch. Handoff: CONTINUE_CURRENT_TASK until delivery.

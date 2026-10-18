@@ -1,96 +1,115 @@
-// File-lifetime protection only: observes committed encodings, never edits a Session.
+// Persistence observes committed encodings; it never edits the command Session.
 export class RecoveryAutosave {
-  constructor({
-    begin,
-    write,
-    acknowledge = async () => {},
-    status = () => {},
-    delay = 1000,
-    maxWait = 10000,
-  }) {
-    Object.assign(this, { begin, write, acknowledge, status, delay, maxWait });
+  constructor({ begin, write, acknowledge = async () => {}, status = () => {} }) {
+    Object.assign(this, { begin, write, acknowledge, status });
     this.current = null;
-    this.state = { phase: 'ready' };
+    this.queue = [];
+    this.active = null;
+    this.draining = null;
+    this.state = { phase: 'ready', savedRevision: null };
   }
   report(context, state) {
     if (context !== this.current) return;
-    this.state = state;
-    this.status(state);
+    this.state = {
+      savedRevision: context.savedRevision,
+      requestedRevision: context.revision,
+      savedAt: context.savedAt,
+      ...state,
+    };
+    try {
+      this.status(this.state);
+    } catch {}
   }
-  observe(snapshot) {
+  observe({ revision = 0, ...snapshot }) {
+    snapshot = { ...snapshot, revision };
     let context = this.current;
     if (!context || context.generation !== snapshot.generation) {
-      if (context?.pending) void this.flush(context);
       this.current = {
         ...snapshot,
         pending: false,
         token: null,
-        running: null,
-        timer: null,
-        due: null,
+        savedRevision: null,
+        savedAt: null,
+        error: null,
       };
       this.report(this.current, { phase: 'ready' });
-      // Imported/recovered unsaved documents also need protection before their
-      // next edit. Initial launch artwork is only a baseline.
-      if (snapshot.generation > 0 && snapshot.dirty) this.schedule(this.current);
+      if (snapshot.generation > 0 && snapshot.dirty) this.request(this.current);
       return;
     }
-    const changed = context.contents !== snapshot.contents;
-    const cleanChanged = context.dirty !== snapshot.dirty && !!context.token;
+    const changed = context.contents !== snapshot.contents || context.revision !== revision;
+    const cleanChanged =
+      context.dirty !== snapshot.dirty &&
+      (context.token || context.pending || this.active === context);
     Object.assign(context, snapshot);
-    if (changed || cleanChanged) this.schedule(context);
+    if (changed || cleanChanged) this.request(context);
   }
-  schedule(context = this.current) {
+  request(context = this.current) {
     if (!context) return;
     context.pending = true;
-    context.due ??= Date.now() + this.maxWait;
-    clearTimeout(context.timer);
-    context.timer = setTimeout(
-      () => void this.flush(context),
-      Math.max(0, Math.min(this.delay, context.due - Date.now())),
-    );
+    if (!this.queue.includes(context)) this.queue.push(context);
     this.report(context, { phase: 'pending' });
+    this.kick();
   }
-  preserve(sourceId) {
-    this.current.sourceId = sourceId;
-    this.schedule();
-    return this.flush();
+  kick() {
+    if (this.draining) return;
+    this.draining = Promise.resolve()
+      .then(() => this.drain())
+      .finally(() => {
+        this.draining = null;
+        if (this.queue.length) this.kick();
+      });
   }
-  async flush(context = this.current) {
-    if (!context) return true;
-    if (context.running) {
-      await context.running;
-      return context.pending ? this.flush(context) : this.state.phase !== 'failed';
-    }
-    clearTimeout(context.timer);
-    context.timer = null;
-    if (!context.pending) return this.state.phase !== 'failed';
-    context.pending = false;
-    context.due = null;
-    const snapshot = { contents: context.contents, name: context.name, recoverable: context.dirty };
-    this.report(context, { phase: 'saving' });
-    context.running = Promise.resolve().then(async () => {
+  async drain() {
+    while (this.queue.length) {
+      const context = this.queue.shift();
+      if (!context.pending) continue;
+      context.pending = false;
+      this.active = context;
+      // One immutable in-flight snapshot, plus one latest waiting state per document.
+      const snapshot = {
+        contents: context.contents,
+        name: context.name,
+        recoverable: context.dirty,
+        revision: context.revision,
+      };
+      this.report(context, { phase: 'saving', savingRevision: snapshot.revision });
       try {
         context.token ??= await this.begin();
-        const savedAt = await this.write({ id: context.token, ...snapshot });
-        // Acknowledge the old copy only after the recovered document has a durable successor.
+        context.savedAt = await this.write({ id: context.token, ...snapshot });
+        context.savedRevision = snapshot.revision;
+        context.error = null;
         if (context.sourceId) {
           await this.acknowledge(context.sourceId);
           context.sourceId = null;
         }
-        this.report(context, context.pending ? { phase: 'pending' } : { phase: 'saved', savedAt });
-        return true;
+        this.report(context, { phase: context.pending ? 'pending' : 'saved' });
       } catch (error) {
-        this.report(context, { phase: 'failed', error: String(error.message || error) });
-        return false;
+        context.error = String(error.message || error);
+        this.report(context, {
+          phase: 'failed',
+          failedRevision: snapshot.revision,
+          error: context.error,
+        });
       } finally {
-        context.running = null;
+        this.active = null;
       }
-    });
-    return context.running;
+    }
+  }
+  async flush(context = this.current) {
+    if (!context) return true;
+    while (this.draining || context.pending) {
+      if (!this.draining) this.kick();
+      await this.draining;
+    }
+    return !context.error;
+  }
+  preserve(sourceId) {
+    this.current.sourceId = sourceId;
+    this.request();
+    return this.flush();
   }
   retry() {
-    this.schedule();
+    this.request();
     return this.flush();
   }
 }
