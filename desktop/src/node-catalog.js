@@ -562,13 +562,6 @@ const normalize = (value) => String(value).normalize('NFKC').toLowerCase();
 export function searchNodeItems(items, query, categoryId = '') {
   const text = normalize(query).trim();
   const words = text.split(/\s+/).filter(Boolean);
-  const rank = (item) => {
-    const names = [item.typeId, item.label, item.labelJa].map(normalize);
-    if (names.includes(text)) return 0;
-    if (names.some((name) => name.startsWith(text))) return 1;
-    if (words.every((word) => normalize(item.aliases.join(' ')).includes(word))) return 2;
-    return 3;
-  };
   return items
     .filter(
       (item) =>
@@ -580,8 +573,6 @@ export function searchNodeItems(items, query, categoryId = '') {
         ),
     )
     .sort((a, b) => {
-      const rankDelta = text ? rank(a) - rank(b) : 0;
-      if (rankDelta) return rankDelta;
       return normalize(a.label).localeCompare(normalize(b.label), undefined, { numeric: true });
     });
 }

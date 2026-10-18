@@ -1640,6 +1640,26 @@ input[data-scrub-step].scrubbing {
   height: min(340px, 45vh);
   overflow: auto;
   border-block: 1px solid var(--line);
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}
+.picker-category-heading {
+  padding: 8px 12px;
+  min-height: 32px;
+  box-sizing: border-box;
+  cursor: pointer;
+  background: #f0f2f4;
+  border-bottom: 1px solid var(--line);
+}
+.picker-category:focus-visible {
+  outline: none;
+}
+.picker-category:focus-visible > .picker-category-heading {
+  outline: 2px solid #527fa6;
+  outline-offset: -2px;
+}
+.picker-category .picker-option {
+  padding-left: 24px;
 }
 .picker-option {
   display: flex;

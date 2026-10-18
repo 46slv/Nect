@@ -30,7 +30,7 @@ test('each currently addable type has exactly one built-in category; unknown typ
   );
 });
 
-test('search keeps type IDs, Japanese aliases, NFKC, AND matching and stable ranking', () => {
+test('search keeps type IDs, Japanese aliases, NFKC, AND matching and alphabetic order', () => {
   const items = nodePickerItems(definitions, (type) =>
     type === 'Join Geometry' ? 'Join Paths' : type,
   );
@@ -45,5 +45,13 @@ test('search keeps type IDs, Japanese aliases, NFKC, AND matching and stable ran
   assert.deepEqual(
     searchNodeItems(items, '結合').map((item) => item.id),
     ['Boolean', 'Join Geometry'],
+  );
+  // Prefix matches must not move ahead of earlier alphabetic labels.
+  const labeled = nodePickerItems(definitions, (type) =>
+    type === 'Vector Transform' ? 'A Transform' : type,
+  );
+  assert.deepEqual(
+    searchNodeItems(labeled, 'transform').map((item) => item.id),
+    ['Vector Transform', 'Transform'],
   );
 });
