@@ -1,5 +1,6 @@
 // Bounded 2D Repeater. Integer powers deliberately avoid ambiguous fractional
 // affine transforms (especially reflections and singular scales).
+export const REPEATER_SCHEMA_VERSION = 37;
 export const REPEATER_KEYS = [
   'offset',
   'anchor',

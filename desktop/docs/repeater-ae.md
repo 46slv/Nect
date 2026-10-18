@@ -5,7 +5,7 @@
 Copies (`count`), Offset, Anchor, Position, Scale (XY %), Rotation (degrees),
 Start/End Opacity (%) and Copies Above (later copies in front; unchecked behind).
 Existing documents receive identity defaults for the new controls when loaded.
-Save editable JSON to retain the procedural graph. The new mode uses schema 36;
+Save editable JSON to retain the procedural graph. The new mode uses schema 37;
 older applications reject that project version.
 
 ## Transform contract
@@ -82,6 +82,7 @@ bounded behavior and local tests settle the implementation decisions.
   base core. It was not changed in this task.
 
 Integration: `core.js` and `main.js` are provided in a separate integration
-commit/patch. Schema 36 is provisional for this isolated branch; the integration
-owner must coordinate that number with concurrent schema changes. No Dither,
+commit/patch. Integration assigns schema 37 to Repeater while retaining schema 36
+for Dither/Points. Legacy schema-36 Repeater nodes receive new defaults without
+advancing their saved version; selecting `ae-2d` promotes to 37. No Dither,
 Instance on Points, autosave, native binding or private font files were edited.

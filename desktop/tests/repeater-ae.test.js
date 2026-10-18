@@ -44,7 +44,7 @@ const near = (actual, expected) =>
   actual.forEach((v, i) => assert.ok(Math.abs(v - expected[i]) < 1e-8, `${actual} != ${expected}`));
 function scene() {
   const doc = document();
-  doc.schemaVersion = 36;
+  doc.schemaVersion = 37;
   const l = doc.layers[0],
     shape = node('Rectangle'),
     repeat = node('Geometry Repeater'),
@@ -172,7 +172,7 @@ test('shared Session edits are undoable, restore via JSON and refuse invalid edi
     assert.equal(serialize(session.snapshot()), changed);
   }
 });
-test('legacy modes preserve geometry and defaults on migration, new mode requires schema 36', () => {
+test('legacy modes preserve geometry and defaults on migration, new mode requires schema 37', () => {
   const { doc, l, repeat } = scene();
   repeat.operation = 'linear';
   doc.schemaVersion = 35;
@@ -183,7 +183,7 @@ test('legacy modes preserve geometry and defaults on migration, new mode require
   assert.deepEqual(evaluate(restored.layers[0]).path.contours, before);
   assert.equal(restored.layers[0].nodes[1].operation, 'linear');
   repeat.operation = 'ae-2d';
-  assert.throws(() => deserialize(JSON.stringify(doc)), /schemaVersion 36/);
+  assert.throws(() => deserialize(JSON.stringify(doc)), /schemaVersion 37/);
 });
 test('driven Copies/Offset enforce the same integer limits and parameter locks reject edits', () => {
   const { doc, l, repeat } = scene(),
