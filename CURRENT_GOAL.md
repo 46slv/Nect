@@ -18,15 +18,17 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Separate Text Tool activation from authoring, with held horizontal/vertical
 variant selection and explicit Canvas creation using the shared Session command.
-Current phase: implementation and focused verification complete; development publication.
+Current phase: implemented, verified and source pushed; Draft PR30 created.
 Proven: Focused unit/DOM tests 27/27 PASS, Vite build PASS (125 modules), actual
 Note Chrome isolated fixture on localhost:5203 verifies non-dirty selection/cancel,
 both directions, one Undo/Redo, Redo retention and existing Text/Inspector preservation.
 Evidence: desktop/docs/req210-text-tool-20261019.md and the reproducible fixture.
-Next task: Publish the scoped development commit and Draft PR against the exact base branch.
+Remote-verified implementation source: f1e4866cd7d66740022a7ff7f71c0c3a1e53d786.
+Draft PR: https://github.com/46slv/Nect/pull/30 (base codex/toggle-list-scroll-20261019).
+Next task: Review this bounded Draft PR; native/physical IME acceptance remains separate.
 Approach: codex/req210-text-tool-20261019, independent copy from
 80e32d16bf3dcb59625f305284b78b85f3d19948; sole source writer.
-Done for next: Remote full SHA and Draft PR verified; native/physical IME gaps explicit.
+Done for next: Review the exact published source and preserve the explicit native/IME gaps.
 State: Text Tool/controller, shared optional creation direction, focused tests,
 related E2E creation gestures and documentation only. Existing 5199/5201 untouched.
 Authority: Current delegation permits code/tests/docs and dev commit/push/Draft PR.
