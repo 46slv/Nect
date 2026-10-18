@@ -10388,9 +10388,25 @@ document.addEventListener('keydown', (e) => {
     // Native number controls reject operators before the draft can reach the
     // shared change/command path. Keep the control's number semantics until a
     // draft actually needs expression syntax.
+    e.preventDefault();
+    const value = e.target.value;
     e.target.dataset.numericExpression = 'true';
     e.target.type = 'text';
     e.target.inputMode = 'decimal';
+    e.target.value = `${value}${e.key}`;
+    e.target.setSelectionRange(e.target.value.length, e.target.value.length);
+  }
+  if (
+    numericExpressionInput &&
+    e.key === 'Escape' &&
+    !e.isComposing &&
+    e.keyCode !== 229
+  ) {
+    e.preventDefault();
+    e.target.value = e.target.defaultValue;
+    e.target.type = 'number';
+    delete e.target.dataset.numericExpression;
+    return;
   }
   if (
     numericExpressionInput &&
