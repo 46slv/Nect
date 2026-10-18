@@ -4731,7 +4731,18 @@ async function confirmReplace(action = 'opening another document') {
   return accepted;
 }
 async function openCompositionImportDialog() {
-  const opened = await openFile();
+  const opened = desktop
+    ? await openFile()
+    : await new Promise((resolve) => {
+        const input = document.querySelector('#open-file');
+        if (!input) return resolve(null);
+        input.value = '';
+        input.onchange = async () => {
+          const file = input.files?.[0];
+          resolve(file ? { name: file.name, contents: await file.text() } : null);
+        };
+        input.click();
+      });
   if (!opened) return;
   let source;
   try { source = deserialize(opened.contents); }
@@ -10820,7 +10831,6 @@ const commandMenuObserver = new MutationObserver(() => {
     return menu;
   };
   const brand = header.querySelector('.brand');
-  const anchor = brand?.nextSibling;
   const project = makeMenu('Project', ['new', 'open', 'save', 'save-as']);
   const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
   const composition = document.createElement('button');
@@ -10837,9 +10847,7 @@ const commandMenuObserver = new MutationObserver(() => {
     label.append('PNG scale', scale);
     exportMenu.querySelector('.command-menu-items').append(label);
   }
-  header.insertBefore(project, anchor);
-  header.insertBefore(importMenu, anchor);
-  header.insertBefore(exportMenu, anchor);
+  brand?.after(project, importMenu, exportMenu);
   header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
     project.querySelector('.command-menu-items').append(button);
   });
