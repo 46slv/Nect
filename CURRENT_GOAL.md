@@ -14,37 +14,49 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Saved OS-font discovery status
+## ACTIVE CHECKPOINT — Saved OS-font discovery status delivery
 
 Goal: Distinguish an absent source font from a failed availability check without
 silently treating a stale catalog as current or substituting another font.
-Current phase: Bounded implementation and focused tests pass; exact-source trial
-build and narrow isolated native availability check are next.
-Proven: Atc65f4e6/a43ee4b production bundle, a known available modern face followed
-by a rejected catalog refresh left status empty. Evidence before-fix.json under
-desktop/test-results/font-availability. After fix, production CSP UI failure,
-missing face, changed format, independent legacy failure and successful refresh
-pass; JSON/SVG/revision unchanged, no shape or font-byte calls, pageErrors[].
-15 focused checks pass:3 new catalog checks plus existing OS/desktop Text/outline
-checks. DOM fixture now supplies inert recovery mocks missing after autosave.
-Approach: src/os-font-catalog.js independently reads both catalogs; failed data
-is null plus an error, never old availability. main.js shares the reader between
-Refresh and OS picker, protects newest request, compares7 face metadata fields.
-Existing native exact-face/glyph fallback guards and explicit Use DejaVu Sans
-preflight are already present and are not reimplemented. Saved outline rendering
-and export remain valid without the source font.
-Next task: Commit/build once; isolated native ordinary/missing source status and
-no-authored-change check; then trial ZIP/Library and normal dev push/PR evidence.
-Done for next: Usable bounded status repair, exact source/hash and limits, clean
-working tree/remote match. No broad audit or mass example retest.
-State: codex/desktop-production-20261016 afterc65f4e6; only font catalog UI/helper,
-focused tests/docs and this checkpoint changed. No native/core/schema/storage
-change. Recovery triala43ee4b and Text/Copy/Paste/Mask/Keyer remain preserved.
-Latest recovery delivery: Library libfile_df97cd0b962c81918d30b83fe1720f59,
-ZIP SHA256 FB54F1F96058ED897519293428DC3BF960773A0FAA0EC0FEED031862940CC770.
+Current phase: Implemented, focused/production/native verification passed and
+Library upload confirmed. Final normal dev push/PR record closes this unit.
+Proven: Atc65f4e6/a43ee4b bundle, known available face + rejected catalog refresh
+left status empty. Final source66211d47a3875e5b412dd7159f7a37a5ea27c212 fixes it.
+15 checks pass (catalog3 + existing OS/desktop Text/outline12). Production CSP UI
+distinguishes missing vs check failure, changed format, independent catalog
+failure and refresh recovery; JSON/SVG/revision unchanged, no shaping/font-byte
+calls. Failure is explicitly IPC-stubbed. Actual final EXE with exact socket PID
+and isolated profile verifies real saved Windows face availability and synthetic
+absent-source status, Refresh JSON/SVG/revision equality, pageErrors[]. No native
+catalog failure injection. Source/outline retained; exact owned diagnostic stopped.
+Evidence: desktop/docs/font-availability.md, desktop/test-results/font-availability
+(before-fix/receipt), task/native-font-availability/receipt.json and screenshots.
+Approach: Pure os-font-catalog.js settles discovery sources independently;
+main.js shares the reader with Refresh/OS picker, compares7 face metadata fields
+and prevents older requests updating the inventory. Existing native exact-face/
+glyph substitution guards and explicit Use DejaVu Sans preflight reused.
+State: codex/desktop-production-20261016, built source66211d4. EXE9,956,864 bytes,
+SHA256 DDC57480B89078C6264312C674ECC4045A4215E39458206395F66EED13047C43.
+Library libfile_0ce55e3a792881918ded8fe77bf705da, version0/xattr applied;
+task/Nect-Desktop-trial-20261018-66211d4.zip,4,633,655 bytes/87 entries,
+SHA256 38DEB7BFC6769E83A1C0BE22FA502C173AA154EAD03D7FF55033D0FB160F7C3D.
+No schema/core/native/storage changes. Recoverya43ee4b, Text drag6861ee4,
+Clipboard9f2db9c, Mask/Keyer and font-switch guards remain included. Existing18
+examples retained without mass retest; no new example or private source included.
+DOM test storage fixture caught up with inert recovery mocks after autosave;
+that fixture correction is not a new production recovery change.
+Next task: Parent delivers this bounded repair. Select the next small cluster
+editing or OpenType requirement with current user priorities; neither started.
+Done for next: Confirmed Library/source/hash report, normal dev push/PR evidence,
+remote SHA match and clean working tree. No broad specification audit required.
+Limits: Discovery is not a glyph/coverage guarantee; native preparation remains
+authority. No universal font/Unicode completion claim. Manual physical input,
+IME/high-DPI acceptance remains unverified. No implementation blocker remains.
 Authority: Parent-delegated accepted remaining font work, one source/build writer,
 edit/test/commit/dev push/PR/EXE/Library. No main merge/release/reset/auth/Notion.
-User window and recovery data remain untouched. No automatic usage-reset use.
-Gate: Local evidence settles the small discovery-status fix; external review
-not-required/sends0. Broader font completeness/cluster/OpenType work is unstarted.
-Handoff: CONTINUE_CURRENT_TASK; finish this bounded delivery first.
+User window and recovery data untouched; no automatic usage-reset use.
+Gate: Local evidence settles bounded status logic; external review not-required,
+external sends0. No action is denied, pending or uncertain for this delivery.
+Handoff: NEW_TASK; completed bounded font-status delivery and context pressure
+are a safe ownership checkpoint before the next font domain. Parent coordinates;
+do not create a second source/build writer.
