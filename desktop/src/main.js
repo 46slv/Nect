@@ -441,6 +441,7 @@ import {
   acknowledgeRecovery,
 } from './storage.js';
 import { RecoveryAutosave } from './recovery-autosave.js';
+import { readOsFontCatalog, osFontAvailability } from './os-font-catalog.js';
 import {
   parseFont,
   resolveFonts,
@@ -528,8 +529,8 @@ import {
 } from './core.js';
 const app = document.querySelector('#app');
 const osTextDrafts = new Map();
-let osFontFamilies = null;
-let desktopFontFaces = null;
+let osFontCatalog = { families: null, faces: null, familiesError: false, facesError: false };
+let osFontCatalogRequest = 0;
 let osFontCatalogPending = false;
 let editorPicker = null,
   fontPreview = null;
@@ -2079,17 +2080,8 @@ function textControls(n) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
-      active =
-        n.osFont.version >= 2
-          ? desktopFontFaces?.some((f) =>
-              ['family', 'name', 'weight', 'style', 'stretch'].every(
-                (k) => f[k] === n.osFont.face[k],
-              ),
-            )
-          : osFontFamilies?.some(
-              (f) => f.family === n.osFont.family && f.styles.includes(n.osFont.style),
-            );
-    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${!desktop ? 'Saved outlines · Windows required to edit' : osFontCatalogPending ? 'Checking font…' : active ? '' : osFontFamilies ? 'Font unavailable · saved outlines retained' : 'Font availability not checked'}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
+      availability = osFontAvailability(n.osFont, { ...osFontCatalog, desktop, pending: osFontCatalogPending });
+    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${esc(availability)}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
   }
   const osControls = desktop
     ? `<section class="os-font-outlines"><button class="mini" data-os-text-font="${n.id}" ${current().locked ? 'disabled' : ''}>Choose OS font…</button><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
@@ -5756,16 +5748,19 @@ function commitFont(bytes, name, request) {
 let osOutlinePending = null;
 async function refreshOsFontCatalog() {
   if (!desktop || osFontCatalogPending || typeof listOsOutlineFonts !== 'function') return;
+  await readCurrentOsFontCatalog();
+}
+async function readCurrentOsFontCatalog() {
+  const request = ++osFontCatalogRequest;
   osFontCatalogPending = true;
-  try {
-    osFontFamilies = await listOsOutlineFonts();
-    if (typeof listDesktopFontFaces === 'function') desktopFontFaces = await listDesktopFontFaces();
-  } catch {
-    osFontFamilies = [];
-  } finally {
+  render();
+  const catalog = await readOsFontCatalog({ listFamilies: listOsOutlineFonts, listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined });
+  if (request === osFontCatalogRequest) {
+    osFontCatalog = catalog;
     osFontCatalogPending = false;
     render();
   }
+  return catalog;
 }
 function stageOsText(el, composing = false) {
   const n = current().nodes.find((n) => n.id === el.dataset.osText && n.osFont);
@@ -6005,10 +6000,8 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
   let picker;
   try {
     notify('Finding active OS fonts…');
-    const families = await listOsOutlineFonts();
-    osFontFamilies = families;
-    const faces = typeof listDesktopFontFaces === 'function' ? await listDesktopFontFaces() : [];
-    desktopFontFaces = faces;
+    const catalog = await readCurrentOsFontCatalog();
+    const families = catalog.families || [], faces = catalog.faces || [];
     if (osOutlinePending !== request || !valid())
       throw Error('Selection changed; reopen OS font outlines');
     const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
@@ -6039,7 +6032,7 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
           },
         })),
     );
-    if (!items.length) throw Error('No OS outline fonts are active');
+    if (!items.length) throw Error(catalog.familiesError || catalog.facesError ? 'Font check failed; refresh fonts' : 'No OS outline fonts are active');
     picker = editorPicker = openSearchPanel({
       title: 'OS font outlines',
       items,

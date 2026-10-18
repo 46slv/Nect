@@ -66,6 +66,7 @@ test('OS font picker commits geometry only and rejects cancel, pending duplicate
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
       `import {DocumentLifecycle} from '${new URL('../src/document-lifecycle.js', import.meta.url)}';
+    const beginRecovery=async()=> 'test-recovery',writeRecovery=async()=>Date.now(),listRecovery=async()=>[],readRecovery=async()=>{throw Error('No recovery fixture');},acknowledgeRecovery=async()=>{};
     const desktop=true,releaseProject=async()=>{},writeProject=async()=>null,chooseUnsaved=async()=>globalThis.testUnsavedChoice(),registerClose=async(handler)=>{globalThis.testNativeClose=handler;},saveFile=async()=>true,openFile=async()=>null,listSystemFonts=async()=>[],readSystemFont=async()=>{throw Error('Font bytes must not be requested');},listOsOutlineFonts=async()=>[{family:'DIN Alternate',styles:[0,1]}],outlineOsText=(intent)=>globalThis.nativeOsTest(intent);`,
     )
     .replace(
