@@ -9829,8 +9829,7 @@ app.addEventListener(
     }),
   true,
 );
-// Own this shortcut only inside the graph. Consume repeats and blocked edits
-// here as well, so a graph shortcut cannot become a browser bookmark command.
+// Own selection and clipboard shortcuts only inside the graph.
 document.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   if (
@@ -9838,7 +9837,7 @@ document.addEventListener('keydown', (event) => {
     !(event.ctrlKey || event.metaKey) ||
     event.shiftKey ||
     event.altKey ||
-    !['c', 'v'].includes(key) ||
+    !['a', 'c', 'v'].includes(key) ||
     navigationExcluded(event.target) ||
     !event.target.closest?.('.graph-scroll,.graph-toolbar') ||
     event.isComposing ||
@@ -9851,7 +9850,19 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   event.stopImmediatePropagation();
   if (event.repeat) return;
-  if (key === 'c') copyGraphNodes();
+  if (key === 'a') {
+    if (deletionBusy() || variableAction) return;
+    selection = new Set(current().nodes.map((n) => n.id));
+    if (!selection.has(selected)) selected = current().nodes[0]?.id || null;
+    artworkTarget = null;
+    artworkSelection = new Set();
+    characterEdit = null;
+    selectedGuide = null;
+    pointSelection = { nodeId: null, ids: new Set() };
+    window.getSelection()?.removeAllRanges();
+    render();
+    document.querySelector('.graph-scroll')?.focus({ preventScroll: true });
+  } else if (key === 'c') copyGraphNodes();
   else pasteGraphNodes();
 });
 document.addEventListener('keydown', (event) => {

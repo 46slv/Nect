@@ -86,17 +86,89 @@ try {
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
   await page.locator('[data-action="graph-fit"]').click();
   const ids = [image.id, key.id, shape.id, mask.id, text.id, ref.id];
-  for (let i = 0; i < ids.length; i++)
-    await page
-      .locator(`.graph .node[data-id="${ids[i]}"] .node-head .type-tag`)
-      .click({ modifiers: i ? ['Shift'] : [] });
+  const selectedIds = () =>
+    page
+      .locator('.graph .node.selected')
+      .evaluateAll((nodes) => nodes.map((n) => n.dataset.id).sort());
+  await page.locator(`.graph .node[data-id="${image.id}"] .node-head .type-tag`).click();
+  // Native controls keep Ctrl+A even when nested inside the graph.
+  for (const tag of ['input', 'textarea', 'div']) {
+    await page.locator('.graph-scroll').evaluate((graph, tag) => {
+      const el = document.createElement(tag);
+      el.id = 'native-select-all-probe';
+      if (tag === 'div') {
+        el.contentEditable = 'true';
+        el.innerHTML = '<span>Native text selection</span>';
+      } else el.value = 'Native text selection';
+      graph.append(el);
+      el.focus();
+    }, tag);
+    await page.keyboard.press('Control+a');
+    assert.equal(
+      await page
+        .locator('#native-select-all-probe')
+        .evaluate((el) =>
+          el.isContentEditable
+            ? window.getSelection().toString()
+            : el.value.slice(el.selectionStart, el.selectionEnd),
+        ),
+      'Native text selection',
+    );
+    assert.deepEqual(await selectedIds(), [image.id]);
+    await page.locator('#native-select-all-probe').evaluate((el) => el.remove());
+  }
+  await page.evaluate(() => window.getSelection().removeAllRanges());
+  for (const options of [
+    { isComposing: true },
+    { keyCode: 229 },
+    { shiftKey: true },
+    { altKey: true },
+  ]) {
+    assert.equal(
+      await page.locator('.graph-scroll').evaluate((el, options) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'a',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        });
+        el.dispatchEvent(event);
+        return event.defaultPrevented;
+      }, options),
+      false,
+    );
+    assert.deepEqual(await selectedIds(), [image.id]);
+  }
+  await page.locator('.canvas-stage').focus();
+  await page.keyboard.press('Control+a');
+  assert.deepEqual(await selectedIds(), [image.id], 'Canvas does not select graph nodes');
+  const preSelection = await page.evaluate(() => ({
+    doc: JSON.stringify(window.nect.document),
+    revision: window.nect.commandState.expectedRevision,
+  }));
+  await page.locator('.graph-scroll').focus();
+  await page.keyboard.press('Control+a');
+  assert.deepEqual(
+    await selectedIds(),
+    [...ids, src.output].sort(),
+    'current Composition includes Output',
+  );
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      doc: JSON.stringify(window.nect.document),
+      revision: window.nect.commandState.expectedRevision,
+    })),
+    preSelection,
+    'selection does not edit the document',
+  );
   const before = await page.evaluate(() => ({
     doc: JSON.stringify(window.nect.document),
     revision: window.nect.commandState.expectedRevision,
   }));
   await page.locator('.graph-scroll').focus();
   await page.keyboard.press('Control+c');
-  assert.match(await page.locator('.status').innerText(), /6 nodes copied/);
+  assert.match(await page.locator('.status').innerText(), /6 nodes copied.*1 Output skipped/);
   assert.deepEqual(
     await page.evaluate(() => ({
       doc: JSON.stringify(window.nect.document),
@@ -217,6 +289,10 @@ try {
       {
         productionCsp: true,
         actualKeyboard: true,
+        selectAllCurrentComposition: true,
+        selectAllInputTextareaContenteditableNative: true,
+        selectAllCanvasAndImeExcluded: true,
+        selectedOutputSkippedOnCopy: true,
         copiedNodes: 6,
         crossComposition: true,
         internalConnections: true,
