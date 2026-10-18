@@ -20,10 +20,11 @@ Goal: Complete the user-authorized A direct selection, selected-point nudge,
 Alt independent handle and open-end Pen continuation. Preserve one-operation
 Undo, stable point IDs, generated Remap provenance, locks and point Delete ownership.
 
-Current phase: All four interactions are implemented. Endpoint continuation now
+Current phase: All four interactions are implemented and the new Windows trial
+is uploaded to Library. Endpoint continuation
 passes common Session and production UI checks for both ends of Curve/Multi Path,
 literal Transform placement, closure, cancellation, unchanged finish, Undo/Redo,
-JSON reload and matching SVG/PNG pixels. Package the combined Windows checkpoint.
+JSON reload and matching SVG/PNG pixels.
 Existing independent Pen and Alt anchor-to-paired-handles behavior are retained.
 
 Proven: HEAD f055541 preserves OS Text horizontal wrap (schema32). Library
@@ -37,8 +38,9 @@ one-handle separation with opposite vector unchanged, Undo, locks, IME/input foc
 toolbar Delete safety and protection of procedural sources; receipt in
  desktop/test-results/direct-selection/receipt.json (generated/ignored).
 
-Next task: Finish regression and native build/startup, produce a separate combined
-path checkpoint, upload the actual new ZIP and report exact hashes and limitations.
+Next task: Native hands-on acceptance of this combined checkpoint when the actual
+WebView2 UI controller becomes available; no further code work is implied merely
+by that local acceptance wait. Parent owns the next product-priority decision.
 Endpoint continuation preserves existing point records and unrelated contours;
 closed/interior/locked/driven/generated/retained-Remap targets reject atomically.
 
@@ -53,9 +55,16 @@ when focus is on a toolbar. No saved-format change for these path interactions.
 
 Done for next: All four requested interactions work through Canvas and common
 Session with focused regression, reproducible tests and preserved earlier packages.
-State: codex/desktop-production-20261016, A/nudge/Alt at 2f89184; endpoint continuation
-is the current change. Combined model/DOM regression37 and production endpoint UI
-passed. No schema change; earlier schema32 packages remain preserved.
+State: codex/desktop-production-20261016. Build source de2b5893580b8ba945c865b30b18b28c606d5ef9
+includes A/nudge/Alt at 2f89184 and endpoint continuation. Combined model/DOM37,
+production A/continuation UI and legacy Pen UI passed. New EXE startup responded
+with no logs; six packaged examples re-export exact SVG offline. No schema change.
+Library libfile_fae9c257178481919aa938af765d643a, ZIP 3,801,569 bytes:
+SHA256 52D829077B0B46A8544F84FD9304DB9E9102BEBDF60E0BB06E39A368E11CBD7F.
+EXE 9,772,032 bytes; SHA256
+1DE122C1AC0F500D6B9BED2FA033AD6E7C39891552DD074EC732C8E0E28363A3.
+Earlier schema32 packages remain preserved. Local artifact is task-root
+Nect-Desktop-trial-20261018-de2b589.zip; BUILD/receipts are inside the ZIP.
 
 LOCAL_WAIT: Actual native WebView2 IME/high-DPI/full manual editing. Formal native
 UI controller is unavailable; no repeated inventory without new evidence. This
