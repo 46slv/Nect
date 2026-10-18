@@ -1,29 +1,48 @@
-# Grapheme editing: isolated reproduction checkpoint
+# Grapheme editing module: awaiting application connection
 
-## Scope and state
+## Ownership and source
 
-Owner: the font/text-editing lane in `task-4/Nect`, branch
-`codex/grapheme-editing-20261018`. Base is
-`9e4cbf9040c6e080710ca509765c3340fec53989` (includes font-discovery source
-`66211d47a3875e5b412dd7159f7a37a5ea27c212`).
+Font/text-editing lane: `task-4/Nect`, branch
+`codex/grapheme-editing-20261018`, base
+`9e4cbf9040c6e080710ca509765c3340fec53989`, initial reproduction commit
+`23042953df2c08c48361e79900cdc159b03ac3d4`.
 
-Production code is unchanged. This checkpoint contains only authored Unicode
-fixtures, pure geometry/Session tests and a disposable browser probe. It does
-not implement the requested editing correction.
-
-The source tree was read only. Its `grapheme-probe-checkpoint.md` states that
-the previous owner made no font implementation before taking per-operation
-recovery. Observed dirty production files were `core.js`, `main.js` and
-`recovery-autosave.js`. The clone contains committed base files, not that WIP.
+The parent subsequently authorized the dedicated pure module and its tests.
+Shared app/renderer connections remain pending handoff and are kept separate.
+The source tree was read only: its dirty `core.js`/`main.js` changes concern
+per-operation recovery, with no grapheme implementation or overlapping module.
 No source checkout/reset/stash, private font/data, user window/profile/recovery
-operation, EXE build or release was performed.
+operation, EXE build, main merge or release was performed.
 
-## Observations
+## Implemented dedicated API
 
-`node tests/grapheme-native-probe.e2e.js` used headless Windows Edge
-`155.0.4283.45` with a fresh disposable profile. Its 13 authored fixtures give
-52 real keyboard operations. Browser and Node `Intl.Segmenter` agree with
-explicit UTF-16 boundary expectations for all 13 fixtures. The native gaps are:
+`src/grapheme-editing.js` has no DOM/Session dependencies or text mutations.
+It keeps the original UTF-16 string; NFC normalization, scalar character IDs
+and OpenType shaping clusters remain separate. `ffi` retains three graphemes.
+
+| Export                                        | Contract                                                                                    |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `graphemeBoundaries(text)`                    | Extended-grapheme UTF-16 offsets, including 0 and the end                                   |
+| `graphemeCaretIndex(text, index, bias)`       | Snap an interior position backward, forward or nearest                                      |
+| `graphemeDeletionRange(text, intent)`         | Desired whole-grapheme range for native content Backspace/Delete; expand partial selections |
+| `graphemeMovementCorrection(text, selection)` | Correct an interior native movement result; return null for legal native selections         |
+
+Deletion/movement return null during composition. Deletion also ignores
+history, word/line deletion, cut and insert intents. The adapter still owns
+when correction is necessary; the module does not replace native input or Undo.
+Movement requires the observed **logical** direction, not an assumption that
+ArrowLeft always reduces UTF-16 indices. Shift extension retains legal anchors,
+handles crossing them, and expands pre-existing interior anchors outward.
+Invalid settled ranges fail without a partial result. `Intl.Segmenter` is
+required, with an explicit unavailable error; do not add a scalar fallback that
+claims grapheme safety. Target-runtime feature gating belongs to integration.
+
+## Evidence
+
+Headless Windows Edge `155.0.4283.45` used fresh disposable profiles.
+Baseline probe: 13 authored fixtures / 52 real keyboard operations. Browser and
+Node segmenters agree with explicit fixture offsets. Seven baseline native-control
+gaps have no correction connected in the application yet:
 
 | Fixture                            | Native operation that enters/removes part of the grapheme |
 | ---------------------------------- | --------------------------------------------------------- |
@@ -32,69 +51,57 @@ explicit UTF-16 boundary expectations for all 13 fixtures. The native gaps are:
 | KA + VIRAMA + ZWJ + SSA            | ArrowLeft, ArrowRight, Backspace, Delete                  |
 | Hangul leading/vowel/trailing jamo | Backspace                                                 |
 
-Surrogate pairs, family ZWJ emoji, flag pairs, airplane variation selectors,
-skin-tone emoji and keycaps are safe for these tested native operations.
-Every tested native deletion also passed real browser Undo and Redo.
-This is an input-control probe, not a claim about all Unicode or all browsers.
-
-`canvas-text-edit.js` currently exposes scalar boundaries. A synthetic scalar
-layout with independently hittable component boxes demonstrates nine composite
-fixture cases whose caret list includes internal grapheme positions. The
-surrogate-pair and ASCII/Japanese cases pass. `ffi` deliberately keeps three
-editing units even when a font could shape it into one glyph. A real application
-control/evaluated-font probe remains necessary; synthetic geometry is evidence
-of the boundary algorithm, not production UI acceptance.
-
-## Verification and commands
+Native surrogate pairs, family ZWJ, flags, airplane variation selectors,
+skin-tone emoji and keycaps were safe in these baseline operations.
 
 From `desktop/`:
 
-- `node --test tests/text-session.test.js tests/canvas-text-edit.test.js tests/grapheme-session.test.js`:
-  **33 passed**, including 20 new whole-grapheme deletion/composition tests.
-  Native draft history restores character IDs/offsets; Session Undo/Redo and
-  exact JSON encode/decode round trips hold. Uncommitted composition does not
-  enter the authored snapshot, and commit/Undo are refused until composition
-  ends. These tests use the existing Session and do not inject physical IME.
-- `node --test tests/grapheme-editing.test.js`: **17 passed, 9 TODO**.
-  TODO means missing implementation, not success. Set
-  `NECT_GRAPHEME_ACCEPTANCE=1` to make the same boundary assertions strict:
-  **17 passed, 9 failed**, exit 1, on the unchanged base.
-- `node tests/grapheme-native-probe.e2e.js`: **52 operations**, seven native
-  operation gaps above; native Undo/Redo and all segmentation assertions passed.
+- `node --test tests/text-session.test.js tests/canvas-text-edit.test.js tests/grapheme-session.test.js tests/grapheme-boundaries.test.js`:
+  **61 passed**, including 28 dedicated module cases. Planned deletion ranges
+  feed the existing Session tests: character IDs/offsets, native draft history,
+  Session Undo/Redo and exact JSON round trips hold. Uncommitted composition
+  stays outside the authored snapshot and refuses commit/Undo until completed.
+- `node tests/grapheme-native-adapter.e2e.js`: **98 passed operations**, plus
+  composition bypass. This experiment loads the real module into an isolated
+  textarea. It covers Backspace/Delete from boundaries and interior positions,
+  arrows and Shift arrows. Actual deletion events remain trusted, uncancelled
+  native `beforeinput`/`input`; real browser Undo/Redo succeeds. No replacement
+  text writes or synthetic input are used to implement deletion. Single-scalar
+  boundary deletions are left native. The IME bypass check is synthetic, not
+  physical IME acceptance.
+- `node --test tests/grapheme-editing.test.js`: original application-connection
+  acceptance targets remain **17 passed, 9 TODO**. Strict mode
+  `NECT_GRAPHEME_ACCEPTANCE=1` gives **17 passed, 9 failed** on unchanged shared
+  code. These are not claimed fixed in the application.
 - New files pass Prettier; `git diff --check` passes.
 
 Detailed local output is under ignored `desktop/test-results/grapheme-editing/`:
-`native-probe.json`, `strict-before.txt`, `session-checks.txt`. It contains only
-the authored fixtures. No native app or WebView2 EXE was built.
+`native-probe.json`, `native-adapter.json`, `module-session-checks.txt` and
+`strict-before.txt`. It contains only authored fixtures.
 
-## Next bounded implementation, after parent handoff
+## Separate connection patch and remaining work
 
-1. Confirm the current font WIP/ownership handoff, then probe the actual Text
-   controls at the exact integration base. Keep shared `main.js` connection
-   edits as a separate small patch from the dedicated editing module/tests.
-2. Use raw textarea UTF-16 grapheme boundaries for editing, independently of
-   NFC character identity and OpenType shaping clusters. Filter pointer carets
-   to legal grapheme boundaries without changing per-scalar authored identity.
-3. Test the smallest native selection correction before deletions that would
-   split a grapheme. Preserve the native edit/input/history path; do not replace
-   native-safe arrows/deletions or emulate text with value writes. Any selection
-   correction must occur before the existing draft range capture.
-4. Bypass correction during composition; validate Shift selection, interior
-   pointer placement, native Undo/Redo, draft commit and saved JSON at that base.
-   Remove TODO markers once their actual implementation passes.
+`docs/patches/canvas-grapheme-carets.patch` is **unapplied**. It filters the
+renderer caret list through native-text grapheme boundaries while retaining
+per-scalar selection geometry and authored identity. `git apply --check`
+passes at the lane base. Its candidate code passed all 13 synthetic layout
+boundary cases. It is a proposed renderer connection, not real UI acceptance.
 
-No OpenType follow-on is selected: concrete grapheme editing gaps remain.
+The isolated textarea adapter is evidence for native selection extension before
+deletion and correction after native movement. It is intentionally not
+registered in `main.js`. Production integration must coordinate the existing
+draft range capture/composition guards, native-safe paths, repeated movement
+and actual Text controls. It must feature-check the target runtime and validate
+real Canvas pointer placement, Shift selection, native Undo/Redo, draft commit
+and saved JSON at the integration base. Physical IME remains unverified.
 
-## Pending boundary
+Pending actions: parent handoff for `main.js` / renderer connection, integration
+and actual app validation. Status **pending by instruction**, not denied or
+uncertain. The parent requested no direct cross-thread messages; results return
+through the final report. No other implementation blocker remains for the pure
+module. No OpenType follow-on is selected while these editing gaps remain.
 
-The delegated request explicitly permits independent fixtures/pure tests while
-overlapping implementation awaits parent handoff. The parent source thread
-`01a11861-608b-7537-9fec-1ca440fa10ef` could not be resolved by app messaging
-("thread not found" with both default and durable host). Neither message was
-delivered. The shared-code handoff is **pending**, not denied, and no production
-mutation was attempted. Resume on the parent's ownership/handoff reply.
-
-External-review gate: local evidence is sufficient for this reproduction
-checkpoint; status `not-required`, external submissions 0, local review cycle 1.
-The initial sandbox read/browser launch restrictions were resolved through
-approved isolated operations; there is no unresolved approval denial.
+External-review gate: local implementation/experiment evidence resolves this
+bounded module; status `not-required`, external submissions 0, local review
+cycle 1. Initial sandbox read/browser restrictions were resolved through
+approved isolated operations; no unresolved approval denial remains.

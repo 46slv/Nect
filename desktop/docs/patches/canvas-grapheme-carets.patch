@@ -1,0 +1,34 @@
+diff --git a/desktop/src/canvas-text-edit.js b/desktop/src/canvas-text-edit.js
+index dee8142..955acfd 100644
+--- a/desktop/src/canvas-text-edit.js
++++ b/desktop/src/canvas-text-edit.js
+@@ -4,11 +4,14 @@ import {
+   multiplyMatrices,
+   transformCharacterPoint,
+ } from './character-geometry.js';
++import { graphemeBoundaries } from './grapheme-editing.js';
+
+ // Carets follow the same evaluated outlines as the Canvas, including mixed fonts,
+ // character adjustments and downstream transforms. The native input stays transparent.
+ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults = {}) {
+-  const chars = Array.from(node.text.replace(/\r\n?/g, '\n'));
++  const nativeText = node.text.replace(/\r\n?/g, '\n');
++  const chars = Array.from(nativeText);
++  const boundaries = new Set(graphemeBoundaries(nativeText));
+   const offsets = [0];
+   for (const char of chars) offsets.push(offsets.at(-1) + char.length);
+   const vertical = node.writingMode === 'vertical-rl';
+@@ -82,7 +85,12 @@ export function textEditGeometry(node, layout, occurrence, fonts = {}, defaults
+       base[1] = (first?.base[1] ?? origin[1]) + distance - (layout.lineOffsets?.[firstLine] || 0);
+     carets.set(index, { index, points: lineFor(base, size, fonts[node.font]) });
+   }
+-  return { carets: [...carets.values()].sort((a, b) => a.index - b.index), selections };
++  return {
++    carets: [...carets.values()]
++      .filter((caret) => boundaries.has(caret.index))
++      .sort((a, b) => a.index - b.index),
++    selections,
++  };
+ }
+
+ export function nearestTextCaret(geometry, point) {

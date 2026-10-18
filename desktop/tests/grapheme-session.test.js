@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { CommandSession, document, node, serialize, deserialize } from '../src/core.js';
 import { createCharacterPositions, setCharacterOffsets } from '../src/character-identity.js';
 import { graphemeSamples } from './fixtures/grapheme-editing.js';
+import { graphemeDeletionRange } from '../src/grapheme-editing.js';
 
 function fixture(sample) {
   const doc = document(),
@@ -49,12 +50,17 @@ for (const sample of graphemeSamples) {
   test(`whole-grapheme deletion preserves native draft history, Session Undo/Redo and encoding: ${sample.name}`, () => {
     const f = fixture(sample);
     f.begin();
+    const range = graphemeDeletionRange(f.raw, {
+      start: 1 + sample.text.length,
+      end: 1 + sample.text.length,
+      inputType: 'deleteContentBackward',
+    });
     const deletion = {
       action: 'edit',
       previousRaw: f.raw,
       nextRaw: 'AB',
-      selectionStart: 1,
-      selectionEnd: 1 + sample.text.length,
+      selectionStart: range.start,
+      selectionEnd: range.end,
       inputType: 'deleteContentBackward',
     };
     f.stage(deletion);
