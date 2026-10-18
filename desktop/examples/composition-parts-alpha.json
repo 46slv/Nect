@@ -1,0 +1,240 @@
+{
+  "schemaVersion": 31,
+  "name": "Composition parts and alpha",
+  "width": 240,
+  "height": 140,
+  "layers": [
+    {
+      "id": "composition-master-ring",
+      "name": "Master ring",
+      "visible": false,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "master-ring-path",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [
+            30,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M10 10H90V90H10Z M30 30V70H70V30Z"
+        },
+        {
+          "id": "master-ring-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            300,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "master-ring-path"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff0000",
+                "alpha": 0.5
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "master-ring-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            580,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "master-ring-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "master-ring-output"
+    },
+    {
+      "id": "composition-placed-parts",
+      "name": "Placed parts",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "placed-part-a",
+          "type": "Composition Reference",
+          "name": "Composition Reference",
+          "position": [
+            30,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "compositionReference": {
+            "compositionId": "composition-master-ring"
+          }
+        },
+        {
+          "id": "placed-part-b",
+          "type": "Composition Reference",
+          "name": "Composition Reference",
+          "position": [
+            30,
+            350
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                40,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "compositionReference": {
+            "compositionId": "composition-master-ring"
+          }
+        },
+        {
+          "id": "placed-parts-join",
+          "type": "Join Geometry",
+          "name": "Join Paths",
+          "position": [
+            330,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "placed-part-a"
+            },
+            "b": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "placed-part-b"
+            },
+            "input_spare": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "joinInputOrder": [
+            "a",
+            "b",
+            "input_spare"
+          ],
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "paintMode": true
+        },
+        {
+          "id": "placed-parts-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            650,
+            30
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "placed-parts-join"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "placed-parts-output"
+    }
+  ]
+}

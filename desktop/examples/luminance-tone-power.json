@@ -1,0 +1,5628 @@
+{
+  "schemaVersion": 21,
+  "name": "Luminance Tone Power Comparison",
+  "width": 816,
+  "height": 790,
+  "layers": [
+    {
+      "id": "luma-tone-0",
+      "name": "White paper",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-0:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                408,
+                395
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                816,
+                790
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-0:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-0:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-0:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-0:n2"
+    },
+    {
+      "id": "luma-tone-1",
+      "name": "Label / Luminance → Tone Power",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                40
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 25,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Luminance → Tone Power",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#20323d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-1:n2"
+    },
+    {
+      "id": "luma-tone-2",
+      "name": "Label / Same gradient and grid. Power acts on darkness after alpha + Invert.",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-2:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                66
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Same gradient and grid. Power acts on darkness after alpha + Invert.",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-2:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-2:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-2:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-2:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-2:n2"
+    },
+    {
+      "id": "luma-tone-3",
+      "name": "Label / Power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-3:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                99
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 15,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Power 0.5",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-3:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-3:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-3:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-3:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-3:n2"
+    },
+    {
+      "id": "luma-tone-4",
+      "name": "Halftone / power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-4:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                144,
+                170
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-4:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-4:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                256,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-4:n2",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-4:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 0.5,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-4:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-4:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-4:n3"
+    },
+    {
+      "id": "luma-tone-5",
+      "name": "Label / Halftone",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-5:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                232
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Halftone",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-5:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-5:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-5:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-5:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-5:n2"
+    },
+    {
+      "id": "luma-tone-6",
+      "name": "Ordered Dither / power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-6:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                144,
+                298
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-6:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-6:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                256,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-6:n2",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-6:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 0.5,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-6:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-6:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-6:n3"
+    },
+    {
+      "id": "luma-tone-7",
+      "name": "Label / Ordered Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-7:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                360
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Ordered Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-7:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-7:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-7:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-7:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-7:n2"
+    },
+    {
+      "id": "luma-tone-8",
+      "name": "Line Screen / power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-8:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                144,
+                426
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-8:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-8:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                256,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-8:n2",
+          "type": "Line Screen",
+          "name": "Line Screen",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-8:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 0.5,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "horizontal",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-8:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-8:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-8:n3"
+    },
+    {
+      "id": "luma-tone-9",
+      "name": "Label / Line Screen",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-9:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                488
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Line Screen",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-9:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-9:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-9:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-9:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-9:n2"
+    },
+    {
+      "id": "luma-tone-10",
+      "name": "Error Diffusion Dither / power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-10:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                144,
+                554
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-10:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-10:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                256,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-10:n2",
+          "type": "Error Diffusion Dither",
+          "name": "Error Diffusion Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-10:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 0.5,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-10:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-10:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-10:n3"
+    },
+    {
+      "id": "luma-tone-11",
+      "name": "Label / Error Diffusion Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-11:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                616
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Error Diffusion Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-11:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-11:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-11:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-11:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-11:n2"
+    },
+    {
+      "id": "luma-tone-12",
+      "name": "Luminance Instances / power 0.5",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-12:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                144,
+                682
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-12:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-12:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                32,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                256,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-12:n2",
+          "type": "Luminance Instances",
+          "name": "Luminance Instances",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-12:n1"
+            },
+            "motif": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-12:motif"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 0.5,
+              "expression": "",
+              "locked": false
+            },
+            "minScale": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxScale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "minRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxRotation": {
+              "type": "Scalar",
+              "value": 90,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-12:n3",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-12:n2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-12:n4",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            1048,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-12:n3"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-12:motif",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [
+            48,
+            220
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M-7 -2 L7 0 L-7 2Z"
+        }
+      ],
+      "output": "luma-tone-12:n4"
+    },
+    {
+      "id": "luma-tone-13",
+      "name": "Label / Luminance Instances",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-13:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                32,
+                744
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Luminance Instances",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-13:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-13:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-13:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-13:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-13:n2"
+    },
+    {
+      "id": "luma-tone-14",
+      "name": "Label / Power 1 · unchanged default",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-14:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                99
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 15,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Power 1 · unchanged default",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-14:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-14:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-14:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-14:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-14:n2"
+    },
+    {
+      "id": "luma-tone-15",
+      "name": "Halftone / power 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-15:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                400,
+                170
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-15:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-15:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                288,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                512,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-15:n2",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-15:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-15:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-15:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-15:n3"
+    },
+    {
+      "id": "luma-tone-16",
+      "name": "Label / Halftone",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-16:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                232
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Halftone",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-16:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-16:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-16:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-16:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-16:n2"
+    },
+    {
+      "id": "luma-tone-17",
+      "name": "Ordered Dither / power 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-17:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                400,
+                298
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-17:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-17:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                288,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                512,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-17:n2",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-17:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-17:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-17:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-17:n3"
+    },
+    {
+      "id": "luma-tone-18",
+      "name": "Label / Ordered Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-18:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                360
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Ordered Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-18:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-18:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-18:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-18:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-18:n2"
+    },
+    {
+      "id": "luma-tone-19",
+      "name": "Line Screen / power 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-19:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                400,
+                426
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-19:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-19:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                288,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                512,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-19:n2",
+          "type": "Line Screen",
+          "name": "Line Screen",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-19:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "horizontal",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-19:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-19:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-19:n3"
+    },
+    {
+      "id": "luma-tone-20",
+      "name": "Label / Line Screen",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-20:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                488
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Line Screen",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-20:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-20:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-20:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-20:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-20:n2"
+    },
+    {
+      "id": "luma-tone-21",
+      "name": "Error Diffusion Dither / power 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-21:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                400,
+                554
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-21:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-21:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                288,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                512,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-21:n2",
+          "type": "Error Diffusion Dither",
+          "name": "Error Diffusion Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-21:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-21:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-21:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-21:n3"
+    },
+    {
+      "id": "luma-tone-22",
+      "name": "Label / Error Diffusion Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-22:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                616
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Error Diffusion Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-22:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-22:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-22:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-22:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-22:n2"
+    },
+    {
+      "id": "luma-tone-23",
+      "name": "Luminance Instances / power 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-23:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                400,
+                682
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-23:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-23:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                288,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                512,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-23:n2",
+          "type": "Luminance Instances",
+          "name": "Luminance Instances",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-23:n1"
+            },
+            "motif": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-23:motif"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "minScale": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxScale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "minRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxRotation": {
+              "type": "Scalar",
+              "value": 90,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-23:n3",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-23:n2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-23:n4",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            1048,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-23:n3"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-23:motif",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [
+            48,
+            220
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M-7 -2 L7 0 L-7 2Z"
+        }
+      ],
+      "output": "luma-tone-23:n4"
+    },
+    {
+      "id": "luma-tone-24",
+      "name": "Label / Luminance Instances",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-24:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                288,
+                744
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Luminance Instances",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-24:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-24:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-24:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-24:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-24:n2"
+    },
+    {
+      "id": "luma-tone-25",
+      "name": "Label / Power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-25:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                99
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 15,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Power 2",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-25:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-25:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-25:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-25:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-25:n2"
+    },
+    {
+      "id": "luma-tone-26",
+      "name": "Halftone / power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-26:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                656,
+                170
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-26:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-26:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                544,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                768,
+                130
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-26:n2",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-26:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-26:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-26:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-26:n3"
+    },
+    {
+      "id": "luma-tone-27",
+      "name": "Label / Halftone",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-27:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                232
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Halftone",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-27:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-27:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-27:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-27:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-27:n2"
+    },
+    {
+      "id": "luma-tone-28",
+      "name": "Ordered Dither / power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-28:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                656,
+                298
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-28:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-28:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                544,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                768,
+                258
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-28:n2",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-28:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-28:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-28:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-28:n3"
+    },
+    {
+      "id": "luma-tone-29",
+      "name": "Label / Ordered Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-29:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                360
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Ordered Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-29:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-29:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-29:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-29:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-29:n2"
+    },
+    {
+      "id": "luma-tone-30",
+      "name": "Line Screen / power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-30:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                656,
+                426
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-30:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-30:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                544,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                768,
+                386
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-30:n2",
+          "type": "Line Screen",
+          "name": "Line Screen",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-30:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "horizontal",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-30:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-30:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-30:n3"
+    },
+    {
+      "id": "luma-tone-31",
+      "name": "Label / Line Screen",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-31:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                488
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Line Screen",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-31:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-31:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-31:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-31:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-31:n2"
+    },
+    {
+      "id": "luma-tone-32",
+      "name": "Error Diffusion Dither / power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-32:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                656,
+                554
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-32:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-32:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                544,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                768,
+                514
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-32:n2",
+          "type": "Error Diffusion Dither",
+          "name": "Error Diffusion Dither",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-32:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-32:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-32:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-32:n3"
+    },
+    {
+      "id": "luma-tone-33",
+      "name": "Label / Error Diffusion Dither",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-33:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                616
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Error Diffusion Dither",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-33:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-33:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-33:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-33:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-33:n2"
+    },
+    {
+      "id": "luma-tone-34",
+      "name": "Luminance Instances / power 2",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-34:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                656,
+                682
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                224,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-34:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-34:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [
+                544,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [
+                768,
+                642
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-34:n2",
+          "type": "Luminance Instances",
+          "name": "Luminance Instances",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-34:n1"
+            },
+            "motif": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-34:motif"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 2,
+              "expression": "",
+              "locked": false
+            },
+            "minScale": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxScale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "minRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "maxRotation": {
+              "type": "Scalar",
+              "value": 90,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-34:n3",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            798,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-34:n2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-34:n4",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            1048,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-34:n3"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-34:motif",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [
+            48,
+            220
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M-7 -2 L7 0 L-7 2Z"
+        }
+      ],
+      "output": "luma-tone-34:n4"
+    },
+    {
+      "id": "luma-tone-35",
+      "name": "Label / Luminance Instances",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "luma-tone-35:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [
+            48,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                544,
+                744
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 13,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Luminance Instances",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-35:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            298,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-35:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#34434d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "luma-tone-35:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            548,
+            56
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "luma-tone-35:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "luma-tone-35:n2"
+    }
+  ]
+}

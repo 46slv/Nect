@@ -4,6 +4,22 @@ Status: M0 engineering baseline. Notion owns product requirements/decisions; thi
 
 ## Owners
 
+### Production Desktop lane (2026-10-16)
+
+The 2026-10-18 Windows font adapters additionally own bounded read-only OS font
+discovery and glyph-outline preparation. They return geometry and face metadata,
+never font bytes or authored document changes. The JS Session validates and
+adopts snapshots; pure evaluation/export never calls Windows. See
+`desktop/docs/windows-text-shaping.md` for schema 28/29 and unsupported layouts.
+
+The separate Desktop Mission lives under `desktop/`, with its adopted Brief in this worktree's CURRENT_GOAL.md. It uses Tauri/WebView2 and the imported Nect-SVG typed graph. Its common editing Session is JavaScript, independent of the DOM; Rust owns filesystem bindings and staged writes only. Supported GUI/headless/API adapters must share that Session's commands and history. Legacy C++/Qt and native formats remain preserved, separate implementations; no format/command equivalence is claimed. The imported callback History and UI direct edits are an explicit migration obligation, not a completed command architecture. DocumentLifecycle coordinates file lifetime and is not itself the editing Session.
+
+For migrated Text editing, CommandSession also owns temporary text drafts, stable character reconciliation and bounded native-input Undo snapshots. The UI captures observed text/selection/composition intent and renders provisional input; it cannot install authored character maps. Text/font commits validate private candidates and share the Session History. See `desktop/docs/nect-integration.md` for the remaining direct-edit migration debt.
+
+Graph layout, numeric/Text scrubs and Canvas gestures use one exclusive Session-private gesture candidate. Fixed stable targets and an independent preview revision protect updates; detached previews are output-only display projections. Committed snapshots/History remain unchanged until one validated commit, and cancellation discards the draft without restoring over newer authored state. Pen shares that slot and separates pressed-point rollback from whole-path cancellation. GUI retains pointer/snap/view/selection state. SVG adapters lower XML to portable syntax data; the DOM-free Session validates the supported subset and generates the authored graph and identities. The UI reads frozen History states for selection identity, while public debug reads/evaluation use detached snapshots. Authored mutation stays inside typed Session commands.
+
+The baseline owners below continue to describe the legacy implementation.
+
 | Owner | Responsibility | Must not own |
 |---|---|---|
 | `nect_core` | Authored document, identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary codec internals |
@@ -168,3 +184,87 @@ Choose flush/cadence/retention/recovery-loss bounds with the persistence impleme
 | Host/codec/plugin runtime | Adapter plus actual capability gaps | No second authority; explicit unsupported result |
 
 Use the smallest correct boundary, not the fewest lines at any cost. If an invariant blocks a real requirement, propose its bounded replacement and migration rather than preserving a known defect or rewriting unrelated subsystems.
+
+
+## Same-document Composition output references (schema 31)
+
+Composition Reference stores a stable compositionId and numeric Position. The
+common Session owns selection/retarget/duplication edits; evaluate receives the
+document explicitly, resolves source Output independently of layer visibility,
+and includes its output revision in dependent cache keys. Missing IDs remain
+saved and diagnosed; self/indirect cycles are rejected, including unused nodes.
+
+Appearance reuse is a derived painted-group value, never saved scene snapshots:
+ordered paint/image children and affine matrices render the source appearance,
+while aggregate contours are only geometry for bounds/handles. Transform and Join
+persist an explicit paintMode with PaintedPath sockets/output. Plain Path-only
+consumers still require Convert to Path. Nested groups preserve per-child alpha,
+holes, gradient IDs and image data without an artboard/background bake. Source
+export restrictions propagate separately from editable character provenance.
+The structural/geometry/depth budgets refuse expansion rather than truncating it.
+Old documents keep their schema until this feature is authored. No external-file
+identity, storage or render authority is introduced by this reference.
+
+
+OS Text horizontal wrap (schema32, OS reference v4 / directwrite-v3) reuses
+textWrap.width in the common prepared-text command. The immutable outline records
+requested wrapWidth and overflow, axes and writing mode; source text retains only
+its explicit newlines. DirectWrite whole-word breaks preserve long unbreakable
+spans without clipping, while width/spacing/alignment/text and generated geometry
+commit atomically. Layout advances and visible-bound anchoring keep their existing
+coordinate meanings. Horizontal layout height grows independently of artboard
+size; PNG retains normal artboard clipping. Full Japanese kinsoku and vertical
+wrap are not claimed. Old unwrapped native requests/snapshots retain v1/v2 meanings.
+
+
+Direct selection is a view-only resolver of a unique editable Output route. It
+composes literal Transform matrices for displayed controls and maps pointer/world
+nudge deltas back into source coordinates. Generated and branching paths are not
+silently baked or assigned new ownership. Common translate-points uses the same
+Curve/Multi Path/explicit Remap gesture validator, and independent handle drags
+commit corner mode plus one handle in the same transaction. UI point selection
+may be restored by stable ID on Undo, independently of saved authoring data.
+
+Pen continuation extends the existing common Session Pen draft using explicit
+layer/node/contour/endpoint IDs. Its preview replaces the owned layer, while new
+Pen artwork still appends a private layer. Head insertion prepends IDs without
+reversing existing point records or swapping handles; Multi Path global point
+storage and unrelated contours retain identity. World pointer coordinates are
+mapped through the same literal affine route as direct selection. One finish
+commits the entire extension; cancellation and unchanged finish preserve history.
+Retained Remap dependents refuse topology changes instead of silently suspending
+their edits. Procedural sources require explicit authoring conversion elsewhere.
+
+SVG parts reuse the conservative SVG syntax adapter and Composition appearance
+contract. Common add-svg-part builds one hidden editable source Composition from
+the parsed vector graphs, then appends a named Composition Reference to the current
+Composition and joins it after the previous output. Existing artboard, document
+binding, unrelated layers and authored source nodes remain intact. One command
+owns import, instance and join; refusal and Undo are atomic. The saved graphs are
+self-contained without a source-file dependency. No new SVG renderer, execution,
+external fetching, node type or document schema is introduced. Unsupported parser
+features and graph/paint limits refuse explicitly. Existing import-svg retains
+its separate undoable document-replacement contract.
+
+Desktop SVG actions use one native chooser that reads a selected UTF-8 file up to
+10 MB, returns basename/contents and creates no project-file binding. This avoids
+depending on HTML file-input activation after an asynchronous native unsaved-change
+prompt. The same JS parser and Session command own adoption after revision and
+document-generation checks. Cancel/read/parse errors preserve the current document;
+browser file inputs reset before each pick so retries do not suppress change events.
+
+Layer Solo is an optional saved boolean gated by schema33 and authored through
+set-layer-state/clear-layer-solo in the common Session. Multiple Solo layers form
+a top-level preview/export filter; Hide remains authoritative. It never rewrites
+visible flags, and clearing/Undo restores the prior state. Canvas, hit testing and
+SVG/PNG use the same visibility predicate. Composition Reference source evaluation
+continues independently of top-level display filters. A persistent panel status
+makes Solo's export effect visible. Structural renders retain Layers scroll along
+with the existing inspector/graph/guide scroll and prevent-scroll focus restore.
+
+The SVG adapter resolves rectangle percentages against its viewport and lowers
+rounded rectangles into editable paths. To import QR-like data without one layer
+per module, consecutive unnamed opaque same-color stroke-free rectangles can be
+combined into bounded closed-contour sources. The shared raw-path/geometry budgets
+remain intact; transparent paints, gradients, arbitrary paths and named layers are
+kept separate. This does not introduce permissive SVG execution or external assets.

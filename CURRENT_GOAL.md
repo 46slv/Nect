@@ -1,31 +1,69 @@
-# Nect — autonomous Mission ownership / Completion Route
+# Nect Desktop — production editor
 
-## Mission Brief
+## Mission Brief r1 (adopted 2026-10-16)
 
-**Final Goal:** Advance Nect's accepted Completion Route through eligible design, implementation, review, repair and validation steps under Codex Sol Mission ownership. Preserve all Confirmed Requirements and do not claim an L1/L2/L3 line complete without its own acceptance.
+Goal: Practical offline Windows editing based on Nect-SVG interaction, incorporating useful Nect capabilities. Shiro reviews operation and helps UI design; AI develops. Preserve the separate legacy C++/Qt Mission and C0.
 
-**Completion conditions:** Each material candidate has an exact packet, independent positive/negative acceptance, Sol review and necessary repair; code, native/API/GUI/runtime evidence and Requirement residuals are reconciled; coherent checkpoints are synchronized and read back. Continue to the next eligible Route step rather than treating a packet, commit, review or Task boundary as Mission completion. Actual human hands-on or preference acceptance remains explicit.
+Design: adopt task-16/astra/brief-r0.md (SHA256 A0D83BD6541092B7220C322291A75CFFF30DB5B45B2861D6B4EB301B7C7366C0) and architecture-addendum.md (C118F137FE34B602477C59D76C263858DCDF4FA66ADB7A390A8C6F5B509F74A5), with the Sol/Astra correction below. Tauri/WebView2 shell; DOM-free JS common command Session for supported Desktop adapters; Rust owns filesystem bindings only. AGENTS fixes common Session commands, not C++ as a language. Read-only Astra consultation /root/session_architecture confirms this decision is within current authority. Imported History/direct UI mutations are migration debt, not proof of the shared Session contract. Legacy formats are distinct and must reject without replacing current work.
 
-**Constraints / authority:** Current user instruction and [DEC-71 Accepted](https://app.notion.com/p/3e6fd279a6f381219079f6b9a024fece) establish Codex Sol as Mission Owner. Sol may resolve technical ambiguity within accepted intent, approve/update bounded packets, use fresh disposable Workers, review/repair, and perform ordinary reversible Git lifecycle including required-check non-force merge. The 2026-10-01 user instruction selects GPT-6.1 Sol for future Task handoffs. Human boundaries: actual hands-on/subjective acceptance, material preference-dependent product choice, major Goal replacement/expansion, platform confirmation, credentials/account/billing, destructive/irreversible action and release/publication/public external action. Preserve user projects, worktrees, settings, Confirmed Requirements and non-goals. Notion owns product decisions; Git owns implementation truth.
+Must: coherent Canvas/Graph/Inspector and direct generator edits; practical shapes/Curve/Pen/Boolean/Transform/paint/layers; supported static-font mixed Japanese/English horizontal text with IME; graph identity/fallback and atomic failed edits; safe New/Open/Save/Save As/Close; editable JSON plus SVG/PNG; reproducible offline application and measured responsiveness/startup/memory/size. Preserve imported vertical-text abilities. Advanced typesetting, all font formats, complete legacy conversion, cloud and generic plugins are not added Musts.
 
-**Coarse checkpoint map:** P01 qualification/remote closure (done) → P02 daily UI first slices (implemented with residuals) → R11-Q feasibility (qualified; R11-I format DESIGN_GATE) → R02 typed Text and P03 Save As source-preservation slices (implemented with residuals) → R03/R04 limited eligible slices and R05-C first editable Text-on-Path consumer (implemented with residuals) → R06-A/B real Object-local/Group operators and R06-C1 built-in descriptor entry (implemented with residuals) → R09 structured analysis/mask slices → R02 typed-property source-selection/dependency slices → R07 Preset/Macro and R04 Definition/Instance/Collection first verticals → R10 Asset/Folder, built-in Effect Favorites and portable built-in Preset Library (implemented with residuals) → R10 Macro Library (implemented with residuals) → R10 Template first vertical (automated qualified; hands-on LOCAL_WAIT) → Template Guide first vertical (automated qualified; hands-on LOCAL_WAIT) → Template background entry qualification → later eligible Route steps. The order may change with fresh evidence. Keep only one active checkpoint detailed.
+Done: actual production artwork → edit → Undo/Redo → save → exit → restart → re-edit → SVG/PNG, adopted Musts verified, major actual-use defects repaired. A first vertical is not product completion. Performance budgets follow measurements. Dashboard: NOT_CONNECTED; this checkpoint is the current reference.
 
-## ACTIVE CHECKPOINT
+Authority: user's current formal takeover/development instruction. Edits/tests/development branches/commits/non-force push/Draft PR permitted; mainline merge, release, force/history rewrite, credentials/permission/billing changes excluded.
 
-**Goal:** Qualify the next eligible bounded Template/Artboard background successor under Confirmed REQ-205 and the accepted Completion Route. Preserve the same Template relation, ordinary artwork ownership, existing compositing/output semantics and all Confirmed non-goals; this is entry qualification, not a frozen background implementation packet.
+Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-**Current phase:** HANDOFF_READY / GUIDE AUTOMATED FIRST VERTICAL QUALIFIED / BACKGROUND ENTRY NEXT. Sole C0 Sol `01a0f837-736b-7a11-a621-1327c234954f` completed the Guide implementation/review checkpoint. Disposable executor `/root/template_guide_vertical`, native `01a0f847-bc9d-7200-9545-a402f762cd01`, explicitly released SOURCE/BUILD and was interrupted. Parent independently verified 61/61 source/artifact/log/authority hash+size bindings, exact changed-file set and zero relevant jobs. No other source/Session writer is active. Ownership stays with this Sol until one exact successor entry ACK and bound release/acknowledgement.
+## ACTIVE CHECKPOINT — Per-operation recovery delivery
 
-**Proven:** Guide source `67f96b4807bcb1ae086936a78fa3de3c0a976b9f`, native0.77; frozen `docs/r10-template-guide-boundary.md` r1 SHA256 `089C96FB6CEB02600F2B56ACFFA85014643794C93F5EA36F2E7CB1B235AB70C1`. Terminal `build/manual-recipes/r10-template-guide-terminal-receipt.json` SHA256 `5B9B4D711DD9942E51AF0BB1E471D9EEE416AA2877B7683344E1D2109D7EC111`; independent Sol review `r10-template-guide-sol-review.json` SHA256 `ECED1FF926BFE3FA09277DB65C64C6B747C4285F1EFC651A4E3AF4B5107B0064`. Final all-target serial Release PASS/exit0; final serial full CTest60/60 PASS201.73s/exit0; core Guide105 checks, Canvas559 checks, formal MCP/actual rebuilt Host Save As/fresh-process cold reopen204 assertions PASS with original source bytes preserved. Public Window offscreen controls/captured identity/precision/History PASS. Stable nested source identity, field-local override/reset, item+full detach, deletion/orphan/collision/native negatives, clipped overlays and segment-bounded point/object snap are proven. Request-local properties reuse/list-get parity and canonical current-writer fixtures preserve historical destinations/assertions. Intermediate failures/repairs are retained in terminal/raw logs. Existing Template checkpoint/evidence remain valid; no replay without new changes or concern.
-
-**Next task:** Create one fresh GPT-6.1 Sol/high successor in the same Nect Project at the synchronized checkpoint. It first verifies actual model/profile/effective never+Full access, Project, root/branch/HEAD/clean state and no competing writer, then writes one exact TAKEOVER_ACK; it may not mutate source/Session/Git/Notion/CURRENT_GOAL before the old owner verifies that ACK, persists a bound release, and it read/hash-verifies that release. After takeover fresh-read REQ-205/G5/Completion Route/C0 ownership and the relevant background/render/Color boundaries. Qualify and freeze the highest-value eligible successor, then execute/review/repair/synchronize and continue DEC-71. Native GUI absence stays LOCAL_WAIT for its exact row; do not retry the unchanged capability inventory.
-
-**Approach:** Background is the next coarse G5 successor, but its concrete contract is not frozen. Current model treats authored paper/background as an ordinary filled Object, Artboards as output frames, and PNG white/transparent as an independent output option. Reconcile these with accepted Template background intent before implementation; preserve canonical Session, typed Color/source ownership and real Canvas/SVG/PNG/Host/API parity. If background depends on an unresolved row, record that local obligation and fresh-rank independent eligible Route work; do not expand Candidate scope or block the whole Mission unnecessarily.
-
-**Done for next:** Verified single-writer takeover; fresh authority/source qualification; one bounded successor packet with fixed positive/negative semantic oracles, explicit residuals and proportional real runtime checks. Implementation must be reviewed/repaired, coherently committed and non-force synchronized with exact remote SHA parity. Whole Requirement/hands-on/aggregate completion requires its own evidence.
-
-**State:** `D:/Documents/Nect`, `codex/practical-alpha`, native0.77. Source commit above; this checkpoint document is committed/synchronized separately, with exact final local/tracking/fresh-remote SHA and clean state in `build/manual-recipes/r10-template-guide-sync-checkpoint.json`. Current Git identity is the user's verified GitHub noreply identity. External JSON Schema validator NOT_RUN (unavailable; no install); schema JSON parse/native runtime PASS. Actual hands-on GUI LOCAL_WAIT (native CUA disabled). Projected Guide drag/local Align and Definition-backed Template Duplicate remain explicit residuals. Background/further content categories/typed Color/cross-Composition reuse remain open; whole REQ-205/160/194/203, G2/R12 and REQ-183 Q2 are not promoted. Retain the qualified artifact/log bindings; no source/build replay merely for rollover.
-
-**Authority:** Current user instruction, repo DEC-71 and accepted Completion Route authorize bounded design/implementation, disposable execution Workers, coherent commits/non-force synchronization and verified fresh-context rollover. Notion owns product intent; Git owns implementation truth. Keep user projects/settings, canonical identities and all Human/public/destructive boundaries. Future owner is GPT-6.1 Sol/high; verify actual access/authority rather than inferring from launch arguments.
-
-**Handoff:** NEW_TASK. Repeated compaction and long Guide implementation/debug carry now precede the distinct background/render/Color domain; compact fresh qualification lowers carry/drift cost. This is an operational Mission rollover, not a stop because tests/packet/commit passed. Old Sol keeps one writer until exact TAKEOVER_ACK, bound release and successor release acknowledgement. If creation/provisioning is unavailable, retain HANDOFF_READY and this complete resume contract; do not start a restricted or duplicate writer.
+Goal: Request recovery after each committed operation, without debounce, while
+preserving original files, two generations and document/window identity.
+Current phase: Complete implementation, production/native acceptance and Library
+upload. Final normal dev push/PR record closes this autosave-only writer scope.
+Proven: source d8b847046f1f03af3c2a0cd784dea449208d1b3c.29 focused lifecycle,
+Text/gesture/notification/queue checks pass. Production CSP11 scenarios cover
+Inspector, node add, paste/delete, Undo/Redo, Canvas release/preview exclusion,
+Text commit/IME draft exclusion, slow I/O latest drain, failure/retry and import
+retaining the prior document's recovery identity. I/O fixture explicitly stubbed.
+Actual EXE unstubbed:13 checkpoint receipts, real restart1, full latest JSON/SVG
+equality, embedded data, manual original unchanged, two generation files,
+write failure shows failed/current ack revision and retry saves latest. Graph
+pointer preview not stored.10-command burst reaches latest r19, retry r20; restore
+new Session r0 has identical full document/SVG. pageErrors[]. Owned EXEs stopped.
+Evidence: docs/recovery-autosave.md; desktop/test-results/recovery-per-operation;
+task/native-per-operation-recovery/receipt.json, expected.json/svg, screenshots.
+Approach: core.js read-only onCommitted wraps dispatch and commitPrepared; UI
+microtask observes final document lifetime. No timer. Controller has one active
+immutable request and one latest waiting state per document, globally serialized
+within the controller; existing native mutex/unique IDs protect native ownership.
+Successful runtime revision is published only after the native write returns.
+Limits: Every operation requests protection, not every intermediate revision is
+durable. Burst states coalesce. Only successful acknowledged state is protected;
+crash can lose pending/in-flight edits. Encoding/validation scales with document
+size. Typical1MB case171–237ms incl. automation/verification is not a speed bound.
+Native storage format/authored schema unchanged; revision labels are per Session.
+No manual-original overwrite or existing recovery-file deletion. Two generations
+are per document; global old-directory pruning remains absent. Physical IME/
+high-DPI acceptance unverified. Existing18 examples retained,1 new verified.
+State: codex/desktop-production-20261016, built source d8b8470.
+EXE9,957,888 bytes, SHA256
+5C9F62DD70E5BE0F39E2B212CAB4B21D9F3EB1C35468B789ACC6DFB47B2C845E.
+Library libfile_6fcd4f86ed14819190dd2013813d897f, version0/xattr applied.
+task/Nect-Desktop-trial-20261018-d8b8470.zip,5,118,794 bytes/91 entries,
+SHA256 055AEF3F0B5A16A0B319B7F82F226B5056E11F38F68998E98CFD7B6B3595BE59.
+Shared UI ownership: main.js sessionOptions~723/onCommitted, document status~4685,
+recovery status~4694. core.js constructor~4727, commit observation/entrypoints
+~5510/5553. Also recovery-autosave.js, focused tests/docs/CURRENT_GOAL. The final
+delivery commit includes one extra import-lifetime test; binary source is d8b8470.
+Next task: Parent integration owner handles Dither/SVG/font separate worktrees.
+This writer must not integrate or resume those features without explicit direction.
+Font WIPなし: base9e4cbf9040c6e080710ca509765c3340fec53989; probe-only handoff
+in docs/grapheme-probe-checkpoint.md and task/autosave-writer-handoff.md. No font
+code patch. Original task/probe-native-graphemes.mjs/results retained.
+Authority: Latest user per-operation request and explicit distributed-work scope.
+Edit/test/commit/dev push/PR/EXE/Library permitted; no main merge/release/auth/reset/
+Notion. No other worker feature imported. User window/recovery untouched.
+Gate: double-check invoked; local evidence settles queue/notification boundaries,
+external not-required/sends0. No denied, pending, uncertain action or blocker.
+Done for next: Confirm Library/source/hash report, normal push/remote match/clean
+state. Handoff: NEW_TASK; completed autosave scope, parent owns further routing.
