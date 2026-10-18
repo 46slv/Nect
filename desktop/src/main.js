@@ -144,6 +144,10 @@ function openSearchPanel({
     filters.after(note);
   }
   let categoryId = '';
+  const expandedCategories = new Set(categories?.slice(0, 1).map((category) => category.id));
+  let optionElements = [];
+  const scrollSpace = document.createElement('div');
+  scrollSpace.setAttribute('aria-hidden', 'true');
   let categorySelect, scope, clearScope;
   if (categories) {
     dialog.classList.add('node-search-panel');
@@ -184,13 +188,29 @@ function openSearchPanel({
     filters.before(destination);
   }
   const active = () => rows.find((item) => item.id === activeId && !item.disabled);
-  function highlight() {
-    for (const row of list.children)
+  // Scroll only this viewport. scrollIntoView can also move the dialog/page.
+  function reveal(row, atTop = false) {
+    if (!row) return;
+    const viewport = list.getBoundingClientRect();
+    const bounds = row.getBoundingClientRect();
+    const top = bounds.top - viewport.top - list.clientTop + list.scrollTop;
+    if (atTop) {
+      // A short final category still needs enough trailing room to reach the top.
+      const contentEnd =
+        scrollSpace.getBoundingClientRect().top - viewport.top - list.clientTop + list.scrollTop;
+      scrollSpace.style.height = `${Math.max(0, top + list.clientHeight - contentEnd)}px`;
+      list.scrollTop = top;
+    } else if (top < list.scrollTop) list.scrollTop = top;
+    else if (top + bounds.height > list.scrollTop + list.clientHeight)
+      list.scrollTop = top + bounds.height - list.clientHeight;
+  }
+  function highlight(scroll = !categories) {
+    for (const row of optionElements)
       row.setAttribute('aria-selected', String(row.dataset.id === activeId));
     const index = rows.findIndex((item) => item.id === activeId);
     if (index >= 0) {
       input.setAttribute('aria-activedescendant', `${listId}-${index}`);
-      list.children[index]?.scrollIntoView({ block: 'nearest' });
+      if (scroll) reveal(optionElements[index]);
     } else input.removeAttribute('aria-activedescendant');
     apply.disabled = !active();
     if (lastNotified !== activeId) {
@@ -224,15 +244,79 @@ function openSearchPanel({
       scope.textContent = `${categoryId ? label + '内' : '全体'} ${rows.length}件`;
       clearScope.hidden = !categoryId;
     }
+    const grouped = categories && !input.value.trim() && !categoryId;
+    const candidates = rows;
+    if (grouped)
+      rows = categories.flatMap((category) =>
+        expandedCategories.has(category.id)
+          ? candidates.filter((item) => item.categoryId === category.id)
+          : [],
+      );
+    list.setAttribute('role', grouped ? 'tree' : 'listbox');
+    input.setAttribute('aria-haspopup', grouped ? 'tree' : 'listbox');
+    const scrollTop = list.scrollTop;
+    if (!grouped) scrollSpace.style.height = '0px';
     if (!rows.some((item) => item.id === activeId && !item.disabled))
       activeId = rows.find((item) => !item.disabled)?.id;
     list.replaceChildren();
+    optionElements = [];
+    const groups = new Map();
+    if (grouped) {
+      for (const category of categories) {
+        const count = candidates.filter((item) => item.categoryId === category.id).length;
+        if (!count) continue;
+        const group = document.createElement('div');
+        group.className = 'picker-category';
+        group.dataset.category = category.id;
+        group.setAttribute('role', 'treeitem');
+        group.setAttribute('aria-label', category.label);
+        group.setAttribute('aria-expanded', String(expandedCategories.has(category.id)));
+        group.tabIndex = 0;
+        const heading = document.createElement('div');
+        heading.className = 'picker-category-heading';
+        heading.textContent = `${expandedCategories.has(category.id) ? '▾' : '▸'} ${category.label} (${count})`;
+        const children = document.createElement('div');
+        children.setAttribute('role', 'group');
+        children.hidden = !expandedCategories.has(category.id);
+        group.append(heading, children);
+        const toggle = () => {
+          if (closed || composing) return;
+          const opening = !expandedCategories.has(category.id);
+          if (opening) expandedCategories.add(category.id);
+          else expandedCategories.delete(category.id);
+          refresh();
+          const next = [...list.children].find((entry) => entry.dataset.category === category.id);
+          next?.focus({ preventScroll: true });
+          if (opening) reveal(next.querySelector('.picker-category-heading'), true);
+        };
+        heading.onclick = toggle;
+        group.onkeydown = (event) => {
+          if (event.target !== group || event.isComposing || event.keyCode === 229 || composing)
+            return;
+          if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault();
+            if (event.repeat) return;
+            if (event.key === 'ArrowRight' && expandedCategories.has(category.id)) return;
+            if (event.key === 'ArrowLeft' && !expandedCategories.has(category.id)) return;
+            toggle();
+          } else if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+            event.preventDefault();
+            const next =
+              event.key === 'ArrowDown' ? group.nextElementSibling : group.previousElementSibling;
+            next?.focus({ preventScroll: true });
+            reveal(next?.querySelector('.picker-category-heading'));
+          }
+        };
+        list.append(group);
+        groups.set(category.id, children);
+      }
+    }
     rows.forEach((item, index) => {
       const row = document.createElement('div');
       row.className = 'picker-option';
       row.dataset.id = item.id;
       row.id = `${listId}-${index}`;
-      row.setAttribute('role', 'option');
+      row.setAttribute('role', grouped ? 'treeitem' : 'option');
       row.setAttribute('aria-disabled', String(!!item.disabled));
       const name = document.createElement('span');
       name.textContent = item.label;
@@ -261,7 +345,7 @@ function openSearchPanel({
         if (closed || item.disabled) return;
         activeId = item.id;
         highlight();
-        input.focus();
+        input.focus({ preventScroll: true });
       };
       row.ondblclick = () => {
         if (!closed && !item.disabled && rows.includes(item)) {
@@ -269,10 +353,23 @@ function openSearchPanel({
           commit();
         }
       };
-      list.append(row);
+      (groups.get(item.categoryId) || list).append(row);
+      optionElements.push(row);
     });
+    if (grouped) {
+      list.append(scrollSpace);
+      // Keep the current viewport when closing a short category as well.
+      const contentEnd =
+        scrollSpace.getBoundingClientRect().top -
+        list.getBoundingClientRect().top -
+        list.clientTop +
+        list.scrollTop;
+      scrollSpace.style.height = `${Math.max(parseFloat(scrollSpace.style.height) || 0, scrollTop + list.clientHeight - contentEnd)}px`;
+    }
     highlight();
-    if (!rows.length) status.textContent = categories ? '該当するノードはありません' : 'No matches';
+    if (categories) list.scrollTop = scrollTop;
+    if (!candidates.length)
+      status.textContent = categories ? '該当するノードはありません' : 'No matches';
   }
   const panel = {
     get closed() {
@@ -328,7 +425,7 @@ function openSearchPanel({
     if (event.key === 'Escape') {
       event.preventDefault();
       panel.close(true);
-    } else if (['ArrowDown', 'ArrowUp'].includes(event.key) && event.target.tagName !== 'SELECT') {
+    } else if (['ArrowDown', 'ArrowUp'].includes(event.key) && event.target === input) {
       event.preventDefault();
       const enabled = rows.filter((item) => !item.disabled);
       if (!enabled.length) return;
@@ -336,7 +433,7 @@ function openSearchPanel({
       activeId =
         enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]
           .id;
-      highlight();
+      highlight(true);
     } else if (event.key === 'Enter') {
       // Buttons retain their normal action (favorites/cancel), search commits.
       if (event.target !== input) return;

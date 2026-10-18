@@ -14,35 +14,25 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Note recovery integration (2026-10-19)
+## ACTIVE CHECKPOINT — Node picker category scroll (2026-10-19)
 
-Goal: Preserve and recover the Note's context-menu and bounded static Latin liga
-work, then integrate safely over shared source 2f57db3 without merging main.
-Current phase: source integrated, verified and pushed; Draft PR28 created.
-Proven: Original branches recovered and remote-verified at ff301f5 and d938842
-(including ef16eb4). Independent branch codex/note-recovery-integration-20261019
-starts at 2f57db3ed469080c272e43b67546b1360ce26353. Both core imports retained;
-schema 38 added without lowering existing schema floors. Final focused tests
-75/75, additional Session regression 24/24 and Vite build 124 modules pass.
-Real Chrome fixture operations cover Graph/Layer/Canvas context actions and
-Undo, numeric 120/3 -> 40, Layer reorder button/Ctrl+D, input editing, locked
-menus, composition import/one Undo, liga On/Off/Undo and pan. See
-[recovery evidence](desktop/docs/note-recovery-20261019.md) for exact bounds.
-Remote source checkpoint: e14c1c0257745330025f4215d4dcb64ba4f3a399, verified
-against origin. Draft PR: https://github.com/46slv/Nect/pull/28, targeting the
-shared development branch. Subsequent checkpoint edits are documentation only.
-Next task: Resolve actual Ctrl+C/V and native-app acceptance gaps through the
-next supported runtime path; no mainline merge or release is implied.
-Approach: ordinary development-branch push and draft review only. Preserve both
-original worktrees and the task-local bundles/patches. Do not treat new-PC local
-f54505a as included. Do not expand to release, main merge or auth/setting changes.
-Done for next: supported actual UI evidence closes the remaining acceptance rows.
-State: integration source and local evidence are coherent; actual Ctrl+C/V is
-unverified because Browser Use intercepts clipboard chords. Synthetic Layer
-Ctrl+C/V passes. Native WebView2/IME/file dialogs/restart were not run. Parent
-forwarded explicit localhost fixture loading approval; original formal file
-chooser/import/Undo already succeeded and no approval retry is needed.
-Authority: current delegated user instruction permits code/tests/docs, commits,
-ordinary development push and Draft PR; excludes main merge/forcepush/release,
-user-artwork overwrite and authentication/permission changes.
+Goal: Add one-level category toggles whose explicitly opened heading aligns to the
+node picker list top, preserving authored state and unrelated operations.
+Current phase: implemented, verified and development source pushed; Draft PR29 created.
+Proven: Independent copy/branch codex/toggle-list-scroll-20261019 begins at
+e8c9db5225f6e26e36b0d69d3acb3320829b9fb0. Focused tests 18/18 and Vite build
+(124 modules) pass. Actual Chrome on dedicated localhost:5201 verifies final-category
+heading alignment, closed-category search, Japanese alias/Enter/one Undo, short-tail
+space and stable native Left/Right collapse/reopen. Page/dialog remain at zero.
+Evidence: desktop/docs/toggle-list-scroll-20261019.md; ignored local screenshots/logs.
+Remote-verified source: 9830310db16db7ccc7ecf4f96aee4b2577e990bc.
+Draft PR: https://github.com/46slv/Nect/pull/29, targeting the PR28 integration branch.
+Later checkpoint-only commits do not change the tested production source.
+Next task: Review the bounded Draft PR; native/physical IME acceptance remains separate.
+Approach: Ordinary branch commit/push and Draft PR against the exact PR28 branch.
+Done for next: Review the exact published source; any follow-on scope gets separate ownership.
+State: Only picker/catalog/style, focused tests/fixture and checkpoint/evidence docs changed.
+Previous source worktrees, user artwork and existing localhost:5199 remain untouched.
+Authority: Current delegation permits code/tests/docs, dev branch commit/push and Draft PR.
+Mainline merge, release/distribution and auth/permission changes remain excluded.
 Handoff: CONTINUE_CURRENT_TASK.

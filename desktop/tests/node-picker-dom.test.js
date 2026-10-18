@@ -57,6 +57,42 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
     select.value = value;
     select.dispatchEvent(new win.Event('change'));
   };
+  assert.equal($('.picker-list').getAttribute('role'), 'tree');
+  assert.equal(document.querySelectorAll('.picker-category').length, 8);
+  assert.equal($('.picker-option[data-id="Transform"]'), null);
+  const list = $('.picker-list');
+  list.scrollTop = 91;
+  $('.picker-option[data-id="Circle"]').click();
+  assert.equal(list.scrollTop, 91, 'ordinary candidate selection preserves the list viewport');
+  const category = () => $('.picker-category[data-category="value"]');
+  for (let i = 0; i < 3; i++) {
+    category().querySelector('.picker-category-heading').click();
+    assert.equal(category().getAttribute('aria-expanded'), 'true');
+    assert.ok($('.picker-option[data-id="Value"]'));
+    key(category(), 'ArrowLeft');
+    assert.equal(category().getAttribute('aria-expanded'), 'false');
+  }
+  key(category(), 'Enter', { isComposing: true });
+  key(category(), 'Enter', { keyCode: 229 });
+  assert.equal(category().getAttribute('aria-expanded'), 'false');
+  key(category(), 'ArrowRight');
+  assert.equal(category().getAttribute('aria-expanded'), 'true');
+  key(category(), ' ', { repeat: true });
+  assert.equal(category().getAttribute('aria-expanded'), 'true');
+  key(category(), ' ');
+  assert.equal(category().getAttribute('aria-expanded'), 'false');
+  $('.picker-category[data-category="create"] .picker-category-heading').click();
+  assert.equal($('.picker-option'), null);
+  assert.equal($('.picker-status').textContent, '', 'collapsed groups are not an empty search');
+  assert.equal($('.picker-apply').disabled, true);
+  search('transform');
+  assert.equal($('.picker-list').getAttribute('role'), 'listbox');
+  assert.equal($('.picker-category'), null);
+  assert.deepEqual(
+    [...document.querySelectorAll('.picker-option')].map((row) => row.dataset.id),
+    ['Transform', 'Vector Transform'],
+  );
+  assert.equal(commits, 0);
   search('Fill');
   assert.equal(picker.activeId, 'Fill');
   scope('paint');
@@ -137,7 +173,8 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
 test('real Add uses captured Session target, one history entry and leaves graph state unchanged on browsing', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
+    globalThis[key] = win[key];
   globalThis.requestAnimationFrame = () => 0;
   globalThis.fetch = async () => ({
     ok: true,
@@ -174,6 +211,13 @@ test('real Add uses captured Session target, one history entry and leaves graph 
     state = JSON.stringify(win.pickerTest.state());
   win.pickerTest.open();
   await new Promise(queueMicrotask);
+  for (let i = 0; i < 3; i++) {
+    $('.picker-category[data-category="paint"] .picker-category-heading').click();
+    $('.picker-option[data-id="Fill"]').click();
+    $('.picker-category[data-category="paint"] .picker-category-heading').click();
+  }
+  assert.equal(JSON.stringify(win.nect.document), before);
+  assert.equal(JSON.stringify(win.pickerTest.state()), state);
   const input = $('.search-panel input');
   input.value = '角丸';
   input.dispatchEvent(new win.Event('input'));
