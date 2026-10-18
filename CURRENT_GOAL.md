@@ -14,56 +14,53 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Per-operation recovery delivery
+## ACTIVE CHECKPOINT — Parallel integration trial (2026-10-18)
 
-Goal: Request recovery after each committed operation, without debounce, while
-preserving original files, two generations and document/window identity.
-Current phase: Complete implementation, production/native acceptance and Library
-upload. Final normal dev push/PR record closes this autosave-only writer scope.
-Proven: source d8b847046f1f03af3c2a0cd784dea449208d1b3c.29 focused lifecycle,
-Text/gesture/notification/queue checks pass. Production CSP11 scenarios cover
-Inspector, node add, paste/delete, Undo/Redo, Canvas release/preview exclusion,
-Text commit/IME draft exclusion, slow I/O latest drain, failure/retry and import
-retaining the prior document's recovery identity. I/O fixture explicitly stubbed.
-Actual EXE unstubbed:13 checkpoint receipts, real restart1, full latest JSON/SVG
-equality, embedded data, manual original unchanged, two generation files,
-write failure shows failed/current ack revision and retry saves latest. Graph
-pointer preview not stored.10-command burst reaches latest r19, retry r20; restore
-new Session r0 has identical full document/SVG. pageErrors[]. Owned EXEs stopped.
-Evidence: docs/recovery-autosave.md; desktop/test-results/recovery-per-operation;
-task/native-per-operation-recovery/receipt.json, expected.json/svg, screenshots.
-Approach: core.js read-only onCommitted wraps dispatch and commitPrepared; UI
-microtask observes final document lifetime. No timer. Controller has one active
-immutable request and one latest waiting state per document, globally serialized
-within the controller; existing native mutex/unique IDs protect native ownership.
-Successful runtime revision is published only after the native write returns.
-Limits: Every operation requests protection, not every intermediate revision is
-durable. Burst states coalesce. Only successful acknowledged state is protected;
-crash can lose pending/in-flight edits. Encoding/validation scales with document
-size. Typical1MB case171–237ms incl. automation/verification is not a speed bound.
-Native storage format/authored schema unchanged; revision labels are per Session.
-No manual-original overwrite or existing recovery-file deletion. Two generations
-are per document; global old-directory pruning remains absent. Physical IME/
-high-DPI acceptance unverified. Existing18 examples retained,1 new verified.
-State: codex/desktop-production-20261016, built source d8b8470.
-EXE9,957,888 bytes, SHA256
-5C9F62DD70E5BE0F39E2B212CAB4B21D9F3EB1C35468B789ACC6DFB47B2C845E.
-Library libfile_6fcd4f86ed14819190dd2013813d897f, version0/xattr applied.
-task/Nect-Desktop-trial-20261018-d8b8470.zip,5,118,794 bytes/91 entries,
-SHA256 055AEF3F0B5A16A0B319B7F82F226B5056E11F38F68998E98CFD7B6B3595BE59.
-Shared UI ownership: main.js sessionOptions~723/onCommitted, document status~4685,
-recovery status~4694. core.js constructor~4727, commit observation/entrypoints
-~5510/5553. Also recovery-autosave.js, focused tests/docs/CURRENT_GOAL. The final
-delivery commit includes one extra import-lifetime test; binary source is d8b8470.
-Next task: Parent integration owner handles Dither/SVG/font separate worktrees.
-This writer must not integrate or resume those features without explicit direction.
-Font WIPなし: base9e4cbf9040c6e080710ca509765c3340fec53989; probe-only handoff
-in docs/grapheme-probe-checkpoint.md and task/autosave-writer-handoff.md. No font
-code patch. Original task/probe-native-graphemes.mjs/results retained.
-Authority: Latest user per-operation request and explicit distributed-work scope.
-Edit/test/commit/dev push/PR/EXE/Library permitted; no main merge/release/auth/reset/
-Notion. No other worker feature imported. User window/recovery untouched.
-Gate: double-check invoked; local evidence settles queue/notification boundaries,
-external not-required/sends0. No denied, pending, uncertain action or blocker.
-Done for next: Confirm Library/source/hash report, normal push/remote match/clean
-state. Handoff: NEW_TASK; completed autosave scope, parent owns further routing.
+Goal: Integrate the parent-confirmed SVG, Graph Ctrl+A, grapheme editing,
+per-operation recovery and Dither/Points work in an isolated development branch.
+Current phase: Combined source, focused/browser/native verification and one
+standalone trial EXE completed; private Library delivery confirmed by coordinator.
+Proven: source973486c3733916e738df8e5088f50c48e4743730 on
+codex/integrate-parallel-20261018. All source candidates applied without conflicts.
+Dither owns schema36; other integrated lanes do not claim a new schema version.
+Graph Ctrl+A owns only current-Composition Graph focus; native Text Ctrl+A stays
+native. Output remains selectable and is skipped by existing node copy.
+Grapheme carets map NFC layout indices to original UTF-16 boundaries; unsafe
+native deletion and arrow movement are corrected without replacing native input
+or history. Missing Segmenter refuses editing, and IME composition bypasses it.
+Existing shaping/font coverage limits remain explicit; no new shaping claim.
+
+97 recovery/Text/Canvas/grapheme tests and70 Dither/Points tests pass.
+Six production-CSP browser paths pass: recovery11 cases, Dither, Points,
+grapheme14 fixtures including actual browser Save/Open, Graph clipboard and SVG.
+The recorded three Dither exclusions are pre-existing pinned fingerprints and a
+Windows CLI cwd failure; this is not a full-suite acceptance claim.
+Actual built WebView2, with verified socket/PID ancestry and disposable storage,
+passes SVG Path/Join, Graph A/C/V/Undo, Points edit/Undo and native grapheme
+Backspace/Undo/Text commit. Real native recovery equals latest JSON; a new
+profile restart restores exact JSON/SVG as unbound and unsaved. Both owned
+windows exited. No normal user app/profile/recovery/private-font operation.
+Native dialogs and physical IME were not exercised in this combined build.
+Evidence: desktop/test-results/{integration,recovery-per-operation,
+dither-controls,grapheme-app,node-clipboard,svg-part}; task-local native-integrated.
+
+Standalone EXE9,961,472 bytes, SHA256
+1AF50B17350FC07C8EDF69FD520FD8E2AE7AA3280A117919A52B26014692E577.
+ZIP Nect-Desktop-integrated-20261018-973486c.zip,5,248,465 bytes, SHA256
+6120662CD42B4D33AD1FAD8AF8C38FC456BB24DB5D7E618174C8C33624E1E8F4.
+The package retains prior public examples/licenses and adds two synthetic
+Dither/Points examples. Library retention is private, not a release.
+
+Next task: Parent delivers the integrated trial. Repeater AE-style branch
+codex/repeater-ae-20261018 at8d55121f759725e8530c849d5d1dece3f98a6037
+was authorized after this EXE build began and is deferred to the next batch.
+Reconcile its provisional schema36 to a new version/migration at integration.
+45-degree Snap is still independent; do not block this delivery waiting for it.
+State: integrated source pushed; final documentation checkpoint follows.
+Authority: parent-delegated isolated integration, non-force branch push, one
+combined EXE and private Library delivery. No main/protected merge, force push,
+release, auth/account changes or installer operation.
+Gate: external review invoked, not-required; local evidence settles the bounded
+integration. External Web submissions0. No remaining denied/pending/uncertain
+action for this delivery. Pending next-batch features are explicit dependencies.
+Handoff: CONTINUE_CURRENT_TASK; parent coordinates the next integration batch.
