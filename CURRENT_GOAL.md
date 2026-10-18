@@ -50,7 +50,9 @@ No raw SVG execution, external resource fetch, file dependency or new scene mode
 The source can be opened for node editing. SVG instance type remains Composition
 Reference, rather than introducing a duplicate implementation or saved format.
 
-Next task: Commit, normal push, native build/startup, ZIP/Library. Browser actual
+Next task: Native hands-on acceptance when the UI controller is available; parent
+owns the separate specification audit and next priority. This requested code scope
+and distribution are complete. Browser actual
 file chooser and desktop JS IPC branch were verified separately. Desktop IO tests
 use an explicit stub; native read limit/UTF-8/non-mutation is tested with real files.
 Actual native dialog/hands-on editing remains unverified without a UI controller.
@@ -65,8 +67,18 @@ startup responded without logs; six packaged examples re-export exact SVG offlin
 Prior OS wrap schema32, Composition, DIN/axes/vertical work is retained. Additional
 OS custom-leading work was investigation only, with no source edits to abandon.
 
-State: codex/desktop-production-20261016, base 16fc21e (delivery record); SVG/Layer
-changes are current work. Schema33 is required only when Solo is authored.
+State: codex/desktop-production-20261016, build source
+a85aa74b965b6fe08a1333570abd10c7e0da15f0 committed and normally pushed. Integrated
+model/DOM65, native35 and production SVG/Layer/A/Pen UI passed on the final assets.
+New EXE startup: responding Nect SVG, stdout/stderr empty. Eight packaged JSON
+examples re-export identical SVG offline. Schema33 is required only when Solo is
+authored. Private attached input is outside Git and absent from the ZIP.
+Library: libfile_8d83366a5e1081918a87767c5c892689; ZIP3,822,648 bytes /40 entries.
+ZIP SHA256: 0D247FEEDD19841762A4D7B12DE4F055B8433872ABB9B9B47BA847B2CF0A577F.
+EXE9,761,792 bytes; SHA256
+7E815E4C227CF3B9A1F5445637A9936179CB2DBDF9A389FCEEEE5D5EB0822519.
+Local: task/Nect-Desktop-trial-20261018-a85aa74.zip. Prior de2b589/f055541 ZIPs are
+unchanged. The final delivery-record commit changes documentation only.
 
 Limits: SVG parser's supported paths/rect/circle/ellipse, solid paints, bounded
 two-stop local gradients, stroke, fill/stroke alpha and nonzero holes. Unsupported
