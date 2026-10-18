@@ -14,53 +14,50 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Parallel integration trial (2026-10-18)
+## ACTIVE CHECKPOINT — Repeater/Snap integration batch (2026-10-18)
 
-Goal: Integrate the parent-confirmed SVG, Graph Ctrl+A, grapheme editing,
-per-operation recovery and Dither/Points work in an isolated development branch.
-Current phase: Combined source, focused/browser/native verification and one
-standalone trial EXE completed; private Library delivery confirmed by coordinator.
-Proven: source973486c3733916e738df8e5088f50c48e4743730 on
-codex/integrate-parallel-20261018. All source candidates applied without conflicts.
-Dither owns schema36; other integrated lanes do not claim a new schema version.
-Graph Ctrl+A owns only current-Composition Graph focus; native Text Ctrl+A stays
-native. Output remains selectable and is skipped by existing node copy.
-Grapheme carets map NFC layout indices to original UTF-16 boundaries; unsafe
-native deletion and arrow movement are corrected without replacing native input
-or history. Missing Segmenter refuses editing, and IME composition bypasses it.
-Existing shaping/font coverage limits remain explicit; no new shaping claim.
+Goal: Integrate the parent-confirmed Repeater and pending 45-degree Snap into
+codex/integrate-parallel-20261018, preserving the delivered SVG/Ctrl+A/grapheme/
+per-operation recovery/Dither functionality. Build the next EXE once both pass.
+Current phase: Repeater source integration and focused verification complete;
+Snap exact commit is pending parent delivery. No next-batch EXE has been built.
+Proven: Repeater integration source d3d11d16c391b49814020915ef08ce74dace68b5.
+Original candidates 1fa6f2d -> 2d4586b -> 8d55121 were applied in order.
+Core schema-list and main import conflicts were resolved retaining both lanes.
+Repeater owns schema37 through one module constant; Dither remains schema36.
+Legacy Repeater controls backfill under source versions below37 without changing
+saved schema. Selecting ae-2d promotes to37. Current schema37 must contain all
+new controls; older ae-2d project versions reject explicitly.
 
-97 recovery/Text/Canvas/grapheme tests and70 Dither/Points tests pass.
-Six production-CSP browser paths pass: recovery11 cases, Dither, Points,
-grapheme14 fixtures including actual browser Save/Open, Graph clipboard and SVG.
-The recorded three Dither exclusions are pre-existing pinned fingerprints and a
-Windows CLI cwd failure; this is not a full-suite acceptance claim.
-Actual built WebView2, with verified socket/PID ancestry and disposable storage,
-passes SVG Path/Join, Graph A/C/V/Undo, Points edit/Undo and native grapheme
-Backspace/Undo/Text commit. Real native recovery equals latest JSON; a new
-profile restart restores exact JSON/SVG as unbound and unsaved. Both owned
-windows exited. No normal user app/profile/recovery/private-font operation.
-Native dialogs and physical IME were not exercised in this combined build.
-Evidence: desktop/test-results/{integration,recovery-per-operation,
-dither-controls,grapheme-app,node-clipboard,svg-part}; task-local native-integrated.
+23 Repeater/creation/Mirror/Join tests,97 recovery/Text/grapheme tests and70
+Dither/Points tests pass (190 total). Added mixed schema36 Dither + legacy
+Repeater migration/promotion/Undo/Redo/exact JSON regression. Six production-CSP
+browser paths pass: Repeater, Points, Dither, clipboard, grapheme-app and
+per-operation recovery. Repeater Canvas/SVG/PNG all160x100 RGBA hashes equal
+ d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b.
+Production Vite build passed121 modules. Scoped formatting and diff check pass.
+Known Dither exclusions remain the documented baseline pinned-fingerprint and
+Windows CLI cwd cases; no full-suite or physical-IME claim.
+Evidence: desktop/test-results/integration/repeater-*.log and
+{repeater-ae,dither-controls,node-clipboard,grapheme-app,recovery-per-operation}.
 
-Standalone EXE9,961,472 bytes, SHA256
+Next: receive parent-confirmed Snap commit from its dedicated lane, integrate
+only shared hookups, run motion/focus/Undo and nearest affected regressions,
+then one combined EXE build + isolated native acceptance + private Library ZIP.
+Pending action: next-batch EXE build. Reason: required Snap commit has not arrived;
+status PENDING_DEPENDENCY, not denied or an uncertain side effect.
+No other Repeater implementation blocker remains. Do not duplicate Snap work.
+
+Prior delivered batch remains source973486c3733916e738df8e5088f50c48e4743730:
+EXE9,961,472 bytes, SHA256
 1AF50B17350FC07C8EDF69FD520FD8E2AE7AA3280A117919A52B26014692E577.
-ZIP Nect-Desktop-integrated-20261018-973486c.zip,5,248,465 bytes, SHA256
+ZIP5,248,465 bytes, SHA256
 6120662CD42B4D33AD1FAD8AF8C38FC456BB24DB5D7E618174C8C33624E1E8F4.
-The package retains prior public examples/licenses and adds two synthetic
-Dither/Points examples. Library retention is private, not a release.
+Parent already delivered it. Repeater/Snap are not in that earlier EXE.
 
-Next task: Parent delivers the integrated trial. Repeater AE-style branch
-codex/repeater-ae-20261018 at8d55121f759725e8530c849d5d1dece3f98a6037
-was authorized after this EXE build began and is deferred to the next batch.
-Reconcile its provisional schema36 to a new version/migration at integration.
-45-degree Snap is still independent; do not block this delivery waiting for it.
-State: integrated source pushed; final documentation checkpoint follows.
-Authority: parent-delegated isolated integration, non-force branch push, one
-combined EXE and private Library delivery. No main/protected merge, force push,
-release, auth/account changes or installer operation.
-Gate: external review invoked, not-required; local evidence settles the bounded
-integration. External Web submissions0. No remaining denied/pending/uncertain
-action for this delivery. Pending next-batch features are explicit dependencies.
-Handoff: CONTINUE_CURRENT_TASK; parent coordinates the next integration batch.
+Authority: parent-delegated isolated source integration, normal branch commit/
+push and one next-batch EXE after both features pass. No main/protected merge,
+release, force push, account/auth change or user app/profile/recovery operation.
+Gate: prior review workflow reused; local migration, renderer and browser
+verification resolves this integration. Consultation not-required, external0.
+Handoff: CONTINUE_CURRENT_TASK; parent supplies the exact Snap candidate.
