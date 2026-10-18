@@ -6,6 +6,8 @@ import {
   validate,
   parseStrokeDash,
   validateStrokeStyle,
+  evaluate,
+  pathData,
 } from './core.js';
 import { createLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill } from './radial-gradient.js';
@@ -305,6 +307,15 @@ export function importSVGTree(source) {
     throw Error('Only zero-origin SVG viewBox is supported');
   result.width = viewBox?.[2] ?? number(root, 'width', 960);
   result.height = viewBox?.[3] ?? number(root, 'height', 540);
+  const rectangleDimension = (el, key, basis) => {
+    const raw = el.getAttribute(key);
+    if (raw && /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/i.test(raw)) {
+      const value = (Number(raw.slice(0, -1)) * basis) / 100;
+      if (!Number.isFinite(value)) throw Error(`Invalid ${key}`);
+      return value;
+    }
+    return number(el, key, 0);
+  };
   let importedIndex = 0,
     contours = 0,
     points = 0;
@@ -331,9 +342,6 @@ export function importSVGTree(source) {
     if (el.localName === 'path') {
       n = node('Imported Path');
       n.rawPath = el.getAttribute('d') || '';
-      const parsed = parsePath(n.rawPath, n.id);
-      contours += parsed.contours.length;
-      points += parsed.contours.reduce((sum, c) => sum + c.points.length, 0);
     } else if (el.localName === 'circle') {
       n = node('Circle');
       n.params.center.value = [number(el, 'cx', 0), number(el, 'cy', 0)];
@@ -345,18 +353,32 @@ export function importSVGTree(source) {
       n.params.size.value = [number(el, 'rx', 0) * 2, number(el, 'ry', 0) * 2];
       if (n.params.size.value.some((v) => v < 0)) throw Error('Negative ellipse radius');
     } else {
-      if (number(el, 'rx', 0) || number(el, 'ry', 0))
-        throw Error('Rounded rectangles are not supported for import yet');
-      n = node('Rectangle');
-      let w = number(el, 'width', 0),
-        h = number(el, 'height', 0);
+      const w = rectangleDimension(el, 'width', result.width),
+        h = rectangleDimension(el, 'height', result.height),
+        x = number(el, 'x', 0),
+        y = number(el, 'y', 0);
       if (w < 0 || h < 0) throw Error('Negative rectangle size');
-      n.params.size.value = [w, h];
-      n.params.center.value = [number(el, 'x', 0) + w / 2, number(el, 'y', 0) + h / 2];
+      let rx = number(el, 'rx', number(el, 'ry', 0)),
+        ry = number(el, 'ry', rx);
+      if (rx < 0 || ry < 0) throw Error('Negative rectangle radius');
+      rx = Math.min(rx, w / 2);
+      ry = Math.min(ry, h / 2);
+      if (rx && ry) {
+        n = node('Imported Path');
+        n.rawPath = `M${x + rx} ${y}H${x + w - rx}A${rx} ${ry} 0 0 1 ${x + w} ${y + ry}V${y + h - ry}A${rx} ${ry} 0 0 1 ${x + w - rx} ${y + h}H${x + rx}A${rx} ${ry} 0 0 1 ${x} ${y + h - ry}V${y + ry}A${rx} ${ry} 0 0 1 ${x + rx} ${y}Z`;
+      } else {
+        n = node('Rectangle');
+        n.params.size.value = [w, h];
+        n.params.center.value = [x + w / 2, y + h / 2];
+      }
     }
-    // Supported primitives each have one contour and four vertices, including
-    // their degenerate zero-size form. Count them in the same aggregate budget.
-    if (el.localName !== 'path') {
+    // Curved rectangles and paths count their actual authored vertices; ordinary
+    // primitives retain their four-vertex (including degenerate) representation.
+    if (n.type === 'Imported Path') {
+      const parsed = parsePath(n.rawPath, n.id);
+      contours += parsed.contours.length;
+      points += parsed.contours.reduce((sum, c) => sum + c.points.length, 0);
+    } else {
       contours++;
       points += 4;
     }
@@ -370,8 +392,9 @@ export function importSVGTree(source) {
     remap.params.path.source = n.id;
     l.nodes = [n, remap];
     let source = remap.id;
+    const noPaint = !fill && !stroke;
     for (const [type, hex, opacity] of [
-      ['Fill', fill, alpha],
+      ['Fill', noPaint ? '#000000' : fill, noPaint ? 0 : alpha],
       ['Stroke', stroke, strokeAlpha],
     ]) {
       if (!hex) continue;
@@ -433,11 +456,54 @@ export function importSVGTree(source) {
         ]),
     );
     const last = bundles.at(-1);
-    if (owner && last?.owner === owner && last.paintKey === paintKey) last.layers.push(l);
-    else bundles.push({ owner, paintKey, layers: [l] });
+    const rectBatch =
+      !owner &&
+      !el.hasAttribute('id') &&
+      !el.hasAttribute('data-layer') &&
+      el.localName === 'rect' &&
+      typeof fill === 'string' &&
+      alpha === 1 &&
+      !stroke;
+    if (
+      (rectBatch && last?.rectBatch && last.paintKey === paintKey) ||
+      (owner && last?.owner === owner && last.paintKey === paintKey)
+    )
+      last.layers.push(l);
+    else bundles.push({ owner, paintKey, rectBatch, layers: [l] });
   }
   for (const bundle of bundles) {
     const l = bundle.layers[0];
+    if (bundle.rectBatch && bundle.layers.length > 1) {
+      // Opaque same-color rectangles cannot cancel winding and have no stacked
+      // alpha or stroke semantics. Store their closed contours in one editable
+      // source, avoiding one graph/layer per QR module. Never batch arbitrary
+      // paths, transparent paints, gradients or explicitly named layer groups.
+      let base = null,
+        paths = [],
+        characters = 0;
+      const flush = () => {
+        if (!base) return;
+        const merged = node('Imported Path', 40, 40),
+          remap = base.nodes[1],
+          paints = base.nodes.slice(2);
+        merged.rawPath = paths.join(' ');
+        remap.params.path.source = merged.id;
+        base.nodes = [merged, remap, ...paints];
+        result.layers.push(base);
+        base = null;
+        paths = [];
+        characters = 0;
+      };
+      for (const child of bundle.layers) {
+        const path = pathData(evaluate(child).run(child.nodes[0].id));
+        if (characters + path.length + 1 > 90000) flush();
+        base ??= child;
+        paths.push(path);
+        characters += path.length + 1;
+      }
+      flush();
+      continue;
+    }
     if (bundle.layers.length > 1) {
       if (bundle.layers.length > 256) throw Error('SVG group exceeds 256 independent paths');
       const paints = l.nodes.slice(2),

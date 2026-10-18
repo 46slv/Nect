@@ -234,3 +234,37 @@ mapped through the same literal affine route as direct selection. One finish
 commits the entire extension; cancellation and unchanged finish preserve history.
 Retained Remap dependents refuse topology changes instead of silently suspending
 their edits. Procedural sources require explicit authoring conversion elsewhere.
+
+SVG parts reuse the conservative SVG syntax adapter and Composition appearance
+contract. Common add-svg-part builds one hidden editable source Composition from
+the parsed vector graphs, then appends a named Composition Reference to the current
+Composition and joins it after the previous output. Existing artboard, document
+binding, unrelated layers and authored source nodes remain intact. One command
+owns import, instance and join; refusal and Undo are atomic. The saved graphs are
+self-contained without a source-file dependency. No new SVG renderer, execution,
+external fetching, node type or document schema is introduced. Unsupported parser
+features and graph/paint limits refuse explicitly. Existing import-svg retains
+its separate undoable document-replacement contract.
+
+Desktop SVG actions use one native chooser that reads a selected UTF-8 file up to
+10 MB, returns basename/contents and creates no project-file binding. This avoids
+depending on HTML file-input activation after an asynchronous native unsaved-change
+prompt. The same JS parser and Session command own adoption after revision and
+document-generation checks. Cancel/read/parse errors preserve the current document;
+browser file inputs reset before each pick so retries do not suppress change events.
+
+Layer Solo is an optional saved boolean gated by schema33 and authored through
+set-layer-state/clear-layer-solo in the common Session. Multiple Solo layers form
+a top-level preview/export filter; Hide remains authoritative. It never rewrites
+visible flags, and clearing/Undo restores the prior state. Canvas, hit testing and
+SVG/PNG use the same visibility predicate. Composition Reference source evaluation
+continues independently of top-level display filters. A persistent panel status
+makes Solo's export effect visible. Structural renders retain Layers scroll along
+with the existing inspector/graph/guide scroll and prevent-scroll focus restore.
+
+The SVG adapter resolves rectangle percentages against its viewport and lowers
+rounded rectangles into editable paths. To import QR-like data without one layer
+per module, consecutive unnamed opaque same-color stroke-free rectangles can be
+combined into bounded closed-contour sources. The shared raw-path/geometry budgets
+remain intact; transparent paints, gradients, arbitrary paths and named layers are
+kept separate. This does not introduce permissive SVG execution or external assets.

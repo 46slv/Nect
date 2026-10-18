@@ -1,4 +1,6 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
+import { appendSVGPart } from './svg-part.js';
+import { layerIsVisible } from './layer-visibility.js';
 import {
   validateCompositionReference,
   assertCompositionAcyclic,
@@ -3925,7 +3927,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30, 31, 32,
+      27, 28, 29, 30, 31, 32, 33,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3951,6 +3953,7 @@ export function validate(doc) {
     text(l.name);
     if (
       typeof l.visible !== 'boolean' ||
+      (l.solo !== undefined && (typeof l.solo !== 'boolean' || sourceSchemaVersion < 33)) ||
       typeof l.locked !== 'boolean' ||
       (l.guide !== undefined && typeof l.guide !== 'boolean') ||
       (l.allowEmptyOutput !== undefined && typeof l.allowEmptyOutput !== 'boolean') ||
@@ -4535,7 +4538,7 @@ function exportValidatedScene(doc, fonts) {
   fonts = resolveFonts(doc, fonts);
   assertVariableDocumentReady(doc, fonts);
   return doc.layers
-    .filter((l) => l.visible && !l.guide)
+    .filter((l) => layerIsVisible(doc, l) && !l.guide)
     .map((l) => {
       const result = evaluate(l, fonts, doc.imageAssets, doc);
       if (result.error) throw Error(`${l.name}: ${result.error}`);
@@ -6167,6 +6170,11 @@ export class CommandSession {
           candidate = this.#gestureCandidate(candidate, move.target, { delta: move.delta });
       return { candidate, result: {} };
     }
+    if (type === 'add-svg-part') {
+      const candidate = cloneDocument(before);
+      const result = appendSVGPart(candidate, payload, resolveFonts(candidate, this.#fonts()));
+      return { candidate, result };
+    }
     if (type === 'import-svg') {
       const candidate = importSVGTree(payload.source);
       serialize(candidate);
@@ -6292,6 +6300,7 @@ export class CommandSession {
     if (
       [
         'set-layer-state',
+        'clear-layer-solo',
         'set-document-settings',
         'set-guide-setting',
         'create-guide',
@@ -6302,16 +6311,19 @@ export class CommandSession {
     ) {
       const candidate = cloneDocument(before);
       let result = {};
-      if (type === 'set-layer-state') {
+      if (type === 'clear-layer-solo') {
+        for (const layer of candidate.layers) if (layer.solo === true) layer.solo = false;
+      } else if (type === 'set-layer-state') {
         const layer = candidate.layers.find((layer) => layer.id === payload.layerId);
         if (!layer) throw Error('Missing composition');
         if (
-          !['visible', 'locked', 'guide'].includes(payload.key) ||
+          !['visible', 'locked', 'guide', 'solo'].includes(payload.key) ||
           typeof payload.value !== 'boolean'
         )
           throw Error('Invalid layer state');
         if (layer.locked && payload.key === 'guide') throw Error('Composition is locked');
         layer[payload.key] = payload.value;
+        if (payload.key === 'solo') candidate.schemaVersion = Math.max(candidate.schemaVersion, 33);
       } else if (type === 'set-document-settings') {
         if (!['width', 'height'].includes(payload.key)) throw Error('Invalid document setting');
         candidate[payload.key] = payload.value;

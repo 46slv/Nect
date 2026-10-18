@@ -16,6 +16,27 @@ use acceptance_storage::RunStorage;
 use system_fonts::{list_system_fonts, read_system_font, Catalog};
 
 #[tauri::command]
+fn open_svg_source(
+    window: tauri::WebviewWindow,
+    storage: tauri::State<'_, RunStorage>,
+) -> Result<Option<(String, String)>, String> {
+    let Some(path) = storage
+        .dialog(&window)
+        .add_filter("SVG vector", &["svg"])
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    let contents = storage.read_svg_source(&path)?;
+    let name = path
+        .file_name()
+        .ok_or("Missing SVG filename")?
+        .to_string_lossy()
+        .into_owned();
+    Ok(Some((name, contents)))
+}
+
+#[tauri::command]
 fn open_document(
     window: tauri::WebviewWindow,
     storage: tauri::State<'_, RunStorage>,
@@ -121,6 +142,7 @@ fn run() -> Result<(), String> {
         .manage(Catalog::default())
         .invoke_handler(tauri::generate_handler![
             open_document,
+            open_svg_source,
             save_document,
             save_png,
             list_system_fonts,

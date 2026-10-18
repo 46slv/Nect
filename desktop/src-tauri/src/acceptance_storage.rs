@@ -198,6 +198,19 @@ impl RunStorage {
         Ok(text)
     }
 
+    pub fn read_svg_source(&self, path: &Path) -> Result<String, String> {
+        let path = self.document_path(path, true)?;
+        let file = fs::File::open(path).map_err(|e| e.to_string())?;
+        let mut text = String::new();
+        file.take(10_000_001)
+            .read_to_string(&mut text)
+            .map_err(|e| format!("SVG must be readable UTF-8: {e}"))?;
+        if text.len() > 10_000_000 {
+            return Err("SVG exceeds 10 MB".into());
+        }
+        Ok(text)
+    }
+
     pub fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
         let path = self.document_path(path, false)?;
         let parent = path.parent().ok_or("Invalid destination")?;
@@ -273,6 +286,27 @@ impl AcceptancePaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn svg_source_read_is_bounded_utf8_and_does_not_change_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("part.svg");
+        let storage = RunStorage::default();
+        let svg = "<svg><title>日本語 SVG</title><rect width=\"20\" height=\"20\"/></svg>";
+        fs::write(&path, svg).unwrap();
+        assert_eq!(storage.read_svg_source(&path).unwrap(), svg);
+        assert_eq!(fs::read_to_string(&path).unwrap(), svg);
+        fs::write(&path, vec![b' '; 10_000_001]).unwrap();
+        assert!(storage
+            .read_svg_source(&path)
+            .unwrap_err()
+            .contains("10 MB"));
+        fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert!(storage
+            .read_svg_source(&path)
+            .unwrap_err()
+            .contains("UTF-8"));
+    }
 
     #[test]
     fn checked_save_preserves_external_bytes_and_supports_cold_reopen() {

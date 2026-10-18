@@ -4,6 +4,7 @@ import {
   inverseAffineDelta,
   inverseAffinePoint,
 } from './direct-selection.js';
+import { hasLayerSolo, layerIsVisible } from './layer-visibility.js';
 import { osTextIntent } from './os-font-outline.js';
 import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
@@ -417,6 +418,7 @@ import {
   desktop,
   saveFile,
   openFile,
+  openSVGSource,
   writeProject,
   releaseProject,
   chooseUnsaved,
@@ -796,6 +798,8 @@ const documents = new DocumentLifecycle({
 let openRequest = 0,
   imageRequest = 0,
   imagePick = null,
+  svgPartRequest = 0,
+  svgPartPick = null,
   pngScale = 1,
   exportInFlight = false;
 let selection = new Set();
@@ -1154,6 +1158,8 @@ function resetTransient() {
   stopGraphDrag();
   imageRequest++;
   imagePick = null;
+  svgPartPick = null;
+  svgPartRequest++;
   layoutDraft = null;
   layoutPreview = false;
   if (drag?.gesture)
@@ -2363,6 +2369,7 @@ function render(resetView = false, artworkResolution = null) {
     !resetView && canvasTextEdit ? app.querySelector('.canvas-text-editor') : null;
   const canvasEditorFocused = canvasEditor === document.activeElement;
   const inspectorScroll = resetView ? 0 : document.querySelector('.inspector')?.scrollTop || 0;
+  const layersScroll = resetView ? 0 : document.querySelector('.layers')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
     : ['.guides-panel', '.guide-list'].map(
@@ -2409,7 +2416,7 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="import-svg">Import SVG</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span><button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -2437,13 +2444,13 @@ function render(resetView = false, artworkResolution = null) {
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div><div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
     ...doc.layers,
   ]
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
@@ -2471,7 +2478,7 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+    )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   mountViewers(app, viewerState, {
     doc,
     fonts,
@@ -2541,6 +2548,7 @@ function render(resetView = false, artworkResolution = null) {
   restoreFocus(app, focused);
   if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
   document.querySelector('.inspector').scrollTop = inspectorScroll;
+  document.querySelector('.layers').scrollTop = layersScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
     if (el) el.scrollTop = guideScroll[index];
@@ -2556,7 +2564,7 @@ function editGuides(type, payload) {
   return commandChange(type, payload, 'Editing aids updated');
 }
 function layerShown(l) {
-  return l.visible && (!l.guide || guideSettings(history.doc).visible);
+  return layerIsVisible(history.doc, l) && (!l.guide || guideSettings(history.doc).visible);
 }
 function layerShape(l, path) {
   return renderElement(
@@ -4577,6 +4585,60 @@ function finishPenDraft(closed = false, redraw = true) {
 async function confirmReplace(action = 'opening another document') {
   return documents.guard(action);
 }
+function adoptSVGPart(text, name, request) {
+  if (request.id !== svgPartRequest) return;
+  if (
+    request.generation !== documents.generation ||
+    documents.hasDraft() ||
+    serialize(history.doc) !== request.before
+  )
+    throw Error('Document changed while reading; add the SVG again');
+  const source = readSVGSource(text);
+  const result = commandChange(
+    'add-svg-part',
+    { layerId: request.layerId, source, name },
+    'SVG node added; vector source is stored in this document',
+    true,
+    request.envelope,
+  );
+  if (!result) return;
+  activeLayer = result.layerId;
+  selected = result.nodeId;
+  selection = new Set([selected]);
+  artworkTarget = null;
+  artworkSelection = new Set();
+  pointSelection = { nodeId: null, ids: new Set() };
+  pointFocus = null;
+  tool = 'select';
+  render();
+  revealNode(selected);
+}
+async function importDesktopSVG() {
+  const request = ++openRequest,
+    before = serialize(history.doc),
+    generation = documents.generation,
+    envelope = session.state;
+  notify('Choose an SVG file…');
+  const opened = await openSVGSource();
+  if (request !== openRequest || generation !== documents.generation) return;
+  if (!opened) {
+    notify('SVG selection cancelled');
+    return;
+  }
+  if (documents.hasDraft() || serialize(history.doc) !== before)
+    throw Error('Document changed while reading; import the SVG again');
+  const source = readSVGSource(opened.contents);
+  const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
+  resetTransient();
+  documents.replace();
+  activeLayer = result.layerId;
+  selected = result.nodeId;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selection = new Set([selected]);
+  notify(`SVG document imported: ${opened.name}`);
+  render(true);
+}
 function updateDocumentStatus() {
   const dirty = documents.dirty,
     name = documents.binding?.path || history.doc.name;
@@ -4696,7 +4758,10 @@ app.addEventListener('click', async (e) => {
     deleteArtwork(d.deleteLayer);
     return;
   }
-  if (/^(new|open|import-svg|save|save-as)$/.test(d.action || '') && documents.hasDraft()) {
+  if (
+    /^(new|open|import-svg|add-svg-part|save|save-as)$/.test(d.action || '') &&
+    documents.hasDraft()
+  ) {
     notify('Finish or cancel the active edit before changing documents.', true);
     return;
   }
@@ -4970,6 +5035,9 @@ app.addEventListener('click', async (e) => {
           }
           break;
         }
+        case 'clear-layer-solo':
+          commandChange('clear-layer-solo', {}, 'Solo cleared');
+          break;
         case 'import-image':
           imagePick = {
             id: ++imageRequest,
@@ -4980,9 +5048,43 @@ app.addEventListener('click', async (e) => {
           document.querySelector('#image-file').value = '';
           document.querySelector('#image-file').click();
           break;
+        case 'add-svg-part':
+          svgPartPick = {
+            id: ++svgPartRequest,
+            before: serialize(history.doc),
+            generation: documents.generation,
+            envelope: session.state,
+            layerId: current().id,
+          };
+          if (desktop) {
+            const request = svgPartPick;
+            svgPartPick = null;
+            notify('Choose an SVG file…');
+            try {
+              const opened = await openSVGSource();
+              if (request.id !== svgPartRequest) break;
+              if (opened) adoptSVGPart(opened.contents, opened.name, request);
+              else notify('SVG selection cancelled');
+            } catch (err) {
+              notify(`SVG node rejected; current document preserved: ${err.message}`, true);
+            }
+          } else {
+            document.querySelector('#svg-part-file').value = '';
+            document.querySelector('#svg-part-file').click();
+          }
+          break;
         case 'import-svg':
           if (!(await confirmReplace('importing SVG'))) break;
-          document.querySelector('#import-svg-file').click();
+          if (desktop) {
+            try {
+              await importDesktopSVG();
+            } catch (err) {
+              notify(`SVG import rejected; current document preserved: ${err.message}`, true);
+            }
+          } else {
+            document.querySelector('#import-svg-file').value = '';
+            document.querySelector('#import-svg-file').click();
+          }
           break;
         case 'open':
           if (!(await confirmReplace())) break;
@@ -5246,9 +5348,9 @@ app.addEventListener('click', async (e) => {
     if (!nameEdit) document.querySelector('.canvas-stage').focus({ preventScroll: true });
     return;
   }
-  if (d.visible || d.layerLock) {
-    const layerId = d.visible || d.layerLock,
-      key = d.visible ? 'visible' : 'locked',
+  if (d.visible || d.layerLock || d.layerSolo) {
+    const layerId = d.visible || d.layerLock || d.layerSolo,
+      key = d.visible ? 'visible' : d.layerSolo ? 'solo' : 'locked',
       l = history.doc.layers.find((x) => x.id === layerId);
     commandChange('set-layer-state', { layerId, key, value: !l[key] });
     return;
@@ -6663,6 +6765,19 @@ app.addEventListener('change', async (e) => {
     render();
     return;
   }
+  if (el.id === 'svg-part-file') {
+    const file = el.files[0],
+      request = svgPartPick;
+    svgPartPick = null;
+    if (!file || !request) return;
+    try {
+      if (file.size > 10_000_000) throw Error('SVG exceeds 10 MB');
+      adoptSVGPart(await file.text(), file.name, request);
+    } catch (err) {
+      notify(`SVG node rejected; current document preserved: ${err.message}`, true);
+    }
+    return;
+  }
   if (el.id === 'open-file' || el.id === 'import-svg-file') {
     let file = el.files[0];
     if (!file) return;
@@ -6691,10 +6806,13 @@ app.addEventListener('change', async (e) => {
         artworkTarget = null;
         artworkSelection = new Set();
       }
-      notify('Project restored');
+      notify(el.id === 'import-svg-file' ? 'SVG document imported' : 'Project restored');
       render(true);
     } catch (err) {
-      notify(`Open rejected; current document preserved: ${err.message}`, true);
+      notify(
+        `${el.id === 'import-svg-file' ? 'SVG import' : 'Open'} rejected; current document preserved: ${err.message}`,
+        true,
+      );
     }
     return;
   }
@@ -7917,7 +8035,7 @@ app.addEventListener('pointerdown', (e) => {
       point = canvasPoint(e),
       hitLayer = e.target.closest('[data-layer]')?.dataset.layer;
     const layers = doc.layers
-      .filter((l) => l.visible && !l.guide && (!hitLayer || l.id === hitLayer))
+      .filter((l) => layerIsVisible(history.doc, l) && !l.guide && (!hitLayer || l.id === hitLayer))
       .reverse();
     let picked = null,
       reason = 'Select an editable path';

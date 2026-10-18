@@ -510,7 +510,7 @@ header {
 }
 .layer {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) max-content 24px;
+  grid-template-columns: 36px 24px minmax(0, 1fr) max-content 24px;
   gap: 5px;
   align-items: center;
   padding: 8px 10px;
@@ -520,6 +520,23 @@ header {
   display: flex;
   justify-content: flex-end;
   gap: 5px;
+}
+.layer-solo[aria-pressed='true'] {
+  background: #d9eaff;
+  border-color: #3785d6;
+  color: #164877;
+}
+.layer-solo-status {
+  height: 46px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  font-size: 11px;
+  color: #164877;
+  background: #eaf3ff;
+}
+.layer-solo-status small {
+  display: block;
+  color: var(--muted);
 }
 .layer-actions [aria-disabled='true'] {
   color: var(--muted);

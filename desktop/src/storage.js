@@ -29,6 +29,12 @@ export async function openFile() {
   return result && { binding: { token: result[0], path: result[1] }, contents: result[2] };
 }
 
+export async function openSVGSource() {
+  if (!desktop) return null;
+  const result = await invoke('open_svg_source').catch(nativeError);
+  return result && { name: result[0], contents: result[1] };
+}
+
 export async function releaseProject(binding) {
   if (desktop && binding?.token)
     await invoke('release_project', { token: binding.token }).catch(nativeError);

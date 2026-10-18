@@ -4,6 +4,12 @@ import { Window } from 'happy-dom';
 import { importSVG } from '../src/svg-import.js';
 import { evaluate, pathArea, exportSVG } from '../src/core.js';
 const Parser = new Window().DOMParser;
+
+test('fill none without a stroke remains transparent instead of acquiring the layer default fill', () => {
+  const d = importSVG('<svg><rect width="10" height="10" fill="none"/></svg>', Parser);
+  assert.equal(evaluate(d.layers[0]).path.fill.alpha, 0);
+  assert.match(exportSVG(d), /fill-opacity="0"/);
+});
 test('SVG import roundtrips compound holes through Remap and headless export', () => {
   let d = importSVG(
     '<svg viewBox="0 0 200 200"><path fill="#336699" d="M0 0H100V100H0Z M20 20V80H80V20Z"/></svg>',

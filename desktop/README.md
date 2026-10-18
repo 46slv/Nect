@@ -102,3 +102,33 @@ Select three or more artworks and use Inspector **中心を等間隔** → **横
 Select three or more artworks and use Inspector **隙間を等間隔** → **横方向 / 縦方向** to space final edge-to-edge gaps equally, preserving the two physical outer endpoints and artwork sizes. Negative gaps allow overlap; unstable order changes are refused atomically. [日本語操作ガイド](docs/artwork-gap-distribution.md) · [Editable sample](examples/artwork-gap-distribution.json).
 
 複数Artworkの同じ位置への複製は [操作ガイド](docs/artwork-multi-duplication.md) と [編集用サンプル](examples/artwork-multi-duplication.json) を参照してください。
+# SVG parts
+
+Use **Add SVG node** to append a vector part to the current Composition. Existing
+artwork, artboard and other layers are retained; the whole import is one Undo.
+The named SVG instance is a Composition Reference with Position. Its hidden source
+Composition stores editable vector/paint nodes, so the original file is no longer
+needed. Open source, duplicate or add a paint-aware Transform using normal controls.
+**Import SVG document** instead replaces the document, with the existing unsaved-work
+guard and Undo. On Windows both actions use the native SVG file dialog.
+
+Supported: paths, ordinary rectangles/circles/ellipses, solid fills/strokes,
+fill/stroke alpha, nonzero holes and the existing bounded two-stop local gradients.
+Unsupported SVG features refuse explicitly: text, images, use, CSS, element/group
+transforms, masks, filters, evenodd fills and nonzero-origin viewports. Flatten or
+outline these features before import. The 10 MB and existing geometry/node/paint
+limits apply. SVG parts require an unlocked visible path Composition with a regular
+Output; Image Output compositions are not rewritten by this action.
+
+Rectangle width/height percentages resolve against the SVG viewport. Rounded
+rectangles become editable path geometry. Large runs of unnamed opaque same-color
+rectangles are stored in bounded compound paths, so QR-style artwork does not
+require a layer for every module. Transparent paint and explicit layer/shape names
+are preserved separately. SVG parts retain viewBox user units; use Transform to
+change their size in the composition.
+
+Each Layer row has **S** for Solo. Multiple layers can be soloed. While any Solo is
+on, only soloed visible layers appear in both preview and SVG/PNG export. Hide
+remains in effect, and clearing Solo restores the original visibility settings.
+The panel states when Solo affects export. Solo is saved and undoable (schema33),
+and only filters top-level Compositions; referenced source internals are unchanged.
