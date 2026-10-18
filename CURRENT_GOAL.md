@@ -16,60 +16,48 @@ Coarse route: document lifetime → common command Session migration → represe
 
 ## ACTIVE CHECKPOINT — Image Keyer and appearance Mask
 
-Goal: Add non-destructive color Keyer to Image pipelines and shape Mask after
-Image or Composition appearance, with original alpha, editable source nodes,
-shared preview/export, Undo and exact reopen behavior. No AI cutout/video/feather
-expansion. User's 2026-10-18 requests are delegated by the parent Mission owner.
-Current phase: Shared image/appearance implementation and production browser
-acceptance passed. Commit/build and isolated native acceptance are next.
-Proven: Image-effects model/DOM38 pass. Production Edge/CSP verifies actual node
-creation, settings, Bypass, Use as output, inversion, alpha128 pixels, sRGB Alpha
-Viewer, Undo/reopen exact SVG and transparent PNG download. Existing image-tone
-tests retain7 older schema/fingerprint/CLI fixture failures, reproduced at old
-c4fcfb0 in an isolated copy; these were not changed. Source images stay immutable.
-See desktop/tests/image-effects* and desktop/test-results/image-effects-receipt.json.
-The prior entry/SVG/Japanese-wrap checkpoint is built from
-1641e0c788e25072c01581f59755b02be055416c and normally pushed. Model/DOM88, native36,
-production Edge/CSP and actual isolated WebView2 controls/real typography IPC
-passed. Twelve packaged examples re-export exact SVG offline. User's running
-EXE/document was not modified; owned diagnostic processes stopped. Manual OS
-chooser/IME/high-DPI acceptance remains separate. The private QR replacement
-was separately delivered, loaded in the real prior EXE and locally decoded to
-the same payload as its source; design/font data are outside Git and the package.
-Delivery: Library libfile_a100b6bb60648191a424687c4524370a;
-task/Nect-Desktop-trial-20261018-1641e0c.zip,4,033,663 bytes/56 entries.
-ZIP SHA256 5D419904EDDCA8B22C6047ABA4B8EC435AF53BABD062811CFFCACE9B91FD6998.
-EXE9,780,736 bytes, SHA256
-95BD6DFD1035577C2FFC03B428C316F828AB2F450E4424022DA36F9522A2C8E9.
-PR evidence: https://github.com/46slv/Nect/pull/24#issuecomment-6248062911.
-Approach: One writer, schema35 for the two new nodes. Keyer accepts/returns Image;
-key RGB/range/softness multiply original alpha, retain straight partial RGB and
-zero fully transparent RGB. Reuse bounded PNG decoder; pure canonical PNG
-encoder,4MP processing limit,8 active Keyers/document. Evaluated Image carries a
-small effect recipe, not a large cloned derived PNG; one bounded result cache.
-One image resolver must serve rendering, Keyer chains and luminance consumers.
-Mask accepts Image or PaintedPath appearance plus closed Path and invert, returns
-PaintedPath using existing painted groups. Keep source alpha and paint/order;
-SVG masking is shared by preview and SVG→PNG. Preserve export blockers. Explicit
-Use as output can upgrade an Image Output to regular Output, same ID/one Undo;
-do not change sockets just by creating a node. Refuse geometric conversion of a
-masked appearance rather than discarding its mask. Bounds include conservative
-stroke padding. Viewer alpha/checkerboard are temporary inspection state and
-must never alter authored artwork or export. Reuse normal Color/node controls;
-dedicated image-texel eyedropper is optional, not a blocker.
-Next task: One combined Windows build, isolated native startup/controls, package
-the public synthetic example and receipts, then normal push/PR and Library upload.
-Done for next: Coherent tested source, normal dev push/PR checkpoint and a new
-combined Windows trial only when this image-effects checkpoint is verified.
-State: codex/desktop-production-20261016; code is1641e0c, this record changes docs
-only at HEAD; image-effects source/UI edits are uncommitted WIP. Source/build
-owner remains this task alone.
-Authority: Latest parent-delegated user requests. Edit/test/commit/dev push/PR and
-EXE/Library permitted. No main merge/release/force push/auth changes/Notion writes.
-Never publish personal design, original attachment or embedded font software.
-Official WebView2 CDP may control explicitly isolated owned acceptance processes;
-never attach to or close the user's live window/document. Native manual OS
-chooser/IME/DPI remains LOCAL_WAIT, not a shared coding blocker.
-Double-check: Bounded local contract/reuse review; external consultation not
-required at present, zero external sends. Parent owns the broader spec audit.
-Handoff: CONTINUE_CURRENT_TASK.
+Goal: Non-destructive color Keyer after Image and closed shape Mask after Image
+or Composition appearance. Keep original alpha, editable nodes, common preview/
+SVG/PNG, Undo and exact reopen. This bounded checkpoint is implemented/delivered.
+Current phase: Verified Windows trial delivered; parent owns user follow-up.
+Proven: Source9cde8a44e8028c1527310da0a73d902a035be939, schema35. Focused model/
+DOM38 pass. Production Edge/CSP checks actual node creation/settings, Bypass,
+Mask output upgrade, inversion, Alpha Viewer, Undo/reopen exact SVG and PNG
+download; source alpha128/255 preserved. Actual isolated Windows EXE/WebView2
+repeats controls/Undo/reopen/pixel checks, real native IPC returns654 faces,
+no stub/page errors. Owned diagnostic PID33608 stopped; user's process/document
+never attached to or modified.14 packaged examples re-export exact SVG offline.
+Evidence: desktop/tests/image-effects*, desktop/docs/image-effects.md;
+task/native-image-effects/receipt.json, package IMAGE-EFFECTS-UI-RECEIPT.json and
+NATIVE-IMAGE-EFFECTS-RECEIPT.json. Older image-tone tests retain7 schema/fingerprint/
+CLI fixture failures, also reproduced at c4fcfb0 in an isolated source copy.
+Delivery: Library libfile_d60022e6d96c81918b7825b50fde0858;
+task/Nect-Desktop-trial-20261018-9cde8a4.zip,4,058,140 bytes/65 entries.
+ZIP SHA256 36A8009DBCE05F64C1780C14AA14C640EA8D8208A3EBF9C29CBC923BA3AF9470.
+EXE9,790,464 bytes, SHA256
+E17BBA8BD66DE747133818793B80A429E632262E3006183B628EBE8308F15553.
+Library finalize succeeded; returned EA version0 applied and hash unchanged.
+Private QR replacement remains separate: libfile_d837e47e864481918f8a3bdf52a8d81c,
+bold-3-to-2-svg-qr-verified.json, schema33, compatible a85aa74 onward. Prior real
+EXE load/SVG/QR decode confirmed. No private design or font software in Git/ZIP.
+Approach: Keyer RGB distance/range/softness multiplies original alpha, retains
+straight partial RGB and zeroes fully transparent RGB; bounded4MP PNG processing,
+8 active Keyers/document. Tiny evaluated recipes use one derived-asset resolver
+for rendering and luminance. Mask preserves painted-group children, closed Path,
+invert and source blockers; shared SVG luminance mask. Explicit Use as output
+upgrades Image Output to regular Output, stable ID/custom name/one Undo; locks
+protected. Mask is PaintedPath; lossy geometric conversion is refused. Viewer
+checkerboard/Alpha are temporary inspection state. No feather, AI cutout, video,
+dedicated texel eyedropper, or image-only downstream consumers after Mask.
+Next task: Parent supplies the verified Library links and collects actual-use
+feedback. Hands-on Windows chooser/IME/high-DPI remains unverified; do not infer
+it from browser controls. No further source/build worker is active or needed.
+Done for next: Current delegated features and trial are concrete/reviewable;
+follow-up work follows the latest parent/user instruction.
+State: codex/desktop-production-20261016; source9cde8a4 normally pushed, remote SHA
+verified. This delivery-record update changes docs only. Single source/build
+writer remains this task until parent explicitly reassigns it.
+Authority: Latest parent-delegated user requests. Edit/test/commit/dev push/PR,
+EXE and Library permitted. No main merge/release/force/auth changes/Notion writes.
+Double-check: Bounded local contract/reuse/pixel review; no external sends.
+Handoff: CONTINUE_CURRENT_TASK for authorized follow-up; parent receives outcome.
