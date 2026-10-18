@@ -2,6 +2,10 @@
 
 Source: https://app.notion.com/p/3e0fd279a6f381a3bc71eb08c627bec7
 Base: ca376c67529364a4518bdf06b6893bd3c8896392 (PR31).
+Development branch: `codex/req23-named-presets-20261019`.
+Remote-verified implementation: `88c4b257df92c4bbe9199e39697be96a6781f1f3`.
+[Draft PR32](https://github.com/46slv/Nect/pull/32), stacked on PR31.
+No CI checks or external reviews are reported at this checkpoint.
 
 The document stores named snapshots of selected source/effect nodes. Applying a
 preset appends ordinary editable nodes in any Composition of the same document.
