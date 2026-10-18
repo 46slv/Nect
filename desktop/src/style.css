@@ -1427,6 +1427,8 @@ input[data-scrub-step].scrubbing {
   width: 120px;
   min-width: 100px;
 }
+.graph-pan-pad { display: inline-grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 0 3px; vertical-align: middle; }
+.graph-pan-pad button { min-width: 1.55em; padding: 1px 3px; line-height: 1.1; }
 .navigation-hint {
   margin-right: 12px;
 }

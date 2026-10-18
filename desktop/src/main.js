@@ -3534,6 +3534,28 @@ function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
 function updateNavigation() {
+  const toolbar = document.querySelector('.graph-toolbar');
+  if (toolbar && !toolbar.querySelector('.graph-pan-pad')) {
+    const pad = document.createElement('span');
+    pad.className = 'graph-pan-pad';
+    pad.setAttribute('role', 'group');
+    pad.setAttribute('aria-label', 'Pan node graph');
+    for (const [action, label, glyph] of [
+      ['graph-pan-up', 'Pan node graph up', '^'],
+      ['graph-pan-left', 'Pan node graph left', '<'],
+      ['graph-pan-right', 'Pan node graph right', '>'],
+      ['graph-pan-down', 'Pan node graph down', 'v'],
+    ]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.action = action;
+      button.setAttribute('aria-label', label);
+      button.title = label;
+      button.textContent = glyph;
+      pad.append(button);
+    }
+    toolbar.querySelector('[data-action="graph-fit"]')?.before(pad);
+  }
   updateGraphOverview();
   updateLayerDeletionControls();
   for (const [view, value, limits, prefix] of [
@@ -5379,6 +5401,26 @@ app.addEventListener('click', async (e) => {
           if (!navigationBusy()) {
             graphOverviewOpen = !graphOverviewOpen;
             updateGraphOverview();
+          }
+          break;
+        case 'graph-pan-up':
+        case 'graph-pan-down':
+        case 'graph-pan-left':
+        case 'graph-pan-right':
+          if (!navigationBusy()) {
+            const viewport = document.querySelector('.graph-scroll');
+            const amount = 80;
+            const delta = {
+              'graph-pan-up': [0, -amount],
+              'graph-pan-down': [0, amount],
+              'graph-pan-left': [-amount, 0],
+              'graph-pan-right': [amount, 0],
+            }[d.action];
+            const scroll = [Math.max(0, viewport.scrollLeft + delta[0]), Math.max(0, viewport.scrollTop + delta[1])];
+            updateGraphBounds(scroll);
+            viewport.scrollTo(scroll[0], scroll[1]);
+            updateGraphOverview(false);
+            viewport.focus({ preventScroll: true });
           }
           break;
         case 'graph-fit':
