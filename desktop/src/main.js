@@ -4730,6 +4730,43 @@ async function confirmReplace(action = 'opening another document') {
   updateDocumentStatus();
   return accepted;
 }
+async function openCompositionImportDialog() {
+  const opened = await openFile();
+  if (!opened) return;
+  let source;
+  try { source = deserialize(opened.contents); }
+  catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); return; }
+  const dialog = document.createElement('dialog');
+  dialog.innerHTML = '<form method="dialog"><h3>Project composition</h3><label>Composition <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+  const select = dialog.querySelector('[data-composition-choice]');
+  const status = dialog.querySelector('output');
+  for (const layer of source.layers) {
+    const option = document.createElement('option');
+    option.value = layer.id;
+    option.textContent = layer.name || layer.id;
+    select.append(option);
+  }
+  status.textContent = `${source.layers.length} compositions`;
+  dialog.addEventListener('close', () => {
+    const value = dialog.returnValue;
+    dialog.remove();
+    if (value !== 'import' || !select.value) return;
+    try {
+      session.dispatch({ ...session.state, type: 'import-composition', payload: {
+        sourceText: opened.contents, compositionId: select.value,
+      }});
+      resetTransient();
+      documents.replace();
+      render();
+      notify('Composition imported');
+    } catch (error) {
+      notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+    }
+  });
+  document.body.append(dialog);
+  dialog.showModal();
+  select.focus();
+}
 function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
   if (
@@ -5227,6 +5264,12 @@ app.addEventListener('click', async (e) => {
           };
           document.querySelector('#image-file').value = '';
           document.querySelector('#image-file').click();
+          break;
+        case 'import-composition':
+          if (desktop) {
+            try { await openCompositionImportDialog(); }
+            catch (error) { notify(`Composition import rejected; current document preserved: ${error.message}`, true); }
+          } else notify('Project composition import is available in the desktop app', true);
           break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
@@ -10756,4 +10799,63 @@ app.addEventListener('click', async (event) => {
     if (button.hasAttribute('data-recovery-open')) await showRecoveryCopies();
     else if (recovery.state.phase === 'failed') await recovery.retry();
   } catch (error) { notify(error.message || String(error), true); }
+});
+
+// Keep the command surface compact without changing command ownership.
+const commandMenuObserver = new MutationObserver(() => {
+  const header = app.querySelector('header');
+  if (!header || header.querySelector('.command-menu')) return;
+  const makeMenu = (label, actions) => {
+    const menu = document.createElement('details');
+    menu.className = 'command-menu';
+    const summary = document.createElement('summary');
+    summary.textContent = label;
+    const items = document.createElement('div');
+    items.className = 'command-menu-items';
+    for (const action of actions) {
+      const button = header.querySelector(`[data-action="${action}"]`);
+      if (button) items.append(button);
+    }
+    menu.append(summary, items);
+    return menu;
+  };
+  const brand = header.querySelector('.brand');
+  const anchor = brand?.nextSibling;
+  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as']);
+  const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
+  const composition = document.createElement('button');
+  composition.type = 'button';
+  composition.dataset.action = 'import-composition';
+  composition.textContent = 'Project composition';
+  composition.title = 'Add a Composition from another project';
+  importMenu.querySelector('.command-menu-items').append(composition);
+  const exportMenu = makeMenu('Export', ['export', 'export-png']);
+  const scale = header.querySelector('#png-scale');
+  if (scale) {
+    const label = document.createElement('label');
+    label.className = 'command-menu-scale';
+    label.append('PNG scale', scale);
+    exportMenu.querySelector('.command-menu-items').append(label);
+  }
+  header.insertBefore(project, anchor);
+  header.insertBefore(importMenu, anchor);
+  header.insertBefore(exportMenu, anchor);
+  header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
+    project.querySelector('.command-menu-items').append(button);
+  });
+});
+commandMenuObserver.observe(app, { childList: true });
+app.append(document.createComment('command-menu-init'));
+render();
+document.addEventListener('click', (event) => {
+  if (event.target.closest('.command-menu')) return;
+  document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape') return;
+  const open = [...document.querySelectorAll('.command-menu[open]')];
+  if (!open.length) return;
+  event.preventDefault();
+  open.forEach((menu) => (menu.open = false));
+  open[0].querySelector('summary')?.focus();
 });

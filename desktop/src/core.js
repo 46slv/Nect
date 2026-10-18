@@ -90,6 +90,7 @@ import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
+import { prepareCompositionImport } from './project-composition-import.js';
 import { validateGuides, guideDefaults, setLayoutGrid } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
@@ -5694,6 +5695,16 @@ export class CommandSession {
       throw Error('STALE_REVISION: document changed');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
+    if (type === 'import-composition') {
+      if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
+        throw Error('Invalid composition import payload');
+      this.#history.apply((candidate) => {
+        const imported = prepareCompositionImport(candidate, payload.sourceText, payload.compositionId);
+        Object.keys(candidate).forEach((key) => delete candidate[key]);
+        Object.assign(candidate, imported);
+      });
+      return this.state;
+    }
     if (type === 'begin-gesture') {
       if (
         this.#gesture ||

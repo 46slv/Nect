@@ -63,6 +63,61 @@ header {
   padding: 0 14px;
   border-bottom: 1px solid var(--line);
   background: white;
+  flex-wrap: wrap;
+  min-height: 48px;
+}
+.command-menu {
+  position: relative;
+  flex: none;
+}
+.command-menu summary {
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.command-menu summary::-webkit-details-marker {
+  display: none;
+}
+.command-menu summary::after {
+  content: '⌄';
+  margin-left: 6px;
+  color: var(--muted);
+}
+.command-menu[open] summary {
+  background: #e9edf0;
+  border-color: var(--selection);
+}
+.command-menu-items {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  display: grid;
+  gap: 3px;
+  min-width: 170px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 5px 16px #26374722;
+}
+.command-menu-items button,
+.command-menu-scale {
+  width: 100%;
+  text-align: left;
+}
+.command-menu-scale {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px;
+}
+.command-menu-scale select {
+  min-width: 64px;
 }
 .brand {
   font-size: 17px;
