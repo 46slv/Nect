@@ -83,7 +83,7 @@ import {
   duplicateArtworkLayers,
   duplicateLayerGeneric,
 } from './artwork-creation.js';
-import { removeArtworkLayer } from './artwork-deletion.js';
+import { removeArtworkLayer, removeArtworkLayers } from './artwork-deletion.js';
 import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js';
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
@@ -6499,6 +6499,7 @@ export class CommandSession {
         'create-blank-layer',
         'create-demo-layer',
         'delete-layer',
+        'delete-layers',
         'order-layer',
         'reorder-layer',
         'duplicate-artworks',
@@ -6524,6 +6525,7 @@ export class CommandSession {
         candidate.layers.push(created);
         result = { layerId: created.id, nodeId: created.nodes[0].id };
       } else if (type === 'delete-layer') result = removeArtworkLayer(candidate, payload.layerId);
+      else if (type === 'delete-layers') result = removeArtworkLayers(candidate, payload.layerIds);
       else if (type === 'order-layer')
         result = moveArtworkLayer(candidate, payload.layerId, payload.direction);
       else if (type === 'reorder-layer')
@@ -6900,10 +6902,10 @@ export class CommandSession {
       if (ids.some((id) => !target.nodes.some((node) => node.id === id)))
         throw Error('Missing node');
       const protectedIds = target.nodes
-        .filter((n) => n.id === target.output || ['Output', 'Image Output'].includes(n.type))
+        .filter((n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type))
         .map((n) => n.id);
       if (type === 'delete-node' && protectedIds.some((id) => selected.has(id)))
-        throw Error('Cannot delete the Output node');
+        throw Error('Cannot delete a locked or Output node');
       result = {
         deletedNodeIds: ids.filter((id) => !protectedIds.includes(id)),
         retainedNodeIds: ids.filter((id) => protectedIds.includes(id)),
