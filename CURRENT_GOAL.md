@@ -18,8 +18,8 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Ctrl+C/Ctrl+V for selected graph nodes, including internal connections and
 settings, across Compositions in the same open Document; one Paste/one Undo.
-Current phase: Implemented; focused24 and production Edge/CSP shortcuts passed.
-Commit/build/isolated actual EXE check and immediate Library delivery are next.
+Current phase: Implemented, actual EXE verified and Library trial delivered.
+Parent receives Copy/Paste now; queued work must not delay this delivery.
 Proven: Copy captures authored node snapshots without changing revision/history;
 Paste reuses duplicateNodes identity rules for fresh node/point/contour IDs and
 internal socket/expression/Reference/Text-path remapping, relative placement and
@@ -27,6 +27,9 @@ selection. Actual SVG part references, embedded Image/fonts, Text, Composition
 Reference and Mask/Keyer preserve same-document data. Graph/IME/input focus,
 one Undo/Redo, locked target, external input refusal and exact JSON reopen/SVG
 were checked. Context/duplicate tests preserve existing Ctrl+D and menu behavior.
+Actual isolated EXE/WebView2 repeats Ctrl+C/Ctrl+V,6-node cross-Composition paste,
+internal connections/assets/Text/Mask/Keyer,1Undo/Redo, input/IME exclusion, lock
+refusal and JSON reopen/exact SVG. Owned PID57276 was responsive and stopped.
 Evidence: tests/node-clipboard*, tests/node-context-menu-dom.test.js,
 test-results/node-clipboard/receipt.json; desktop/docs/node-copy-paste.md.
 Approach: Private Session clipboard only; New/Open/import clears it. No OS or
@@ -35,10 +38,18 @@ unchanged. External inputs stay original in the same Composition with notice;
 cross-Composition paste requires those sources included, otherwise refuses.
 Missing/changed assets, missing Composition targets and cycles refuse atomically.
 Existing edited Path Remap group refusal stays. No blind reference rebinding.
-Next task: One versioned Windows trial; actual owned WebView2 Ctrl+C/Ctrl+V,
-Undo/save-reopen checks; Library/ZIP/hash report without waiting for other features.
-Done for next: Immediate usable Copy/Paste delivery and synchronized source/PR.
-State: codex/desktop-production-20261016 at0fcffc8; only Clipboard slice dirty.
+Next task: Parent supplies the Library trial immediately. Then reproduce/repair
+Text canvas drag, followed by accepted recovery autosave and font remainder.
+Done for next: Usable Copy/Paste delivered and source/PR synchronized.
+Delivery: Library libfile_4d2327cc40988191b52293428b3bca97, version0;
+task/Nect-Desktop-trial-20261018-9f2db9c.zip,4,067,367 bytes/73 entries.
+ZIP SHA256 B0CA6E5FD55EF5E7C1F0F4786B22B1E391225FF77021979A61851E76BE7A52E5.
+EXE9,791,488 bytes, SHA256
+E22222429D99980C0E54735E3329911F22610C2A0A571BA069A1550593DB7BEE.
+Library finalize succeeded; returned EA0 applied/hash unchanged. New2 Clipboard
+examples checked; older14 retained with their original evidence, not mass-retested.
+State: codex/desktop-production-20261016 source9f2db9cf1de42de87966af18a7bd46dc86d49b8f
+normally pushed; remote SHA verified. This record changes docs only.
 Previous font fix0fcffc82721c83c69a16b1b959936dc9cfc8c823 is committed/pushed,
 model/DOM12 and browser checks passed; its own native check/distribution was
 preempted. Owned font diagnostic PID51260 stopped; no user window touched.
