@@ -80,6 +80,7 @@ try {
         invoke: async (command, args) => {
           window.osNativeCalls.push(command);
           if (command === 'list_system_fonts') return [];
+          if (command === 'list_desktop_font_faces') return [];
           if (command === 'list_os_outline_fonts')
             return [{ family: raw.family, styles: [raw.style] }];
           if (command === 'outline_os_text') {

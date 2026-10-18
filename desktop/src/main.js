@@ -1,4 +1,5 @@
 import { osTextIntent } from './os-font-outline.js';
+import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
@@ -418,6 +419,8 @@ import {
   readSystemFont,
   listOsOutlineFonts,
   outlineOsText,
+  listDesktopFontFaces,
+  shapeDesktopText,
   DocumentLifecycle,
 } from './storage.js';
 import {
@@ -508,6 +511,7 @@ import {
 const app = document.querySelector('#app');
 const osTextDrafts = new Map();
 let osFontFamilies = null;
+let desktopFontFaces = null;
 let osFontCatalogPending = false;
 let editorPicker = null,
   fontPreview = null;
@@ -1951,14 +1955,37 @@ function variableControls(n) {
       : ''
   }`;
 }
+function desktopTypographyControls(n) {
+  if (n.osFont?.version !== 2) return '';
+  const disabled = !desktop || current().locked || n.locked || osTextDrafts.has(n.id);
+  return `<fieldset ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
+    ['size', 'Size', n.params.size.value],
+    ['tracking', 'Tracking', n.params.letterSpacing.value],
+    ['lineSpacing', 'Line spacing', n.params.lineSpacing.value],
+  ]
+    .map(
+      ([key, label, value]) =>
+        `<label>${label}<input type="number" step="any" value="${value}" data-os-setting="${key}" data-os-node="${n.id}" aria-label="Windows Text ${label}"></label>`,
+    )
+    .join(
+      '',
+    )}<label><input type="checkbox" data-os-setting="kerning" data-os-node="${n.id}" ${n.kerning !== false ? 'checked' : ''}>Kerning</label><label><input type="checkbox" data-os-setting="ligatures" data-os-node="${n.id}" ${n.osFont.outline.ligatures ? 'checked' : ''}>Standard ligatures</label><label>Alignment<select data-os-setting="alignment" data-os-node="${n.id}">${['start', 'center', 'end'].map((a) => `<option ${n.alignment === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label></fieldset>`;
+}
 function textControls(n) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
-      active = osFontFamilies?.some(
-        (f) => f.family === n.osFont.family && f.styles.includes(n.osFont.style),
-      );
-    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${!desktop ? 'Saved outlines · Windows required to edit' : osFontCatalogPending ? 'Checking font…' : active ? '' : osFontFamilies ? 'Font unavailable · saved outlines retained' : 'Font availability not checked'}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button><button class="mini" data-clear-os-text="${n.id}">Switch to regular Text</button></div>`;
+      active =
+        n.osFont.version === 2
+          ? desktopFontFaces?.some((f) =>
+              ['family', 'name', 'weight', 'style', 'stretch'].every(
+                (k) => f[k] === n.osFont.face[k],
+              ),
+            )
+          : osFontFamilies?.some(
+              (f) => f.family === n.osFont.family && f.styles.includes(n.osFont.style),
+            );
+    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version === 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${!desktop ? 'Saved outlines · Windows required to edit' : osFontCatalogPending ? 'Checking font…' : active ? '' : osFontFamilies ? 'Font unavailable · saved outlines retained' : 'Font availability not checked'}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Switch to regular Text</button></div>`;
   }
   const osControls = desktop
     ? `<section class="os-font-outlines"><button class="mini" data-os-text-font="${n.id}" ${current().locked ? 'disabled' : ''}>Choose OS font…</button><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
@@ -5321,6 +5348,7 @@ async function refreshOsFontCatalog() {
   osFontCatalogPending = true;
   try {
     osFontFamilies = await listOsOutlineFonts();
+    if (typeof listDesktopFontFaces === 'function') desktopFontFaces = await listDesktopFontFaces();
   } catch {
     osFontFamilies = [];
   } finally {
@@ -5340,12 +5368,12 @@ function stageOsText(el, composing = false) {
   osTextDrafts.set(n.id, draft);
   updateDocumentStatus();
 }
-async function commitOsText(nodeId, value) {
+async function commitOsText(nodeId, value, settings = {}) {
   const n = current().nodes.find((n) => n.id === nodeId && n.osFont);
   if (!n || !desktop || n.locked || current().locked) return;
   let draft = osTextDrafts.get(nodeId);
   if (draft?.pending || draft?.composing || composing) return;
-  if (value === n.text) {
+  if (value === n.text && !Object.keys(settings).length) {
     osTextDrafts.delete(nodeId);
     updateDocumentStatus();
     return;
@@ -5362,13 +5390,18 @@ async function commitOsText(nodeId, value) {
   draft.request = ticket;
   draft.value = value;
   try {
-    const intent = osTextIntent({ ...n, text: value }, { allowEmpty: true });
+    const modern = n.osFont.version === 2;
+    const intent = modern
+      ? desktopTextIntent(n, n.osFont.face, { text: value, ...settings })
+      : osTextIntent({ ...n, text: value }, { allowEmpty: true });
     notify('Preparing OS Text…');
-    const outline = await outlineOsText({
-      family: n.osFont.family,
-      style: n.osFont.style,
-      ...intent,
-    });
+    const outline = modern
+      ? await shapeDesktopText(intent)
+      : await outlineOsText({
+          family: n.osFont.family,
+          style: n.osFont.style,
+          ...intent,
+        });
     if (osTextDrafts.get(nodeId) !== draft || draft.request !== ticket) return;
     if (
       session !== owner ||
@@ -5377,11 +5410,15 @@ async function commitOsText(nodeId, value) {
       session.state.expectedRevision !== envelope.expectedRevision
     )
       throw Error('Document or selection changed; apply the Text edit again');
-    if (outline.family !== n.osFont.family || outline.style !== n.osFont.style)
+    if (
+      modern
+        ? JSON.stringify(outline.face) !== JSON.stringify(n.osFont.face)
+        : outline.family !== n.osFont.family || outline.style !== n.osFont.style
+    )
       throw Error('Unmatched OS font response');
     const result = commandChange(
       'set-os-font-text',
-      { nodeId, text: value, outline },
+      { nodeId, text: intent.text, outline, settings },
       'OS Text updated',
       false,
       envelope,
@@ -5407,6 +5444,16 @@ app.addEventListener('input', (event) => {
       event.target,
       event.isComposing || osTextDrafts.get(event.target.dataset.osText)?.composing,
     );
+});
+app.addEventListener('change', (event) => {
+  const el = event.target,
+    key = el.dataset.osSetting;
+  if (!key) return;
+  const n = current().nodes.find((n) => n.id === el.dataset.osNode && n.osFont?.version === 2);
+  if (!n || osTextDrafts.has(n.id)) return;
+  const value =
+    el.type === 'checkbox' ? el.checked : key === 'alignment' ? el.value : Number(el.value);
+  void commitOsText(n.id, n.text, { [key]: value });
 });
 app.addEventListener('compositionstart', (event) => {
   if (event.target.dataset.osText) stageOsText(event.target, true);
@@ -5436,9 +5483,10 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
   }
   if (!flushArrangementText(nodeId)) return;
   const source = current().nodes.find((n) => n.id === nodeId);
-  let intent;
   try {
-    intent = osTextIntent(source, { allowEmpty: mode === 'edit' });
+    if (source?.type !== 'Text' || source.locked || source.bypassed)
+      throw Error('Select an unlocked enabled Text');
+    // The selected backend validates the complete source after a face is chosen.
   } catch (error) {
     notify(error.message, true);
     return;
@@ -5458,17 +5506,37 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
     notify('Finding active OS fonts…');
     const families = await listOsOutlineFonts();
     osFontFamilies = families;
+    const faces = typeof listDesktopFontFaces === 'function' ? await listDesktopFontFaces() : [];
+    desktopFontFaces = faces;
     if (osOutlinePending !== request || !valid())
       throw Error('Selection changed; reopen OS font outlines');
     const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
-    const items = families.flatMap(({ family, styles }) =>
-      styles.map((style) => ({
-        id: `${family}:${style}`,
-        family,
-        style,
-        label: `${family} · OS ${labels[style]}`,
-        metadata: { family },
-      })),
+    const items = families
+      .filter((f) => !faces.some((face) => face.family === f.family))
+      .flatMap(({ family, styles }) =>
+        styles.map((style) => ({
+          id: `${family}:${style}`,
+          family,
+          style,
+          label: `${family} · OS ${labels[style]}`,
+          metadata: { family },
+        })),
+      );
+    items.unshift(
+      ...faces
+        .filter((face) => !face.color)
+        .map((face) => ({
+          id: `dw:${face.family}:${face.name}:${face.weight}:${face.style}:${face.stretch}`,
+          family: face.family,
+          face,
+          label: `${face.family} · ${face.name} · ${face.weight}`,
+          metadata: {
+            family: face.family,
+            subfamily: face.name,
+            weightClass: face.weight,
+            italic: face.style !== 0,
+          },
+        })),
     );
     if (!items.length) throw Error('No OS outline fonts are active');
     picker = editorPicker = openSearchPanel({
@@ -5486,14 +5554,20 @@ async function openOsOutlinePicker(nodeId, mode = 'bake') {
         picker.status('Preparing outlines; Escape cancels…', false);
         try {
           if (!valid()) throw Error('Document or selection changed; reopen OS font outlines');
-          const outline = await outlineOsText({
-            family: item.family,
-            style: item.style,
-            ...intent,
-          });
+          const outline = item.face
+            ? await shapeDesktopText(desktopTextIntent(source, item.face))
+            : await outlineOsText({
+                family: item.family,
+                style: item.style,
+                ...osTextIntent(source, { allowEmpty: mode === 'edit' }),
+              });
           if (picker.closed || osOutlinePending !== request) return;
           if (picker.activeId !== item.id) throw Error('Font choice changed; convert again');
-          if (outline.family !== item.family || outline.style !== item.style)
+          if (
+            item.face
+              ? JSON.stringify(outline.face) !== JSON.stringify(item.face)
+              : outline.family !== item.family || outline.style !== item.style
+          )
             throw Error('Unmatched OS font response; no outlines were applied');
           if (!valid()) throw Error('Document or selection changed; OS outlines were not applied');
           const result = commandChange(
@@ -6549,6 +6623,17 @@ app.addEventListener('change', async (e) => {
               (n.type === 'Stroke' && field.dataset.key === 'width'))
           )
             throw Error('Expected a finite number');
+        }
+        if (
+          n.osFont?.version === 2 &&
+          ['size', 'letterSpacing', 'lineSpacing'].includes(field.dataset.key) &&
+          d.base === undefined
+        ) {
+          if (osTextDrafts.has(n.id)) throw Error('Apply or cancel the Text edit first');
+          await commitOsText(n.id, n.text, {
+            [field.dataset.key === 'letterSpacing' ? 'tracking' : field.dataset.key]: value,
+          });
+          return;
         }
         commandChange(
           d.base !== undefined

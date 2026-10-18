@@ -1,5 +1,9 @@
 # Editable OS-font Text checkpoint
 
+The subsequent [Windows shaped Text](windows-text-shaping.md) checkpoint adds
+schema 29/version 2 DirectWrite faces and wider shaping/multiline support. The
+version 1 GDI snapshot contract below remains supported with its narrower limits.
+
 User scope (2026-10-18): retain the selected OS font while editing text, support
 save/reload when the font is absent, never copy/embed font software or Adobe caches.
 

@@ -1,6 +1,7 @@
 import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
 import { validateOsFontText, osFontTextPath } from './os-font-text.js';
+import { desktopTextIntent, desktopOsReference, desktopFontTextPath } from './desktop-font-text.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -3784,7 +3785,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28,
+      27, 28, 29,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -5551,29 +5552,63 @@ export class CommandSession {
         delete source.osFont;
         source.font = 'default';
       } else {
+        const modern = payload.outline?.engine === 'directwrite-v1';
+        const settings = payload.settings || {};
+        if (
+          Object.keys(settings).some(
+            (k) =>
+              !['size', 'tracking', 'lineSpacing', 'kerning', 'ligatures', 'alignment'].includes(k),
+          ) ||
+          (!modern && Object.keys(settings).length) ||
+          (settings.ligatures !== undefined && settings.ligatures !== payload.outline.ligatures)
+        )
+          throw Error('Invalid or mismatched prepared Text settings');
         const next = {
           ...source,
           text: payload.text ?? source.text,
           font: 'default',
-          osFont: {
-            version: 1,
-            family: payload.outline?.family,
-            style: payload.outline?.style,
-            outline: clone(payload.outline),
-          },
+          params: clone(source.params),
+          osFont: modern
+            ? desktopOsReference(payload.outline)
+            : {
+                version: 1,
+                family: payload.outline?.family,
+                style: payload.outline?.style,
+                outline: clone(payload.outline),
+              },
         };
         // Do not discard variable/rich/path semantics as a side effect of choosing
         // an OS font. The same source restrictions apply before and after adoption.
-        osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
-          allowEmpty: true,
-        });
+        if (modern) {
+          for (const [key, param] of [
+            ['size', 'size'],
+            ['tracking', 'letterSpacing'],
+            ['lineSpacing', 'lineSpacing'],
+          ]) {
+            if (settings[key] !== undefined) {
+              if (
+                source.params[param].locked ||
+                source.params[param].source ||
+                source.params[param].expression
+              )
+                throw Error('Text setting is locked or driven');
+              next.params[param].value = settings[key];
+            }
+          }
+          if (settings.kerning !== undefined) next.kerning = settings.kerning;
+          if (settings.alignment !== undefined) next.alignment = settings.alignment;
+          desktopTextIntent(next, next.osFont.face);
+        } else
+          osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
+            allowEmpty: true,
+          });
         if (source.characterPositions)
           next.characterPositions = reconcileCharacterEdit(source.characterPositions, {
             previousRaw: source.text,
             nextRaw: next.text,
           }).record;
         Object.assign(source, next);
-        candidate.schemaVersion = Math.max(candidate.schemaVersion, 28);
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, modern ? 29 : 28);
         validateOsFontText(source, candidate.schemaVersion);
       }
       validate(candidate);
@@ -5612,18 +5647,34 @@ export class CommandSession {
       }
       let path, outlineUnits;
       if (type === 'bake-os-text-outline') {
-        path = osOutlineGeometry(payload.outline, source, uid);
-        const bounds = pathBounds(path),
-          x = bounds[0][source.alignment === 'center' ? 1 : source.alignment === 'end' ? 2 : 0],
-          y =
-            source.crossAlignment && source.crossAlignment !== 'origin'
-              ? bounds[1][
-                  source.crossAlignment === 'center' ? 1 : source.crossAlignment === 'end' ? 2 : 0
-                ]
-              : payload.outline.ascent;
-        const delta = [source.params.position.value[0] - x, source.params.position.value[1] - y];
-        for (const contour of path.contours)
-          for (const pt of contour.points) pt.position = pt.position.map((v, k) => v + delta[k]);
+        if (payload.outline?.engine === 'directwrite-v1') {
+          if (parameters(source).some(([, q]) => q.source || q.expression))
+            throw Error('Disconnect Text parameters before direct OS conversion');
+          const prepared = {
+            ...source,
+            font: 'default',
+            osFont: desktopOsReference(payload.outline),
+          };
+          path = desktopFontTextPath(
+            prepared,
+            source.params.position.value,
+            source.params.size.value,
+            pathBounds,
+          );
+        } else {
+          path = osOutlineGeometry(payload.outline, source, uid);
+          const bounds = pathBounds(path),
+            x = bounds[0][source.alignment === 'center' ? 1 : source.alignment === 'end' ? 2 : 0],
+            y =
+              source.crossAlignment && source.crossAlignment !== 'origin'
+                ? bounds[1][
+                    source.crossAlignment === 'center' ? 1 : source.crossAlignment === 'end' ? 2 : 0
+                  ]
+                : payload.outline.ascent;
+          const delta = [source.params.position.value[0] - x, source.params.position.value[1] - y];
+          for (const contour of path.contours)
+            for (const pt of contour.points) pt.position = pt.position.map((v, k) => v + delta[k]);
+        }
         outlineUnits = [{ id: uid('unit'), contours: path.contours.map((c) => c.id) }];
       } else {
         const evaluated = evaluate(

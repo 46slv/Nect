@@ -1,4 +1,5 @@
 import { normalizeOsText, osOutlineGeometry } from './os-font-outline.js';
+import { validateDesktopText, desktopFontTextPath } from './desktop-font-text.js';
 
 const ownKeys = (value, keys) =>
   value &&
@@ -10,6 +11,7 @@ const ownKeys = (value, keys) =>
 export function validateOsFontText(n, schemaVersion = 28) {
   const ref = n.osFont;
   if (ref === undefined) return;
+  if (ref?.version === 2) return validateDesktopText(n, schemaVersion);
   if (
     schemaVersion < 28 ||
     n.type !== 'Text' ||
@@ -66,6 +68,7 @@ export function validateOsFontText(n, schemaVersion = 28) {
 }
 
 export function osFontTextPath(n, position, size, boundsOf) {
+  if (n.osFont?.version === 2) return desktopFontTextPath(n, position, size, boundsOf);
   const path = validateOsFontText(n),
     ratio = size / n.osFont.outline.size;
   if (!Number.isFinite(size) || size < 0.01 || size > 10000 || !position?.every(Number.isFinite))

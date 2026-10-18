@@ -1,7 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
 mod document_storage;
+mod desktop_font_layout;
 mod os_font_outlines;
+use desktop_font_layout::{list_desktop_font_faces, shape_desktop_text};
 use os_font_outlines::{list_os_outline_fonts, outline_os_text};
 use document_storage::{
     choose_unsaved, enable_close_guard, finish_close, open_project, release_project, save_project,
@@ -125,6 +127,8 @@ fn run() -> Result<(), String> {
             read_system_font,
             list_os_outline_fonts,
             outline_os_text,
+            list_desktop_font_faces,
+            shape_desktop_text,
             open_project,
             save_project,
             release_project,

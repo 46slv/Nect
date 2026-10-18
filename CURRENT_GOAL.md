@@ -14,40 +14,59 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-17 14:51 UTC
+## ACTIVE CHECKPOINT — 2026-10-18 Windows font support
 
-Goal: Prioritize Shiro's hands-on feedback and font/path usability. The explicit October 17 full-font request broadens the historical mission; support remains staged and must not be described as universally complete.
+Goal: The user's 13:40 JST instruction prioritizes practical complete font support
+before the deferred Illustrator-style path backlog. Preserve authoring and never
+extract/copy/embed Adobe cache/font software. Windows OS references may return
+geometry only. No universal all-font/all-script completion claim is authorized.
 
-Completed source: the 25-modifier catalog, graph alignment, seven interaction fixes, cubic font corner rounding, real static family/style selection, undoable Text → Multi Path baking, expandable Join Paths, character ink snapping and maintained equal gaps. See individual feature documents for limits.
+Current phase: Verify/package the schema 29 shaped Windows Text checkpoint on
+SS-Note-ROG. Notion remains the parent's responsibility.
 
-New integrated slice: opt-in schema 25 variable TrueType assets, exact worker-prepared document banks, atomic async commands/history/open, experimental import and real axis controls, and cold-process CLI SVG export. Static documents remain schema 24 and retain their parser. Supported variable text is whole horizontal single-line simple Latin with verified one-to-one mapping. Complex shaping, RTL, vertical/wrap/path/rich-character/maintained-arrangement variable layouts and CFF2 are explicitly rejected. No main-thread fontkit fallback or CSP change.
+Proven: Point Delete ownership is in bad7a6c; OS geometry and DIN Alternate GDI
+output were distributed in 6021b3e. Editable schema 28 OS Text is in 0662979.
+The current candidate adds real DirectWrite face/weight selection, exact-face
+Unicode shaping, multiline, size/tracking/line spacing/kerning/standard ligatures,
+portable schema 29 snapshots and missing-font preservation. See
+desktop/docs/windows-text-shaping.md for exact contracts, test evidence and limits.
+Thirty native tests, 18 OS model/DOM tests, 43 existing outline/variable tests and
+the production Edge/CSP typography flow pass. Native startup/package are pending
+at this source checkpoint; browser IPC was explicitly stubbed with independently
+captured native geometry and is not WebView2 acceptance.
 
-Evidence: core/document 65/65 focused checks, UI 4/4 focused DOM checks, CLI 5/5 focused checks. One integrated production Web build passed: 94 modules, emitted local Worker 369.13 kB. Synthetic DOM plus real Node Worker tests are not browser/WebView acceptance. Native font-catalog Rust remains uncompiled; real offline Worker/CSP, IME/high-DPI and native packaging remain unverified. Worker output/cache limits are not a hard heap quota. Preserve exact bundled license declarations/notices without invented attribution.
+Next task: Build the exact committed source, verify isolated native startup,
+package EXE/ZIP separately from earlier deliveries, upload via the current Library
+workflow and report confirmed IDs, SHA256, checks and unverified acceptance.
 
-Follow-on mixed-document correction: static Text retains full family/style/favorites/installed-font/import and range selection when a variable asset or node is present. Variable adoption remains a whole-text prepared transaction; variable range/native rows remain disabled. Four focused DOM tests pass with real Worker coverage of import, cancellation, history and preserved variable readiness; one new integrated build passes.
+Approach: One source/build writer; bounded native read-only adapters; common JS
+Session validates candidates and owns Undo/codec. Pure evaluation/export use
+persisted contours without font services. All unsupported operations fail
+atomically. Preserve existing variable axes/named instances and static vertical,
+rich/path layout rather than silently flattening or replacing them.
 
-Named instances: actual validated fvar presets now use the existing asynchronous preview/commit/history path with exact coordinate matching and a Custom state. Twenty focused variable/document/UI/metadata checks and one production build pass. No schema/backend/CSP/native changes; browser/WebView visual acceptance remains open.
+Done for next: A separately versioned package with source SHA, checksums and
+truthful evidence; then continue practical font acceptance before path extensions.
 
-Anchor reposition: Transform now offers nine input-bounds presets and a draggable Anchor crosshair. Compensated absolute Position preserves the evaluated affine; Offset and source geometry are retained. Presets support zero scale; singular drag refuses. Locked/driven Anchor or Position refuses atomically. Twenty-seven focused core/DOM checks and one production build pass; real host acceptance remains open.
+State: codex/desktop-production-20261016, candidate based on 0662979. Blank/old
+documents remain schema 27 or their prior version until new features are authored;
+schema 28/29 documents require the new reader. Existing 6021b3e/bad7a6c and older
+b9fe3f/schema19 packages remain unchanged and are not the new font checkpoint.
 
-Expression completion: inline supported-function/constants and live numeric-reference prefix suggestions now edit the draft only, with arrows/Tab/Enter, type/target labels, IME and stale/cursor/quoted-string guards. Apply remains the sole authored commit. Fifteen focused tests and one production build pass.
+LOCAL_WAIT: Actual WebView2 IME/high-DPI/picker and subjective typography acceptance.
+The exposed host tools have no native UI controller; browser automation and actual
+native adapter tests are available. Resume this row on native-control capability
+or the user's hands-on evidence; it does not block independent font work.
+New OS-route variable axes, vertical, wrap, rich/path/character adjustments and
+color/bitmap fonts remain explicit limits; other existing routes retain their
+documented abilities. Legacy GDI-only families retain their narrower script and
+single-line limits. Do not describe font support as universally complete.
 
-Ownership: all implementation workers have released their source scopes. Parent owns this integrated checkpoint and publication. Do not restart overlapping implementation or broad test suites.
+Authority: Current user-approved code/tests/commit/dev-branch non-force push/PR
+update and EXE/ZIP/Library delivery. No main merge, release, force push or auth/
+permission changes. No Notion mutation. Path A direct selection, point nudge,
+Alt one-sided handles and endpoint extension remain deferred behind fonts.
 
-Next concrete work: the user's 14:06 UTC instruction prioritizes repeated sourced specification research through the following morning JST, with minimal EXE resource expenditure. Do not resume native packaging monitoring during this research window. The latest implementation checkpoint is 16e193ac6f73bc1a7f61a5f67e0e2a96ac72dcdf; subsequent research proposals are not implemented. Research 01–16 covers source editing, graph roles, square fitting/visual thickness, typography, palette links, export, panel division, outline editing, typed value, navigation, Boolean/masks, input ownership, linked dimensions, centered grid, demo removal and two assigned viewers. Reuse this evidence and add genuinely distinct themes; do not recreate these investigations.
-
-The canonical product specification is https://app.notion.com/p/3dffd279a6f381cca8c7c4dec111b131 . The detailed conversation memo is https://app.notion.com/p/3fcfd279a6f38126b1fac69b3048531b ; source-backed research 01–10 is https://app.notion.com/p/3fcfd279a6f381e78204fa7e1053818b and the continuation is https://app.notion.com/p/3fcfd279a6f381d2b57be6790c4836be . Research16 integration is pending readback at this checkpoint. User requests are normative implementation targets; optional design choices remain labeled proposals.
-
-Latest explicit requirements: fixed panel responsibility redesign; distinct Grid and Layout Grid buttons/settings; node library categories; canvas-first outline editing instead of full point lists; path-tool point insertion and synchronized node highlight; pre-expression editable value across typed inputs; adjacent Ctrl+D duplication, optional pan pad/minimap; header context menu for Use as Output/Duplicate/Delete; no production demo startup/UI; two independently assigned live Viewer slots without final-output rewiring. Centered artboard grid must put a line intersection at center, with accessible opacity and finest fixed width; optional nine origins must not silently contradict that geometry contract. Preserve original user files, safe Undo and existing driver/lock rules.
-
-The private vr-logo JSON was read and rendered without modifying it. Its Transform use separates shared shape construction, local placement, text aspect adjustment and final placement. All active artwork is filled geometry; normal widths are not equivalent to Stroke settings. Do not publish its embedded fonts or add the private JSON to repository fixtures. Actual artwork analysis is https://app.notion.com/p/3fcfd279a6f3819b9d78d4fabb1f4585 .
-
-Frozen deliveries: native b9fe3f64732e119b409a4761894c17f47893df40 was delivered at 10:59 UTC (Library libfile_0bf2f7e94fac81919256d212ac38fcef); browser cec110497cdf27a8a90bdf6afe282445e5cadf9e at 10:26 UTC (Library libfile_d75c0ab0205c8191af8626ec909fb4c6). Earlier packages remain unchanged. New source changes are NOT in those deliveries. Native startup/close passed, but full editing/save/IME/high-DPI acceptance is still unverified. Keep version-specific saved JSON separate.
-
-Native update is deferred during the authorized overnight research window. Authorized shiro-WS was last observed offline at 14:03 UTC. Do not switch to unauthorized computers or bypass connection restrictions. After the research window, resume the existing native packaging task only after the authorized environment reconnects, selecting an exact stable source checkpoint and preserving older packages. Font-catalog compilation and bounded startup are required before claiming a new EXE is ready. Parent owns the promised user notification and Library delivery.
-
-Requirements: the existing Notion Nect product-specification home is canonical, with original request IDs, acceptance conditions, source verification and delivered-version status separated. Do not replace it with another tracker or overwrite historical checkpoints. Text to Path remains a compatibility pass-through; explicit baking is a separate command. SVG already uses outlines; native .ai support is not claimed.
-
-Approach: common Session transactions, deterministic identities, bounded geometry, one writer per scope. Focused tests and one build after actual changes; no repeated broad audits or full-suite runs. The cloud snapshot has no Git metadata; publish through expected-SHA development-branch updates and verify the remote ref.
-
-Authority: existing Nect implementation/tests/docs/dev-branch/push/Draft PR permission applies. No protected-main merge, formal release, force/history rewrite, authentication, permissions or billing changes. Other stopped missions stay stopped.
+Handoff: CONTINUE_CURRENT_TASK through this coherent font checkpoint. Earlier
+requirements/history remain in Git and the existing canonical Notion references;
+do not recreate a parallel tracker or expose private artwork/font bytes.

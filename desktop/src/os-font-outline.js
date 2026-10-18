@@ -77,6 +77,23 @@ export function osOutlineGeometry(raw, source, uid, options = {}) {
   if (!intent.text.trim() && raw.points.length)
     throw Error('Empty OS Text cannot contain outlines');
   if (!raw.points.length) return { contours: [] };
+  return parseOsContours(raw.points, raw.types, uid);
+}
+export function parseOsContours(
+  points,
+  types,
+  uid,
+  { rawBudget = 30000, vertexBudget = 10000 } = {},
+) {
+  const raw = { points, types };
+  if (
+    !Array.isArray(points) ||
+    !Array.isArray(types) ||
+    points.length !== types.length ||
+    points.length > rawBudget
+  )
+    throw Error('Invalid OS outline arrays or budget');
+  if (!points.length) return { contours: [] };
   const xy = (v) =>
     Array.isArray(v) &&
     v.length === 2 &&
@@ -128,8 +145,8 @@ export function osOutlineGeometry(raw, source, uid, options = {}) {
         current.points.pop();
       }
       total += current.points.length;
-      if (total > 10000 || contours.length >= 10000)
-        throw Error('OS outline exceeds the 10000 vertex/contour budget');
+      if (total > vertexBudget || contours.length >= 10000)
+        throw Error('OS outline exceeds its vertex/contour budget');
       contours.push(current);
       current = null;
     }
