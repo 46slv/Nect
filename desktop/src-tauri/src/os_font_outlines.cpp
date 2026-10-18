@@ -32,10 +32,13 @@ extern "C" int nect_list_os_fonts(FontCallback callback, void* data) {
 }
 extern "C" int nect_outline_os_text(const wchar_t* name, int style,
     const wchar_t* text, int length, float size, PathCallback callback, void* data) {
-    if (style < 0 || style > 3 || length < 1 || length > 1024 || !std::isfinite(size) || size < 0.01f || size > 10000) return -2;
+    if (style < 0 || style > 3 || length < 0 || length > 1024 || !std::isfinite(size) || size < 0.01f || size > 10000) return -2;
     Runtime runtime; if (!runtime.token) return -1;
     FontFamily family(name);
     if (family.GetLastStatus() != Ok || !family.IsStyleAvailable(style)) return -4;
+    UINT16 em = family.GetEmHeight(style), ascent = family.GetCellAscent(style);
+    if (!em) return -10;
+    if (!length) { callback(nullptr, nullptr, 0, size * ascent / em, data); return 0; }
     // Reject missing characters instead of letting another font supply glyphs.
     HDC dc = CreateCompatibleDC(nullptr); if (!dc) return -5;
     bool covered = false;
@@ -62,11 +65,10 @@ extern "C" int nect_outline_os_text(const wchar_t* name, int style,
     GraphicsPath path(FillModeWinding);
     if (path.AddString(text, length, &family, style, size, PointF(0, 0), StringFormat::GenericTypographic()) != Ok) return -7;
     int count = path.GetPointCount();
-    if (count < 1 || count > 30000) return -8;
+    if (count < 0 || count > 30000) return -8;
+    if (!count) { callback(nullptr, nullptr, 0, size * ascent / em, data); return 0; }
     std::vector<PointF> points(count); std::vector<BYTE> types(count);
     if (path.GetPathPoints(points.data(), count) != Ok || path.GetPathTypes(types.data(), count) != Ok) return -9;
-    UINT16 em = family.GetEmHeight(style), ascent = family.GetCellAscent(style);
-    if (!em) return -10;
     callback(points.data(), types.data(), count, size * ascent / em, data);
     return 0;
 }

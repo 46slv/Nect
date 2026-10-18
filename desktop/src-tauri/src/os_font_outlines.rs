@@ -13,7 +13,7 @@ pub struct OsOutline {
 struct ScriptPolicy { max_utf16_units: usize, ranges: Vec<[u32;2]>, excluded: Vec<[u32;2]> }
 fn supported_text(text: &str) -> bool {
     let policy: ScriptPolicy = serde_json::from_str(include_str!("../../src/os-font-scripts.json")).expect("Static OS script policy");
-    !text.trim().is_empty() && text.encode_utf16().count() <= policy.max_utf16_units && text.chars().all(|c| {
+    text.encode_utf16().count() <= policy.max_utf16_units && text.chars().all(|c| {
         let n=c as u32;
         policy.ranges.iter().any(|[lo,hi]| (*lo..=*hi).contains(&n)) &&
         !policy.excluded.iter().any(|[lo,hi]| (*lo..=*hi).contains(&n))
@@ -40,8 +40,9 @@ mod native {
         output.push(OsFont { family, styles: (0..=3).filter(|s| styles & (1 << s) != 0).collect() });
     }
     extern "C" fn outline(points: *const Point, types: *const u8, count: i32, ascent: f32, data: *mut c_void) {
-        if !(1..=30000).contains(&count) { return; }
+        if !(0..=30000).contains(&count) { return; }
         let result = unsafe { &mut *(data as *mut OsOutline) };
+        if count==0 { result.ascent=ascent; return; }
         result.points = unsafe { std::slice::from_raw_parts(points, count as usize) }.iter().map(|p| [p.x,p.y]).collect();
         result.types = unsafe { std::slice::from_raw_parts(types, count as usize) }.to_vec();
         result.ascent = ascent;
@@ -67,7 +68,7 @@ mod native {
         let mut result = OsOutline { family, style, text, size, points: vec![], types: vec![], ascent: 0.0 };
         let status = unsafe { nect_outline_os_text(name.as_ptr(), style as i32, chars.as_ptr(), chars.len() as i32, size,
             outline, &mut result as *mut _ as *mut c_void) };
-        if status != 0 || result.points.is_empty() || !result.ascent.is_finite() ||
+        if status != 0 || (!result.text.trim().is_empty() && result.points.is_empty()) || !result.ascent.is_finite() ||
             result.points.iter().flatten().any(|v| !v.is_finite() || v.abs() > 10000000.0) {
             return Err(format!("OS outline unavailable; no document change ({status}). Missing glyphs or unsupported outlines are refused."));
         }
@@ -107,6 +108,8 @@ mod tests {
         assert!(outline.types.iter().any(|v| v & 128 != 0));
         assert!(outline.points.iter().flatten().all(|v| v.is_finite()));
         println!("OS_OUTLINE family={} style={} points={} ascent={}", font.family, style, outline.points.len(), outline.ascent);
+        assert!(prepare(font.family.clone(),style,"".into(),100.0).unwrap().points.is_empty());
+        assert!(prepare(font.family.clone(),style,"   ".into(),100.0).unwrap().points.is_empty());
         assert!(prepare("Missing-Nect-OS-Font-123456789".into(),0,"ABC".into(),100.0).is_err());
         assert!(prepare(font.family.clone(),style,"日本語".into(),100.0).is_err());
         assert!(prepare(font.family.clone(),4,"ABC".into(),100.0).is_err());

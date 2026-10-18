@@ -1,7 +1,11 @@
 // OS preparation is read-only. Only CommandSession may adopt the returned geometry.
 import scripts from './os-font-scripts.json' with { type: 'json' };
-export function normalizeOsText(text) {
-  if (typeof text !== 'string' || !text.trim() || text.length > scripts.maxUtf16Units)
+export function normalizeOsText(text, { allowEmpty = false } = {}) {
+  if (
+    typeof text !== 'string' ||
+    (!allowEmpty && !text.trim()) ||
+    text.length > scripts.maxUtf16Units
+  )
     throw Error('OS font text requires one nonempty line of at most 1024 UTF-16 units');
   const normalized = text.normalize('NFC');
   if (
@@ -18,10 +22,10 @@ export function normalizeOsText(text) {
     );
   return normalized;
 }
-export function osTextIntent(n) {
+export function osTextIntent(n, options = {}) {
   if (n?.type !== 'Text' || n.locked || n.bypassed)
     throw Error('Select an unlocked, enabled Text node');
-  const text = normalizeOsText(n.text);
+  const text = normalizeOsText(n.text, options);
   const record = n.characterPositions;
   if (
     n.variation ||
@@ -47,8 +51,8 @@ export function osTextIntent(n) {
   return { text, size };
 }
 
-export function osOutlineGeometry(raw, source, uid) {
-  const intent = osTextIntent(source);
+export function osOutlineGeometry(raw, source, uid, options = {}) {
+  const intent = osTextIntent(source, options);
   if (
     !raw ||
     !Number.isFinite(raw.size) ||
@@ -65,11 +69,14 @@ export function osOutlineGeometry(raw, source, uid) {
     raw.ascent > intent.size * 10 ||
     !Array.isArray(raw.points) ||
     !Array.isArray(raw.types) ||
-    !raw.points.length ||
+    (!raw.points.length && !(options.allowEmpty && !intent.text.trim())) ||
     raw.points.length > 30000 ||
     raw.points.length !== raw.types.length
   )
     throw Error('Invalid or stale OS outline response');
+  if (!intent.text.trim() && raw.points.length)
+    throw Error('Empty OS Text cannot contain outlines');
+  if (!raw.points.length) return { contours: [] };
   const xy = (v) =>
     Array.isArray(v) &&
     v.length === 2 &&

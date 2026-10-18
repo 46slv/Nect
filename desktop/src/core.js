@@ -1,5 +1,6 @@
 import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
+import { validateOsFontText, osFontTextPath } from './os-font-text.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -2218,6 +2219,7 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
                 n.pathAttachment,
                 n.font,
                 n.variation,
+                n.osFont,
                 n.writingMode,
                 n.alignment,
                 n.referenceBounds,
@@ -2364,6 +2366,25 @@ export function evaluate(layer, fonts = {}, imageAssets = {}) {
           })),
         };
         // Preserve Text's fingerprint contract for existing downstream Remap edits.
+        result.unstable = true;
+        result.fingerprint = signature(result);
+      } else if (n.type === 'Text' && n.osFont) {
+        result = osFontTextPath(n, read('position'), read('size'), pathBounds);
+        const reason =
+          'OS font Text character adjustments and canvas caret editing are not supported; edit Text in Inspector';
+        textLayouts.set(n.id, {
+          outlineUnits: [{ id: `${n.id}:osu0`, contours: result.contours.map((c) => c.id) }],
+          characters: [],
+          glyphAdvances: {},
+          placements: [],
+          lines: [],
+          pairKerning: {},
+          arrangementEligibility: { eligible: false, reason },
+          reason,
+        });
+        result.characterOccurrences = [
+          { source: n.id, route: n.id, matrix: identityMatrix(), reason },
+        ];
         result.unstable = true;
         result.fingerprint = signature(result);
       } else if (n.type === 'Text') {
@@ -3763,7 +3784,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27,
+      27, 28,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -3810,6 +3831,7 @@ export function validate(doc) {
         throw Error('Invalid node collapse state');
       text(n.text);
       text(n.font);
+      validateOsFontText(n, sourceSchemaVersion);
       if (
         n.canvasPositionHandle !== undefined &&
         (n.type !== 'Vector' || typeof n.canvasPositionHandle !== 'boolean')
@@ -5515,6 +5537,48 @@ export class CommandSession {
       }
       validate(candidate);
       return { candidate, result: {} };
+    }
+    if (['set-os-font-text', 'clear-os-font-text'].includes(type)) {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((l) => l.id === payload.layerId),
+        source = layer?.nodes.find((n) => n.id === payload.nodeId && n.type === 'Text');
+      if (!source || source.locked || layer.locked || source.bypassed)
+        throw Error('Select an unlocked enabled Text');
+      if ([...this.#textDrafts.values()].some((d) => d.nodeId === source.id))
+        throw Error('Finish or cancel the Text draft first');
+      if (type === 'clear-os-font-text') {
+        if (!source.osFont) throw Error('Select OS font Text');
+        delete source.osFont;
+        source.font = 'default';
+      } else {
+        const next = {
+          ...source,
+          text: payload.text ?? source.text,
+          font: 'default',
+          osFont: {
+            version: 1,
+            family: payload.outline?.family,
+            style: payload.outline?.style,
+            outline: clone(payload.outline),
+          },
+        };
+        // Do not discard variable/rich/path semantics as a side effect of choosing
+        // an OS font. The same source restrictions apply before and after adoption.
+        osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
+          allowEmpty: true,
+        });
+        if (source.characterPositions)
+          next.characterPositions = reconcileCharacterEdit(source.characterPositions, {
+            previousRaw: source.text,
+            nextRaw: next.text,
+          }).record;
+        Object.assign(source, next);
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, 28);
+        validateOsFontText(source, candidate.schemaVersion);
+      }
+      validate(candidate);
+      serialize(candidate);
+      return { candidate, result: { nodeId: source.id } };
     }
     if (['bake-text-outline', 'bake-os-text-outline'].includes(type)) {
       const layer = before.layers.find((l) => l.id === payload.layerId);

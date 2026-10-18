@@ -194,4 +194,61 @@ test('OS font picker commits geometry only and rejects cancel, pending duplicate
   await until(() => /Unmatched OS font/.test(picker.querySelector('output').textContent));
   assert.equal(saved(), before);
   picker.querySelector('.picker-cancel').click();
+  // Retained OS font Text edits use native preparation without replacing Text.
+  n = setup();
+  globalThis.nativeOsTest = async (intent) => raw(intent);
+  $('.inspector-body [data-os-text-font]').click();
+  await until(() => $('dialog[aria-label="OS font outlines"]'));
+  await new Promise((r) => setTimeout(r, 0));
+  picker = $('dialog[aria-label="OS font outlines"]');
+  assert.equal(picker.querySelector('.picker-apply').textContent, 'Use font for Text');
+  picker.querySelector('.picker-apply').click();
+  await until(() => !$('dialog[aria-label="OS font outlines"]'));
+  let live = () => win.nect.document.layers[0].nodes.find((x) => x.id === n.id);
+  assert.equal(live().type, 'Text');
+  assert.equal(live().osFont.family, 'DIN Alternate');
+  const retained = serialize(win.nect.document);
+  let editor = $('.inspector-body [data-os-text]');
+  const beforeIme = calls;
+  editor.dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
+  editor.value = '日本語';
+  editor.dispatchEvent(new win.InputEvent('input', { bubbles: true, isComposing: true }));
+  editor.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(calls, beforeIme);
+  assert.equal(live().text, 'DIN');
+  editor.dispatchEvent(
+    new win.CompositionEvent('compositionend', { bubbles: true, data: '日本語' }),
+  );
+  editor.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await until(() => live().text === '日本語');
+  assert.equal(live().type, 'Text');
+  assert.equal(live().osFont.family, 'DIN Alternate');
+  key('z', { ctrlKey: true });
+  assert.equal(serialize(win.nect.document), retained);
+  key('z', { ctrlKey: true, shiftKey: true });
+  assert.equal(live().text, '日本語');
+  const good = serialize(win.nect.document);
+  globalThis.nativeOsTest = async () => {
+    throw Error('Requested OS font is no longer active');
+  };
+  editor = $('.inspector-body [data-os-text]');
+  editor.value = '漢字';
+  editor.dispatchEvent(new win.InputEvent('input', { bubbles: true }));
+  editor.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await until(() => /no longer active/.test($('.message').textContent));
+  assert.equal(serialize(win.nect.document), good);
+  assert.equal($('.inspector-body [data-os-text]').value, '漢字');
+  assert.equal(await globalThis.testNativeClose(), false);
+  $('.inspector-body [data-cancel-os-text]').click();
+  assert.equal($('.inspector-body [data-os-text]').value, '日本語');
+  $('.inspector-body [data-clear-os-text]').click();
+  assert.equal(live().osFont, undefined);
+  // Restore a geometry-only saved document even when preparation cannot run.
+  win.nect.load(good);
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((x) => x.id === n.id).osFont.family,
+    'DIN Alternate',
+  );
+  assert.equal(win.nect.evaluate().error, null);
 });
