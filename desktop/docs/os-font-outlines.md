@@ -24,8 +24,8 @@ the selected visible reference/baseline and performs the sole authored commit.
 Cancellation, changed documents, selection, revisions or font choices reject
 late adoption. The existing Multi Path codec is used; there is no new schema.
 
-Current scope is **one printable ASCII line**, at most 1024 characters, size
-0.01–10000 px, zero tracking, horizontal writing and visible bounds. Wrap, text
+Current source scope is **one supported Unicode line**, normalized to NFC, at most 1024 UTF-16 units, size
+0.01–10000 px, zero tracking, horizontal writing and visible bounds. Latin, Greek, Cyrillic, Japanese/CJK and precomposed Hangul use a shared JS/Rust script policy. RTL, joining scripts, remaining combining marks, supplementary emoji, variation selectors and half-width voiced-mark sequences are explicitly refused. Wrap, text
 paths, variable axes, disabled kerning, maintained arrangements, rich character
 adjustments and driven/locked parameters refuse without mutation. Unknown or
 unsupported outlines and >10000 vertices/contours refuse. GDI+ styles are OS
@@ -35,6 +35,14 @@ for desktop applications; this feature does not install or activate Adobe fonts.
 This is outline conversion, not continued live DIN text editing.
 
 ## Evidence and boundaries
+
+Unicode checkpoint: actual Arial, Times New Roman, Segoe UI and DIN Alternate
+passed all four reported OS styles (16 runs). Meiryo generated 762 native points
+from `日本語かなカナ漢字 ABC １２３`. Arial refused Japanese instead of silently
+using a different family. Seven focused JS checks and two real native tests
+passed. Family naming now uses the complete English LANGID, not a neutral primary
+language identifier. Existing ZIPs remain frozen; this source checkpoint is not
+yet a new native distribution.
 
 - SS-Note-ROG public native API: DIN Alternate / OS Regular, 377 native points,
   15 contours / 172 Nect vertices. Geometry-only JSON reload, SVG output and

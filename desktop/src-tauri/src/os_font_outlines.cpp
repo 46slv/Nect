@@ -22,7 +22,7 @@ extern "C" int nect_list_os_fonts(FontCallback callback, void* data) {
     if (installed.GetFamilies(count, families.get(), &found) != Ok) return -3;
     for (int i = 0; i < found; ++i) {
         wchar_t name[LF_FACESIZE] = {};
-        if (families[i].GetFamilyName(name, LANG_ENGLISH) != Ok || !name[0]) continue;
+        if (families[i].GetFamilyName(name, MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US)) != Ok || !name[0]) continue;
         int styles = 0;
         for (int style = 0; style <= 3; ++style)
             if (families[i].IsStyleAvailable(style)) styles |= 1 << style;

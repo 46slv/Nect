@@ -1,11 +1,27 @@
 // OS preparation is read-only. Only CommandSession may adopt the returned geometry.
+import scripts from './os-font-scripts.json' with { type: 'json' };
+export function normalizeOsText(text) {
+  if (typeof text !== 'string' || !text.trim() || text.length > scripts.maxUtf16Units)
+    throw Error('OS font text requires one nonempty line of at most 1024 UTF-16 units');
+  const normalized = text.normalize('NFC');
+  if (
+    [...normalized].some((char) => {
+      const code = char.codePointAt(0);
+      return (
+        !scripts.ranges.some(([lo, hi]) => code >= lo && code <= hi) ||
+        scripts.excluded.some(([lo, hi]) => code >= lo && code <= hi)
+      );
+    })
+  )
+    throw Error(
+      'Unsupported OS text script or sequence: use Latin, Greek, Cyrillic, Japanese/CJK or precomposed Hangul on one horizontal line. RTL, joining scripts, remaining combining marks, emoji sequences and variation selectors are not supported.',
+    );
+  return normalized;
+}
 export function osTextIntent(n) {
   if (n?.type !== 'Text' || n.locked || n.bypassed)
     throw Error('Select an unlocked, enabled Text node');
-  if (!n.text?.trim() || n.text.length > 1024 || /[^\x20-\x7e]/.test(n.text))
-    throw Error(
-      'OS font outlines currently support one printable ASCII line (up to 1024 characters)',
-    );
+  const text = normalizeOsText(n.text);
   const record = n.characterPositions;
   if (
     n.variation ||
@@ -28,7 +44,7 @@ export function osTextIntent(n) {
   const size = n.params.size.value;
   if (!Number.isFinite(size) || size < 0.01 || size > 10000 || n.params.letterSpacing.value !== 0)
     throw Error('OS outlines require size 0.01–10000 px and zero tracking');
-  return { text: n.text, size };
+  return { text, size };
 }
 
 export function osOutlineGeometry(raw, source, uid) {

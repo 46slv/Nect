@@ -8,6 +8,17 @@ pub struct OsOutline {
     pub family: String, pub style: u32, pub text: String, pub size: f32,
     pub points: Vec<[f32; 2]>, pub types: Vec<u8>, pub ascent: f32,
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScriptPolicy { max_utf16_units: usize, ranges: Vec<[u32;2]>, excluded: Vec<[u32;2]> }
+fn supported_text(text: &str) -> bool {
+    let policy: ScriptPolicy = serde_json::from_str(include_str!("../../src/os-font-scripts.json")).expect("Static OS script policy");
+    !text.trim().is_empty() && text.encode_utf16().count() <= policy.max_utf16_units && text.chars().all(|c| {
+        let n=c as u32;
+        policy.ranges.iter().any(|[lo,hi]| (*lo..=*hi).contains(&n)) &&
+        !policy.excluded.iter().any(|[lo,hi]| (*lo..=*hi).contains(&n))
+    })
+}
 #[cfg(windows)]
 mod native {
     use super::*;
@@ -44,9 +55,9 @@ mod native {
         Ok(items)
     }
     pub fn bake(family: String, style: u32, text: String, size: f32) -> Result<OsOutline, String> {
-        if family.is_empty() || family.len() > 256 || text.is_empty() || text.len() > 1024 || !text.bytes().all(|c| (32..=126).contains(&c)) || text.trim().is_empty()
+        if family.is_empty() || family.len() > 256 || !supported_text(&text)
             || !size.is_finite() || !(0.01..=10000.0).contains(&size) || style > 3 {
-            return Err("OS outlines require one printable ASCII line and size 0.01–10000 px".into());
+            return Err("Unsupported OS text script/sequence or size. Use one supported horizontal Unicode line (NFC), at most 1024 UTF-16 units and size 0.01–10000 px; joining/RTL/emoji sequences are not supported.".into());
         }
         if !list()?.iter().any(|f| f.family == family && f.styles.contains(&style)) {
             return Err("Requested OS font/style is no longer active".into());
@@ -103,6 +114,37 @@ mod tests {
         if let Some(output) = std::env::var_os("NECT_OS_OUTLINE_SMOKE_OUTPUT") {
             // Optional test receipt contains geometry, never font/cache data.
             std::fs::write(output,serde_json::to_vec(&outline).unwrap()).unwrap();
+        }
+    }
+    #[test]
+    fn unicode_policy_and_multiple_real_families_styles() {
+        for text in ["日本語かなカナ漢字 ABC １２３","Ελληνικά","Русский","한글","Café","が"] {
+            assert!(supported_text(text),"{text}");
+        }
+        for text in ["a\nb","مرحبا","עברית","नमस्ते","ภาษาไทย","a\u{200d}b","x\u{301}","😀","☺\u{fe0f}","ｶﾞ"] {
+            assert!(!supported_text(text),"{text}");
+        }
+        let fonts=installed().unwrap();
+        let mut families=0;let mut faces=0;
+        for name in ["Arial","Times New Roman","Segoe UI","DIN Alternate"] {
+            if let Some(font)=fonts.iter().find(|f|f.family==name) {
+                families+=1;
+                for style in &font.styles {
+                    let result=prepare(font.family.clone(),*style,"Font ABC 123".into(),64.0).unwrap();
+                    faces+=1;
+                    println!("OS_FONT_MATRIX family={name} style={style} points={}",result.points.len());
+                }
+            }
+        }
+        assert!(families>=2 && faces>=2,"This host must expose multiple installed families for acceptance");
+        let japanese=fonts.iter().find(|f|["Meiryo","Yu Gothic","MS Gothic"].contains(&f.family.as_str())).expect("Installed Japanese family for real Unicode acceptance");
+        let result=prepare(japanese.family.clone(),japanese.styles[0],"日本語かなカナ漢字 ABC １２３".into(),64.0).unwrap();
+        println!("OS_UNICODE family={} style={} points={}",result.family,result.style,result.points.len());
+        if let Some(output)=std::env::var_os("NECT_OS_UNICODE_SMOKE_OUTPUT") {
+            std::fs::write(output,serde_json::to_vec(&result).unwrap()).unwrap();
+        }
+        if fonts.iter().any(|f|f.family=="Arial") {
+            assert!(prepare("Arial".into(),0,"日本語".into(),64.0).is_err(),"Japanese may not silently fall back from Arial");
         }
     }
 }

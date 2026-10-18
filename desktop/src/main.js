@@ -1945,7 +1945,7 @@ function variableControls(n) {
 function textControls(n) {
   if (n.type !== 'Text') return '';
   const osControls = desktop
-    ? `<section class="os-font-outlines"><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Choose an active Windows font and convert this plain ASCII line to editable paths. Saves geometry only; no font data. Undo restores Text.</p></section>`
+    ? `<section class="os-font-outlines"><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
     : '';
   return (
     osControls +

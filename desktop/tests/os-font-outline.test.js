@@ -9,7 +9,32 @@ import {
   evaluate,
   pathBounds,
 } from '../src/core.js';
-import { osTextIntent, osOutlineGeometry } from '../src/os-font-outline.js';
+import { osTextIntent, osOutlineGeometry, normalizeOsText } from '../src/os-font-outline.js';
+test('OS Unicode policy normalizes safe composed text and explicitly refuses complex/hidden sequences', () => {
+  for (const text of [
+    '日本語かなカナ漢字 ABC １２３',
+    'Ελληνικά',
+    'Русский',
+    '한글',
+    'Cafe\u0301',
+    'か\u3099',
+  ])
+    assert.equal(normalizeOsText(text), text.normalize('NFC'));
+  for (const text of [
+    'a\nb',
+    'مرحبا',
+    'עברית',
+    'नमस्ते',
+    'ภาษาไทย',
+    'a\u200db',
+    'x\u0301',
+    '😀',
+    '☺\ufe0f',
+    'ｶﾞ',
+    '\ud800',
+  ])
+    assert.throws(() => normalizeOsText(text), /Unsupported|one nonempty/);
+});
 
 function fixture() {
   const doc = document(),
@@ -157,7 +182,7 @@ test('locked, driven, styled and unsupported source text refuses rather than dis
       n.params.letterSpacing.value = 2;
     },
     (n) => {
-      n.text = '日本語';
+      n.text = 'مرحبا';
     },
     (n) => {
       n.text = 'a\nb';
