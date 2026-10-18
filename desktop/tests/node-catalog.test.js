@@ -22,6 +22,12 @@ test('each currently addable type has exactly one built-in category; unknown typ
   }
   assert.ok(!items.some((item) => ['Image', 'Output', 'Image Output'].includes(item.id)));
   assert.equal(nodePickerItems({ Future: {} })[0].categoryId, 'uncategorized');
+  assert.deepEqual(
+    items.map((item) => item.label),
+    [...items]
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }))
+      .map((item) => item.label),
+  );
 });
 
 test('search keeps type IDs, Japanese aliases, NFKC, AND matching and stable ranking', () => {

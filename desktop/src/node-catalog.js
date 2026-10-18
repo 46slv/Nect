@@ -553,7 +553,10 @@ export function nodePickerItems(definitions, label = (type) => type) {
         label: label(type),
         detail: `${category} · ${entry.description}`,
       };
-    });
+    })
+    .sort((a, b) =>
+      normalize(a.label).localeCompare(normalize(b.label), undefined, { numeric: true }),
+    );
 }
 const normalize = (value) => String(value).normalize('NFKC').toLowerCase();
 export function searchNodeItems(items, query, categoryId = '') {
@@ -576,5 +579,9 @@ export function searchNodeItems(items, query, categoryId = '') {
           ).includes(word),
         ),
     )
-    .sort((a, b) => (text ? rank(a) - rank(b) : 0));
+    .sort((a, b) => {
+      const rankDelta = text ? rank(a) - rank(b) : 0;
+      if (rankDelta) return rankDelta;
+      return normalize(a.label).localeCompare(normalize(b.label), undefined, { numeric: true });
+    });
 }
