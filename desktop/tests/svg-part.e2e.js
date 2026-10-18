@@ -3,7 +3,9 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
-import { blankDocument, document, serialize, node, connect } from '../src/core.js';
+import { Window } from 'happy-dom';
+import { blankDocument, document, serialize, node, connect, exportSVG } from '../src/core.js';
+import { importSVG } from '../src/svg-import.js';
 const source = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160" viewBox="0 0 200 160"><path d="M10 10H90V90H10Z M30 30V70H70V30Z" fill="#ff0000" fill-opacity="0.5"/><rect x="60" y="10" width="80" height="80" fill="#0000ff" fill-opacity="0.5"/><path d="M10 120H140" fill="none" stroke="#008000" stroke-width="4" stroke-linecap="round"/><rect x="150" y="110" width="20" height="20" fill="none"/></svg>`;
 const root = resolve('dist'),
   config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
@@ -114,6 +116,45 @@ try {
   await page.waitForFunction(() => window.nect);
   await load(after);
   assert.equal((await pixels(await page.evaluate(() => window.nect.export()))).hash, rendered.hash);
+  // Identical paint branches compact before paint, preserving independent
+  // alpha overlap, holes, opposite winding, stroke order and gradient servers.
+  const compactCases = [
+    '<g fill="#ff0000" fill-opacity="0.5" stroke="#008000" stroke-opacity="0.3" stroke-width="4" stroke-linecap="round" stroke-linejoin="bevel" stroke-dasharray="3 2"><path d="M10 10H90V90H10Z M30 30V70H70V30Z"/><path d="M60 10V90H140V10Z"/></g>',
+    '<defs><linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="180" y2="100" spreadMethod="pad" color-interpolation="sRGB"><stop offset="0" stop-color="#ff0000" stop-opacity="0.2"/><stop offset="1" stop-color="#123456" stop-opacity="0.8"/></linearGradient></defs><g fill="url(#ramp)" fill-opacity="0.5"><path d="M10 10H90V90H10Z"/><path d="M60 10H140V90H60Z"/></g>',
+    '<path fill="#ff0000" d="M10 10H90V90H10Z"/><path fill="#0000ff" fill-opacity="0.5" d="M60 10H140V90H60Z"/><path fill="#ff0000" fill-opacity="0.5" d="M80 40H160V120H80Z"/>',
+  ];
+  for (const [index, body] of compactCases.entries()) {
+    const markup = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="160" viewBox="0 0 200 160">${body}</svg>`;
+    await load(serialize(empty));
+    await add(markup, `compact-${index}.svg`);
+    await page.waitForFunction(() => window.nect.document.layers.length === 2);
+    const svg = await page.evaluate(() => window.nect.export());
+    const baseline = exportSVG(importSVG(markup, new Window().DOMParser));
+    assert.equal(
+      (await pixels(svg)).hash,
+      (await pixels(baseline)).hash,
+      `existing import pixels ${index}`,
+    );
+    // Scaling gradient stop alpha is the existing importer's representation of
+    // fill-opacity. Browser interpolation can round it differently from native
+    // SVG fill-opacity; compacting must match the existing imported appearance.
+    if (index !== 1)
+      assert.equal(
+        (await pixels(svg)).hash,
+        (await pixels(markup)).hash,
+        `native SVG pixels ${index}`,
+      );
+    const source = await page.evaluate(() => window.nect.document.layers[1]);
+    assert.equal(source.nodes.filter((n) => n.type === 'Multi Path').length, index === 2 ? 3 : 2);
+    assert.equal(source.nodes.filter((n) => n.type === 'Path Remap').length, 0);
+    assert.equal(
+      source.nodes.filter((n) => n.type === 'Join Geometry').length,
+      index === 2 ? 4 : 1,
+    );
+    const json = await saved();
+    await load(json);
+    assert.equal(await page.evaluate(() => window.nect.export()), svg);
+  }
   // Preserve an existing Composition and an unrelated layer, then add a part.
   const existing = document();
   existing.width = 500;
@@ -611,6 +652,7 @@ try {
     oneUndo: true,
     jsonColdReload: true,
     svgPngPixelsEqual: true,
+    compactPathJoinPixelsEqual: compactCases.length,
     unsupportedAtomic: true,
     noExternalRequests: true,
     oldImportStillReplaces: true,
