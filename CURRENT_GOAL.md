@@ -14,50 +14,58 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Repeater/Snap integration batch (2026-10-18)
+## ACTIVE CHECKPOINT — Repeater + Snap integrated trial delivered (2026-10-18)
 
-Goal: Integrate the parent-confirmed Repeater and pending 45-degree Snap into
-codex/integrate-parallel-20261018, preserving the delivered SVG/Ctrl+A/grapheme/
-per-operation recovery/Dither functionality. Build the next EXE once both pass.
-Current phase: Repeater source integration and focused verification complete;
-Snap exact commit is pending parent delivery. No next-batch EXE has been built.
-Proven: Repeater integration source d3d11d16c391b49814020915ef08ce74dace68b5.
-Original candidates 1fa6f2d -> 2d4586b -> 8d55121 were applied in order.
-Core schema-list and main import conflicts were resolved retaining both lanes.
-Repeater owns schema37 through one module constant; Dither remains schema36.
-Legacy Repeater controls backfill under source versions below37 without changing
-saved schema. Selecting ae-2d promotes to37. Current schema37 must contain all
-new controls; older ae-2d project versions reject explicitly.
+Goal: Integrate parent-confirmed Repeater and45-degree Snap while retaining the
+previous SVG/Ctrl+A/grapheme/per-operation recovery/Dither batch, then build one
+combined EXE and privately deliver its trial ZIP. Current phase: completed.
+Proven source: b1894b1a9eed292c9c2a1df4d0c20f620b691b2a on
+codex/integrate-parallel-20261018. Repeater original1fa6f2d/2d4586b/8d55121
+integrated with core schema-list and main import conflicts resolved retaining
+both lanes. Repeater owns37, Dither remains36. Mixed migration/promotion/
+Undo/reopen is verified. Snap original85e568e plus shared patch is connected;
+three-way import resolution retains grapheme editing. Pure formatting hunks
+were excluded. Snap changes no authored schema or new Guide/Grid type.
 
-23 Repeater/creation/Mirror/Join tests,97 recovery/Text/grapheme tests and70
-Dither/Points tests pass (190 total). Added mixed schema36 Dither + legacy
-Repeater migration/promotion/Undo/Redo/exact JSON regression. Six production-CSP
-browser paths pass: Repeater, Points, Dither, clipboard, grapheme-app and
-per-operation recovery. Repeater Canvas/SVG/PNG all160x100 RGBA hashes equal
- d0ab49573707fe4b7005e49a21f8766b8d8f2ffd278f68925b2846139854dd4b.
-Production Vite build passed121 modules. Scoped formatting and diff check pass.
-Known Dither exclusions remain the documented baseline pinned-fingerprint and
-Windows CLI cwd cases; no full-suite or physical-IME claim.
-Evidence: desktop/test-results/integration/repeater-*.log and
-{repeater-ae,dither-controls,node-clipboard,grapheme-app,recovery-per-operation}.
+235 focused checks pass across Snap45, Repeater/creation/Mirror/Join23,
+recovery/Text/grapheme97 and Dither/Points70. Eight final production-CSP browser
+paths pass: Snap17 actual scenarios, Repeater full Canvas/SVG/PNG RGBA parity,
+Points, Dither, grapheme-app, Graph clipboard, per-operation recovery and SVG.
+Existing baseline Dither fingerprints/Windows CLI cwd and artwork-snap-dom
+injection limitations remain explicitly excluded. No full-suite claim.
+Production Vite build122 modules passed; scoped formatting and diff check pass.
 
-Next: receive parent-confirmed Snap commit from its dedicated lane, integrate
-only shared hookups, run motion/focus/Undo and nearest affected regressions,
-then one combined EXE build + isolated native acceptance + private Library ZIP.
-Pending action: next-batch EXE build. Reason: required Snap commit has not arrived;
-status PENDING_DEPENDENCY, not denied or an uncertain side effect.
-No other Repeater implementation blocker remains. Do not duplicate Snap work.
+Exactly one standalone EXE built for this batch. Actual WebView2 with verified
+owned socket/PID ancestry, separate acceptance profile and recovery store passes:
+Repeater Offset/Undo and per-copy opacity; Graph Shift45 visible guide + one
+Undo; retained SVG Path/Join, Graph A/C/V/Undo, Points edit/Undo and grapheme
+Backspace/Undo/Text commit. Real disk recovery equals latest JSON. A second fresh
+profile restores via Recovery copy UI with exact JSON/SVG and unsaved/unbound
+state. Both owned processes exited. Page errors empty. Screenshots inspected
+locally; no browser screenshots included in the Library ZIP.
+Evidence: desktop/test-results/{integration,snap-45,repeater-ae,dither-controls,
+grapheme-app,node-clipboard,recovery-per-operation,svg-part}; task-local
+native-next/{phase-1,phase-2,socket-1,socket-2}.json and private-profile outputs.
 
-Prior delivered batch remains source973486c3733916e738df8e5088f50c48e4743730:
-EXE9,961,472 bytes, SHA256
-1AF50B17350FC07C8EDF69FD520FD8E2AE7AA3280A117919A52B26014692E577.
-ZIP5,248,465 bytes, SHA256
-6120662CD42B4D33AD1FAD8AF8C38FC456BB24DB5D7E618174C8C33624E1E8F4.
-Parent already delivered it. Repeater/Snap are not in that earlier EXE.
+EXE9,964,544 bytes, SHA256
+3E2682D7F3BCB306F55C19C9D18B9572EE3E1843DA9183C0098E2E12E33ABEF8.
+ZIP Nect-Desktop-integrated-20261018-b1894b1.zip,5,107,965 bytes, SHA256
+B40F4A3FCE10AE88B4761C9B0AF32602F6AFA1D1ACDDD3EE75885381AC2A2C60.
+Public prior examples/licenses retained; editable Repeater example added.
+Private Library create succeeded; identity/version retained in local delivery
+receipt. Earlier973486c trial remains separate and unchanged.
 
-Authority: parent-delegated isolated source integration, normal branch commit/
-push and one next-batch EXE after both features pass. No main/protected merge,
-release, force push, account/auth change or user app/profile/recovery operation.
-Gate: prior review workflow reused; local migration, renderer and browser
-verification resolves this integration. Consultation not-required, external0.
-Handoff: CONTINUE_CURRENT_TASK; parent supplies the exact Snap candidate.
+Limits: integer Repeater Copies/Offset, no nested ae-2d/3D/timeline/painted-input
+duplication; Snap extends existing positional routes only, with no authored
+slanted Guide/Grid or numeric direction constraints. Existing shaping/font
+coverage limits remain. Physical IME/high-DPI/pen and native file dialogs were
+not exercised in this combined native run. No user app/profile/recovery/private
+font or artwork operation, main/protected merge, release, installer, force push
+or account/auth change.
+State: source pushed; this final documentation checkpoint follows. No remaining
+candidate dependency, implementation blocker or denied/pending/uncertain action.
+Next: parent delivers the Library trial and chooses the next bounded checkpoint;
+user logo work is independent of this integration.
+Gate: review workflow reused; local migration, unit, pixel, browser and native
+restart evidence resolves this batch. External consultation not-required, sends0.
+Handoff: CONTINUE_CURRENT_TASK; parent coordinates next accepted work.
