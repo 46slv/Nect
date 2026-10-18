@@ -1,4 +1,5 @@
 import { layoutPreparedVariable } from './variable-font/prepared-layout.js';
+import { textFeatureOptions } from './opentype-features.js';
 import { arrangementEligibility, applyCharacterArrangement } from './character-arrangement.js';
 import opentype from 'opentype.js';
 import { validateTextWrap, hardTextLines, composeTextLines, wrapExtent } from './text-wrap.js';
@@ -209,6 +210,7 @@ export function layoutText(
     fonts = {},
     fontId = 'default',
     variation,
+    fontFeatures,
   },
 ) {
   validateLeading(leading);
@@ -232,6 +234,10 @@ export function layoutText(
   if (!['horizontal-tb', 'vertical-rl'].includes(writingMode))
     throw Error('Unsupported writing mode');
   if (text.length > 10000) throw Error('Text exceeds 10000 characters');
+  const featureOptions = textFeatureOptions(font, {
+    type: 'Text', text, writingMode, textWrap, pathAttachment, characterArrangement,
+    characterPositions, variation, fontFeatures,
+  });
   if (font.nectVariable)
     return layoutPreparedVariable(font, text, {
       position,
@@ -482,7 +488,7 @@ export function layoutText(
           runStart,
           position[1] + lineOffsets[line],
           style.size,
-          { letterSpacing: letterSpacing / style.size, kerning },
+          { letterSpacing: letterSpacing / style.size, kerning, ...featureOptions },
           (glyph, x, y) => {
             if (runGlyphs.length) {
               const previous = runGlyphs.at(-1);
