@@ -1,5 +1,6 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
+import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
 import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { maskAppearance } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
@@ -2560,6 +2561,7 @@ export function evaluate(
           fonts,
           fontId: n.font,
           variation: n.variation,
+          fontFeatures: n.fontFeatures,
           size: read('size'),
           writingMode: n.writingMode,
           alignment: attachment ? 'start' : n.alignment,
@@ -4066,7 +4068,8 @@ export function validate(doc) {
       27, 28, 29, 30, 31, 32, 33, 34, 35,
     ].includes(doc.schemaVersion) &&
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
-      doc.schemaVersion !== REPEATER_SCHEMA_VERSION)
+      doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
+      doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4126,6 +4129,7 @@ export function validate(doc) {
       text(n.text);
       text(n.font);
       validateOsFontText(n, sourceSchemaVersion);
+      validateTextFeatures(n, sourceSchemaVersion, doc.fontAssets?.[n.font]);
       if (
         n.canvasPositionHandle !== undefined &&
         (n.type !== 'Vector' || typeof n.canvasPositionHandle !== 'boolean')
@@ -7320,6 +7324,7 @@ export class CommandSession {
               ![
                 'font',
                 'leading',
+                'fontFeatures',
                 'pathAttachment',
                 'textWrap',
                 'referenceBounds',
@@ -7332,12 +7337,20 @@ export class CommandSession {
         )
           throw Error('Invalid Text settings');
         for (const [key, value] of Object.entries(settings)) {
-          if (['leading', 'pathAttachment', 'textWrap'].includes(key) && value === null)
+          if (['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) && value === null)
             delete node[key];
           else node[key] = clone(value);
         }
         if (Object.hasOwn(settings, 'leading'))
           candidate.schemaVersion = Math.max(candidate.schemaVersion, 6);
+        if (node.fontFeatures)
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
+        if (Object.hasOwn(settings, 'fontFeatures') || node.fontFeatures) {
+          const preflight = evaluate(
+            { ...target, output: node.id }, resolveFonts(candidate, baseFonts), candidate.imageAssets,
+          );
+          if (preflight.error) throw Error(preflight.error);
+        }
         if (node.pathAttachment) candidate.schemaVersion = Math.max(candidate.schemaVersion, 7);
         if (node.textWrap)
           candidate.schemaVersion = Math.max(
