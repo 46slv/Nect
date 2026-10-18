@@ -1,7 +1,7 @@
 import { layoutPreparedVariable } from './variable-font/prepared-layout.js';
 import { arrangementEligibility, applyCharacterArrangement } from './character-arrangement.js';
 import opentype from 'opentype.js';
-import { validateTextWrap, hardTextLines, composeTextLines } from './text-wrap.js';
+import { validateTextWrap, hardTextLines, composeTextLines, wrapExtent } from './text-wrap.js';
 import {
   normalizeCharacterText,
   characterPositionStatus,
@@ -59,6 +59,43 @@ export function verticalGlyph(font, glyph) {
   if (!Number.isInteger(id) || !id || id >= font.numGlyphs)
     throw Error('Invalid vertical glyph substitution');
   return font.glyphs.get(id);
+}
+function verticalMetrics(style, char) {
+  const font = style.font,
+    scale = style.size / font.unitsPerEm,
+    original = font.charToGlyph(char),
+    glyph = verticalGlyph(font, original),
+    substituted = original.index !== glyph.index,
+    sideways = !substituted && (rotatePunctuation.has(char) || !upright(char)),
+    metric = font.nectVertical?.metrics[glyph.index];
+  return {
+    original,
+    glyph,
+    substituted,
+    sideways,
+    metric,
+    advance:
+      (sideways ? glyph.advanceWidth || font.unitsPerEm : metric?.advance || font.unitsPerEm) *
+      scale,
+  };
+}
+function shapeVerticalWrap(chars, resolved, boundaryStep) {
+  const records = [];
+  for (const line of hardTextLines(chars)) {
+    let cursor = 0;
+    for (let i = line.sourceStart; i < line.sourceEnd; i++) {
+      const style = resolved[i],
+        advance = verticalMetrics(style, chars[i]).advance * style.height;
+      records[i] = { cursor, advance };
+      cursor += boundaryStep(i, advance, advance, 'vertical-rl') + style.tracking;
+    }
+  }
+  return {
+    measure: (start, end) =>
+      end === start
+        ? 0
+        : records[end - 1].cursor + records[end - 1].advance - records[start].cursor,
+  };
 }
 function transformed(path, transform) {
   const result = new opentype.Path();
@@ -279,18 +316,21 @@ export function layoutText(
       };
     return manual ? advance + gap : shapedAdvance;
   };
-  const shapedWrap = textWrap
-    ? shapeWrapRuns(sourceChars, resolved, letterSpacing, kerning, boundaryStep)
-    : null;
+  const shapedWrap =
+    textWrap && writingMode === 'horizontal-tb'
+      ? shapeWrapRuns(sourceChars, resolved, letterSpacing, kerning, boundaryStep)
+      : null;
+  const wrapMeasure =
+    shapedWrap || (textWrap ? shapeVerticalWrap(sourceChars, resolved, boundaryStep) : null);
   const lineSpans = textWrap
-    ? composeTextLines(sourceChars, textWrap.width, shapedWrap.measure)
+    ? composeTextLines(sourceChars, wrapExtent(textWrap), wrapMeasure.measure, textWrap.policy)
     : hardTextLines(sourceChars);
   const lines = lineSpans.map((line) =>
     sourceChars.slice(line.sourceStart, line.sourceEnd).join(''),
   );
   if (lineSpans.some((line) => line.overflow))
     warnings.add(
-      'Wrap width overflow: an unbreakable span exceeds the width; all artwork is retained.',
+      'Wrap overflow: an unbreakable span exceeds the requested extent; all artwork is retained.',
     );
   // Legacy text retains its exact fixed baseline spacing. Rich text uses the largest
   // adjacent line metrics, so a larger selected character does not collide with the next line.
@@ -541,20 +581,17 @@ export function layoutText(
         activeFont = style.font,
         activeSize = style.size,
         localScale = activeSize / activeFont.unitsPerEm;
-      const original = activeFont.charToGlyph(char),
-        alternate = verticalGlyph(activeFont, original);
-      const substituted = original.index !== alternate.index;
-      const sideways = !substituted && (rotatePunctuation.has(char) || !upright(char));
-      const glyph = alternate,
+      const { original, glyph, substituted, sideways, metric, advance } = verticalMetrics(
+          style,
+          char,
+        ),
         raw = glyph.getPath(0, 0, activeSize);
-      let advance, outline;
+      let outline;
       if (sideways) {
         const center = ((activeFont.ascender + activeFont.descender) * localScale) / 2;
         outline = transformed(raw, (gx, gy) => [x - gy - center, y + gx]);
-        advance = (glyph.advanceWidth || activeFont.unitsPerEm) * localScale;
       } else {
-        const vertical = activeFont.nectVertical,
-          metric = vertical?.metrics[glyph.index];
+        const vertical = activeFont.nectVertical;
         const origin =
           vertical?.origins.get(glyph.index) ??
           vertical?.defaultOrigin ??
@@ -572,7 +609,6 @@ export function layoutText(
           warnings.add('Font lacks some vertical alternates; small kana uses geometric fallback.');
         }
         outline = transformed(raw, (gx, gy) => [gx + dx, gy + dy]);
-        advance = (metric?.advance || activeFont.unitsPerEm) * localScale;
       }
       if (!substituted && rotatePunctuation.has(char))
         warnings.add(
@@ -610,14 +646,20 @@ export function layoutText(
         advance: advance * style.height,
       });
       y +=
-        boundaryStep(
-          glyphs.at(-1).sourceIndex,
-          advance * style.height,
-          advance * style.height,
-          writingMode,
-        ) + style.tracking;
+        (textWrap && glyphs.at(-1).sourceIndex + 1 === lineSpans[line].sourceEnd
+          ? advance * style.height
+          : boundaryStep(
+              glyphs.at(-1).sourceIndex,
+              advance * style.height,
+              advance * style.height,
+              writingMode,
+            )) + style.tracking;
     }
-    align(y - position[1] - (glyphs.length > glyphStart ? glyphs.at(-1).tracking : 0));
+    align(
+      textWrap
+        ? lineSpans[line].advance
+        : y - position[1] - (glyphs.length > glyphStart ? glyphs.at(-1).tracking : 0),
+    );
   }
   if (mappingReason && (Object.keys(styles).length || Object.keys(pairs).length)) {
     // Never attach a logical character's width/font/size to an unverified shaped glyph.

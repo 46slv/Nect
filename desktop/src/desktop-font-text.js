@@ -1,4 +1,9 @@
-import { validateTextWrap } from './text-wrap.js';
+import {
+  validateTextWrap,
+  wrapExtent,
+  wrapBoundaryAllowed,
+  JAPANESE_WRAP_POLICY,
+} from './text-wrap.js';
 import { parseOsContours } from './os-font-outline.js';
 const exact = (value, keys) =>
   value &&
@@ -109,7 +114,7 @@ export function desktopTextIntent(n, face, patch = {}) {
     throw Error('Unsupported Windows Text writing mode');
   const wrap = Object.hasOwn(patch, 'textWrap') ? (patch.textWrap ?? undefined) : n.textWrap;
   validateTextWrap(wrap, writingMode, n.pathAttachment);
-  if (wrap && Math.fround(wrap.width) <= 0) throw Error('Windows wrap width is too small');
+  if (wrap && Math.fround(wrapExtent(wrap)) <= 0) throw Error('Windows wrap width is too small');
   const retained = n.osFont?.version >= 3 && equalFace(n.osFont.face, face);
   if (retained || wrap || patch.axes !== undefined || writingMode === 'vertical-rl') {
     const axes = patch.axes ?? (retained ? validateDesktopAxes(n.osFont.axes) : {});
@@ -126,23 +131,78 @@ export function desktopTextIntent(n, face, patch = {}) {
       ...result,
       axes: { ...axes },
       writingMode,
-      ...(wrap ? { wrapWidth: wrap.width } : {}),
+      ...(wrap
+        ? {
+            ...(wrap.width !== undefined ? { wrapWidth: wrap.width } : { wrapHeight: wrap.height }),
+            ...(wrap.policy ? { wrapPolicy: wrap.policy } : {}),
+          }
+        : {}),
     };
   }
   return result;
 }
 const equalFace = (a, b) =>
   ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'].every((k) => a[k] === b[k]);
-export function validateDesktopText(n, schemaVersion = 32) {
+/** Exact original UTF-16 line spans; user newlines remain authoritative. */
+export function validateDesktopLineSpans(raw) {
+  if (
+    !Array.isArray(raw.lineSpans) ||
+    raw.lineSpans.length !== raw.lineCount ||
+    !raw.lineSpans.length
+  )
+    throw Error('Invalid Windows line spans');
+  let end = 0;
+  const scalarBoundary = (i) =>
+    !(
+      i > 0 &&
+      i < raw.text.length &&
+      /[\uD800-\uDBFF]/.test(raw.text[i - 1]) &&
+      /[\uDC00-\uDFFF]/.test(raw.text[i])
+    );
+  for (const [i, row] of raw.lineSpans.entries()) {
+    if (
+      !exact(row, ['start', 'length', 'trailingWhitespaceLength', 'newlineLength']) ||
+      Object.values(row).some((v) => !Number.isInteger(v) || v < 0) ||
+      row.start !== end ||
+      row.newlineLength > 1 ||
+      row.newlineLength > row.trailingWhitespaceLength ||
+      row.trailingWhitespaceLength > row.length ||
+      (!row.length && i + 1 !== raw.lineSpans.length)
+    )
+      throw Error('Invalid Windows line span');
+    end = row.start + row.length;
+    if (end > raw.text.length || !scalarBoundary(end))
+      throw Error('Windows line splits a Unicode scalar');
+    const part = raw.text.slice(row.start, end);
+    if (
+      part.endsWith('\n') !== (row.newlineLength === 1) ||
+      part.slice(0, part.length - row.newlineLength).includes('\n')
+    )
+      throw Error('Invalid Windows hard line span');
+    if (!row.newlineLength && end < raw.text.length) {
+      const remainder = raw.text.slice(end),
+        trimmedLeft = part.replace(/[ \t\u3000]+$/u, ''),
+        trimmedRight = remainder.replace(/^[ \t\u3000]+/u, ''),
+        left = [...trimmedLeft].at(-1),
+        right = [...trimmedRight][0],
+        separated = trimmedLeft.length !== part.length || trimmedRight.length !== remainder.length;
+      if (!wrapBoundaryAllowed(left, right, JAPANESE_WRAP_POLICY, separated))
+        throw Error('Windows line break violates Japanese basic wrapping');
+    }
+  }
+  if (end !== raw.text.length) throw Error('Incomplete Windows line spans');
+}
+export function validateDesktopText(n, schemaVersion = 34) {
   const ref = n.osFont;
-  const wrapped = ref?.version === 4,
+  const basic = ref?.version === 5,
+    wrapped = ref?.version >= 4,
     extended = ref?.version >= 3;
   if (
-    schemaVersion < (wrapped ? 32 : extended ? 30 : 29) ||
+    schemaVersion < (basic ? 34 : wrapped ? 32 : extended ? 30 : 29) ||
     n.type !== 'Text' ||
     n.font !== 'default' ||
     !exact(ref, ['version', 'family', 'style', 'face', 'outline', ...(extended ? ['axes'] : [])]) ||
-    ![2, 3, 4].includes(ref.version)
+    ![2, 3, 4, 5].includes(ref.version)
   )
     throw Error('Invalid shaped Windows Text schema');
   validateDesktopFace(ref.face);
@@ -167,26 +227,45 @@ export function validateDesktopText(n, schemaVersion = 32) {
       'lineCount',
       'glyphCount',
       ...(extended ? ['axes', 'writingMode', 'advanceHeight'] : []),
-      ...(wrapped ? ['wrapWidth', 'wrapOverflow'] : []),
+      ...(wrapped
+        ? [basic && raw.writingMode === 'vertical-rl' ? 'wrapHeight' : 'wrapWidth', 'wrapOverflow']
+        : []),
+      ...(basic ? ['wrapPolicy', 'lineSpans'] : []),
     ]) ||
-    raw.engine !== (wrapped ? 'directwrite-v3' : extended ? 'directwrite-v2' : 'directwrite-v1') ||
+    raw.engine !==
+      (basic
+        ? 'directwrite-v4'
+        : wrapped
+          ? 'directwrite-v3'
+          : extended
+            ? 'directwrite-v2'
+            : 'directwrite-v1') ||
     !equalFace(raw.face, ref.face)
   )
     throw Error('Invalid shaped Windows outline snapshot');
   const intent = desktopTextIntent(n, ref.face);
+  if ((intent.wrapPolicy === JAPANESE_WRAP_POLICY) !== basic)
+    throw Error('Windows wrapping policy needs fresh preparation');
+  const extentKey = basic && raw.writingMode === 'vertical-rl' ? 'wrapHeight' : 'wrapWidth',
+    advanceKey = extentKey === 'wrapHeight' ? 'advanceHeight' : 'advanceWidth';
   if (
     wrapped
-      ? !Number.isFinite(raw.wrapWidth) ||
-        raw.wrapWidth <= 0 ||
-        raw.wrapWidth > 100000 ||
-        !Number.isFinite(intent.wrapWidth) ||
-        Math.fround(raw.wrapWidth) !== Math.fround(intent.wrapWidth) ||
+      ? !Number.isFinite(raw[extentKey]) ||
+        raw[extentKey] <= 0 ||
+        raw[extentKey] > 100000 ||
+        !Number.isFinite(intent[extentKey]) ||
+        Math.fround(raw[extentKey]) !== Math.fround(intent[extentKey]) ||
         typeof raw.wrapOverflow !== 'boolean' ||
         raw.wrapOverflow !==
-          Math.fround(raw.advanceWidth) > Math.fround(raw.wrapWidth + Math.fround(0.01))
-      : intent.wrapWidth !== undefined
+          Math.fround(raw[advanceKey]) > Math.fround(raw[extentKey] + Math.fround(0.01))
+      : intent.wrapWidth !== undefined || intent.wrapHeight !== undefined
   )
     throw Error('Windows wrap needs fresh preparation');
+  if (basic) {
+    if (raw.wrapPolicy !== JAPANESE_WRAP_POLICY || intent.wrapPolicy !== raw.wrapPolicy)
+      throw Error('Windows wrapping policy needs fresh preparation');
+    validateDesktopLineSpans(raw);
+  }
   if (extended) {
     validateDesktopAxes(ref.axes);
     validateDesktopAxes(raw.axes);
@@ -252,7 +331,7 @@ export function desktopFontTextPath(n, position, size, boundsOf) {
         : bounds[0][n.alignment === 'center' ? 1 : n.alignment === 'end' ? 2 : 0],
     y = vertical
       ? n.referenceBounds === 'advance'
-        ? (raw.advanceHeight * factor) / 2
+        ? ((raw.wrapHeight ?? raw.advanceHeight) * factor) / 2
         : bounds[1][factor]
       : n.crossAlignment && n.crossAlignment !== 'origin'
         ? bounds[1][n.crossAlignment === 'center' ? 1 : n.crossAlignment === 'end' ? 2 : 0]
@@ -264,12 +343,19 @@ export function desktopFontTextPath(n, position, size, boundsOf) {
 }
 export function desktopOsReference(raw) {
   return {
-    version: raw.engine === 'directwrite-v3' ? 4 : raw.engine === 'directwrite-v2' ? 3 : 2,
+    version:
+      raw.engine === 'directwrite-v4'
+        ? 5
+        : raw.engine === 'directwrite-v3'
+          ? 4
+          : raw.engine === 'directwrite-v2'
+            ? 3
+            : 2,
     family: raw.face.family,
     style: raw.face.style,
     face: structuredClone(raw.face),
     outline: structuredClone(raw),
-    ...(['directwrite-v2', 'directwrite-v3'].includes(raw.engine)
+    ...(['directwrite-v2', 'directwrite-v3', 'directwrite-v4'].includes(raw.engine)
       ? { axes: structuredClone(raw.axes) }
       : {}),
   };

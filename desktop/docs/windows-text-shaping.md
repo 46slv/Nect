@@ -2,6 +2,10 @@
 
 2026-10-18 implementation checkpoint, supplementing [editable OS Text](os-font-text.md).
 
+The current opt-in horizontal/vertical wrapping contract is documented in
+[Japanese basic wrapping](japanese-basic-wrap.md), schema34 / OS reference5.
+Earlier snapshot versions below remain readable without migration.
+
 ## DIN catalog repair (05:35 UTC)
 
 The subsequent read-only diagnosis reproduced process-local catalog loss: two

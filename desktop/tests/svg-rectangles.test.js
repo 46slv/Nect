@@ -57,6 +57,19 @@ test('rounded rectangle copies the omitted radius, clamps and rejects negative r
     /radius/,
   );
 });
+test('touching and overlapping opaque rectangles stay in separate paint batches', () => {
+  const d = importSVG(
+    '<svg><rect width="1" height="1" rx="0.4"/><rect x="1" width="1" height="1" rx="0.4"/><rect x="2" width="1" height="1" rx="0.4"/><rect x="1" y="1" width="1" height="1" rx="0.4"/></svg>',
+    Parser,
+  );
+  assert.equal(d.layers.length, 3);
+  assert.equal(
+    d.layers.reduce((sum, l) => sum + evaluate(l).path.contours.length, 0),
+    4,
+  );
+  const overlapping = '<svg>' + '<rect width="1" height="1"/>'.repeat(65) + '</svg>';
+  assert.throws(() => importSVG(overlapping, Parser), /64 independent paint/);
+});
 test('rectangle batching never merges transparent or alternating paints or arbitrary opposite-winding paths', () => {
   for (const body of [
     '<rect width="10" height="10" fill-opacity="0.5"/><rect width="10" height="10" fill-opacity="0.5"/>',

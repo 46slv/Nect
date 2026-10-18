@@ -87,6 +87,7 @@ test('unprepared width, vertical wrap, stale/locked settings and mismatched meta
   const saved = serialize(f.session.snapshot());
   for (const payload of [
     { settings: { textWrap: { width: 80 } } },
+    { settings: { textWrap: { width: 160, policy: 'japanese-basic-v1' } } },
     { settings: { writingMode: 'vertical-rl' } },
   ])
     assert.throws(() => f.send('set-text-settings', payload));
@@ -104,6 +105,10 @@ test('unprepared width, vertical wrap, stale/locked settings and mismatched meta
     );
   assert.equal(serialize(f.session.snapshot()), saved);
   const older = deserialize(saved);
+  const relabeled = JSON.parse(saved);
+  relabeled.schemaVersion = 34;
+  relabeled.layers[0].nodes[0].textWrap.policy = 'japanese-basic-v1';
+  assert.throws(() => deserialize(JSON.stringify(relabeled)), /policy needs fresh preparation/);
   older.schemaVersion = 31;
   assert.throws(() => deserialize(serialize(older)));
   f.send('set-parameter-lock', { key: 'size', locked: true });

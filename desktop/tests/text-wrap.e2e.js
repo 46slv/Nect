@@ -69,8 +69,9 @@ try {
   await editWidth(0);
   assert.equal(await saved(), narrow);
   await field('writing-mode').selectOption('vertical-rl');
+  assert.deepEqual((await read()).textWrap, { height: 120, policy: 'japanese-basic-v1' });
+  await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), narrow);
-  assert.match(await page.locator('.status .message').innerText(), /horizontal/);
   await field('text-path').selectOption(JSON.stringify(['wrap-path', 'wrap-path']));
   assert.equal(await saved(), narrow);
   assert.match(await page.locator('.status .message').innerText(), /TEXT_WRAP_PATH/);

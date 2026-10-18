@@ -27,6 +27,10 @@ pub struct DesktopTextRequest {
     pub writing_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap_width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap_height: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap_policy: Option<String>,
 }
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -39,6 +43,14 @@ pub struct DesktopAxis {
     pub base_value: f32,
     pub value: f32,
     pub hidden: bool,
+}
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopLineSpan {
+    pub start: u32,
+    pub length: u32,
+    pub trailing_whitespace_length: u32,
+    pub newline_length: u32,
 }
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,7 +80,80 @@ pub struct DesktopOutline {
     pub wrap_width: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wrap_overflow: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap_height: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line_spans: Option<Vec<DesktopLineSpan>>,
 }
+
+// Snapshot lines use original UTF-16 indices. Hard user newlines override kinsoku.
+fn validate_basic_lines(outline: &DesktopOutline) -> Result<(), String> {
+    const OPEN: &str = "([{（［｛「『【〔〈《〖〘〚";
+    const NONSTART: &str = ")]}）］｝」』】〕〉》〗〙〛、。，．！？!?.,:;：；ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶーｰ々ゝゞヽヾ〻";
+    const INSEPARABLE: &str = "\u{2025}\u{2026}\u{2014}\u{2015}";
+    let units: Vec<u16> = outline.text.encode_utf16().collect();
+    let lines = outline
+        .line_spans
+        .as_ref()
+        .ok_or("Missing Windows line spans")?;
+    if lines.len() != outline.line_count as usize || lines.is_empty() {
+        return Err("Invalid Windows line spans".into());
+    }
+    let mut end = 0usize;
+    for (i, line) in lines.iter().enumerate() {
+        let start = line.start as usize;
+        let next = start
+            .checked_add(line.length as usize)
+            .ok_or("Invalid Windows line span")?;
+        if start != end
+            || next > units.len()
+            || line.newline_length > 1
+            || line.newline_length > line.trailing_whitespace_length
+            || line.trailing_whitespace_length > line.length
+            || (line.length == 0 && i + 1 != lines.len())
+        {
+            return Err("Invalid Windows line span coverage".into());
+        }
+        let part = String::from_utf16(&units[start..next])
+            .map_err(|_| "Windows line splits a Unicode scalar")?;
+        if (line.newline_length == 1) != part.ends_with('\n')
+            || part[..part.len().saturating_sub(line.newline_length as usize)].contains('\n')
+        {
+            return Err("Invalid Windows hard line span".into());
+        }
+        if line.newline_length == 0 && next < units.len() {
+            let left = part
+                .trim_end_matches([' ', '\t', '\u{3000}'])
+                .chars()
+                .last();
+            let rest = String::from_utf16(&units[next..])
+                .map_err(|_| "Windows line splits a Unicode scalar")?;
+            let right = rest
+                .trim_start_matches([' ', '\t', '\u{3000}'])
+                .chars()
+                .next();
+            let separated = part.ends_with([' ', '\t', '\u{3000}'])
+                || rest.starts_with([' ', '\t', '\u{3000}']);
+            if left.is_some_and(|c| OPEN.contains(c))
+                || right.is_some_and(|c| NONSTART.contains(c))
+                || (!separated && left == right && left.is_some_and(|c| INSEPARABLE.contains(c)))
+            {
+                return Err(
+                    "Windows line break does not satisfy Japanese basic wrapping; source preserved"
+                        .into(),
+                );
+            }
+        }
+        end = next;
+    }
+    if end != units.len() {
+        return Err("Incomplete Windows line span coverage".into());
+    }
+    Ok(())
+}
+
 #[cfg(windows)]
 mod native {
     use super::*;
@@ -112,7 +197,9 @@ mod native {
             axis_count: i32,
             vertical: i32,
             wrap_width: f32,
+            wrap_height: f32,
             axis_callback: AxisCallback,
+            line_callback: extern "C" fn(u32, u32, u32, u32, *mut c_void),
             callback: extern "C" fn(
                 *const Point,
                 *const u8,
@@ -197,6 +284,25 @@ mod native {
                 .map(|p| [p.x, p.y])
                 .collect();
             result.types = unsafe { std::slice::from_raw_parts(types, count as usize) }.to_vec();
+        }
+    }
+    extern "C" fn line_span(
+        start: u32,
+        length: u32,
+        trailing: u32,
+        newline: u32,
+        data: *mut c_void,
+    ) {
+        let result = unsafe { &mut *(data as *mut DesktopOutline) };
+        if let Some(lines) = &mut result.line_spans {
+            if lines.len() < 256 {
+                lines.push(DesktopLineSpan {
+                    start,
+                    length,
+                    trailing_whitespace_length: trailing,
+                    newline_length: newline,
+                });
+            }
         }
     }
     fn axis_value(
@@ -353,6 +459,21 @@ mod native {
                     || v > 100000.0
                     || request.writing_mode.as_deref() == Some("vertical-rl")
             })
+            || request.wrap_height.is_some_and(|v| {
+                !v.is_finite()
+                    || v <= 0.0
+                    || v > 100000.0
+                    || request.writing_mode.as_deref() != Some("vertical-rl")
+            })
+            || (request.wrap_height.is_some() && request.wrap_width.is_some())
+            || request
+                .wrap_policy
+                .as_deref()
+                .is_some_and(|p| p != "japanese-basic-v1")
+            || (request.wrap_height.is_some() && request.wrap_policy.is_none())
+            || (request.wrap_policy.is_some()
+                && request.wrap_width.is_none()
+                && request.wrap_height.is_none())
             || request.alignment > 2
             || request.axes.as_ref().is_some_and(|axes| {
                 axes.len() > 32
@@ -373,7 +494,8 @@ mod native {
         let family: Vec<u16> = face.family.encode_utf16().chain(Some(0)).collect();
         let name: Vec<u16> = face.name.encode_utf16().chain(Some(0)).collect();
         let text: Vec<u16> = request.text.encode_utf16().collect();
-        let wrapped = request.wrap_width.is_some();
+        let wrapped = request.wrap_width.is_some() || request.wrap_height.is_some();
+        let basic = request.wrap_policy.is_some();
         let extended = wrapped || request.axes.is_some() || request.writing_mode.is_some();
         let requested_axes = request.axes.clone().unwrap_or_default();
         let axis_tags: Vec<u32> = requested_axes
@@ -382,7 +504,9 @@ mod native {
             .collect();
         let axis_values: Vec<f32> = requested_axes.values().copied().collect();
         let mut result = DesktopOutline {
-            engine: if wrapped {
+            engine: if basic {
+                "directwrite-v4"
+            } else if wrapped {
                 "directwrite-v3"
             } else if extended {
                 "directwrite-v2"
@@ -415,6 +539,9 @@ mod native {
             },
             advance_height: if extended { Some(0.0) } else { None },
             wrap_width: request.wrap_width,
+            wrap_height: request.wrap_height,
+            wrap_policy: request.wrap_policy,
+            line_spans: if basic { Some(vec![]) } else { None },
             wrap_overflow: if wrapped { Some(false) } else { None },
         };
         let status = unsafe {
@@ -441,13 +568,18 @@ mod native {
                     0
                 },
                 result.wrap_width.unwrap_or(0.0),
+                result.wrap_height.unwrap_or(0.0),
                 outline_axis,
+                line_span,
                 outline,
                 &mut result as *mut _ as *mut c_void,
             )
         };
         if let Some(width) = result.wrap_width {
             result.wrap_overflow = Some(result.advance_width > width + 0.01);
+        }
+        if let Some(height) = result.wrap_height {
+            result.wrap_overflow = Some(result.advance_height.unwrap_or(0.0) > height + 0.01);
         }
         if status != 0 {
             return Err(match status{
@@ -487,6 +619,9 @@ mod native {
                 result.line_count,
                 result.glyph_count
             ));
+        }
+        if basic {
+            validate_basic_lines(&result)?;
         }
         Ok(result)
     }
@@ -557,6 +692,129 @@ mod tests {
             axes: None,
             writing_mode: None,
             wrap_width: None,
+            wrap_height: None,
+            wrap_policy: None,
+        }
+    }
+    #[test]
+    fn actual_os_japanese_basic_wrap_vertical_and_boundaries() {
+        let face = installed()
+            .unwrap()
+            .into_iter()
+            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
+            .unwrap();
+        let mut req = request(
+            face,
+            "日本語の「折り返し」、小さいぁと長音ー。 Latin words\n次の段落です。",
+        );
+        req.size = 32.0;
+        req.wrap_policy = Some("japanese-basic-v1".into());
+        let mut rows = vec![];
+        for vertical in [false, true] {
+            req.writing_mode = Some(
+                if vertical {
+                    "vertical-rl"
+                } else {
+                    "horizontal-tb"
+                }
+                .into(),
+            );
+            req.wrap_width = if vertical { None } else { Some(160.0) };
+            req.wrap_height = if vertical { Some(160.0) } else { None };
+            let wide = prepare(req.clone()).unwrap();
+            assert_eq!(wide.engine, "directwrite-v4");
+            let count = wide.line_count;
+            rows.push(wide);
+            if vertical {
+                req.wrap_height = Some(96.0);
+            } else {
+                req.wrap_width = Some(96.0);
+            }
+            let narrow = prepare(req.clone()).unwrap();
+            assert!(narrow.line_count >= count);
+            rows.push(narrow);
+            for alignment in [1, 2] {
+                req.alignment = alignment;
+                rows.push(prepare(req.clone()).unwrap());
+            }
+            req.alignment = 0;
+            for tracking in [-2.0, 2.0] {
+                let mut probe = req.clone();
+                probe.tracking = tracking;
+                rows.push(prepare(probe).unwrap());
+            }
+            let mut spaced = req.clone();
+            spaced.line_spacing = 2.0;
+            rows.push(prepare(spaced).unwrap());
+            let mut fractional = req.clone();
+            if vertical {
+                fractional.wrap_height = Some(96.123456789);
+            } else {
+                fractional.wrap_width = Some(96.123456789);
+            }
+            rows.push(prepare(fractional).unwrap());
+            let mut aligned = req.clone();
+            aligned.text = "日本語".into();
+            if vertical {
+                aligned.wrap_height = Some(160.0);
+            } else {
+                aligned.wrap_width = Some(160.0);
+            }
+            let start = prepare(aligned.clone()).unwrap();
+            let inline = if vertical {
+                start.advance_height.unwrap()
+            } else {
+                start.advance_width
+            };
+            assert!(inline < 160.0);
+            for alignment in [1, 2] {
+                aligned.alignment = alignment;
+                let result = prepare(aligned.clone()).unwrap();
+                let delta = (160.0 - inline) * alignment as f32 / 2.0;
+                assert_eq!(result.points.len(), start.points.len());
+                for (a, b) in result.points.iter().zip(&start.points) {
+                    assert!((a[vertical as usize] - b[vertical as usize] - delta).abs() < 0.001);
+                    assert!((a[(!vertical) as usize] - b[(!vertical) as usize]).abs() < 0.001);
+                }
+                rows.push(result);
+            }
+            for text in [
+                "あ））））））））））））い",
+                "あ（（（（（（（（（（（（い",
+                "あ……い――う",
+                " \n\n　\n",
+                "",
+                "あ\n",
+                "Supercalifragilisticexpialidocious",
+            ] {
+                let mut probe = req.clone();
+                probe.text = text.into();
+                let result = prepare(probe).unwrap();
+                assert_eq!(result.text, text);
+                rows.push(result);
+            }
+            // Each named prohibited character is tested at two different budgets.
+            let chars = "([{（［｛「『【〔〈《〖〘〚)]}）］｝」』】〕〉》〗〙〛、。，．！？!?.,:;：；ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶーｰ々ゝゞヽヾ〻‥…—―";
+            for ch in chars.chars() {
+                for budget in [8.0, 64.0] {
+                    let mut probe = req.clone();
+                    probe.text = format!("あ{ch}あいう");
+                    if vertical {
+                        probe.wrap_height = Some(budget);
+                    } else {
+                        probe.wrap_width = Some(budget);
+                    }
+                    prepare(probe).unwrap_or_else(|e| {
+                        panic!(
+                            "basic boundary U+{:04X} vertical={vertical} budget={budget}: {e}",
+                            ch as u32
+                        )
+                    });
+                }
+            }
+        }
+        if let Some(path) = std::env::var_os("NECT_JP_WRAP_SMOKE_OUTPUT") {
+            std::fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
         }
     }
     #[test]

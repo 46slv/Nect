@@ -8,6 +8,7 @@ import {
   validateStrokeStyle,
   evaluate,
   pathData,
+  pathBounds,
 } from './core.js';
 import { createLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill } from './radial-gradient.js';
@@ -474,15 +475,33 @@ export function importSVGTree(source) {
   for (const bundle of bundles) {
     const l = bundle.layers[0];
     if (bundle.rectBatch && bundle.layers.length > 1) {
-      // Opaque same-color rectangles cannot cancel winding and have no stacked
-      // alpha or stroke semantics. Store their closed contours in one editable
-      // source, avoiding one graph/layer per QR module. Never batch arbitrary
-      // paths, transparent paints, gradients or explicitly named layer groups.
-      let base = null,
-        paths = [],
-        characters = 0;
-      const flush = () => {
-        if (!base) return;
+      // Touching contours rasterize differently when combined into one fill:
+      // independent edge coverage is lost. Batch only strictly separated bounds.
+      // Same-color opaque paints commute; no transparent/gradient/stroke reorder.
+      const batches = [];
+      for (const child of bundle.layers) {
+        const geometry = evaluate(child).run(child.nodes[0].id),
+          path = pathData(geometry),
+          bounds = pathBounds(geometry),
+          touches = (other) =>
+            bounds[0][0] <= other[0][2] &&
+            bounds[0][2] >= other[0][0] &&
+            bounds[1][0] <= other[1][2] &&
+            bounds[1][2] >= other[1][0];
+        let batch = batches.find(
+          (b) => b.characters + path.length + 1 <= 90000 && !b.bounds.some(touches),
+        );
+        if (!batch) {
+          if (batches.length >= 64)
+            throw Error('SVG rectangles exceed 64 independent paint batches');
+          batch = { base: child, paths: [], bounds: [], characters: 0 };
+          batches.push(batch);
+        }
+        batch.paths.push(path);
+        batch.bounds.push(bounds);
+        batch.characters += path.length + 1;
+      }
+      for (const { base, paths } of batches) {
         const merged = node('Imported Path', 40, 40),
           remap = base.nodes[1],
           paints = base.nodes.slice(2);
@@ -490,18 +509,7 @@ export function importSVGTree(source) {
         remap.params.path.source = merged.id;
         base.nodes = [merged, remap, ...paints];
         result.layers.push(base);
-        base = null;
-        paths = [];
-        characters = 0;
-      };
-      for (const child of bundle.layers) {
-        const path = pathData(evaluate(child).run(child.nodes[0].id));
-        if (characters + path.length + 1 > 90000) flush();
-        base ??= child;
-        paths.push(path);
-        characters += path.length + 1;
       }
-      flush();
       continue;
     }
     if (bundle.layers.length > 1) {

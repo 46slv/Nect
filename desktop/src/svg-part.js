@@ -3,14 +3,23 @@ import { importSVGTree } from './svg-import.js';
 
 // SVG parts reuse saved vector graphs and Composition Reference. There is no
 // browser SVG renderer, external URL, file binding or second scene authority.
+export function svgPartTarget(doc, layerId) {
+  const target = doc.layers.find((l) => l.id === layerId);
+  if (!target || target.locked || target.guide || !target.visible)
+    throw Error('Choose an unlocked visible Composition for the SVG node');
+  const output = target.nodes.find((n) => n.id === target.output);
+  if (output?.type !== 'Output') throw Error('Add SVG to a path Composition with a regular Output');
+  const socket = output.params.path;
+  if (output.locked || socket.locked || socket.expression || socket.sourcePort !== undefined)
+    throw Error('Unlock the Composition Output before adding SVG');
+  return { target, output, socket };
+}
 export function appendSVGPart(
   doc,
   { layerId, source, name = 'Imported SVG', at = [0, 0] },
   fonts = {},
 ) {
-  const target = doc.layers.find((l) => l.id === layerId);
-  if (!target || target.locked || target.guide || !target.visible)
-    throw Error('Choose an unlocked visible Composition for the SVG node');
+  const { target, output, socket } = svgPartTarget(doc, layerId);
   if (typeof name !== 'string' || !name.trim() || name.length > 255 || /[\u0000-\u001f]/.test(name))
     throw Error('Invalid SVG name');
   if (
@@ -19,11 +28,6 @@ export function appendSVGPart(
     !at.every((n) => Number.isFinite(n) && Math.abs(n) <= 100000)
   )
     throw Error('Invalid SVG Position');
-  const output = target.nodes.find((n) => n.id === target.output);
-  if (output?.type !== 'Output') throw Error('Add SVG to a path Composition with a regular Output');
-  const socket = output.params.path;
-  if (output.locked || socket.locked || socket.expression || socket.sourcePort !== undefined)
-    throw Error('Unlock the Composition Output before adding SVG');
   const imported = importSVGTree(source);
   // One hidden, editable source graph retains the original paint order. The
   // parser has already minted all IDs and rejected unsupported markup.

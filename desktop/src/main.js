@@ -1,3 +1,6 @@
+import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
+import { initialLayerId } from './initial-layer.js';
+import { svgPartTarget } from './svg-part.js';
 import {
   directSelectionSource,
   transformDirectPath,
@@ -1411,7 +1414,7 @@ function textNumericState(d) {
     return n.characterArrangement ? { n, values: [n.characterArrangement.gap] } : null;
   if (d.textKind === 'leading')
     return n.leading?.mode === 'manual' ? { n, values: [n.leading.value] } : null;
-  if (d.textKind === 'wrap') return n.textWrap ? { n, values: [n.textWrap.width] } : null;
+  if (d.textKind === 'wrap') return n.textWrap ? { n, values: [wrapExtent(n.textWrap)] } : null;
   const context = characterContext(evaluate(layer, fonts, displayDocument().imageAssets));
   if (d.textKind === 'kerning') {
     const pair = pairContext(context);
@@ -2027,7 +2030,7 @@ function desktopAxisControls(n) {
   }<button class="mini" data-reset-os-axes="${n.id}">Reset to font defaults</button></fieldset>`;
 }
 function desktopTypographyControls(n) {
-  if (![2, 3, 4].includes(n.osFont?.version)) return '';
+  if (![2, 3, 4, 5].includes(n.osFont?.version)) return '';
   const disabled = !desktop || current().locked || n.locked || osTextDrafts.has(n.id);
   return `<fieldset ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
     ['size', 'Size', n.params.size.value],
@@ -2046,11 +2049,11 @@ function desktopTypographyControls(n) {
   ]
     .map(
       ([value, label]) =>
-        `<option value="${value}" ${n.writingMode === value ? 'selected' : ''} ${n.textWrap && value === 'vertical-rl' ? 'disabled' : ''}>${label}</option>`,
+        `<option value="${value}" ${n.writingMode === value ? 'selected' : ''}>${label}</option>`,
     )
     .join(
       '',
-    )}</select></label>${desktopAxisControls(n)}<label>Horizontal wrap<select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode" ${n.writingMode === 'vertical-rl' ? 'disabled' : ''}><option value="off" ${n.textWrap ? '' : 'selected'}>Off</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap width" value="${n.textWrap.width}"></label>` : ''}<p class="font-note">Horizontal wrap uses Windows line breaks. Full Japanese kinsoku is not guaranteed. Long words can overflow; artwork is retained without clipping. Auto height may exceed the artboard.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap width overflow — all artwork retained</p>' : ''}</fieldset>`;
+    )}</select></label>${desktopAxisControls(n)}<label>Line composition<select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px<input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
@@ -2887,9 +2890,23 @@ function initialManualLeading(n) {
   }
   return Math.min(100000, Math.max(0.01, distance));
 }
+function wrapModeOptions(n) {
+  const mode = n.textWrap ? (n.textWrap.policy ? 'basic' : 'width') : 'off';
+  return [
+    ['off', 'Off · explicit newlines'],
+    ['basic', 'Japanese basic'],
+    ...(n.writingMode === 'vertical-rl' ? [] : [['width', 'Legacy horizontal wrap']]),
+  ]
+    .map(
+      ([value, label]) =>
+        `<option value="${value}" ${mode === value ? 'selected' : ''}>${label}</option>`,
+    )
+    .join('');
+}
 function wrapControls(n) {
-  const disabled = current().locked ? 'disabled' : '';
-  return `<section class="text-wrap-controls" aria-label="Wrap width"><label>Horizontal line composition<select data-text-wrap="${n.id}" aria-label="Text wrap mode" ${disabled}><option value="off" ${n.textWrap ? '' : 'selected'}>Off · explicit newlines</option><option value="width" ${n.textWrap ? 'selected' : ''}>Wrap width · auto height</option></select></label>${n.textWrap ? `<label>Wrap width px<input type="number" step="any" min="0.01" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-text-wrap-width="${n.id}" aria-label="Text wrap width" value="${n.textWrap.width}" ${disabled}></label>` : ''}<p class="font-note">Horizontal text only; detach Type on Path first. Width reflows whole Latin words and a bounded Japanese punctuation subset. Height grows automatically. Long unbreakable spans overflow visibly and export intact. Position stays fixed; no clipping or font scaling.</p></section>`;
+  const disabled = current().locked ? 'disabled' : '',
+    extent = n.writingMode === 'vertical-rl' ? 'height' : 'width';
+  return `<section class="text-wrap-controls" aria-label="Text wrap"><label>Line composition<select data-text-wrap="${n.id}" aria-label="Text wrap mode" ${disabled}>${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label>Wrap ${extent} px<input type="number" step="any" min="0.01" max="100000" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-text-wrap-width="${n.id}" aria-label="Text wrap ${extent}" value="${wrapExtent(n.textWrap)}" ${disabled}></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p></section>`;
 }
 function leadingControls(n) {
   const mode = n.leading?.mode || 'legacy';
@@ -3870,13 +3887,16 @@ function addNode(type, envelope = session.state, layerId = current().id) {
 }
 
 function openNodePicker() {
+  if (current().locked) {
+    notify('Composition is locked. Unlock it or select another Composition.', true);
+    return;
+  }
   if (
     editorPicker ||
     document.querySelector('dialog[open]') ||
     navigationBusy() ||
     penDraft ||
-    nameEdit ||
-    current().locked
+    nameEdit
   )
     return;
   const envelope = session.state,
@@ -4660,7 +4680,7 @@ function replaceDocument(next, { binding = null, saved = false, prepared = false
   session = new CommandSession(next, sessionOptions);
   history = session.historyView;
   documents.replace({ binding, saved });
-  activeLayer = next.layers[0].id;
+  activeLayer = initialLayerId(next);
   selected = current().nodes[0]?.id;
   artworkTarget = null;
   artworkSelection = new Set();
@@ -5049,6 +5069,7 @@ app.addEventListener('click', async (e) => {
           document.querySelector('#image-file').click();
           break;
         case 'add-svg-part':
+          svgPartTarget(history.doc, current().id);
           svgPartPick = {
             id: ++svgPartRequest,
             before: serialize(history.doc),
@@ -5836,10 +5857,12 @@ app.addEventListener('change', (event) => {
   const n = current().nodes.find((n) => n.id === nodeId && n.osFont?.version >= 2);
   if (!n || osTextDrafts.has(n.id)) return;
   const textWrap = el.dataset.osWrap
-    ? el.value === 'width'
-      ? { width: 320 }
-      : null
-    : { width: el.value.trim() ? Number(el.value) : NaN };
+    ? el.value === 'basic'
+      ? basicTextWrap(n.writingMode, wrapExtent(n.textWrap) ?? 320)
+      : el.value === 'width'
+        ? { width: wrapExtent(n.textWrap) ?? 320 }
+        : null
+    : withWrapExtent(n.textWrap, el.value.trim() ? Number(el.value) : NaN);
   void commitOsText(n.id, n.text, { textWrap });
 });
 app.addEventListener('change', (event) => {
@@ -5854,7 +5877,12 @@ app.addEventListener('change', (event) => {
       : ['alignment', 'writingMode'].includes(key)
         ? el.value
         : Number(el.value);
-  void commitOsText(n.id, n.text, { [key]: value });
+  void commitOsText(n.id, n.text, {
+    [key]: value,
+    ...(key === 'writingMode' && n.textWrap
+      ? { textWrap: basicTextWrap(value, wrapExtent(n.textWrap)) }
+      : {}),
+  });
 });
 app.addEventListener('change', (event) => {
   const el = event.target,
@@ -6984,11 +7012,13 @@ app.addEventListener('change', async (e) => {
       } else if (d.textWrap || d.textWrapWidth) {
         let wrap = null;
         if (d.textWrap) {
-          if (!['off', 'width'].includes(el.value)) throw Error('Invalid wrap mode');
-          if (el.value === 'width') wrap = { width: 320 };
+          if (!['off', 'width', 'basic'].includes(el.value)) throw Error('Invalid wrap mode');
+          if (el.value === 'width') wrap = { width: wrapExtent(n.textWrap) ?? 320 };
+          if (el.value === 'basic')
+            wrap = basicTextWrap(n.writingMode, wrapExtent(n.textWrap) ?? 320);
         } else {
           if (!el.value.trim()) throw Error('Enter a finite wrap width');
-          wrap = { width: Number(el.value) };
+          wrap = withWrapExtent(n.textWrap, Number(el.value));
         }
         settings = { textWrap: wrap };
       } else if (d.textLeading || d.textLeadingValue) {
@@ -7006,7 +7036,12 @@ app.addEventListener('change', async (e) => {
         }
         settings = { leading };
       } else
-        settings = { [settingEntry[1]]: settingEntry[1] === 'kerning' ? el.checked : el.value };
+        settings = {
+          [settingEntry[1]]: settingEntry[1] === 'kerning' ? el.checked : el.value,
+          ...(settingEntry[1] === 'writingMode' && n.textWrap
+            ? { textWrap: basicTextWrap(el.value, wrapExtent(n.textWrap)) }
+            : {}),
+        };
       commandChange('set-text-settings', { nodeId: n.id, settings }, undefined, true);
     } catch (error) {
       notify(error.message, true);
@@ -9805,7 +9840,7 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape' && e.target.dataset?.textWrapWidth) {
     const n = current().nodes.find((n) => n.id === e.target.dataset.textWrapWidth);
-    e.target.value = String(n.textWrap.width);
+    e.target.value = String(wrapExtent(n.textWrap));
     e.preventDefault();
     return;
   }

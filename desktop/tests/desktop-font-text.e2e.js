@@ -5,7 +5,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
-import { document, node, serialize } from '../src/core.js';
+import { document, node, serialize, CommandSession } from '../src/core.js';
 const outlines = JSON.parse(await readFile(process.env.NECT_DESKTOP_FONT_SMOKE_OUTPUT, 'utf8'));
 const variants = outlines.filter((r) => r.face.family === 'Meiryo' && r.face.weight === 400),
   raw = variants[0];
@@ -15,6 +15,9 @@ const axisRows = process.env.NECT_OS_AXES_SMOKE_OUTPUT
   : [];
 const verticalRows = process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT
   ? JSON.parse(await readFile(process.env.NECT_OS_VERTICAL_SMOKE_OUTPUT, 'utf8'))
+  : [];
+const jpRows = process.env.NECT_JP_WRAP_SMOKE_OUTPUT
+  ? JSON.parse(await readFile(process.env.NECT_JP_WRAP_SMOKE_OUTPUT, 'utf8'))
   : [];
 const wrapRows = process.env.NECT_OS_WRAP_SMOKE_OUTPUT
   ? JSON.parse(await readFile(process.env.NECT_OS_WRAP_SMOKE_OUTPUT, 'utf8'))
@@ -68,7 +71,7 @@ try {
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(
-    ({ variants, din, axisRows, verticalRows, wrapRows }) => {
+    ({ variants, din, axisRows, verticalRows, wrapRows, jpRows }) => {
       window.isTauri = true;
       window.fontCalls = [];
       window.fontSaves = [];
@@ -111,6 +114,7 @@ try {
               ...axisRows,
               ...verticalRows,
               ...wrapRows,
+              ...jpRows,
             ].find(
               (r) =>
                 [
@@ -124,6 +128,10 @@ try {
                 ].every((k) => r[k] === args.request[k]) &&
                 JSON.stringify(r.face) === JSON.stringify(args.request.face) &&
                 r.writingMode === args.request.writingMode &&
+                r.wrapPolicy === args.request.wrapPolicy &&
+                (r.wrapHeight === undefined
+                  ? args.request.wrapHeight === undefined
+                  : Math.fround(r.wrapHeight) === Math.fround(args.request.wrapHeight)) &&
                 (r.wrapWidth === undefined
                   ? args.request.wrapWidth === undefined
                   : Math.fround(r.wrapWidth) === Math.fround(args.request.wrapWidth)) &&
@@ -156,7 +164,7 @@ try {
         },
       };
     },
-    { variants, din, axisRows, verticalRows, wrapRows },
+    { variants, din, axisRows, verticalRows, wrapRows, jpRows },
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
@@ -507,15 +515,15 @@ try {
       () =>
         document.querySelector(
           '.inspector-body [data-os-setting="writingMode"] option[value="vertical-rl"]',
-        )?.disabled,
+        )?.disabled === false,
       {},
       { timeout: 2000 },
     );
     assert.equal(
       await page
         .locator('.inspector-body [data-os-setting="writingMode"] option[value="vertical-rl"]')
-        .evaluate((option) => option.disabled && option.matches(':disabled')),
-      true,
+        .evaluate((option) => option.disabled || option.matches(':disabled')),
+      false,
     );
     for (const row of wrapRows.filter(
       (r) =>
@@ -544,10 +552,105 @@ try {
     await width.fill('0');
     await width.dispatchEvent('change');
     await page.waitForFunction(() =>
-      document.querySelector('.status').textContent.includes('Wrap width'),
+      document.querySelector('.status').textContent.includes('Wrap'),
     );
     assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), saved);
     await cachedRoundtrip('windows-os-wrap');
+  }
+  if (jpRows.length) {
+    const loadPrepared = async (raw) => {
+      const contents = exampleDoc(raw, [600, 100]),
+        session = new CommandSession(contents),
+        textWrap = {
+          [raw.writingMode === 'vertical-rl' ? 'height' : 'width']: raw.wrapWidth ?? raw.wrapHeight,
+          policy: raw.wrapPolicy,
+        };
+      session.dispatch({
+        ...session.state,
+        type: 'set-os-font-text',
+        payload: {
+          layerId: layer.id,
+          nodeId: text.id,
+          outline: raw,
+          settings: { writingMode: raw.writingMode, textWrap },
+        },
+      });
+      await page.evaluate(() => (window.fontAvailable = true));
+      await page.evaluate((json) => window.nect.load(json), serialize(session.snapshot()));
+      await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+      await waitOutline(raw);
+    };
+    for (const mode of ['horizontal-tb', 'vertical-rl']) {
+      const rows = jpRows.filter((r) => r.writingMode === mode),
+        wide = rows[0],
+        narrow = rows[1];
+      await loadPrepared(wide);
+      assert.equal(await page.locator('.inspector-body [data-os-wrap]').inputValue(), 'basic');
+      assert.ok(
+        await page
+          .locator('.inspector-body [data-os-setting="writingMode"] option[value="vertical-rl"]')
+          .isEnabled(),
+      );
+      const extent = page.locator('.inspector-body [data-os-wrap-width]');
+      await extent.fill('96');
+      await extent.dispatchEvent('change');
+      await waitOutline(narrow);
+      await page.locator('[data-action="undo"]').click();
+      await waitOutline(wide);
+      await page.locator('[data-action="redo"]').click();
+      await waitOutline(narrow);
+      for (const [key, value, row] of [
+        ['tracking', '2', rows[5]],
+        ['lineSpacing', '2', rows[6]],
+        ['alignment', 'end', rows[3]],
+      ]) {
+        const el = page.locator(`.inspector-body [data-os-setting="${key}"]`);
+        if (key === 'alignment') await el.selectOption(value);
+        else {
+          await el.fill(value);
+          await el.dispatchEvent('change');
+        }
+        await waitOutline(row);
+        await page.locator('[data-action="undo"]').click();
+        await waitOutline(narrow);
+      }
+      const other = mode === 'horizontal-tb' ? 'vertical-rl' : 'horizontal-tb',
+        opposite = jpRows.filter((r) => r.writingMode === other)[1];
+      await page.locator('.inspector-body [data-os-setting="writingMode"]').selectOption(other);
+      await waitOutline(opposite);
+      await page.locator('[data-action="undo"]').click();
+      await waitOutline(narrow);
+      await page.screenshot({
+        path: `test-results/desktop-font-extended/japanese-basic-${mode}.png`,
+      });
+      await cachedRoundtrip(`windows-japanese-basic-${mode}`);
+    }
+    // Static Text uses the actual production controls and common Session too.
+    const contents = exampleDoc(jpRows[0], [600, 100]),
+      n = contents.layers[0].nodes.find((n) => n.id === text.id);
+    n.text = 'Alpha beta gamma delta';
+    await page.evaluate((json) => window.nect.load(json), serialize(contents));
+    await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+    await page.locator('.inspector-body [data-text-wrap]').selectOption('basic');
+    await page.locator('.inspector-body [data-text-wrap-width]').fill('120');
+    await page.locator('.inspector-body [data-text-wrap-width]').dispatchEvent('change');
+    await page.locator('.inspector-body [data-writing-mode]').selectOption('vertical-rl');
+    const staticState = await page.evaluate(
+      (id) => ({
+        n: window.nect.document.layers[0].nodes.find((n) => n.id === id),
+        lines: window.nect.evaluate().textLayout(id).lines,
+      }),
+      text.id,
+    );
+    assert.deepEqual(staticState.n.textWrap, { height: 120, policy: 'japanese-basic-v1' });
+    assert.ok(staticState.lines.length > 1);
+    assert.equal(staticState.n.writingMode, 'vertical-rl');
+    const before = await page.evaluate(() => JSON.stringify(window.nect.document));
+    await page.locator('.inspector-body [data-text-wrap-width]').fill('900');
+    await page.locator('.inspector-body [data-text-wrap-width]').press('Escape');
+    await page.locator('.inspector-body [data-text-wrap-width]').press('Tab');
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
+    await cachedRoundtrip('static-vertical-wrap');
   }
   assert.deepEqual(errors, []);
   assert.ok(!(await page.evaluate(() => window.fontCalls)).includes('read_system_font'));
@@ -573,6 +676,8 @@ try {
     osVariableAxes: !!axisRows.length,
     japaneseVertical: !!verticalRows.length,
     osHorizontalWrap: !!wrapRows.length,
+    japaneseBasicWrap: !!jpRows.length,
+    staticVerticalWrap: !!jpRows.length,
     pageErrors: errors,
     nativeWebView2: false,
   };

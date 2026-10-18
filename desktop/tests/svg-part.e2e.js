@@ -548,6 +548,55 @@ try {
   await load(await readFile('test-results/layer-solo/solo.json', 'utf8'));
   assert.equal(await page.evaluate(() => window.nect.export()), svgSolo);
   await page.screenshot({ path: 'test-results/layer-solo/editor.png' });
+  // Opening a real project can start with a hidden locked source Composition.
+  // Prefer its visible editable artwork; explicit locked selection must explain refusal.
+  const entry = document(),
+    lockedEntry = entry.layers[0],
+    visibleEntry = document().layers[0],
+    imageEntry = document().layers[0];
+  lockedEntry.visible = false;
+  lockedEntry.locked = true;
+  const imageOutput = node('Image Output');
+  imageEntry.nodes = [imageOutput];
+  imageEntry.output = imageOutput.id;
+  entry.layers.push(visibleEntry, imageEntry);
+  await load(serialize(entry));
+  assert.equal(
+    await page.locator(`.graph .node[data-id="${visibleEntry.nodes[0].id}"]`).count(),
+    1,
+  );
+  const countBefore = visibleEntry.nodes.length;
+  await page.locator('#add-node').click();
+  await page.locator('dialog[open] input[type="search"]').fill('Circle');
+  await page
+    .locator('dialog[open]')
+    .getByRole('option', { name: /^Circle/ })
+    .click();
+  await page.locator('dialog[open] .picker-apply').click();
+  assert.equal(
+    await page.evaluate(
+      (id) => window.nect.document.layers.find((l) => l.id === id).nodes.length,
+      visibleEntry.id,
+    ),
+    countBefore + 1,
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.locator(`[data-select-layer="${lockedEntry.id}"]`).click();
+  await page.locator('#add-node').click();
+  assert.equal(await page.locator('dialog[open]').count(), 0);
+  assert.match(await page.locator('.status').innerText(), /Composition is locked/);
+  await page.getByRole('button', { name: 'Add SVG node', exact: true }).click();
+  assert.match(await page.locator('.status').innerText(), /unlocked visible/);
+  await page.locator(`[data-select-layer="${imageEntry.id}"]`).click();
+  const entryBefore = await saved();
+  let unexpectedChooser = 0;
+  const countChooser = () => unexpectedChooser++;
+  page.on('filechooser', countChooser);
+  await page.getByRole('button', { name: 'Add SVG node', exact: true }).click();
+  assert.match(await page.locator('.status').innerText(), /regular Output/);
+  assert.equal(unexpectedChooser, 0);
+  page.off('filechooser', countChooser);
+  assert.equal(await saved(), entryBefore);
   const receipt = {
     productionCsp: true,
     actualFileChooser: true,
@@ -572,6 +621,9 @@ try {
     multipleSoloPreviewExport: true,
     soloDoesNotRewriteHide: true,
     soloSavedAndUndoable: true,
+    initialEditableComposition: true,
+    lockedNodePickerFeedback: true,
+    svgPreflightBeforeChooser: true,
     privateAttachment,
     pageErrors: errors,
   };

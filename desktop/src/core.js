@@ -97,7 +97,7 @@ import {
   utf8ByteLength,
 } from './fonts.js';
 import { layoutText, validateLeading } from './text-layout.js';
-import { validateTextWrap } from './text-wrap.js';
+import { validateTextWrap, withWrapExtent } from './text-wrap.js';
 import { validateTextPathAttachment, validateTextPathMode, projectTextPath } from './text-path.js';
 import { offsetClosedPath, OFFSET_EDITOR_LIMITS, OffsetError } from './closed-offset.js';
 import { offsetGroupedClosedPathDetailed } from './grouped-closed-offset.js';
@@ -2439,7 +2439,7 @@ export function evaluate(
       } else if (n.type === 'Text' && n.osFont) {
         result = osFontTextPath(n, read('position'), read('size'), pathBounds);
         if (n.osFont.outline.wrapOverflow)
-          warnings.push(`${n.name}: Wrap width overflow; all artwork is retained without clipping`);
+          warnings.push(`${n.name}: Wrap overflow; all artwork is retained without clipping`);
         const reason =
           'OS font Text character adjustments and canvas caret editing are not supported; edit Text in Inspector';
         textLayouts.set(n.id, {
@@ -3927,7 +3927,7 @@ export function validate(doc) {
     !doc ||
     ![
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
-      27, 28, 29, 30, 31, 32, 33,
+      27, 28, 29, 30, 31, 32, 33, 34,
     ].includes(doc.schemaVersion)
   )
     throw Error('Unsupported project version');
@@ -4009,6 +4009,8 @@ export function validate(doc) {
         throw Error('Type on Path requires schemaVersion 7 and a Text node');
       if (n.textWrap !== undefined && (n.type !== 'Text' || sourceSchemaVersion < 8))
         throw Error('Wrap width requires schemaVersion 8 and a Text node');
+      if (n.textWrap?.policy !== undefined && sourceSchemaVersion < 34)
+        throw Error('Japanese basic wrapping requires schemaVersion 34');
       validateVariableText(n, doc.fontAssets?.[n.font], doc.schemaVersion);
       if (n.variation) {
         const sparse = canonicalAxes(
@@ -4792,7 +4794,7 @@ export class CommandSession {
     }
     if (target.textKind === 'wrap') {
       if (!node.textWrap) throw Error('Text wrap required');
-      return [node.textWrap.width];
+      return [node.textWrap.width ?? node.textWrap.height];
     }
     const ids = characterIdsInRange(node.text, node.characterPositions, 0, node.text.length);
     if (
@@ -5112,7 +5114,14 @@ export class CommandSession {
             settings:
               target.textKind === 'leading'
                 ? { leading: { mode: 'manual', value: values[0] } }
-                : { textWrap: { width: values[0] } },
+                : {
+                    textWrap: withWrapExtent(
+                      base.layers
+                        .find((l) => l.id === target.layerId)
+                        .nodes.find((n) => n.id === target.nodeId).textWrap,
+                      values[0],
+                    ),
+                  },
           },
           base,
         ).candidate;
@@ -5856,9 +5865,12 @@ export class CommandSession {
         delete source.osFont;
         source.font = 'default';
       } else {
-        const modern = ['directwrite-v1', 'directwrite-v2', 'directwrite-v3'].includes(
-          payload.outline?.engine,
-        );
+        const modern = [
+          'directwrite-v1',
+          'directwrite-v2',
+          'directwrite-v3',
+          'directwrite-v4',
+        ].includes(payload.outline?.engine);
         const settings = payload.settings || {};
         if (
           settings.axes !== undefined &&
@@ -5923,7 +5935,7 @@ export class CommandSession {
           if (settings.writingMode !== undefined) next.writingMode = settings.writingMode;
           if (
             settings.axes !== undefined &&
-            (![3, 4].includes(next.osFont.version) ||
+            (![3, 4, 5].includes(next.osFont.version) ||
               Object.keys(settings.axes).length !== next.osFont.axes.length ||
               next.osFont.axes.some(
                 (a) => Math.fround(settings.axes[a.tag]) !== Math.fround(a.value),
@@ -5943,7 +5955,15 @@ export class CommandSession {
         Object.assign(source, next);
         candidate.schemaVersion = Math.max(
           candidate.schemaVersion,
-          source.osFont.version === 4 ? 32 : source.osFont.version === 3 ? 30 : modern ? 29 : 28,
+          source.osFont.version === 5
+            ? 34
+            : source.osFont.version === 4
+              ? 32
+              : source.osFont.version === 3
+                ? 30
+                : modern
+                  ? 29
+                  : 28,
         );
         validateOsFontText(source, candidate.schemaVersion);
       }
@@ -5984,7 +6004,9 @@ export class CommandSession {
       let path, outlineUnits;
       if (type === 'bake-os-text-outline') {
         if (
-          ['directwrite-v1', 'directwrite-v2', 'directwrite-v3'].includes(payload.outline?.engine)
+          ['directwrite-v1', 'directwrite-v2', 'directwrite-v3', 'directwrite-v4'].includes(
+            payload.outline?.engine,
+          )
         ) {
           if (parameters(source).some(([, q]) => q.source || q.expression))
             throw Error('Disconnect Text parameters before direct OS conversion');
@@ -6979,7 +7001,11 @@ export class CommandSession {
         if (Object.hasOwn(settings, 'leading'))
           candidate.schemaVersion = Math.max(candidate.schemaVersion, 6);
         if (node.pathAttachment) candidate.schemaVersion = Math.max(candidate.schemaVersion, 7);
-        if (node.textWrap) candidate.schemaVersion = Math.max(candidate.schemaVersion, 8);
+        if (node.textWrap)
+          candidate.schemaVersion = Math.max(
+            candidate.schemaVersion,
+            node.textWrap.policy ? 34 : 8,
+          );
         if (Object.hasOwn(settings, 'pathAttachment'))
           setTextPathAttachment(
             target,
