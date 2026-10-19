@@ -1,4 +1,9 @@
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
+import {
+  ARTBOARD_UNITS,
+  displayLengthToDocumentUnits,
+  formatDocumentLength,
+} from './artboard-units.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
@@ -950,6 +955,7 @@ let openRequest = 0,
   imagePick = null,
   svgPartRequest = 0,
   svgPartPick = null,
+  artboardUnit = 'px',
   pngScale = 1,
   exportInFlight = false;
 let selection = new Set();
@@ -1492,7 +1498,13 @@ function moveOtherNumeric(d, e, dx) {
     d.original = Number(d.capture.value || 0);
     if (!Number.isFinite(d.original)) return;
     if (d.commandTarget) {
-      d.gesture = beginGraphGesture({ ...d.commandTarget, initial: d.original });
+      const initial = d.capture.dataset.dimension
+        ? displayLengthToDocumentUnits(
+            d.original,
+            d.capture.dataset.dimensionUnit || 'px',
+          )
+        : d.original;
+      d.gesture = beginGraphGesture({ ...d.commandTarget, initial });
       if (!d.gesture) return;
     }
     d.started = true;
@@ -1513,10 +1525,13 @@ function moveOtherNumeric(d, e, dx) {
     return;
   }
   try {
+    const commandValue = d.capture.dataset.dimension
+      ? displayLengthToDocumentUnits(value, d.capture.dataset.dimensionUnit || 'px')
+      : value;
     d.gesture = session.dispatch({
       ...session.state,
       type: 'update-gesture',
-      payload: { ...d.gesture, update: { value } },
+      payload: { ...d.gesture, update: { value: commandValue } },
     });
     d.preview = session.previewSnapshot(d.gesture.gestureId).document;
     if (d.commandTarget.command === 'set-document-settings') fitCanvas();
@@ -2566,6 +2581,26 @@ function nodeHTML(n, result) {
     : expandedNodeBody(n, result);
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
+function updateArtboardUnitDisplay() {
+  for (const input of app.querySelectorAll('[data-dimension]')) {
+    const dimension = input.dataset.dimension,
+      shortName = dimension === 'width' ? 'W' : 'H';
+    const displayValue = formatDocumentLength(history.doc[dimension], artboardUnit);
+    input.dataset.dimensionUnit = artboardUnit;
+    input.defaultValue = displayValue;
+    input.value = displayValue;
+    input.setAttribute('aria-label', `Artboard ${dimension} (${artboardUnit})`);
+    const label = input.closest('.field')?.querySelector('label');
+    if (label) label.textContent = `Artboard ${shortName} (${artboardUnit})`;
+  }
+  const size = app.querySelector('[data-artboard-size]');
+  if (size) {
+    size.textContent = `${formatDocumentLength(history.doc.width, artboardUnit)} × ${formatDocumentLength(
+      history.doc.height,
+      artboardUnit,
+    )} ${artboardUnit}`;
+  }
+}
 function render(resetView = false, artworkResolution = null) {
   textTools?.cancel();
   const osOwners = new Set(
@@ -2668,7 +2703,7 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -2707,7 +2742,7 @@ function render(resetView = false, artworkResolution = null) {
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3>'
           : '<p>Select artwork or a graph node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
@@ -7209,6 +7244,12 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.artboardUnit !== undefined) {
+    if (!ARTBOARD_UNITS.includes(el.value)) return;
+    artboardUnit = el.value;
+    updateArtboardUnitDisplay();
+    return;
+  }
   if (d.osText) {
     if (!e.isComposing) await commitOsText(d.osText, el.value);
     return;
@@ -7860,7 +7901,10 @@ app.addEventListener('change', async (e) => {
       else if (d.dimension)
         commandChange(
           'set-document-settings',
-          { key: d.dimension, value: Number(el.value) },
+          {
+            key: d.dimension,
+            value: displayLengthToDocumentUnits(el.value, d.dimensionUnit || 'px'),
+          },
           undefined,
           true,
         );
