@@ -6,6 +6,7 @@ import {
   imageURL,
   MAX_IMAGE_BYTES,
 } from './images.js';
+import { CSS_PIXELS_PER_INCH } from './artboard-units.js';
 /** Browser adapter: core export scene remains DOM-free and renderer-independent. */
 export async function loadImage(url) {
   const image = new Image();
@@ -52,13 +53,47 @@ export async function preflightImages(doc) {
       throw Error('Decoded image dimensions do not match');
   }
 }
-export function pngDimensions(doc, scale) {
-  if (!Number.isFinite(scale) || scale < 0.1 || scale > 8)
+export function pngDimensions(doc, sizing = 1) {
+  if (
+    !doc ||
+    typeof doc !== 'object' ||
+    !Number.isFinite(doc.width) ||
+    !Number.isFinite(doc.height) ||
+    doc.width <= 0 ||
+    doc.height <= 0
+  )
+    throw Error('PNG source dimensions must be positive and finite');
+
+  let mode, scale;
+  if (typeof sizing === 'number') {
+    mode = 'scale';
+    scale = sizing;
+  } else {
+    if (!sizing || typeof sizing !== 'object' || Array.isArray(sizing))
+      throw Error('Invalid PNG sizing options');
+    if (sizing.mode === 'scale') {
+      mode = 'scale';
+      if (Object.keys(sizing).some((key) => !['mode', 'scale'].includes(key)))
+        throw Error('Invalid PNG scale options');
+      scale = sizing.scale;
+    } else if (sizing.mode === 'ppi') {
+      mode = 'ppi';
+      if (Object.keys(sizing).some((key) => !['mode', 'ppi'].includes(key)))
+        throw Error('Invalid PNG PPI options');
+      if (!Number.isFinite(sizing.ppi) || sizing.ppi <= 0)
+        throw Error('PNG PPI must be a positive finite number');
+      scale = sizing.ppi / CSS_PIXELS_PER_INCH;
+      if (!Number.isFinite(scale) || scale <= 0)
+        throw Error('PNG PPI is outside the supported range');
+    } else throw Error('PNG sizing mode must be scale or ppi');
+  }
+  if (mode === 'scale' && (!Number.isFinite(scale) || scale < 0.1 || scale > 8))
     throw Error('PNG scale must be between 0.1× and 8×');
-  return checkImageSize(
-    Math.max(1, Math.round(doc.width * scale)),
-    Math.max(1, Math.round(doc.height * scale)),
-  );
+  const width = doc.width * scale,
+    height = doc.height * scale;
+  if (!Number.isFinite(width) || !Number.isFinite(height))
+    throw Error('PNG dimensions exceed the supported range');
+  return checkImageSize(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
 }
 export async function rasterizeSVG(svg, size) {
   checkImageSize(size.width, size.height);

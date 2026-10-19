@@ -958,6 +958,8 @@ let openRequest = 0,
   artboardUnit = 'px',
   svgExportUnit = 'px',
   pngScale = 1,
+  pngExportMode = 'scale',
+  pngPpi = 300,
   exportInFlight = false;
 let selection = new Set();
 let nodeContextMenu = null;
@@ -2602,6 +2604,28 @@ function updateArtboardUnitDisplay() {
     )} ${artboardUnit}`;
   }
 }
+function pngExportSettings() {
+  return pngExportMode === 'ppi'
+    ? { mode: 'ppi', ppi: pngPpi }
+    : { mode: 'scale', scale: pngScale };
+}
+function pngExportPreview(doc) {
+  try {
+    const size = pngDimensions(doc, pngExportSettings());
+    return { size, label: `${size.width} × ${size.height} px` };
+  } catch (error) {
+    return { size: null, label: error.message || 'Invalid PNG dimensions' };
+  }
+}
+function updatePngExportPreview() {
+  const output = app.querySelector('[data-png-dimensions]');
+  if (!output) return;
+  const preview = pngExportPreview(history.doc);
+  output.textContent = preview.label;
+  output.dataset.valid = String(!!preview.size);
+  const button = app.querySelector('[data-action="export-png"]');
+  if (button) button.disabled = !preview.size;
+}
 function render(resetView = false, artworkResolution = null) {
   textTools?.cancel();
   const osOwners = new Set(
@@ -2660,6 +2684,7 @@ function render(resetView = false, artworkResolution = null) {
   let scroll = document.querySelector('.graph-scroll'),
     oldScroll = scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
   const doc = history.doc,
+    pngPreview = pngExportPreview(doc),
     aids = guideSettings(doc),
     l = current();
   activeLayer = l.id;
@@ -2688,7 +2713,7 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -5555,16 +5580,13 @@ app.addEventListener('click', async (e) => {
           if (exportInFlight) break;
           exportInFlight = true;
           try {
-            const svg = exportSVG(
-              history.doc,
-              fonts,
-              d.action === 'export' ? { unit: svgExportUnit } : undefined,
-            );
             if (d.action === 'export') {
+              const svg = exportSVG(history.doc, fonts, { unit: svgExportUnit });
               if (await saveFile(svg, 'nect-artwork.svg', 'svg'))
                 notify('SVG exported · transparent artboard; guides excluded');
             } else {
-              const size = pngDimensions(history.doc, pngScale);
+              const size = pngDimensions(history.doc, pngExportSettings());
+              const svg = exportSVG(history.doc, fonts);
               const blob = await rasterizeSVG(svg, size);
               if (await saveFile(blob, 'nect-artwork.png', 'png'))
                 notify(`PNG exported · ${size.width} × ${size.height} · transparent background`);
@@ -7141,6 +7163,11 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.id === 'png-ppi') {
+    pngPpi = Number(e.target.value);
+    updatePngExportPreview();
+    return;
+  }
   if (e.target.matches('[data-grid-opacity]')) {
     const value = e.target.value.trim() ? Number(e.target.value) / 100 : NaN;
     if (Number.isFinite(value) && value >= 0 && value <= 1) previewGridOpacity(value);
@@ -7449,6 +7476,17 @@ app.addEventListener('change', async (e) => {
     const value = Number(el.value);
     if (Number.isFinite(value)) remapBatch(d.node).delta[Number(d.batchAxis)] = value;
     else notify('Expected a finite batch delta', true);
+    return;
+  }
+  if (el.id === 'png-export-mode') {
+    if (!['scale', 'ppi'].includes(el.value)) return;
+    pngExportMode = el.value;
+    render();
+    return;
+  }
+  if (el.id === 'png-ppi') {
+    pngPpi = Number(el.value);
+    updatePngExportPreview();
     return;
   }
   if (el.id === 'png-scale') {
