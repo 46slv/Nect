@@ -14,24 +14,23 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Multi-Composition session integration (2026-10-19)
+## ACTIVE CHECKPOINT - Responsive Composition header (2026-10-19)
 
-Goal: Keep every outer Composition and shared asset intact while editing, switching, undoing/redoing, opening, saving, recovering, importing, and publicly loading a project. Preserve legacy Document loading, active-Composition SVG/PNG projection, and CompositionReference Layer-graph semantics.
+Goal: Keep the Composition and history controls reachable when the toolbar wraps at 900×620. Undo/Redo must remain available to normal pointer and keyboard input without changing project-session semantics.
 
-Current phase: Project-wide session wiring, import, and per-Composition view-state work are implemented and locally committed through 8dbb051. This follow-up verified the production core and focused suites. Full browser/native lifecycle acceptance remains incomplete.
+Current phase: The header now grows with wrapped rows and the app grid places the workspace after it. Code commit 9062720f1025e1e22438c0830a829e261f80f5c9 is complete. Real browser confirmation remains pending because local navigation was denied.
 
 Proven:
-- One authorized npm ci completed: 43 packages installed, 0 vulnerabilities.
-- 64 focused core, Composition model/session/import/view-state, import-action, and document-lifecycle tests PASS.
-- Direct createCompositionSessionOwner smoke against the production Core History/CommandSession PASS, including cross-Composition Undo/Redo and active-size SVG projection.
-- npm run build PASS; Vite reports the existing 1.3 MB JavaScript chunk-size warning.
-- Real Chrome E2E imports all outer Compositions and remaps IDs on repeat import PASS. Its Undo click is blocked by the Tools nav at 900×620; later history assertions did not run. See desktop/test-results/project-composition-import-ui.json.
-- npm test FAIL overall. A representative synthetic-DOM test fails while resolving relative imports from a data-URL loader (Invalid URL); an exploratory harness workaround was reverted. Do not claim the aggregate suite passed.
-- Browser Open/Save file flow and native WebView2 Open/Save/recovery remain NOT_RUN. A later local-browser attempt returned ERR_NETWORK_ACCESS_DENIED; this access denial was not bypassed.
+- The prior CSS had flex-wrap: wrap with a fixed 48px header; the workspace began at that 48px edge, so later header rows overlapped the Tools nav and Playwright reported it intercepted the Undo click.
+- The new structural layout regression test PASS: node --test tests/responsive-header-layout.test.js.
+- JavaScript syntax checks PASS; the new test file passes Prettier.
+- npm run build PASS, with the existing large JavaScript chunk warning.
+- The existing 900×620 browser E2E now covers normal Undo click, keyboard Redo/Undo and normal Redo click, but was not rerun after the fix because localhost navigation returned ERR_NETWORK_ACCESS_DENIED. No alternate host, route or settings were tried.
+- Aggregate npm test remains FAIL for a separate loader defect. The narrow reproduced failure is tests/artboard-pan-dom.test.js: it imports main.js through a data URL after rewriting selected imports but leaves the first ./text-wrap.js specifier relative; Node fails resolving that specifier from the data URL. No broad test-harness rewrite was made.
 
-Next task: Complete real UI acceptance for browser Open/Save, project Undo/Redo, active SVG/PNG dimensions, legacy JSON, and shared font/image assets; separately run native Open/Save/recovery where WebView2 is available. Resolve the 900×620 Undo hit-test blocker or verify the intended shortcut path in an allowed browser runtime.
-Approach: Resume only in an allowed local browser/native runtime. Keep native recovery acceptance local-wait while independent code and test work remains. Do not retry npm/network, bypass browser access denial, or push.
-Done for next: Verify project-preserving Undo/Redo, browser Open/Save, legacy load, recovery, exports and shared assets through their real acceptance paths, or record exact remaining runtime blockers.
-State: Branch codex/nect-regression-validation-v2, HEAD 8dbb0517e7b0a9fe63d34747c53e8d99342be534, five commits ahead of origin, no push. Targeted E2E selector text now matches the visible Project composition menu item. One local E2E check receipt is recorded at desktop/test-results/project-composition-import-ui.json.
-Authority: Current user delegation authorizes implementation, focused tests, related docs, and local commits. No dependency/network retry, push, clone/backup/upload, force operation, mainline merge, release, or access-policy change.
+Next task: Run the existing 900×620 E2E in an allowed browser environment and confirm Undo/Redo by normal click and keyboard. Then continue the still-open browser/native file lifecycle acceptance.
+Approach: Use the existing E2E viewport and ordinary input only. Do not force-click, change viewport to hide the issue, or bypass the localhost access denial. Keep the unrelated data-URL loader fix as a separate, narrowly scoped task.
+Done for next: Real 900×620 browser evidence shows the wrapped header and workspace do not overlap and all Undo/Redo inputs work; otherwise record the exact remaining failure.
+State: Branch codex/nect-regression-validation-v2; responsive fix commit 9062720f1025e1e22438c0830a829e261f80f5c9; no push. Documentation follow-up is being recorded after this implementation commit.
+Authority: Current user delegation authorizes this responsive fix, its regression coverage, focused checks and local commits. Browser access denial must not be bypassed; no network retry, settings change, push, merge, release or force operation.
 Handoff: CONTINUE_CURRENT_TASK

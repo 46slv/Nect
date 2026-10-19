@@ -183,3 +183,16 @@ The Composition selector now saves/restores in-memory UI state by stable Composi
 - Production core-factory and browser/native UI acceptance: **NOT RUN**; `desktop/node_modules/pako/browser/deflate` is absent. No npm/network retry was made.
 
 Next: when an authorized local dependency/runtime is available, exercise Composition switching with node/artwork/point selections and distinct Canvas/graph views, undo-driven active-ID changes, Open/New/recovery resets, and verify no IDs from another Composition survive. Implement the separate accessible Composition tablist only when that UI connection is in scope.
+
+## Responsive Composition header / 2026-10-19
+
+The 900×620 E2E receipt recorded the Tools nav intercepting a normal click on Undo. Source inspection identified the cause: the flex-wrapped header retained a fixed 48px height while the workspace began immediately below it, placing later header rows over the first workspace column.
+
+The app now uses header/workspace/footer grid rows. The header and workspace use content-driven heights while retaining a 500px minimum workspace; wrapped controls therefore consume space before the workspace starts. The 900×620 E2E keeps its viewport and now checks pointer Undo/Redo plus keyboard Ctrl+Z and Ctrl+Shift+Z. It was not run after this fix because the browser returned ERR_NETWORK_ACCESS_DENIED; no bypass was attempted.
+
+- Structural layout regression: PASS (node --test tests/responsive-header-layout.test.js).
+- JavaScript syntax checks: PASS.
+- Prettier check for the new structural test: PASS.
+- Production build: PASS, with the existing 1.3 MB JavaScript chunk warning.
+- Real browser after the fix: NOT_RUN due to localhost navigation denial.
+- Aggregate npm test remains FAIL for a separate data-URL loader issue. Reproduced at tests/artboard-pan-dom.test.js: after converting selected imports in src/main.js to file URLs, the loader leaves the first ./text-wrap.js import unchanged, then evaluates the source as data:text/javascript;base64,...; Node reports ERR_UNSUPPORTED_RESOLVE_REQUEST for that relative specifier. No broad harness change was made.
