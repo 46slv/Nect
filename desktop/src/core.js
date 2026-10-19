@@ -4987,12 +4987,15 @@ export function exportSVG(doc, fonts = {}, options = {}) {
     !options ||
     typeof options !== 'object' ||
     Array.isArray(options) ||
-    Object.keys(options).some((key) => key !== 'unit')
+    Object.keys(options).some((key) => !['unit', 'responsive'].includes(key)) ||
+    (options.responsive !== undefined && typeof options.responsive !== 'boolean')
   )
     throw Error('Invalid SVG export options');
   doc = validate(clone(doc));
   const scene = exportValidatedScene(doc, fonts);
-  const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px');
+  const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px', {
+    responsive: options.responsive ?? false,
+  });
   let bytes = 512;
   const elements = [];
   for (const { layer, value } of scene) {

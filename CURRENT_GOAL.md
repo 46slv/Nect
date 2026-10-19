@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - PNG PPI density metadata (2026-10-19)
+## ACTIVE CHECKPOINT - Fixed/responsive SVG output sizing (2026-10-19)
 
-Goal: Keep PNG raster dimensions and physical density metadata consistent when the existing export UI is set to a selected PPI, without changing raster samples or scale-mode behavior.
+Goal: Offer fixed px/mm/cm or responsive root sizing on the generated SVG copy while preserving its canonical pixel viewBox and editable source project.
 
 Current phase: Implementation, focused verification, documentation, and production build are complete; checkpoint commit and branch synchronization are the closing actions.
 
 Proven:
-- The Desktop exporter already offered mutually exclusive scale and physical-PPI modes. PPI raster dimensions use the CSS baseline `PPI / 96`; the PPI selector was pre-existing and was not reimplemented here.
-- PPI-mode export now inserts or replaces exactly one CRC-valid `pHYs` chunk before image data, with equal rounded pixels-per-metre values. 300 PPI is stored as 11811 px/m (about 299.9994 PPI). Scale mode returns the canvas PNG unchanged; all non-density chunks are preserved.
-- Focused PNG metadata and sizing tests: 9/9 PASS. JavaScript syntax, scoped Prettier check for `raster.js` and `png-density.test.js`, `git diff --check`, and `npm run build`: PASS.
-- Actual WebView2/canvas file inspection and device-pixel-ratio independence: NOT_RUN. The synthetic canvas adapter test verifies which PNG receives metadata.
-- The preceding multi-input Boolean checkpoint `7376af45fbee380ff8ba0842c3d2af081e0671ee` was normally pushed and its remote branch HEAD was verified equal before this checkpoint.
+- The Desktop exporter already supported fixed px/mm/cm SVG root sizes. The responsive mode is an output-copy option; numerical precision, text editability/outline policy, image embedding/linking, and presets remain out of this change.
+- `exportSVG` accepts a validated `responsive` option. Responsive output changes only root width/height to `100%`; `viewBox` and SVG body stay unchanged. The UI hides the fixed-unit selector only while responsive mode is selected.
+- Focused SVG, root-unit, and export-purity tests: 13/13 PASS. The live-Text CommandSession check confirms project serialization, History, Text type/content, and Undo/Redo remain unchanged by export. Syntax checks, scoped Prettier checks, `git diff --check`, and `npm run build`: PASS.
+- Actual WebView2 SVG file inspection: NOT_RUN. The earlier actual PNG pHYs file inspection and device-pixel-ratio check remain NOT_RUN; no full `npm test` was run.
+- The preceding PNG density commit `23dabdff50eef04d32b3a8a5c346e6d0eb56d7d1` was pushed and its remote branch HEAD was verified equal before this checkpoint.
 
-Next task: Inspect an actual PNG written by the current WebView2 export route and confirm its `pHYs` value and raster dimensions at selected PPI; then continue the next small export acceptance item from the crosswalk.
+Next task: Commit and normally push this scoped change, verify remote HEAD equals local, then resume the next export acceptance item using current runtime evidence.
 
-Approach: Use only the existing local runtime and focused tests. Treat actual-file and device-pixel-ratio checks as separate acceptance evidence. Do not install dependencies, retry network access, bypass browser restrictions, or run the full suite.
+Approach: Keep settings on the export copy. Use only local focused tests/build; do not install dependencies, retry network access, bypass browser restrictions, or run the full suite.
 
-Done for next: The pHYs contract is covered by chunk-level and export-adapter tests, scale mode and raster bytes stay unchanged, and the implementation checkpoint is committed and synchronized on the development branch.
+Done for next: Fixed and responsive modes share the same SVG body and viewBox; source/Undo/live Text invariants pass; the implementation and evidence are committed and synchronized on the development branch.
 
-State: Branch `codex/nect-regression-validation-v2`, based on synchronized HEAD `7376af45fbee380ff8ba0842c3d2af081e0671ee` (see Git history for the implementation checkpoint tip). The source, focused test, crosswalk, verification record, and this checkpoint form one successor change. Generated build output is ignored; verify current local/remote HEAD and cleanliness before resuming.
+State: Branch `codex/nect-regression-validation-v2`; synchronized base HEAD `23dabdff50eef04d32b3a8a5c346e6d0eb56d7d1`. The source, tests, crosswalk, verification record, and this checkpoint form one successor change; generated build output is ignored. Verify final local/remote HEAD and cleanliness at checkpoint closure.
 
-Authority: The user's current follow-up explicitly authorizes this bounded PNG PPI / pHYs implementation, associated limited tests and records, local checkpoint commit, and ordinary push of the development branch. Force push, merge, release, credentials, permission changes, dependency install, network retry, and Notion writes remain excluded.
+Authority: The user's latest follow-up explicitly authorizes this narrow fixed/responsive SVG output-copy setting, associated limited tests and records, local checkpoint commit, and ordinary development-branch push. The original document, Undo history, and live Text remain protected. Force push, merge, release, credentials, permission changes, dependency install, network retry, and Notion writes remain excluded.
 
 Handoff: CONTINUE_CURRENT_TASK

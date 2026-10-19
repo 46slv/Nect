@@ -24,14 +24,12 @@ test('physical SVG sizes use explicit mm/cm units while viewBox keeps canonical 
   assert.equal(cm.height, '5cm');
   assert.equal(cm.viewBox, mm.viewBox);
   assert.ok(
-    Math.abs(
-      displayLengthToDocumentUnits(100, 'mm') - displayLengthToDocumentUnits(10, 'cm'),
-    ) < 1e-12,
+    Math.abs(displayLengthToDocumentUnits(100, 'mm') - displayLengthToDocumentUnits(10, 'cm')) <
+      1e-12,
   );
   assert.ok(
-    Math.abs(
-      displayLengthToDocumentUnits(50, 'mm') - displayLengthToDocumentUnits(5, 'cm'),
-    ) < 1e-12,
+    Math.abs(displayLengthToDocumentUnits(50, 'mm') - displayLengthToDocumentUnits(5, 'cm')) <
+      1e-12,
   );
   assert.equal(
     svgRootAttributes(doc, 'mm'),
@@ -45,6 +43,23 @@ test('default and explicit px output retain the legacy root markup', () => {
     expected = `width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}"`;
   assert.equal(svgRootAttributes(doc), expected);
   assert.equal(svgRootAttributes(doc, 'px'), expected);
+});
+
+test('responsive SVG root sizes use the viewBox without changing fixed-unit output', () => {
+  const doc = { width: 960, height: 540 },
+    before = structuredClone(doc);
+
+  assert.equal(
+    svgRootAttributes(doc, 'mm', { responsive: true }),
+    'width="100%" height="100%" viewBox="0 0 960 540"',
+  );
+  assert.equal(
+    svgRootAttributes(doc, 'mm'),
+    `width="254mm" height="142.875mm" viewBox="0 0 960 540"`,
+  );
+  assert.deepEqual(doc, before);
+  assert.throws(() => svgRootAttributes(doc, 'px', { responsive: 'yes' }));
+  assert.throws(() => svgRootAttributes(doc, 'px', { precision: 3 }));
 });
 
 test('SVG physical size helpers reject invalid dimensions, units and options', () => {

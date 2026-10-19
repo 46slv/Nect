@@ -49,7 +49,11 @@ export function formatDocumentLength(value, unit) {
 }
 
 export function svgRootSizeAttributes(documentDimensions, unit = 'px') {
-  if (!documentDimensions || typeof documentDimensions !== 'object' || Array.isArray(documentDimensions))
+  if (
+    !documentDimensions ||
+    typeof documentDimensions !== 'object' ||
+    Array.isArray(documentDimensions)
+  )
     throw Error('Invalid SVG dimensions');
   const widthPx = finiteLength(documentDimensions.width),
     heightPx = finiteLength(documentDimensions.height);
@@ -66,7 +70,17 @@ export function svgRootSizeAttributes(documentDimensions, unit = 'px') {
   };
 }
 
-export function svgRootAttributes(documentDimensions, unit = 'px') {
+export function svgRootAttributes(documentDimensions, unit = 'px', options = {}) {
+  if (
+    !options ||
+    typeof options !== 'object' ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => key !== 'responsive') ||
+    (options.responsive !== undefined && typeof options.responsive !== 'boolean')
+  )
+    throw Error('Invalid SVG root options');
   const size = svgRootSizeAttributes(documentDimensions, unit);
-  return `width="${size.width}" height="${size.height}" viewBox="${size.viewBox}"`;
+  const width = options.responsive ? '100%' : size.width,
+    height = options.responsive ? '100%' : size.height;
+  return `width="${width}" height="${height}" viewBox="${size.viewBox}"`;
 }

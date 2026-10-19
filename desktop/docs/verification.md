@@ -248,3 +248,11 @@ The Desktop export already had mutually exclusive scale and physical-PPI sizing 
 - Focused sizing and density tests: **9 PASS** (`png-density.test.js`, `png-export-size.test.js`). The density test checks chunk CRCs, replacement, unchanged raster chunks, scale-mode behavior, and the export adapter call.
 - `node --check` for `raster.js` / `main.js`: **PASS**. `npm run build`: **PASS**, with the existing large minified-chunk warning.
 - Full `npm test` and actual WebView2/canvas file inspection: **NOT_RUN**. No dependency install or network retry occurred.
+
+## Fixed/responsive SVG output sizing / 2026-10-19
+
+SVG export now offers fixed px/mm/cm root dimensions or responsive `100%` root width/height while retaining the same canonical pixel `viewBox`. The option applies only to the generated SVG string; it does not write to the editable project. The focused live-Text `CommandSession` test confirms serialization, History, and one-step Undo/Redo remain unchanged and the Text node stays editable.
+
+- Focused SVG export, root-unit, and purity tests: **13 PASS** (`svg-responsive-export.test.js`, `svg-export-units.test.js`, `export-purity.test.js`).
+- JavaScript syntax checks, selected Prettier checks, and `npm run build`: **PASS**; Vite reports the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2 SVG-file inspection: **NOT_RUN**. The prior PNG pHYs file-level check remains **NOT_RUN**. No dependency install or network retry occurred.
