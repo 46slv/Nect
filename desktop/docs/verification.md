@@ -295,3 +295,13 @@ SVG root viewport mapping now supports all nine meet alignment pairs: xMin/xMid/
 - Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (about 1.34 MB).
 - Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry.
 - Development branch sync: implementation commit 1d130fbd61c2d7583b922ed57a48e33bc9b2df28 was pushed normally and matched the origin SHA. The follow-up checkpoint closeout was pushed on the same branch, and the terminal SHA was verified against origin.
+
+## Corrected standalone Windows build / 2026-10-19
+
+This corrected standalone executable was rebuilt from source commit `aca9f5902f1d1bb3bc06dc5948a169693ab9b1aa` after the frontend build completed with an explicit exit code. The earlier `Nect-aca9f59-standalone.exe` manifest had a different SHA256; the corrected version is archived separately and the earlier Drive files remain preserved.
+
+- `npm run build` with npm offline mode: **PASS (exit 0)**, Vite 7.3.7, 136 modules; the existing large-chunk warning remains.
+- `CARGO_NET_OFFLINE=true cargo build --release --features custom-protocol --locked --manifest-path desktop/src-tauri/Cargo.toml`: **PASS (exit 0)**, target `x86_64-pc-windows-msvc`.
+- Corrected executable: 9,976,320 bytes, SHA256 `04FF296E05BB9BCC1434EA1B71F2582CA4FB5B165F8444FAF4E23F1D12577FCF`; unsigned.
+- Corrected Drive items: `Nect-aca9f59-corrected-standalone.exe` (ID `175W3RcukXFZlCzJXZCBo4BlSU9mYdQ86`) and `Nect-aca9f59-corrected-manifest.json` (ID `1UnqJriDwnHOSGUqm3tY8VFqNwgrV479H`). Prior Drive SHA256: `24311FEEBB0ABBB5D883AE5B1A90243007263E51434557EB655DE21CF185ABC7`.
+- Native GUI verification and full test suite: **NOT_RUN**. The native GUI was not launched; existing Chrome tabs were left untouched.
