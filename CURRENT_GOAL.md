@@ -14,28 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - SVG viewBox viewport mapping (2026-10-19)
+## ACTIVE CHECKPOINT - SVG preserveAspectRatio meet alignment (2026-10-19)
 
-Goal: Map supported SVG `viewBox` user coordinates into the physical root viewport without losing non-zero origins, scale, stroke, or user-space gradient placement. Keep Import SVG replacement and Add SVG append semantics separate.
+Goal: Extend the root `viewBox` Transform to preserve all nine `meet` alignment choices while retaining prior default and `none` mapping, physical viewport sizing, and the separate Import/Add SVG contracts.
 
-Current phase: The bounded viewBox mapping is implemented, verified, documented, committed, and synchronized to the development branch.
+Current phase: Matrix implementation, focused import/Add tests, documentation, and production build are complete. Commit the alignment increment, push normally, and verify remote HEAD.
 
 Proven:
 
-- Absolute root lengths still convert px/mm/cm/in/pt/pc/q to the 96 CSS px/in basis; root artboard width and height remain physical viewport dimensions.
-- Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS. Independent matrices cover non-zero origin, a 100 x 50 mm viewport, default `xMidYMid meet` letterboxing, and `none`; percentage geometry uses viewBox user-space dimensions. Paint group fixtures retain stroke and gradient markup. Add SVG retains one viewport Transform and leaves the destination size unchanged.
-- Other alignment modes and `slice` fail explicitly. `<clipPath>` and `clip-path` remain unsupported and fail closed.
-- Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing 1.34 MB chunk warning). Full `npm test` and actual WebView2 import/export remain NOT_RUN.
-- Implementation commit `1d1e781361885636dde3eaa82bd19485384007de` was pushed normally; `git ls-remote` confirmed the same origin branch SHA.
+- The prior SVG viewport matrix, 96 CSS px/in physical root dimensions, paint grouping, and single-transform Add SVG path are present at branch base `62563a9deb5c4054278c61162a6f02ad483ab512`.
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS. Independent expected matrices cover all nine min/mid/max X/Y alignments with separate horizontal and vertical slack, non-zero origins, default/explicit mid alignment, and unchanged `none` behavior.
+- A physical 100 x 50 mm Add SVG fixture verifies `xMaxYMin meet`, exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
+- `slice`, `defer`, invalid alignment values, and clipping remain unsupported and fail closed. Production build, scoped formatting, and `git diff --check`: PASS. Full `npm test` and actual WebView2 import/export remain NOT_RUN.
 
-Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this bounded viewBox checkpoint is complete.
+Next task: Commit the alignment implementation, tests, verification record, and compatibility documentation; push normally and confirm the remote branch SHA.
 
-Approach: Apply the viewport affine mapping once after paints so strokes and user-space gradients follow the same SVG coordinate transform. Copy that single mapping to the final output of the Add SVG source Composition while leaving source geometry in user units.
+Approach: Normalize supported preserveAspectRatio tokens; compute X/Y meet offsets independently from Min/Mid/Max alignment while keeping uniform meet scale. Retain the paint-mode Transform so stroke and gradient behavior stays shared with the prior viewport mapping.
 
-Done for next: Independent expected-matrix tests pass for non-zero origins, physical root sizing, meet letterboxing and `none`; Import and Add paths pass focused assertions for paint mapping and atomic unsupported input; build, commit, and remote synchronization evidence are recorded.
+Done for next: All nine meet alignment matrices match independent expected values; default and `none` remain unchanged; Add SVG applies one mapping and preserves destination size, serialization, Undo, and Redo; unsupported slice/clip behavior remains explicit; focused tests, formatting, build, and remote evidence are recorded.
 
-State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d1e781361885636dde3eaa82bd19485384007de` is pushed and was confirmed as the matching remote SHA. The follow-up closeout record is committed and pushed on this same branch; the terminal branch SHA was verified against origin at task closeout. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+State: Branch `codex/nect-regression-validation-v2`, base HEAD `62563a9deb5c4054278c61162a6f02ad483ab512`, matching the remote before this checkpoint. Current alignment changes are uncommitted. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
 
-Authority: The user's delegated instruction authorizes this bounded SVG viewBox implementation, tests/build/docs, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
+Authority: The user's follow-up authorizes this bounded meet-alignment implementation, focused tests/build/docs, commit, and normal development-branch push. Keep `slice`/clip unsupported. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
 
 Handoff: CONTINUE_CURRENT_TASK

@@ -284,3 +284,13 @@ SVG import now retains physical root dimensions in the 96 CSS px/in document bas
 - Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (1.34 MB).
 - Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry occurred.
 - Development branch sync: implementation commit 1d1e781361885636dde3eaa82bd19485384007de was pushed without force, and git ls-remote matched that commit's SHA. The final closeout-record push and terminal branch SHA are verified at task closeout.
+
+## SVG preserveAspectRatio meet alignments / 2026-10-19
+
+SVG root viewport mapping now supports all nine meet alignment pairs: xMin/xMid/xMax crossed with YMin/YMid/YMax. The omitted default remains xMidYMid meet; bare alignment tokens and an explicit meet token are accepted. Alignment positions use X and Y letterbox slack independently. The prior none mapping is unchanged. Slice, defer, invalid alignment values, and clipping remain unsupported and fail closed.
+
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS (import.test.js, svg-part.test.js, svg-export-units.test.js). The alignment fixture checks all nine token pairs against independently expected matrices with non-zero viewBox origins and alternating horizontal/vertical slack. Default/explicit xMidYMid and none are covered separately.
+- The 100 x 50 mm Add SVG fixture uses xMaxYMin meet; its expected matrix includes horizontal letterboxing and non-zero-origin offset. It asserts exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
+- Scoped Prettier and git diff --check: PASS.
+- Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (about 1.34 MB).
+- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry.

@@ -99,6 +99,62 @@ test('SVG viewBox default meet and none produce independent expected viewport ma
   closeMatrix(viewportMatrix(none), [0.5, 0, 0, 1, 0, 0]);
 });
 
+test('SVG preserveAspectRatio meet supports every min/mid/max alignment on both axes', () => {
+  const alignments = [
+      'xMinYMin',
+      'xMinYMid',
+      'xMinYMax',
+      'xMidYMin',
+      'xMidYMid',
+      'xMidYMax',
+      'xMaxYMin',
+      'xMaxYMid',
+      'xMaxYMax',
+    ],
+    alignFactor = { Min: 0, Mid: 0.5, Max: 1 },
+    fixtures = [
+      { width: 120, height: 100, viewBox: '10 20 200 100', scale: 0.6, slackX: 0, slackY: 40 },
+      { width: 100, height: 120, viewBox: '10 20 100 200', scale: 0.6, slackX: 40, slackY: 0 },
+    ];
+
+  for (const fixture of fixtures)
+    for (const alignment of alignments) {
+      const [, xAlign, yAlign] = /^x(Min|Mid|Max)Y(Min|Mid|Max)$/.exec(alignment),
+        imported = importSVG(
+          `<svg width="${fixture.width}" height="${fixture.height}" viewBox="${fixture.viewBox}" preserveAspectRatio="${alignment}"><rect width="100" height="50"/></svg>`,
+          Parser,
+        ),
+        [minX, minY] = fixture.viewBox.split(' ').map(Number),
+        expected = [
+          fixture.scale,
+          0,
+          0,
+          fixture.scale,
+          fixture.slackX * alignFactor[xAlign] - minX * fixture.scale,
+          fixture.slackY * alignFactor[yAlign] - minY * fixture.scale,
+        ];
+
+      closeMatrix(viewportMatrix(imported), expected);
+      close(imported.width, fixture.width);
+      close(imported.height, fixture.height);
+    }
+
+  const explicitMid = importSVG(
+      '<svg width="120" height="100" viewBox="10 20 200 100" preserveAspectRatio="xMidYMid meet"><rect width="100" height="50"/></svg>',
+      Parser,
+    ),
+    defaultMid = importSVG(
+      '<svg width="120" height="100" viewBox="10 20 200 100"><rect width="100" height="50"/></svg>',
+      Parser,
+    );
+  closeMatrix(viewportMatrix(explicitMid), viewportMatrix(defaultMid));
+  assert.equal(
+    exportSVG(deserialize(serialize(explicitMid))),
+    exportSVG(explicitMid),
+    'a meet alignment survives project serialization',
+  );
+});
+
 test('SVG percentage rectangle dimensions resolve in viewBox user space before mapping', () => {
   const imported = importSVG(
       '<svg width="100mm" height="50mm" viewBox="10 20 100 50"><rect x="10" y="20" width="50%" height="50%"/></svg>',
@@ -133,10 +189,11 @@ test('SVG viewport Transform carries strokes and user-space gradients as one pai
 
 test('SVG importer rejects preserveAspectRatio mappings and clipping it cannot preserve', () => {
   for (const preserveAspectRatio of [
-    'xMinYMin',
-    'xMaxYMax meet',
     'xMidYMid slice',
     'xMinYMid slice',
+    'xMidYMid snap',
+    'none meet',
+    'xRightYMid meet',
   ])
     assert.throws(
       () =>

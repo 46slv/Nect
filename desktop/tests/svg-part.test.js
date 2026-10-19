@@ -83,8 +83,9 @@ test('Add SVG retains CSS-pixel user geometry and leaves the destination Composi
 test('Add SVG applies its viewport mapping once in the hidden source Composition', () => {
   const f = fixture(true),
     before = f.s.snapshot(),
+    beforeJSON = serialize(before),
     markup =
-      '<svg width="100mm" height="50mm" viewBox="10 20 100 50"><defs><linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="10" y1="20" x2="110" y2="70" spreadMethod="pad" color-interpolation="sRGB"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><path d="M10 20H110V70H10Z" fill="url(#ramp)" stroke="#123456" stroke-width="2"/></svg>',
+      '<svg width="100mm" height="50mm" viewBox="10 20 100 100" preserveAspectRatio="xMaxYMin meet"><defs><linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="10" y1="20" x2="110" y2="120" spreadMethod="pad" color-interpolation="sRGB"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><path d="M10 20H110V120H10Z" fill="url(#ramp)" stroke="#123456" stroke-width="2"/></svg>',
     result = f.send('add-svg-part', {
       layerId: before.layers[0].id,
       source: tree(markup),
@@ -96,14 +97,15 @@ test('Add SVG applies its viewport mapping once in the hidden source Composition
       (n) => n.type === 'Transform' && n.name === 'SVG viewport mapping',
     ),
     matrix = evaluate(source, {}, after.imageAssets, after).run(transforms[0].id).matrix,
-    scale = (100 * 96) / 25.4 / 100;
+    viewportWidth = (100 * 96) / 25.4,
+    scale = (50 * 96) / 25.4 / 100;
 
   assert.equal(after.width, before.width);
   assert.equal(after.height, before.height);
   assert.equal(transforms.length, 1);
   close(matrix[0], scale);
   close(matrix[3], scale);
-  close(matrix[4], -10 * scale);
+  close(matrix[4], viewportWidth - 100 * scale - 10 * scale);
   close(matrix[5], -20 * scale);
   const exported = exportSVG(after);
   assert.match(exported, /transform="matrix\(/);
@@ -111,6 +113,11 @@ test('Add SVG applies its viewport mapping once in the hidden source Composition
   assert.match(exported, /x1="10"/);
   assert.match(exported, /x2="110"/);
   assert.equal(exportSVG(deserialize(serialize(after))), exported);
+  assert.equal(f.s.historyView.past.length, 1);
+  f.send('undo');
+  assert.equal(serialize(f.s.snapshot()), beforeJSON);
+  f.send('redo');
+  assert.deepEqual(f.s.snapshot(), after);
 });
 
 test('Add SVG rejects unsupported viewport alignment atomically without replacing existing work', () => {
@@ -124,7 +131,7 @@ test('Add SVG rejects unsupported viewport alignment atomically without replacin
       f.send('add-svg-part', {
         layerId: f.d.layers[0].id,
         source: tree(
-          '<svg width="100mm" height="50mm" viewBox="0 0 200 150" preserveAspectRatio="xMinYMid meet"><rect width="200" height="150"/></svg>',
+          '<svg width="100mm" height="50mm" viewBox="0 0 200 150" preserveAspectRatio="xMinYMid slice"><rect width="200" height="150"/></svg>',
         ),
       }),
     /Unsupported SVG preserveAspectRatio/,

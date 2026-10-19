@@ -56,6 +56,18 @@ function sameSvgExtent(left, right) {
   return Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
 }
 
+function svgPreserveAspectRatio(raw) {
+  if (raw === null) return { mode: 'meet', x: 'Mid', y: 'Mid' };
+  const value = raw.trim();
+  if (value === 'none') return { mode: 'none' };
+  const align = /^x(Min|Mid|Max)Y(Min|Mid|Max)(?:\s+meet)?$/.exec(value);
+  if (!align)
+    throw Error(
+      'Unsupported SVG preserveAspectRatio; supported values are none or x{Min,Mid,Max}Y{Min,Mid,Max} with optional meet',
+    );
+  return { mode: 'meet', x: align[1], y: align[2] };
+}
+
 function svgViewportMatrix(viewBox, viewportWidth, viewportHeight, preserveAspectRatio) {
   if (!viewBox) return null;
   const [minX, minY, boxWidth, boxHeight] = viewBox,
@@ -65,10 +77,11 @@ function svgViewportMatrix(viewBox, viewportWidth, viewportHeight, preserveAspec
     sy = scaleY,
     tx,
     ty;
-  if (preserveAspectRatio !== 'none') {
+  if (preserveAspectRatio.mode !== 'none') {
     sx = sy = Math.min(scaleX, scaleY);
-    tx = (viewportWidth - boxWidth * sx) / 2 - minX * sx;
-    ty = (viewportHeight - boxHeight * sy) / 2 - minY * sy;
+    const alignOffset = { Min: 0, Mid: 0.5, Max: 1 };
+    tx = (viewportWidth - boxWidth * sx) * alignOffset[preserveAspectRatio.x] - minX * sx;
+    ty = (viewportHeight - boxHeight * sy) * alignOffset[preserveAspectRatio.y] - minY * sy;
   } else {
     tx = -minX * sx;
     ty = -minY * sy;
@@ -142,12 +155,7 @@ export function importSVGTree(source) {
   if (root.localName !== 'svg') throw Error('Invalid SVG document');
   if (root.namespaceURI !== null && root.namespaceURI !== 'http://www.w3.org/2000/svg')
     throw Error('Unsupported SVG namespace');
-  const preserveAspectRatio = root.getAttribute('preserveAspectRatio');
-  if (
-    preserveAspectRatio !== null &&
-    !['none', 'xMidYMid', 'xMidYMid meet'].includes(preserveAspectRatio.trim())
-  )
-    throw Error('Unsupported SVG preserveAspectRatio; supported values are none and xMidYMid meet');
+  const preserveAspectRatio = svgPreserveAspectRatio(root.getAttribute('preserveAspectRatio'));
   const allowed = new Set([
     'svg',
     'g',
@@ -401,12 +409,7 @@ export function importSVGTree(source) {
   result.height = viewportHeight;
   const userSpaceWidth = viewBox?.[2] ?? viewportWidth,
     userSpaceHeight = viewBox?.[3] ?? viewportHeight,
-    viewportMatrix = svgViewportMatrix(
-      viewBox,
-      viewportWidth,
-      viewportHeight,
-      preserveAspectRatio?.trim() || 'xMidYMid meet',
-    );
+    viewportMatrix = svgViewportMatrix(viewBox, viewportWidth, viewportHeight, preserveAspectRatio);
   const rectangleDimension = (el, key, basis) => {
     const raw = el.getAttribute(key);
     if (raw && /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/i.test(raw)) {
