@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CommandSession, document, exportSVG, node, serialize } from '../src/core.js';
+import { CommandSession, document, exportSVG, node, pathData, serialize } from '../src/core.js';
 
-function outline(text) {
+function outline(text, points) {
   return {
     family: 'Available OS font',
     style: 0,
     text,
     size: 100,
     ascent: 80,
-    points: [
+    points: points || [
       [0, 0],
       [10, 0],
       [10, 10],
@@ -72,7 +72,82 @@ test('responsive output changes only the SVG root and leaves live Text and Histo
   assert.equal(redone.osFont.family, 'Available OS font');
 });
 
-test('responsive SVG export rejects unknown output-copy options', () => {
+test('SVG geometry precision changes only exported numeric attributes and leaves source state intact', () => {
+  const doc = document(),
+    layer = doc.layers[0],
+    text = node('Text'),
+    fill = node('Fill'),
+    output = layer.nodes.find((item) => item.id === layer.output);
+  layer.name = 'Layer 123.456';
+  fill.params.path.source = text.id;
+  fill.params.color.value = { hex: '#123456', alpha: 0.456789 };
+  output.params.path.source = fill.id;
+  layer.nodes = [text, fill, output];
+  const session = new CommandSession(doc),
+    send = (type, payload = {}) =>
+      session.dispatch({
+        ...session.state,
+        type,
+        payload: { layerId: layer.id, nodeId: text.id, ...payload },
+      });
+  send('set-os-font-text', {
+    text: 'ABC',
+    outline: outline('ABC', [
+      [0, 0],
+      [10.123456, 0],
+      [10.123456, 10.123456],
+      [0, 10.123456],
+    ]),
+  });
+
+  const source = serialize(session.snapshot()),
+    before = session.historyView,
+    defaultSvg = exportSVG(session.snapshot()),
+    explicitDefault = exportSVG(session.snapshot(), {}, { precision: undefined }),
+    defaultMm = exportSVG(session.snapshot(), {}, { unit: 'mm' }),
+    rounded = exportSVG(session.snapshot(), {}, { unit: 'mm', precision: 2 }),
+    defaultPathData = [...defaultSvg.matchAll(/\bd="([^"]*)"/g)].map((match) => match[1]),
+    roundedPathData = [...rounded.matchAll(/\bd="([^"]*)"/g)].map((match) => match[1]),
+    root = (svg) => svg.slice(0, svg.indexOf('>') + 1);
+
+  assert.equal(explicitDefault, defaultSvg, 'omitted precision preserves the existing SVG bytes');
+  assert.notDeepEqual(roundedPathData, defaultPathData);
+  assert.ok(defaultPathData.some((path) => /\d\.\d{3,}/.test(path)));
+  assert.ok(roundedPathData.length > 0);
+  assert.ok(roundedPathData.every((path) => !/\d\.\d{3,}/.test(path)));
+  assert.equal(root(rounded), root(defaultMm), 'unit/root sizing and viewBox stay unchanged');
+  assert.match(rounded, /data-layer="Layer 123\.456"/);
+  assert.match(rounded, /fill="#123456"/);
+  assert.match(rounded, /fill-opacity="0\.46"/);
+  assert.equal(serialize(session.snapshot()), source);
+  assert.deepEqual(session.historyView, before);
+  const live = session.snapshot().layers[0].nodes.find((item) => item.id === text.id);
+  assert.equal(live.type, 'Text');
+  assert.equal(live.text, 'ABC');
+});
+
+test('chosen precision refuses to collapse a small closed contour', () => {
+  const tiny = {
+    contours: [
+      {
+        closed: true,
+        points: [
+          [0, 0],
+          [0.0004, 0],
+          [0.0004, 0.0004],
+          [0, 0.0004],
+        ].map((position) => ({ position, handleA: [0, 0], handleB: [0, 0] })),
+      },
+    ],
+  };
+  assert.throws(() => pathData(tiny, 2), /collapses small geometry/);
+  assert.match(pathData(tiny, 4), /0\.0004/);
+});
+
+test('responsive SVG export validates output-copy options and precision range', () => {
   assert.throws(() => exportSVG(document(), {}, { responsive: 1 }), /Invalid SVG export options/);
-  assert.throws(() => exportSVG(document(), {}, { precision: 3 }), /Invalid SVG export options/);
+  assert.throws(() => exportSVG(document(), {}, { precision: 1 }), /2 to 8/);
+  assert.throws(() => exportSVG(document(), {}, { precision: 2.5 }), /2 to 8/);
+  assert.throws(() => exportSVG(document(), {}, { precision: 9 }), /2 to 8/);
+  assert.throws(() => exportSVG(document(), {}, { extra: true }), /Invalid SVG export options/);
 });

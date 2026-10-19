@@ -120,6 +120,29 @@ test('SVG markup is deterministic, with two fixed stops and independent stop opa
   );
 });
 
+test('explicit SVG precision rounds gradient geometry while preserving colors and local URL identity', () => {
+  const fill = createLinearGradientFill({
+      ...inputs(),
+      start: [10.1234, 20.9876],
+      end: [110.1234, 20.9876],
+    }),
+    rendered = renderLinearGradientFill(fill, 'chosen-gradient-id', 2);
+  assert.match(rendered.definition, /id="chosen-gradient-id"/);
+  assert.match(rendered.definition, /x1="10\.12" y1="20\.99" x2="110\.12" y2="20\.99"/);
+  assert.match(rendered.definition, /stop-color="#12abEF" stop-opacity="1"/);
+  assert.match(rendered.definition, /stop-color="#345678" stop-opacity="0\.38"/);
+  assert.equal(rendered.paint, 'url(#chosen-gradient-id)');
+  assert.throws(
+    () =>
+      renderLinearGradientFill(
+        createLinearGradientFill({ ...inputs(), start: [1, 1], end: [1.0001, 1] }),
+        'tiny-gradient',
+        2,
+      ),
+    /collapses small geometry/,
+  );
+});
+
 test('input and descriptor shapes reject missing, extra and inherited fields', () => {
   for (const bad of [undefined, null, false, 1, 'gradient', [], () => {}]) {
     assert.throws(() => createLinearGradientFill(bad), /Invalid linear gradient inputs/);

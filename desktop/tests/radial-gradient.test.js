@@ -111,6 +111,29 @@ test('radial SVG has deterministic explicit concentric geometry and two independ
   assert.deepEqual(renderRadialGradientFill(fill, 'gradient-1'), before);
 });
 
+test('explicit SVG precision rounds radial geometry but preserves ID, colors and gradient URL', () => {
+  const fill = createRadialGradientFill({
+      ...inputs(),
+      center: [10.1234, 20.9876],
+      radius: 100.9876,
+    }),
+    rendered = renderRadialGradientFill(fill, 'chosen-radial-id', 2);
+  assert.match(rendered.definition, /id="chosen-radial-id"/);
+  assert.match(rendered.definition, /cx="10\.12" cy="20\.99" r="100\.99"/);
+  assert.match(rendered.definition, /stop-color="#12abEF" stop-opacity="1"/);
+  assert.match(rendered.definition, /stop-color="#345678" stop-opacity="0\.38"/);
+  assert.equal(rendered.paint, 'url(#chosen-radial-id)');
+  assert.throws(
+    () =>
+      renderRadialGradientFill(
+        createRadialGradientFill({ ...inputs(), radius: 0.0001 }),
+        'tiny',
+        2,
+      ),
+    /collapses small geometry/,
+  );
+});
+
 test('radial input and descriptor shapes reject missing, extra and inherited fields', () => {
   for (const bad of [undefined, null, false, 1, 'gradient', [], () => {}]) {
     assert.throws(() => createRadialGradientFill(bad));

@@ -256,3 +256,12 @@ SVG export now offers fixed px/mm/cm root dimensions or responsive `100%` root w
 - Focused SVG export, root-unit, and purity tests: **13 PASS** (`svg-responsive-export.test.js`, `svg-export-units.test.js`, `export-purity.test.js`).
 - JavaScript syntax checks, selected Prettier checks, and `npm run build`: **PASS**; Vite reports the existing large minified-chunk warning.
 - Full `npm test` and actual WebView2 SVG-file inspection: **NOT_RUN**. The prior PNG pHYs file-level check remains **NOT_RUN**. No dependency install or network retry occurred.
+
+## SVG geometry precision / 2026-10-19
+
+The SVG export-copy control now offers `Default` or 2–8 decimal places. Default follows the legacy serializer byte-for-byte. An explicit choice rounds paths, image bounds, masks, transforms, gradient geometry, stroke geometry and numeric opacity attributes, while leaving root physical width/height and the canonical pixel `viewBox` unchanged. Formatting is applied at known SVG numeric fields; it does not scan/rewrite SVG markup, so text/layer labels, IDs, colors, URL references and embedded image data remain intact. Export refuses a precision that collapses a contour, positive image/mask extent, positive stroke width, radial radius or linear-gradient axis.
+
+- Focused SVG precision, root units, embedded-image, linear-gradient, and radial-gradient tests: **36 PASS**.
+- Changed JavaScript syntax checks and scoped Prettier checks: **PASS**.
+- Production `npm run build`: **PASS**, with the existing large minified-chunk warning (1.34 MB).
+- Full `npm test` and actual WebView2/UI file inspection: **NOT_RUN**. No dependency install or network retry occurred.

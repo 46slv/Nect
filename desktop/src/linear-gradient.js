@@ -1,5 +1,7 @@
 // A two-stop fill in absolute artboard coordinates. Geometry and ID allocation
 // belong to the caller; this module has no DOM, graph or rendering dependencies.
+import { formatSvgNumber } from './svg-number-format.js';
+
 const inputKeys = ['start', 'end', 'startColor', 'endColor'];
 const fillKeys = ['kind', ...inputKeys];
 
@@ -75,7 +77,7 @@ export function validateLinearGradientFill(fill) {
   copyFill(fill);
 }
 
-export function renderLinearGradientFill(fill, id) {
+export function renderLinearGradientFill(fill, id, precision) {
   const { start, end, startColor, endColor } = copyFill(fill);
   // Restrict IDs to a bounded ASCII subset safe in both XML and a local URL.
   if (
@@ -86,13 +88,21 @@ export function renderLinearGradientFill(fill, id) {
     /[^A-Za-z0-9_.-]/.test(id)
   )
     throw Error('Invalid linear gradient ID');
+  const x1 = formatSvgNumber(start[0], precision),
+    y1 = formatSvgNumber(start[1], precision),
+    x2 = formatSvgNumber(end[0], precision),
+    y2 = formatSvgNumber(end[1], precision);
+  if (precision !== undefined && x1 === x2 && y1 === y2)
+    throw Error(
+      `SVG precision ${precision} decimals collapses small geometry; choose a higher precision or Default`,
+    );
   return {
     definition:
       `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" ` +
-      `x1="${start[0]}" y1="${start[1]}" x2="${end[0]}" y2="${end[1]}" ` +
+      `x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" ` +
       'spreadMethod="pad" color-interpolation="sRGB">' +
-      `<stop offset="0" stop-color="${startColor.hex}" stop-opacity="${startColor.alpha}"/>` +
-      `<stop offset="1" stop-color="${endColor.hex}" stop-opacity="${endColor.alpha}"/>` +
+      `<stop offset="0" stop-color="${startColor.hex}" stop-opacity="${formatSvgNumber(startColor.alpha, precision)}"/>` +
+      `<stop offset="1" stop-color="${endColor.hex}" stop-opacity="${formatSvgNumber(endColor.alpha, precision)}"/>` +
       '</linearGradient>',
     paint: `url(#${id})`,
   };

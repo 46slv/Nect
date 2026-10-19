@@ -72,6 +72,17 @@ test('embedded Image evaluates independently, serializes, exports and shares imm
   n.params.size.value = [-1, 2];
   assert.match(evaluate(l, {}, doc.imageAssets).error, /size must be positive/);
 });
+test('SVG geometry precision rounds embedded image bounds without rewriting its data URL', () => {
+  const { doc, n } = imageDoc();
+  n.params.position.value = [12.3456, 23.4567];
+  n.params.size.value = [45.6789, 67.8912];
+  const fixed = exportSVG(doc),
+    rounded = exportSVG(doc, {}, { precision: 2 });
+  assert.match(fixed, /x="12\.3456" y="23\.4567" width="45\.6789" height="67\.8912"/);
+  assert.match(rounded, /x="12\.35" y="23\.46" width="45\.68" height="67\.89"/);
+  assert.match(rounded, new RegExp(`href="data:image/png;base64,${data}"`));
+  assert.equal(rounded.slice(0, rounded.indexOf('>') + 1), fixed.slice(0, fixed.indexOf('>') + 1));
+});
 test('Image cannot enter Path-only Boolean, Transform, Remap or Output, even through forged JSON', () => {
   const { doc, l, n, out } = imageDoc();
   for (const type of ['Boolean', 'Transform', 'Path Remap', 'Output']) {

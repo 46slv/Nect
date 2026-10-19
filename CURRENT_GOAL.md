@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Fixed/responsive SVG output sizing (2026-10-19)
+## ACTIVE CHECKPOINT - SVG geometry precision (2026-10-19)
 
-Goal: Offer fixed px/mm/cm or responsive root sizing on the generated SVG copy while preserving its canonical pixel viewBox and editable source project.
+Goal: Offer an optional decimal precision setting for generated SVG geometry while preserving the byte-identical Default output, root sizing/viewBox relationship, and editable source project.
 
-Current phase: Implementation, focused verification, documentation, and production build are complete; checkpoint commit and branch synchronization are the closing actions.
+Current phase: Implementation, focused verification, records, and production build are complete; checkpoint commit and normal branch synchronization remain.
 
 Proven:
-- The Desktop exporter already supported fixed px/mm/cm SVG root sizes. The responsive mode is an output-copy option; numerical precision, text editability/outline policy, image embedding/linking, and presets remain out of this change.
-- `exportSVG` accepts a validated `responsive` option. Responsive output changes only root width/height to `100%`; `viewBox` and SVG body stay unchanged. The UI hides the fixed-unit selector only while responsive mode is selected.
-- Focused SVG, root-unit, and export-purity tests: 13/13 PASS. The live-Text CommandSession check confirms project serialization, History, Text type/content, and Undo/Redo remain unchanged by export. Syntax checks, scoped Prettier checks, `git diff --check`, and `npm run build`: PASS.
-- Actual WebView2 SVG file inspection: NOT_RUN. The earlier actual PNG pHYs file inspection and device-pixel-ratio check remain NOT_RUN; no full `npm test` was run.
-- The preceding PNG density commit `23dabdff50eef04d32b3a8a5c346e6d0eb56d7d1` was pushed and its remote branch HEAD was verified equal before this checkpoint.
 
-Next task: Commit and normally push this scoped change, verify remote HEAD equals local, then resume the next export acceptance item using current runtime evidence.
+- The selector is output-only (`Default` or 2–8 decimals). SVG numeric formatting is limited to known path/geometry/style fields; layer labels, text, IDs, colors, URL references, embedded image data, root physical dimensions, and canonical pixel `viewBox` are not rewritten.
+- Default output matches byte-for-byte. Explicit precision rejects contour/image/mask/gradient/stroke cases that collapse geometry to zero. The live-Text/session test confirms serialization, History, Text content/type, and Undo/Redo remain unchanged.
+- Focused SVG precision, root unit, embedded image, linear-gradient, and radial-gradient tests: 36/36 PASS. Syntax, scoped Prettier, and production build: PASS.
+- Full `npm test` and actual WebView2/UI file inspection: NOT_RUN. No dependency install, network retry, or browser-access retry was made.
 
-Approach: Keep settings on the export copy. Use only local focused tests/build; do not install dependencies, retry network access, bypass browser restrictions, or run the full suite.
+Next task: Commit and normally push this checkpoint, verify the remote branch HEAD equals local, and select the next export acceptance step from live route evidence.
 
-Done for next: Fixed and responsive modes share the same SVG body and viewBox; source/Undo/live Text invariants pass; the implementation and evidence are committed and synchronized on the development branch.
+Approach: Keep the selector on the export copy and use the default legacy path unless explicitly changed. Use local focused tests/build only; no dependency/network or denied browser retries.
 
-State: Branch `codex/nect-regression-validation-v2`; synchronized base HEAD `23dabdff50eef04d32b3a8a5c346e6d0eb56d7d1`. The source, tests, crosswalk, verification record, and this checkpoint form one successor change; generated build output is ignored. Verify final local/remote HEAD and cleanliness at checkpoint closure.
+Done for next: Default SVG remains byte-identical; explicit numeric precision affects only targeted output fields and refuses total small-geometry collapse; source/session state and root sizing remain unchanged; records are committed and synchronized.
 
-Authority: The user's latest follow-up explicitly authorizes this narrow fixed/responsive SVG output-copy setting, associated limited tests and records, local checkpoint commit, and ordinary development-branch push. The original document, Undo history, and live Text remain protected. Force push, merge, release, credentials, permission changes, dependency install, network retry, and Notion writes remain excluded.
+State: Branch `codex/nect-regression-validation-v2`; starting HEAD `c173991c025dfb60ecaaf85ee989d9a7fc124da1`; working tree contains this scoped implementation/test/record change. Build output is ignored. Verify final local/remote HEAD and clean status at checkpoint closure.
+
+Authority: The user's latest instruction explicitly authorizes this decimal precision output-copy option, limited implementation/tests/records, commit, and non-force development-branch push. Source, Undo history, live Text, merge/release, force push, credentials/permission changes, dependency/network retry, browser bypass, and Notion writes remain outside this task.
 
 Handoff: CONTINUE_CURRENT_TASK

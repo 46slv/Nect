@@ -1,6 +1,7 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
 import { svgRootAttributes } from './artboard-units.js';
+import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
 import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { maskAppearance } from './appearance-mask.js';
@@ -2237,11 +2238,32 @@ export function signature(path) {
     ]),
   );
 }
-export function pathData(path) {
+export function pathData(path, precision) {
   const obj = toPaper(path);
-  const result = obj.pathData;
-  obj.remove();
-  return result;
+  try {
+    if (precision === undefined) return obj.pathData;
+    for (const source of obj.children) {
+      const roundedData = source.getPathData(null, precision),
+        rounded = new scope.Path({ pathData: roundedData, insert: false });
+      try {
+        const before = source.bounds,
+          after = rounded.bounds;
+        if (
+          (before.width > 0 && after.width === 0) ||
+          (before.height > 0 && after.height === 0) ||
+          (source.closed && Math.abs(source.area) > 0 && Math.abs(rounded.area) === 0)
+        )
+          throw Error(
+            `SVG precision ${precision} decimals collapses small geometry; choose a higher precision or Default`,
+          );
+      } finally {
+        rounded.remove();
+      }
+    }
+    return obj.getPathData(null, precision);
+  } finally {
+    obj.remove();
+  }
 }
 export function pathBounds(path) {
   if (path.kind === 'image') {
@@ -4907,31 +4929,41 @@ export function renderElement(
   assets = {},
   attributes = '',
   gradientId = 'nect-gradient-0',
+  precision,
 ) {
   if (isPaintedGroup(value)) {
     const content = value.children
-      .map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`))
+      .map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`, precision))
       .join('');
     const mask = value.mask;
     const id = `${gradientId}-mask`;
     const definition = mask
-      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
+      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
       : '';
     // The mask and its source share the group's local coordinates. A later
     // appearance transform moves both, preserving nested masks and source alpha.
-    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${value.matrix.join(' ')})">${mask ? `${definition}<g mask="url(#${id})">${content}</g>` : content}</g>`;
+    const matrix = value.matrix.map((number) => formatSvgNumber(number, precision));
+    if (
+      precision !== undefined &&
+      value.matrix[0] * value.matrix[3] - value.matrix[1] * value.matrix[2] !== 0 &&
+      Number(matrix[0]) * Number(matrix[3]) - Number(matrix[1]) * Number(matrix[2]) === 0
+    )
+      throw Error(
+        `SVG precision ${precision} decimals collapses small geometry; choose a higher precision or Default`,
+      );
+    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${matrix.join(' ')})">${mask ? `${definition}<g mask="url(#${id})">${content}</g>` : content}</g>`;
   }
   if (value.kind === 'image') {
     const asset = imageAssetFor(value, assets);
-    return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
+    return `<image ${attributes} data-layer="${escape(l.name)}" x="${formatSvgNumber(value.position[0], precision)}" y="${formatSvgNumber(value.position[1], precision)}" width="${formatSvgExtent(value.size[0], precision)}" height="${formatSvgExtent(value.size[1], precision)}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
   const fill = value.fill,
     stroke = value.stroke,
     gradient =
       fill?.kind === 'linear-gradient'
-        ? renderLinearGradientFill(fill, gradientId)
+        ? renderLinearGradientFill(fill, gradientId, precision)
         : fill?.kind === 'radial-gradient'
-          ? renderRadialGradientFill(fill, gradientId)
+          ? renderRadialGradientFill(fill, gradientId, precision)
           : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
@@ -4946,10 +4978,12 @@ export function renderElement(
         .map((contours) => {
           const opacity = contours[0].repeaterOpacity;
           const content = shape({ ...path, contours: contours.map(({ group, ...c }) => c) });
-          return opacity === undefined ? content : `<g opacity="${opacity}">${content}</g>`;
+          return opacity === undefined
+            ? content
+            : `<g opacity="${formatSvgNumber(opacity, precision)}">${content}</g>`;
         })
         .join('')}</g>`;
-    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
+    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${formatSvgNumber(fill.alpha, precision)}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${formatSvgNumber(stroke.alpha, precision)}" stroke-width="${formatSvgExtent(stroke.width, precision)}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${formatSvgNumber(stroke.miterLimit, precision)}" stroke-dasharray="${stroke.dash.length ? stroke.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(stroke.dashOffset, precision)}"` : ''}/>`;
   }
   return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
@@ -4987,10 +5021,11 @@ export function exportSVG(doc, fonts = {}, options = {}) {
     !options ||
     typeof options !== 'object' ||
     Array.isArray(options) ||
-    Object.keys(options).some((key) => !['unit', 'responsive'].includes(key)) ||
+    Object.keys(options).some((key) => !['unit', 'responsive', 'precision'].includes(key)) ||
     (options.responsive !== undefined && typeof options.responsive !== 'boolean')
   )
     throw Error('Invalid SVG export options');
+  const precision = validateSvgPrecision(options.precision);
   doc = validate(clone(doc));
   const scene = exportValidatedScene(doc, fonts);
   const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px', {
@@ -5005,6 +5040,7 @@ export function exportSVG(doc, fonts = {}, options = {}) {
       doc.imageAssets,
       '',
       `nect-gradient-${doc.layers.indexOf(layer)}`,
+      precision,
     );
     bytes += utf8ByteLength(element);
     if (bytes > MAX_PROJECT_BYTES)
