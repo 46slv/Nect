@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Multi-input Boolean (2026-10-19)
+## ACTIVE CHECKPOINT - PNG PPI density metadata (2026-10-19)
 
-Goal: Extend the existing Boolean node to support ordered 3+ Path inputs, preserve the existing binary behavior and old A/B files, and expose the same operation through UI and command Session.
+Goal: Keep PNG raster dimensions and physical density metadata consistent when the existing export UI is set to a selected PPI, without changing raster samples or scale-mode behavior.
 
-Current phase: Implementation, focused verification, documentation, and production build are complete; local commit is pending.
+Current phase: Implementation, focused verification, documentation, and production build are complete; checkpoint commit and branch synchronization are the closing actions.
 
 Proven:
-- `desktop/src/core.js` evaluates ordered Boolean inputs as editable Path output. Subtract is A minus the union of later inputs; Difference retains the current symmetric-difference operation.
-- Legacy A/B JSON stays at its prior schema until the virtual `input_pending` socket is used or locked. Expanded input keys are stable and schema 40 requires a canonical empty spare.
-- The UI renders and wires the virtual socket through the shared `connect` command. Source navigation traverses every persisted Boolean input and ignores empty additional spares.
-- Focused core, UI, Join, and source-navigation tests: 57/57 PASS. JavaScript syntax, selected Prettier checks, `git diff --check`, and `npm run build`: PASS.
-- Native/WebView visual acceptance: NOT_RUN; synthetic DOM covers wiring, spare labels and Undo/Redo.
+- The Desktop exporter already offered mutually exclusive scale and physical-PPI modes. PPI raster dimensions use the CSS baseline `PPI / 96`; the PPI selector was pre-existing and was not reimplemented here.
+- PPI-mode export now inserts or replaces exactly one CRC-valid `pHYs` chunk before image data, with equal rounded pixels-per-metre values. 300 PPI is stored as 11811 px/m (about 299.9994 PPI). Scale mode returns the canvas PNG unchanged; all non-density chunks are preserved.
+- Focused PNG metadata and sizing tests: 9/9 PASS. JavaScript syntax, scoped Prettier check for `raster.js` and `png-density.test.js`, `git diff --check`, and `npm run build`: PASS.
+- Actual WebView2/canvas file inspection and device-pixel-ratio independence: NOT_RUN. The synthetic canvas adapter test verifies which PNG receives metadata.
+- The preceding multi-input Boolean checkpoint `7376af45fbee380ff8ba0842c3d2af081e0671ee` was normally pushed and its remote branch HEAD was verified equal before this checkpoint.
 
-Next task: Create a local commit from the verified Boolean implementation and checkpoint record; report its SHA and the remaining native acceptance status.
+Next task: Inspect an actual PNG written by the current WebView2 export route and confirm its `pHYs` value and raster dimensions at selected PPI; then continue the next small export acceptance item from the crosswalk.
 
-Approach: Re-read the scoped diff and status, commit only the Boolean source, tests, architecture/requirements/verification notes, and this checkpoint. Keep this checkpoint local; no push or remote mutation.
+Approach: Use only the existing local runtime and focused tests. Treat actual-file and device-pixel-ratio checks as separate acceptance evidence. Do not install dependencies, retry network access, bypass browser restrictions, or run the full suite.
 
-Done for next: The local commit contains the coherent implementation and passing focused evidence. The remote branch remains unchanged by this checkpoint.
+Done for next: The pHYs contract is covered by chunk-level and export-adapter tests, scale mode and raster bytes stay unchanged, and the implementation checkpoint is committed and synchronized on the development branch.
 
-State: Branch `codex/nect-regression-validation-v2`; base HEAD `11d2aa77d0fd2c4968ae02301cf366125eb33804`; scoped Boolean source, tests, docs, verification, and checkpoint changes are in the working tree. Build output is ignored. No remote operation has been performed for this checkpoint.
+State: Branch `codex/nect-regression-validation-v2`, based on synchronized HEAD `7376af45fbee380ff8ba0842c3d2af081e0671ee` (see Git history for the implementation checkpoint tip). The source, focused test, crosswalk, verification record, and this checkpoint form one successor change. Generated build output is ignored; verify current local/remote HEAD and cleanliness before resuming.
 
-Authority: The current user instruction authorizes the scoped Boolean implementation, related tests and documentation, production build, and local commit. This checkpoint does not authorize a push, merge, release, or history rewrite.
+Authority: The user's current follow-up explicitly authorizes this bounded PNG PPI / pHYs implementation, associated limited tests and records, local checkpoint commit, and ordinary push of the development branch. Force push, merge, release, credentials, permission changes, dependency install, network retry, and Notion writes remain excluded.
 
 Handoff: CONTINUE_CURRENT_TASK

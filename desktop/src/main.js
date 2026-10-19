@@ -5928,7 +5928,8 @@ app.addEventListener('click', async (e) => {
             } else {
               const size = pngDimensions(history.doc, pngExportSettings());
               const svg = exportSVG(history.doc, fonts);
-              const blob = await rasterizeSVG(svg, size);
+              const ppi = pngExportMode === 'ppi' ? pngPpi : null,
+                blob = await rasterizeSVG(svg, size, ppi);
               if (await saveFile(blob, 'nect-artwork.png', 'png'))
                 notify(`PNG exported · ${size.width} × ${size.height} · transparent background`);
             }

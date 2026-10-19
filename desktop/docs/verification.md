@@ -240,3 +240,11 @@ The existing Boolean node now folds ordered inputs while retaining Path output. 
 - Production build: **PASS**. Vite reports the existing large JavaScript chunk warning (about 1.33 MB minified).
 - Native/WebView visual acceptance: **NOT_RUN**; the synthetic DOM test exercises socket rendering, UI wiring, and Undo/Redo.
 - No dependency install, network retry, push, or remote mutation was performed.
+
+## PNG PPI density metadata / 2026-10-19
+
+The Desktop export already had mutually exclusive scale and physical-PPI sizing modes. PPI mode now writes the selected density into PNG `pHYs` as rounded pixels per metre; for 300 PPI the stored value is 11811 px/m (about 299.9994 PPI). Existing density is replaced, while scale mode returns the canvas PNG unchanged and every non-`pHYs` chunk is preserved.
+
+- Focused sizing and density tests: **9 PASS** (`png-density.test.js`, `png-export-size.test.js`). The density test checks chunk CRCs, replacement, unchanged raster chunks, scale-mode behavior, and the export adapter call.
+- `node --check` for `raster.js` / `main.js`: **PASS**. `npm run build`: **PASS**, with the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2/canvas file inspection: **NOT_RUN**. No dependency install or network retry occurred.
