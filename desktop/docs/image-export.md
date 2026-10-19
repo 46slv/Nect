@@ -4,7 +4,7 @@ Editable JSON remains the source of truth. SVG and PNG are evaluated artwork exp
 
 ## Export
 
-- SVG uses the entire artboard (`width`, `height`, zero-origin `viewBox`) with no background. Text is outlined. Visible artwork layers are ordered as in the editor; hidden layers and guide layers are omitted. Selection, editing handles, grid and guides never enter the export scene.
+- SVG uses the entire artboard (`width`, `height`, zero-origin `viewBox`) with no background. The SVG export units selector defaults to `px`; choosing `mm` or `cm` writes explicit physical root `width`/`height` values while `viewBox` stays in canonical document px. Artboard display units do not change export units. Text is outlined. Visible artwork layers are ordered as in the editor; hidden layers and guide layers are omitted. Selection, editing handles, grid and guides never enter the export scene.
 - PNG rasterizes that same generated SVG into a transparent canvas. The toolbar offers 0.5×, 1×, 2× and 4×; its Export PNG tooltip shows resulting pixel dimensions. Dimensions round to whole pixels. SVG exports are bounded to 50 MB including repeated embedded images. PNG output is bounded to 8192 pixels per side and 16 megapixels; choose a lower multiplier for a larger artboard. A large SVG artboard can be downscaled to a valid PNG size.
 - Evaluation errors abort export rather than silently dropping visible artwork. Native saves stage beside the destination before replacing it; PNG uses a bounded binary save command. Cancel leaves the document unchanged. Repeated clicks during an export do not open competing saves.
 

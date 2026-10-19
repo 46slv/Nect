@@ -1,5 +1,6 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
+import { svgRootAttributes } from './artboard-units.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
 import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { maskAppearance } from './appearance-mask.js';
@@ -4853,9 +4854,17 @@ function exportValidatedScene(doc, fonts) {
       return { layer: l, value: result.path };
     });
 }
-export function exportSVG(doc, fonts = {}) {
+export function exportSVG(doc, fonts = {}, options = {}) {
+  if (
+    !options ||
+    typeof options !== 'object' ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => key !== 'unit')
+  )
+    throw Error('Invalid SVG export options');
   doc = validate(clone(doc));
   const scene = exportValidatedScene(doc, fonts);
+  const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px');
   let bytes = 512;
   const elements = [];
   for (const { layer, value } of scene) {
@@ -4871,7 +4880,7 @@ export function exportSVG(doc, fonts = {}) {
       throw Error('SVG export exceeds 50 MB; reduce embedded image size or repetitions');
     elements.push(element);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">${elements.join('')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${rootAttributes}>${elements.join('')}</svg>`;
 }
 export class History {
   constructor(doc) {

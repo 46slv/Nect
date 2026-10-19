@@ -47,3 +47,26 @@ export function formatDocumentLength(value, unit) {
   if (unit === 'px') return String(displayLength);
   return String(Number(displayLength.toPrecision(15)));
 }
+
+export function svgRootSizeAttributes(documentDimensions, unit = 'px') {
+  if (!documentDimensions || typeof documentDimensions !== 'object' || Array.isArray(documentDimensions))
+    throw Error('Invalid SVG dimensions');
+  const widthPx = finiteLength(documentDimensions.width),
+    heightPx = finiteLength(documentDimensions.height);
+  unitScale(unit);
+  if (widthPx <= 0 || heightPx <= 0) throw Error('SVG dimensions must be positive');
+  const svgLength = (value) =>
+    unit === 'px'
+      ? formatDocumentLength(value, unit)
+      : `${formatDocumentLength(value, unit)}${unit}`;
+  return {
+    width: svgLength(widthPx),
+    height: svgLength(heightPx),
+    viewBox: `0 0 ${formatDocumentLength(widthPx, 'px')} ${formatDocumentLength(heightPx, 'px')}`,
+  };
+}
+
+export function svgRootAttributes(documentDimensions, unit = 'px') {
+  const size = svgRootSizeAttributes(documentDimensions, unit);
+  return `width="${size.width}" height="${size.height}" viewBox="${size.viewBox}"`;
+}

@@ -956,6 +956,7 @@ let openRequest = 0,
   svgPartRequest = 0,
   svgPartPick = null,
   artboardUnit = 'px',
+  svgExportUnit = 'px',
   pngScale = 1,
   exportInFlight = false;
 let selection = new Set();
@@ -2687,7 +2688,7 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -5554,7 +5555,11 @@ app.addEventListener('click', async (e) => {
           if (exportInFlight) break;
           exportInFlight = true;
           try {
-            const svg = exportSVG(history.doc, fonts);
+            const svg = exportSVG(
+              history.doc,
+              fonts,
+              d.action === 'export' ? { unit: svgExportUnit } : undefined,
+            );
             if (d.action === 'export') {
               if (await saveFile(svg, 'nect-artwork.svg', 'svg'))
                 notify('SVG exported · transparent artboard; guides excluded');
@@ -7248,6 +7253,11 @@ app.addEventListener('change', async (e) => {
     if (!ARTBOARD_UNITS.includes(el.value)) return;
     artboardUnit = el.value;
     updateArtboardUnitDisplay();
+    return;
+  }
+  if (d.svgExportUnit !== undefined) {
+    if (!ARTBOARD_UNITS.includes(el.value)) return;
+    svgExportUnit = el.value;
     return;
   }
   if (d.osText) {
@@ -11471,7 +11481,7 @@ window.nect = {
     replaceDocument(d);
     render(true);
   },
-  export: () => exportSVG(history.doc, fonts),
+  export: (options) => exportSVG(history.doc, fonts, options),
 };
 
 app.addEventListener('keydown', (event) => {
