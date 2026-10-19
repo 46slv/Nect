@@ -305,3 +305,11 @@ This corrected standalone executable was rebuilt from source commit `aca9f5902f1
 - Corrected executable: 9,976,320 bytes, SHA256 `04FF296E05BB9BCC1434EA1B71F2582CA4FB5B165F8444FAF4E23F1D12577FCF`; unsigned.
 - Corrected Drive items: `Nect-aca9f59-corrected-standalone.exe` (ID `175W3RcukXFZlCzJXZCBo4BlSU9mYdQ86`) and `Nect-aca9f59-corrected-manifest.json` (ID `1UnqJriDwnHOSGUqm3tY8VFqNwgrV479H`). Prior Drive SHA256: `24311FEEBB0ABBB5D883AE5B1A90243007263E51434557EB655DE21CF185ABC7`.
 - Native GUI verification and full test suite: **NOT_RUN**. The native GUI was not launched; existing Chrome tabs were left untouched.
+
+## Authored-value Vector2 numeric scrub parity / 2026-10-19
+
+The existing authored-base Vector2 X scrub already uses the common Session gesture path. Its test now compares a committed drag with the machine-facing `set-parameter-base` command for the same expression-backed component.
+
+- Focused DOM and Session tests: **9/9 PASS** (`authored-value-dom.test.js`, `authored-value-expressions.test.js`). One drag produces one undoable document change; one Undo restores the initial document. Escape cancel restores the original document without adding history. The machine command produces the same committed document and its Undo also restores the initial document.
+- Production `npm run build`: **PASS (exit 0)**, Vite 7.3.7, 136 modules; the existing large-chunk warning remains.
+- Full `npm test` and native/WebView GUI verification: **NOT_RUN**. Pair-kerning tests were not rerun in this slice.
