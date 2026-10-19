@@ -40,7 +40,7 @@ try {
   assert.equal(initial.compositions.length, 1);
   const openImportDialog = async () => {
     await page.getByText('Import', { exact: true }).click();
-    await page.getByText('Project compositions', { exact: true }).click();
+    await page.getByText('Project composition', { exact: true }).click();
     await page.locator('body > input[type="file"]').last().setInputFiles({
       name: 'source.json',
       mimeType: 'application/json',
@@ -114,7 +114,7 @@ try {
 
   const beforeInvalid = JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot()));
   await page.getByText('Import', { exact: true }).click();
-  await page.getByText('Project compositions', { exact: true }).click();
+  await page.getByText('Project composition', { exact: true }).click();
   await page.locator('body > input[type="file"]').last().setInputFiles({
     name: 'invalid.json',
     mimeType: 'application/json',

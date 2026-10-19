@@ -155,6 +155,15 @@ The active Composition projection is now wired to the production command call si
 
 Next: run the core factory and multi-Composition lifecycle acceptance using an authorized local dependency/runtime, then exercise browser/native Open, Save, recovery, active SVG/PNG export, shared assets and Undo/Redo. These checks are separate from the passed dependency-free owner/model tests.
 
+Follow-up local validation / 2026-10-19:
+
+- One authorized npm ci completed with 43 packages installed and 0 vulnerabilities.
+- Focused Core, Composition model/session/import/view-state, import-action, and document-lifecycle suites: 64 PASS. A direct production Core factory smoke also passed cross-Composition Undo/Redo and active-size SVG projection.
+- npm run build: PASS (Vite reports a 1.3 MB JavaScript chunk-size warning).
+- Real Chrome: all-Composition import and repeated-import ID remapping PASS. The run then timed out clicking Undo because the Tools nav intercepted the hit target at 900×620; Undo/Redo, Open/Save, and the remaining browser assertions are not claimed passed. Receipt: desktop/test-results/project-composition-import-ui.json.
+- Aggregate npm test: FAIL. Representative synthetic-DOM tests hit Invalid URL while resolving relative modules from their data-URL loader. A temporary broad loader change was reverted; it is not part of the Composition implementation.
+- A subsequent local-browser navigation returned ERR_NETWORK_ACCESS_DENIED; no bypass was attempted. Browser Open/Save and native WebView2 Open/Save/recovery are NOT_RUN.
+
 ## Whole-project Composition import / 2026-10-19
 
 The existing Import action reads the project envelope and offers All Compositions as the default or one selected source Composition. All adds preserve each source frame, ordered Layer stack, Layer-graph references and required shared font/image assets. Entity and conflicting asset IDs are remapped; the validated batch commits as one project-history operation. Open still replaces the project, and Add SVG remains a separate action. Native source-file bindings are released after reading; stale edits during selection reject the import without mutation.

@@ -14,22 +14,24 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Composition view-state isolation (2026-10-19)
+## ACTIVE CHECKPOINT - Multi-Composition session integration (2026-10-19)
 
-Goal: Preserve independent editing and viewport context for each outer Composition while switching through the current header selector. Keep view state window-local, filter stale IDs, avoid document History/dirty changes on switch, and reset old project state on Open/New/recovery.
+Goal: Keep every outer Composition and shared asset intact while editing, switching, undoing/redoing, opening, saving, recovering, importing, and publicly loading a project. Preserve legacy Document loading, active-Composition SVG/PNG projection, and CompositionReference Layer-graph semantics.
 
-Current phase: Implementation and focused checks committed as `a349756`. The production core factory and real browser/native UI paths are NOT RUN because pako is absent. The header selector exists; the planned keyboard-accessible tablist does not.
+Current phase: Project-wide session wiring, import, and per-Composition view-state work are implemented and locally committed through 8dbb051. This follow-up verified the production core and focused suites. Full browser/native lifecycle acceptance remains incomplete.
 
 Proven:
-- 33 focused model/import/owner/view-state/action-contract tests PASS.
-- Syntax checks and git diff --check PASS.
-- In-memory state is keyed by stable Composition ID and includes active Layer, node/artwork/point selection, selected Guide, Canvas zoom/fit/pan, graph zoom/scroll, tool, and node-viewer bindings.
-- Restore filters Layer/Node/Guide/Viewer/point IDs against the active Composition; removed Composition states are pruned and new/imported IDs are cleared.
-- Project replacement clears view snapshots and ID-keyed view details; the owner switch remains revision/history-neutral.
+- One authorized npm ci completed: 43 packages installed, 0 vulnerabilities.
+- 64 focused core, Composition model/session/import/view-state, import-action, and document-lifecycle tests PASS.
+- Direct createCompositionSessionOwner smoke against the production Core History/CommandSession PASS, including cross-Composition Undo/Redo and active-size SVG projection.
+- npm run build PASS; Vite reports the existing 1.3 MB JavaScript chunk-size warning.
+- Real Chrome E2E imports all outer Compositions and remaps IDs on repeat import PASS. Its Undo click is blocked by the Tools nav at 900×620; later history assertions did not run. See desktop/test-results/project-composition-import-ui.json.
+- npm test FAIL overall. A representative synthetic-DOM test fails while resolving relative imports from a data-URL loader (Invalid URL); an exploratory harness workaround was reverted. Do not claim the aggregate suite passed.
+- Browser Open/Save file flow and native WebView2 Open/Save/recovery remain NOT_RUN. A later local-browser attempt returned ERR_NETWORK_ACCESS_DENIED; this access denial was not bypassed.
 
-Next task: When an authorized dependency/runtime is available, exercise real UI switching, Undo-driven active-ID changes, project replacement reset, core-factory lifecycle, and active-ID safety. The keyboard-accessible tablist remains a separate outstanding UI connection.
-Approach: Do not retry npm/network. Keep core/UI acceptance marked NOT RUN until executed in an available local runtime; resume when `pako` and the other required packages are available locally.
-Done for next: Production core and browser/native lifecycle paths are exercised, or the exact capability blocker and resume trigger are recorded with any new evidence.
-State: Branch codex/nect-regression-validation-v2; implementation/test commit `a349756`; checkpoint documentation follows as a docs-only local commit. No push. Per-Composition view state is window-local and not persisted; the Composition tablist remains future UI work.
-Authority: Current user instruction authorizes this implementation, focused tests, related docs, and local commit. No npm/network retry, push, upload, account/permission changes, force operation, main merge, or release.
+Next task: Complete real UI acceptance for browser Open/Save, project Undo/Redo, active SVG/PNG dimensions, legacy JSON, and shared font/image assets; separately run native Open/Save/recovery where WebView2 is available. Resolve the 900×620 Undo hit-test blocker or verify the intended shortcut path in an allowed browser runtime.
+Approach: Resume only in an allowed local browser/native runtime. Keep native recovery acceptance local-wait while independent code and test work remains. Do not retry npm/network, bypass browser access denial, or push.
+Done for next: Verify project-preserving Undo/Redo, browser Open/Save, legacy load, recovery, exports and shared assets through their real acceptance paths, or record exact remaining runtime blockers.
+State: Branch codex/nect-regression-validation-v2, HEAD 8dbb0517e7b0a9fe63d34747c53e8d99342be534, five commits ahead of origin, no push. Targeted E2E selector text now matches the visible Project composition menu item. One local E2E check receipt is recorded at desktop/test-results/project-composition-import-ui.json.
+Authority: Current user delegation authorizes implementation, focused tests, related docs, and local commits. No dependency/network retry, push, clone/backup/upload, force operation, mainline merge, release, or access-policy change.
 Handoff: CONTINUE_CURRENT_TASK
