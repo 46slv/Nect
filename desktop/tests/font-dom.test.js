@@ -13,6 +13,7 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.fetch = async () => ({
     ok: true,
     arrayBuffer: () => buffer('../public/fonts/DejaVuSans.ttf'),

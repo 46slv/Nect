@@ -208,3 +208,16 @@ Synthetic DOM tests load `src/main.js` from a `data:` URL. Node cannot resolve a
 - Full `npm test` (run once): **1,559 tests; 1,447 PASS; 108 FAIL; 4 skipped**. The Artboard Pan case passed.
 - Failure classification: 77 synthetic-DOM cases fail before exercising their assertions because their fixtures do not expose global `MutationObserver`; 3 Windows subprocess cases fail to launch Node using the configured path. The other 28 report assertion/schema/API mismatches, duplicate `evaluate` declaration, or missing `beginRecovery`. They are unresolved current test/code contract failures outside this loader patch; no clean baseline run is available to attribute them conclusively.
 - Browser acceptance: **NOT RUN**. The existing localhost navigation denial was not retried or bypassed. No dependency install or network retry occurred.
+
+## Happy DOM MutationObserver fixture alignment / 2026-10-19
+
+The 82 synthetic-DOM test files that installed `window`, `document`, and other browser globals but omitted `MutationObserver` now bind the real `happy-dom` implementation. Two focused fixtures were corrected to focus the artboard before simulating artboard Delete, and to browse all Remap points and await the scheduled batch-control render before asserting Undo/Redo behavior. No application source or assertions were weakened.
+
+- Focused serial run: deletion DOM, ordering DOM, Auto Handles, Bend, and Smooth: **22 PASS**.
+- `git diff --check`: **PASS**.
+- The single full `npm test` run exited 1. Its log has **0 `MutationObserver` errors** and 70 `test at` failure reports; the default spec reporter emitted no root aggregate. Previous summarized baseline: 1,559 tests, 1,447 PASS, 108 FAIL, 4 skipped (77 observer bindings, 3 Windows child-process errors, 28 assertion/schema/API mismatches). The report format prevents a direct aggregate comparison.
+- Three current Windows child-process failures are environment/path errors, not approval-flow denials: `image-luminance.test.js` cannot launch `C:\Program Files\nodejs\node.exe` (`ENOENT`); two `variable-font-cli.test.js` cases pass a `/C:/...` CLI argument that Node resolves as `C:\C:\...` (`MODULE_NOT_FOUND`). No `EPERM`/`EACCES` appears in the run.
+- Other current failures are assertion/API/schema expectations, duplicate `evaluate` declaration, missing test helpers (`serialize`, `beginRecovery`), and nested isolated-DOM scenario mismatches. No evidence ties these to the observer bridge; they remain open for scoped triage.
+- Full-run log was retained only in the local temporary directory as `%TEMP%\nect-npm-test-mutationobserver.log`.
+
+No dependency or network retry, no process-setting change, no localhost retry, and no push occurred. The follow-up requested a local commit only.

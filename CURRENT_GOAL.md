@@ -14,28 +14,29 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Main data-URL test loader (2026-10-19)
+## ACTIVE CHECKPOINT - Happy DOM observer and full-suite triage (2026-10-19)
 
-Goal: Make synthetic-DOM tests that import `src/main.js` through a data URL resolve every remaining same-root relative module, and keep the Artboard Pan regression test exercising actual artwork.
+Goal: Remove the synthetic-DOM startup failures caused by missing MutationObserver bindings, verify the focused paths and one full `npm test` run, classify remaining failures, and save a local checkpoint.
 
-Current phase: A shared test helper resolves static `from './…'` and dynamic `import('./…')` specifiers against `desktop/src/main.js`. It is used in the 37 data-URL test files that had not resolved all relative imports. The Artboard Pan fixture now loads a real Circle through `window.nect.load()` and bridges `MutationObserver` into the synthetic browser globals.
+Current phase: The 82 happy-dom test fixtures that lacked the browser global now bind the real `win.MutationObserver`. The focused deletion and ordering fixtures were aligned with the editor's existing focus, all-points browsing, and scheduled-render behavior. No application source was changed.
 
 Proven:
-- `node --test tests/main-data-url-loader.test.js tests/artboard-pan-dom.test.js`: **2 PASS**.
-- `node --check` on the helper, its test and Artboard Pan test: **PASS**.
-- Prettier check for the three focused files: **PASS**.
-- One full `npm test` run: **1,559 tests, 1,447 PASS, 108 FAIL, 4 skipped**. Of the failures, 77 synthetic-DOM files lack a global `MutationObserver` binding; 3 subprocess cases fail to launch the configured Windows Node path; 28 remaining cases report assertion/schema/API mismatches, an `evaluate` duplicate declaration, or missing `beginRecovery`. Those remaining cases are outside this loader change; without a baseline run they are recorded as unresolved test/code contract failures, not attributed to this patch.
-- The full run includes the Artboard Pan regression and it passed. No production code was changed by this checkpoint.
-- The previously recorded localhost navigation denial remains a browser acceptance blocker; it was not retried.
 
-Next task: Triage the full-suite test environment (`MutationObserver` bridge and Windows subprocess path), then investigate the 28 assertion/API contract failures against current requirements. Continue the Composition lifecycle acceptance when the relevant runtime is available.
+- Focused serial run of deletion, ordering, Auto Handles, Bend, and Smooth DOM tests: **22 PASS**.
+- `git diff --check`: **PASS**.
+- One full `npm test` run completed with exit code 1. Its log contains **0 `MutationObserver` errors** and 70 `test at` failure reports. The default spec reporter did not emit a root aggregate count; the 70 reports are not directly comparable to the previous aggregate of 1,559 tests / 1,447 PASS / 108 FAIL / 4 skipped.
+- The prior 108 failures were classified as 77 missing observer bindings, 3 Windows child-process failures, and 28 assertion/schema/API mismatches. The current three child-process failures are environmental path issues: one cannot find `C:\Program Files\nodejs\node.exe` (`ENOENT`); two variable-font CLI tests pass `/C:/...` and Node resolves the malformed `C:\C:\...` path (`MODULE_NOT_FOUND`). No `EPERM` or `EACCES` denial was observed.
+- Remaining assertion/API failures include old schema/expectation mismatches, duplicate `evaluate` declaration, and missing test helpers `serialize` / `beginRecovery`. They were not changed because this run supplied no evidence that the observer bridge caused them.
+- Full-run diagnostic log: `%TEMP%\nect-npm-test-mutationobserver.log`.
 
-Approach: Keep the import helper confined to test setup. Classify fresh full-suite outcomes by test harness, host runtime and app contract; do not turn a passing synthetic test into a browser acceptance claim.
+Next task: Reconcile the remaining failure reports against the prior baseline and accepted contracts; fix only a clearly evidenced regression attributable to this fixture change. Then resume the Composition lifecycle acceptance where runtime access permits.
 
-Done for next: Each remaining full-suite failure is either fixed with a focused regression or durably attributed to an explicit environment blocker; composition Open/Save/recovery/public-load and browser/native lifecycle evidence is current.
+Approach: Keep the actual happy-dom observer, preserve assertions, and do not change Windows process or permission settings. Treat the three child-process errors as environment/path failures.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `d5c34d59185655c7a44513c91bf9cff48310adcc`; loader/test checkpoint commit: `e5dd338d8c2f45c75aee902cb74d9c106429193a`; remote pointer `origin/codex/nect-regression-validation-v2` is synchronized, and the working tree is clean after the documentation follow-up. Build was not required for this test-only change. Full `npm test` ran exactly once after the helper update.
+Done for next: Focused and full-run evidence is recorded, the local checkpoint is committed, and the exact resulting HEAD is reported to the parent.
 
-Authority: Current delegated task authorizes the shared test-loader fix, focused verification, one full `npm test` run and a development-branch checkpoint. No dependency install or network retry, restoration clone, backup or upload was performed; localhost denial was not bypassed.
+State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `8621a15788424413918ec6d3ae4ae201a8eade80`; test diff currently touches 82 DOM test files. No push, network retry, localhost retry, or product-source change.
+
+Authority: Parent's delegated request to fix the observer fixture setup, run target tests and one full `npm test`, classify subprocess failures, and create a local commit. Push was not requested for this follow-up.
 
 Handoff: CONTINUE_CURRENT_TASK

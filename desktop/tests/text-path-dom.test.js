@@ -19,6 +19,7 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
     'requestAnimationFrame',
   ])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;

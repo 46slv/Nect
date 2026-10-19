@@ -13,6 +13,7 @@ test('expandable Join Geometry renders stable input sockets, spare labels, wires
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
     globalThis[key] =
       key === 'requestAnimationFrame' ? (callback) => frames.push(callback) : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;

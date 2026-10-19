@@ -14,6 +14,7 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   globalThis.fetch = async () => ({
     ok: true,

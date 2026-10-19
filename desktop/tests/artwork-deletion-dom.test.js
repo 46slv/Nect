@@ -11,6 +11,7 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
     return pending.length;
@@ -131,6 +132,7 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
         target = doc.layers[1];
       load(doc);
       select(target.id);
+      stage().focus();
       const before = saved(),
         prior = ui();
       assert.equal(document.activeElement, stage());
@@ -234,7 +236,7 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
 
   await t.test(
     'explicit deletion restores guide and Remap point selections across Undo/Redo',
-    () => {
+    async () => {
       const doc = deletionDocument(),
         guide = doc.editor.guides[0],
         target = doc.layers[1];
@@ -255,9 +257,12 @@ test('whole-artwork layer deletion is exact, undoable and safely scoped in the e
         remap = remapDoc.layers[0].nodes.find((node) => node.type === 'Path Remap');
       load(remapDoc);
       selectNode(remap.id);
+      click(`[data-point-panel-mode="${remap.id}"]`);
       const checkbox = $('[data-batch-point]');
       checkbox.checked = true;
       checkbox.dispatchEvent(new win.Event('change', { bubbles: true }));
+      flush();
+      await waitFor(() => $('[data-batch-axis="0"]'), 'Remap batch delta control should render');
       const delta = $('[data-batch-axis="0"]');
       delta.value = '12';
       delta.dispatchEvent(new win.Event('change', { bubbles: true }));
