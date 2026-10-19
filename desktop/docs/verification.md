@@ -230,3 +230,13 @@ The 82 synthetic-DOM test files that installed `window`, `document`, and other b
 - Full-run log was retained only in the local temporary directory as `%TEMP%\nect-npm-test-mutationobserver.log`.
 
 No dependency or network retry, no process-setting change, no localhost retry, and no push occurred. The follow-up requested a local commit only.
+
+## Multi-input Boolean / 2026-10-19
+
+The existing Boolean node now folds ordered inputs while retaining Path output. Union and Intersect fold every connected input; Subtract computes A minus the union of later inputs; Difference folds the existing symmetric-difference operation. A and B remain required and open contours are rejected transactionally. Legacy A/B projects retain their existing schema and parameters until the virtual `input_pending` socket is used or locked; that action materializes stable ordered keys and advances the document to schema 40.
+
+- Focused core, Boolean UI, Join, and source-navigation tests: **57/57 PASS** (`core.test.js`, `expandable-boolean.test.js`, `expandable-boolean-dom.test.js`, `expandable-join.test.js`, `expandable-join-dom.test.js`, `source-navigation.test.js`, `source-navigation-dom.test.js`).
+- JavaScript syntax checks, selected Prettier checks for core/source-navigation, the new tests, and architecture/verification docs, and `git diff --check`: **PASS**.
+- Production build: **PASS**. Vite reports the existing large JavaScript chunk warning (about 1.33 MB minified).
+- Native/WebView visual acceptance: **NOT_RUN**; the synthetic DOM test exercises socket rendering, UI wiring, and Undo/Redo.
+- No dependency install, network retry, push, or remote mutation was performed.

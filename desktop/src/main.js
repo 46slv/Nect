@@ -587,6 +587,8 @@ import {
   definitions,
   parameters,
   activeParameters,
+  booleanInputKeys,
+  booleanPendingInputKey,
   operationOptions,
   setOperation,
   bypassContract,
@@ -1773,8 +1775,22 @@ const nodeTypeLabel = (type) => (type === 'Join Geometry' ? 'Join Paths' : type)
 const nodeDisplayName = (n) =>
   n.type === 'Join Geometry' && n.name === 'Join Geometry' ? 'Join Paths' : n.name;
 
+function booleanInputNote(n) {
+  return n.type === 'Boolean'
+    ? '<p class="font-note"><span aria-hidden="true">\u2139</span> Closed paths only. Subtract removes inputs after A from A; Difference is symmetric difference.</p>'
+    : '';
+}
 function editorParameters(n) {
-  if (!isTransform(n)) return activeParameters(n);
+  if (!isTransform(n)) {
+    const entries = activeParameters(n);
+    if (
+      n.type === 'Boolean' &&
+      !n.booleanInputOrder &&
+      (n.params.b.source || n.params.b.locked)
+    )
+      entries.push([booleanPendingInputKey, { type: 'Path', value: null, locked: false }]);
+    return entries;
+  }
   const keys = [
     n.type === 'Transform' ? 'path' : 'vector',
     'anchor',
@@ -1939,6 +1955,16 @@ function field(n, key, q) {
         endOpacity: 'End Opacity (%)',
         copiesAbove: 'Copies Above',
       }[key] || key;
+  if (n.type === 'Boolean') {
+    const index = booleanInputKeys(n).indexOf(key);
+    name =
+      key === booleanPendingInputKey ||
+      (!q.source && !q.locked && key !== 'b' && key === booleanInputKeys(n).at(-1))
+        ? 'Add input'
+        : index >= 0 && index < 26
+          ? String.fromCharCode(65 + index)
+          : `Input ${index + 1}`;
+  }
   let control;
   const connectLabel =
     n.type === 'Convert to Path' && key === 'path'
@@ -2632,10 +2658,15 @@ function operationControls(n) {
   return `<div class="field"><label>${hasDotControls(n.type) ? 'Dot shape' : n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(nodeDisplayName(n))} ${hasDotControls(n.type) ? 'dot shape' : 'operation'}">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${n.type === 'Halftone' && op === 'subtract' ? 'Legacy calibrated' : op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
     n,
   )
-    .filter(([k]) => isTransform(n) || Object.hasOwn(n.params, k))
+    .filter(
+      ([k]) =>
+        isTransform(n) ||
+        Object.hasOwn(n.params, k) ||
+        (n.type === 'Boolean' && k === booleanPendingInputKey),
+    )
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
@@ -2817,12 +2848,14 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
+      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
         )
           .filter(
             ([k, q]) =>
-              (isTransform(n) || Object.hasOwn(n.params, k)) &&
+              (isTransform(n) ||
+                Object.hasOwn(n.params, k) ||
+                (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
               !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
           .map(([k, q]) => field(n, k, q))
@@ -6155,7 +6188,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect closed paths to Boolean A/B. Drag a path to Add input for C and later inputs. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;

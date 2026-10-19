@@ -14,29 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Accessible Composition tablist (2026-10-19)
+## ACTIVE CHECKPOINT - Multi-input Boolean (2026-10-19)
 
-Goal: Replace the multi-Composition header selector with an accessible horizontal tablist. Preserve the existing Session switch path so switching Composition does not change authored project state, revision, dirty state or Undo/Redo history. Scope: UI, focused tests, related documentation, local commit and normal push to the existing development branch.
+Goal: Extend the existing Boolean node to support ordered 3+ Path inputs, preserve the existing binary behavior and old A/B files, and expose the same operation through UI and command Session.
 
-Current phase: Tablist UI and focused verification are complete; the local checkpoint commit and remote synchronization are being finalized.
+Current phase: Implementation, focused verification, documentation, and production build are complete; local commit is pending.
 
 Proven:
+- `desktop/src/core.js` evaluates ordered Boolean inputs as editable Path output. Subtract is A minus the union of later inputs; Difference retains the current symmetric-difference operation.
+- Legacy A/B JSON stays at its prior schema until the virtual `input_pending` socket is used or locked. Expanded input keys are stable and schema 40 requires a canonical empty spare.
+- The UI renders and wires the virtual socket through the shared `connect` command. Source navigation traverses every persisted Boolean input and ignores empty additional spares.
+- Focused core, UI, Join, and source-navigation tests: 57/57 PASS. JavaScript syntax, selected Prettier checks, `git diff --check`, and `npm run build`: PASS.
+- Native/WebView visual acceptance: NOT_RUN; synthetic DOM covers wiring, spare labels and Undo/Redo.
 
-- `desktop/src/main.js` renders ARIA tabs and a tab panel. Left/Right/Home/End move focus; Enter/Space/click activate through `switchActiveComposition`. `aria-selected` and roving `tabindex` track selection and focus separately.
-- `desktop/src/style.css` bounds and horizontally scrolls the tab strip, truncates long labels, styles selected tabs, and retains the existing global `button:focus-visible` outline.
-- `desktop/tests/blank-artwork-dom.test.js` covers 18 tabs, long names, keyboard wraparound/manual activation, clicks, and unchanged revision, dirty state, History and project snapshot. Related DOM, contract and responsive tests: 17/17 PASS.
-- `npm --prefix desktop run build`: PASS; Vite reports the existing large JavaScript chunk warning. `git diff --check`: PASS; Git reports a CRLF-to-LF normalization warning for `composition-size-design.md`.
-- The existing application lifecycle fixture covers project Save/Open, recovery, browser Open, public load, legacy migration, shared fonts/images, active-Composition export sizing and preservation of inactive Compositions.
-- Real browser/native visual and keyboard/scroll acceptance: NOT_RUN. The prior localhost navigation denial was not retried or bypassed.
+Next task: Create a local commit from the verified Boolean implementation and checkpoint record; report its SHA and the remaining native acceptance status.
 
-Next task: Commit only the seven tablist source/test/design/verification files and this checkpoint, push `codex/nect-regression-validation-v2` normally, then verify `origin/refs/heads/codex/nect-regression-validation-v2` resolves to the exact local HEAD. Manual native/WebView interaction acceptance remains after synchronization.
+Approach: Re-read the scoped diff and status, commit only the Boolean source, tests, architecture/requirements/verification notes, and this checkpoint. Keep this checkpoint local; no push or remote mutation.
 
-Approach: Preserve the existing Session command and switching paths. Do not retry npm/dependency installation or create another checkout. Before this commit, local base HEAD is `86c4dc91fbf4133320f2bd214f19aacb4ab34c9b`; the branch is five commits ahead of origin. Remote HEAD was freshly read as `8621a15788424413918ec6d3ae4ae201a8eade80`.
+Done for next: The local commit contains the coherent implementation and passing focused evidence. The remote branch remains unchanged by this checkpoint.
 
-Done for next: The scoped implementation and checkpoint are committed, the normal development-branch push completes, and exact local/remote HEAD equality is confirmed. Then the only outstanding acceptance is hands-on native/browser tablist interaction.
+State: Branch `codex/nect-regression-validation-v2`; base HEAD `11d2aa77d0fd2c4968ae02301cf366125eb33804`; scoped Boolean source, tests, docs, verification, and checkpoint changes are in the working tree. Build output is ignored. No remote operation has been performed for this checkpoint.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-commit local HEAD `86c4dc91fbf4133320f2bd214f19aacb4ab34c9b`; pre-push remote HEAD `8621a15788424413918ec6d3ae4ae201a8eade80`; seven scoped tablist files modified plus this checkpoint. The target commit includes the tablist implementation, tests, related docs and this active checkpoint.
-
-Authority: Current user instruction authorizes this Composition tablist implementation, focused tests and documentation, a local commit, and a normal push to this development branch. Main merge, release, force push/history rewrite and credential/permission changes remain excluded.
+Authority: The current user instruction authorizes the scoped Boolean implementation, related tests and documentation, production build, and local commit. This checkpoint does not authorize a push, merge, release, or history rewrite.
 
 Handoff: CONTINUE_CURRENT_TASK

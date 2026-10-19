@@ -1037,6 +1037,8 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
 }
 
 const NODE_PRESET_SCHEMA_VERSION = 39;
+const BOOLEAN_INPUT_SCHEMA_VERSION = 40;
+export const booleanPendingInputKey = 'input_pending';
 function presetName(name) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100)
     throw Error('Preset name must contain 1–100 characters');
@@ -1087,7 +1089,11 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: NODE_PRESET_SCHEMA_VERSION,
+    schemaVersion: preset.nodes.some(
+      (n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined,
+    )
+      ? BOOLEAN_INPUT_SCHEMA_VERSION
+      : NODE_PRESET_SCHEMA_VERSION,
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
@@ -1160,7 +1166,8 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
 }
 export const JOIN_SLOT_LIMIT = 1024;
 export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
-// Only command/migration paths call this; reads never allocate or renumber sockets.
+export const booleanInputKeys = (n) => n.booleanInputOrder ?? ['a', 'b'];
+// Only command/migration paths call these; reads never allocate or renumber sockets.
 function normalizeJoinInputs(n, compact = false, migration = false) {
   if (n.type !== 'Join Geometry') return;
   n.joinInputOrder ??= ['a', 'b'];
@@ -1186,11 +1193,40 @@ function normalizeJoinInputs(n, compact = false, migration = false) {
     n.joinInputOrder.push(key);
   }
 }
+function normalizeBooleanInputs(n, compact = false) {
+  // A/B remain the complete legacy representation. Persist the expanded order only
+  // after the spare socket is explicitly used or locked.
+  if (n.type !== 'Boolean' || !n.booleanInputOrder) return;
+  let keys = n.booleanInputOrder;
+  if (compact) {
+    const last = keys.at(-1);
+    keys = keys.filter((key) => {
+      if (
+        key === 'a' ||
+        key === 'b' ||
+        key === last ||
+        n.params[key].source ||
+        n.params[key].locked
+      )
+        return true;
+      delete n.params[key];
+      return false;
+    });
+  }
+  const last = n.params[keys.at(-1)];
+  if (last && (last.source || last.locked) && keys.length < JOIN_SLOT_LIMIT) {
+    const key = 'input_' + uid('slot');
+    n.params[key] = p('Path', null);
+    n.booleanInputOrder = [...keys, key];
+  } else n.booleanInputOrder = keys;
+}
 export function parameters(n) {
   const entries =
     n.type === 'Join Geometry'
       ? joinInputKeys(n).map((key) => [key, n.params[key]])
-      : Object.entries(n.params);
+      : n.type === 'Boolean'
+        ? booleanInputKeys(n).map((key) => [key, n.params[key]])
+        : Object.entries(n.params);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
@@ -1382,7 +1418,16 @@ export function translateRemapPoints(n, input, pointIds, delta) {
   n.edits = draft.edits;
 }
 export function parameter(n, key) {
-  return parameters(n).find(([k]) => k === key)?.[1] || transformParameter(n, key);
+  const actual = parameters(n).find(([k]) => k === key)?.[1];
+  if (actual) return actual;
+  if (
+    n.type === 'Boolean' &&
+    key === booleanPendingInputKey &&
+    !n.booleanInputOrder &&
+    (n.params.b?.source || n.params.b?.locked)
+  )
+    return p('Path', null);
+  return transformParameter(n, key);
 }
 export function expression(source, resolveReference, referencesOnly = false, baseValue) {
   if (source.length > 4096) throw Error('Expression exceeds 4096 characters');
@@ -3578,41 +3623,52 @@ export function evaluate(
         result.unstable = true;
         result.fingerprint = signature(result);
       } else if (n.type === 'Boolean') {
-        let a = read('a'),
-          b = read('b');
+        const keys = booleanInputKeys(n),
+          inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
+          a = inputs.find(([key]) => key === 'a')?.[1],
+          b = inputs.find(([key]) => key === 'b')?.[1];
         if (!a || !b) throw Error('Connect both Boolean paths');
-        if ([...a.contours, ...b.contours].some((c) => !c.closed))
+        if (inputs.some(([, path]) => path.contours.some((contour) => !contour.closed)))
           throw Error('Boolean requires closed contours');
-        let pa = booleanOperand(a),
-          pb = booleanOperand(b);
-        let op = {
+        const op = {
           union: 'unite',
           subtract: 'subtract',
           intersect: 'intersect',
           difference: 'exclude',
         }[n.operation];
         if (!op) throw Error('Unknown Boolean operation');
-        let r = pa[op](pb, { insert: false });
-        result = fromPaper(r, n.id);
-        result.characterOccurrences = [
-          ...routeCharacters(
-            a,
-            `${n.id}:a`,
-            null,
-            'Canvas character editing is unavailable through Boolean',
-          ),
-          ...routeCharacters(
-            b,
-            `${n.id}:b`,
-            null,
-            'Canvas character editing is unavailable through Boolean',
-          ),
-        ];
-        result.unstable = true;
-        result.fingerprint = signature(result);
-        pa.remove();
-        pb.remove();
-        r.remove();
+        const liveOperands = new Set();
+        try {
+          let combined;
+          for (const [, path] of inputs) {
+            const next = booleanOperand(path);
+            liveOperands.add(next);
+            if (!combined) {
+              combined = next;
+              continue;
+            }
+            const previous = combined;
+            combined = previous[op](next, { insert: false });
+            liveOperands.add(combined);
+            previous.remove();
+            liveOperands.delete(previous);
+            next.remove();
+            liveOperands.delete(next);
+          }
+          result = fromPaper(combined, n.id);
+          result.characterOccurrences = inputs.flatMap(([key, path]) =>
+            routeCharacters(
+              path,
+              n.id + ':' + key,
+              null,
+              'Canvas character editing is unavailable through Boolean',
+            ),
+          );
+          result.unstable = true;
+          result.fingerprint = signature(result);
+        } finally {
+          for (const item of liveOperands) item.remove();
+        }
       } else if (hasEmptyOutput(layer, n)) result = { contours: [] };
       else {
         result = read('path');
@@ -3952,7 +4008,7 @@ export function assertClosedOffsetChange(
     n.type === 'Join Geometry'
       ? joinInputKeys(n).map((key) => n.params[key]?.source)
       : n.type === 'Boolean'
-        ? ['a', 'b'].map((key) => n.params[key]?.source)
+        ? booleanInputKeys(n).map((key) => n.params[key]?.source)
         : n.type === 'Luminance Instances'
           ? Object.values(n.params).map((q) => q.source)
           : n.type === 'Instance on Points'
@@ -4017,7 +4073,13 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   let from = layer.nodes.find((n) => n.id === sourceId),
     to = layer.nodes.find((n) => n.id === targetId),
     q = to && parameter(to, key);
+  const pendingBooleanInput =
+    to?.type === 'Boolean' &&
+    key === booleanPendingInputKey &&
+    !to.booleanInputOrder &&
+    !Object.hasOwn(to.params, key);
   if (!from || !q) throw Error('Missing socket');
+  if (validating && pendingBooleanInput) throw Error('Invalid Boolean input order');
   if (q.locked && !validating) throw Error('Parameter is locked');
   if (
     to.bypassed &&
@@ -4053,6 +4115,10 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     n.paintMode,
     Object.entries(n.params).map(([key, q]) => [key, q.type]),
   ]);
+  if (pendingBooleanInput) {
+    to.booleanInputOrder = ['a', 'b', key];
+    to.params[key] = q;
+  }
   const old = q.source,
     oldPort = q.sourcePort;
   q.source = sourceId;
@@ -4067,6 +4133,10 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
       else n.paintMode = mode;
       for (const [key, type] of types) n.params[key].type = type;
     }
+    if (pendingBooleanInput) {
+      delete to.params[key];
+      delete to.booleanInputOrder;
+    }
     if (old) q.source = old;
     else delete q.source;
     if (oldPort !== undefined) q.sourcePort = oldPort;
@@ -4074,6 +4144,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     throw e;
   }
   normalizeJoinInputs(to);
+  normalizeBooleanInputs(to);
 }
 export function disconnect(n, key) {
   const q = parameter(n, key);
@@ -4081,6 +4152,7 @@ export function disconnect(n, key) {
   delete q.source;
   delete q.sourcePort;
   normalizeJoinInputs(n, true);
+  normalizeBooleanInputs(n, true);
 }
 // Upgrade on load/validation only; storage is never written by migration.
 export function migratePaint(doc) {
@@ -4166,7 +4238,8 @@ export function validate(doc) {
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
-      doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION)
+      doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
+      doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4370,6 +4443,8 @@ export function validate(doc) {
       }
       if (n.type !== 'Join Geometry' && n.joinInputOrder !== undefined)
         throw Error('Join input order requires Join Geometry');
+      if (n.type !== 'Boolean' && n.booleanInputOrder !== undefined)
+        throw Error('Boolean input order requires Boolean');
       if (n.type === 'Join Geometry') {
         if (sourceSchemaVersion < 23) {
           if (
@@ -4411,6 +4486,54 @@ export function validate(doc) {
             throw Error('Invalid Join input parameter');
         }
       }
+      if (n.type === 'Boolean') {
+        if (sourceSchemaVersion < BOOLEAN_INPUT_SCHEMA_VERSION) {
+          if (
+            n.booleanInputOrder !== undefined ||
+            Object.keys(n.params).length !== 2 ||
+            !Object.hasOwn(n.params, 'a') ||
+            !Object.hasOwn(n.params, 'b')
+          )
+            throw Error(
+              'Expandable Boolean inputs require schemaVersion ' + BOOLEAN_INPUT_SCHEMA_VERSION,
+            );
+        } else if (n.booleanInputOrder !== undefined && !Array.isArray(n.booleanInputOrder))
+          throw Error('Invalid Boolean input order');
+        const keys = booleanInputKeys(n);
+        if (
+          !Array.isArray(keys) ||
+          keys.length < 2 ||
+          keys.length > JOIN_SLOT_LIMIT ||
+          keys[0] !== 'a' ||
+          keys[1] !== 'b' ||
+          new Set(keys).size !== keys.length ||
+          Object.keys(n.params).length !== keys.length ||
+          keys.some(
+            (key, index) =>
+              typeof key !== 'string' ||
+              (index > 1 && !/^input_[A-Za-z0-9_-]{1,100}$/.test(key)) ||
+              !Object.hasOwn(n.params, key),
+          )
+        )
+          throw Error('Invalid Boolean input order');
+        if (n.booleanInputOrder) {
+          const last = n.params[keys.at(-1)];
+          if (keys.length < JOIN_SLOT_LIMIT && (last.source || last.locked))
+            throw Error('Boolean input order must retain an empty spare socket');
+        }
+        for (const key of keys) {
+          const q = n.params[key];
+          param(q, 'Path');
+          if (
+            q.expression ||
+            Object.keys(q).some(
+              (field) =>
+                !['type', 'value', 'expression', 'locked', 'source', 'sourcePort'].includes(field),
+            )
+          )
+            throw Error('Invalid Boolean input parameter');
+        }
+      }
       const extraTransform = isTransform(n)
         ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
         : [];
@@ -4420,7 +4543,8 @@ export function validate(doc) {
         Object.keys(n.params).length !==
         Object.keys(definitions[n.type]).length +
           extraTransform.length +
-          (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0)
+          (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0) +
+          (n.type === 'Boolean' && n.booleanInputOrder ? n.booleanInputOrder.length - 2 : 0)
       )
         throw Error('Unexpected parameter');
       for (const key of extraTransform) param(n.params[key], transformExtensions[key].type);
@@ -4731,6 +4855,10 @@ export function validate(doc) {
   if (hasPaintedPathConversion && sourceSchemaVersion < 18)
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   if (hasNodeType('Join Geometry')) doc.schemaVersion = Math.max(doc.schemaVersion, 23);
+  if (
+    doc.layers.some((layer) => layer.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder))
+  )
+    doc.schemaVersion = Math.max(doc.schemaVersion, BOOLEAN_INPUT_SCHEMA_VERSION);
   if (
     hasNodeType('Luminance to Points') ||
     doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type)))
@@ -7113,7 +7241,10 @@ export class CommandSession {
             delete q.source;
             delete q.sourcePort;
           }
-      for (const node of target.nodes) normalizeJoinInputs(node, true);
+      for (const node of target.nodes) {
+        normalizeJoinInputs(node, true);
+        normalizeBooleanInputs(node, true);
+      }
     } else if (type === 'preview-node') {
       const source = target.nodes.find((node) => node.id === payload.nodeId);
       if (!source) throw Error('Missing node');
@@ -7641,8 +7772,18 @@ export class CommandSession {
       if (!q) throw Error('Missing parameter');
       if (type === 'set-parameter-lock') {
         if (typeof payload.locked !== 'boolean') throw Error('Invalid lock state');
+        if (
+          payload.locked &&
+          node.type === 'Boolean' &&
+          payload.key === booleanPendingInputKey &&
+          !node.booleanInputOrder
+        ) {
+          node.booleanInputOrder = ['a', 'b', payload.key];
+          node.params[payload.key] = q;
+        }
         q.locked = payload.locked;
         normalizeJoinInputs(node, true);
+        normalizeBooleanInputs(node, true);
       } else {
         if (q.locked) throw Error('Parameter is locked');
         if (type === 'set-parameter-expression') {
@@ -7706,6 +7847,12 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, BOOLEAN_INPUT_SCHEMA_VERSION);
     validate(candidate);
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);
