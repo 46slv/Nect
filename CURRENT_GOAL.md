@@ -34,7 +34,7 @@ Approach: Apply the viewport affine mapping once after paints so strokes and use
 
 Done for next: Independent expected-matrix tests pass for non-zero origins, physical root sizing, meet letterboxing and `none`; Import and Add paths pass focused assertions for paint mapping and atomic unsupported input; build, commit, and remote synchronization evidence are recorded.
 
-State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d1e781361885636dde3eaa82bd19485384007de` is pushed and was confirmed as the matching remote SHA. A follow-up closeout record will be committed and synchronized on this same branch. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d1e781361885636dde3eaa82bd19485384007de` is pushed and was confirmed as the matching remote SHA. The follow-up closeout record is committed and pushed on this same branch; the terminal branch SHA was verified against origin at task closeout. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
 
 Authority: The user's delegated instruction authorizes this bounded SVG viewBox implementation, tests/build/docs, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
 
