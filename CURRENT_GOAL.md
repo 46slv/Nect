@@ -18,7 +18,7 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Preserve independent editing and viewport context for each outer Composition while switching through the current header selector. Keep view state window-local, filter stale IDs, avoid document History/dirty changes on switch, and reset old project state on Open/New/recovery.
 
-Current phase: Implementation and focused checks complete; local commit pending. The production core factory and real browser/native UI paths are NOT RUN because pako is absent. The header selector exists; the planned keyboard-accessible tablist does not.
+Current phase: Implementation and focused checks committed as `a349756`. The production core factory and real browser/native UI paths are NOT RUN because pako is absent. The header selector exists; the planned keyboard-accessible tablist does not.
 
 Proven:
 - 33 focused model/import/owner/view-state/action-contract tests PASS.
@@ -27,9 +27,9 @@ Proven:
 - Restore filters Layer/Node/Guide/Viewer/point IDs against the active Composition; removed Composition states are pruned and new/imported IDs are cleared.
 - Project replacement clears view snapshots and ID-keyed view details; the owner switch remains revision/history-neutral.
 
-Next task: Commit locally. When an authorized dependency/runtime is available, exercise real UI switching, Undo-driven active-ID changes, project replacement reset, and active-ID safety. The tablist UI is a separate outstanding connection.
-Approach: Review the focused source/docs diff, commit without pushing. Do not retry npm/network. Keep core/UI acceptance marked NOT RUN until executed in an available local runtime.
-Done for next: The view-state connection is committed, limited tests pass, and remaining UI/runtime gaps are recorded accurately.
-State: Branch codex/nect-regression-validation-v2; parent HEAD 9d9bd41d755b355c7fcf85dd2e61480d8828443c; this checkpoint commit will be the branch tip after local commit. No push. Per-Composition view state is not persisted; the Composition tablist remains future UI work.
+Next task: When an authorized dependency/runtime is available, exercise real UI switching, Undo-driven active-ID changes, project replacement reset, core-factory lifecycle, and active-ID safety. The keyboard-accessible tablist remains a separate outstanding UI connection.
+Approach: Do not retry npm/network. Keep core/UI acceptance marked NOT RUN until executed in an available local runtime; resume when `pako` and the other required packages are available locally.
+Done for next: Production core and browser/native lifecycle paths are exercised, or the exact capability blocker and resume trigger are recorded with any new evidence.
+State: Branch codex/nect-regression-validation-v2; implementation/test commit `a349756`; checkpoint documentation follows as a docs-only local commit. No push. Per-Composition view state is window-local and not persisted; the Composition tablist remains future UI work.
 Authority: Current user instruction authorizes this implementation, focused tests, related docs, and local commit. No npm/network retry, push, upload, account/permission changes, force operation, main merge, or release.
 Handoff: CONTINUE_CURRENT_TASK
