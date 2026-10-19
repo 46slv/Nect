@@ -32,6 +32,7 @@ import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-ed
 import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import './style.css';
+import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -10689,8 +10690,15 @@ app.addEventListener('contextmenu', (e) => {
   }
   const card = e.target.closest('.graph .node');
   if (card) return openNodeContextMenu(card.dataset.id, e.clientX, e.clientY);
-  const layer = e.target.closest('.layer[data-layer],.artboard [data-layer],[data-artwork-selection]');
-  if (layer) return openArtworkContextMenu(layer.dataset.layer || layer.dataset.artworkSelection, e.clientX, e.clientY);
+  const layer = e.target.closest(
+    '.layer[data-layer],.artboard [data-layer],[data-artwork-selection]',
+  );
+  if (layer)
+    return openArtworkContextMenu(
+      layer.dataset.layer || layer.dataset.artworkSelection,
+      e.clientX,
+      e.clientY,
+    );
   if (e.target.closest('.graph-scroll')) openGraphBackgroundMenu(e.clientX, e.clientY);
 });
 app.addEventListener(
@@ -11429,43 +11437,7 @@ app.addEventListener('click', async (event) => {
 
 // Keep the command surface compact without changing command ownership.
 const commandMenuObserver = new MutationObserver(() => {
-  const header = app.querySelector('header');
-  if (!header || header.querySelector('.command-menu')) return;
-  const makeMenu = (label, actions) => {
-    const menu = document.createElement('details');
-    menu.className = 'command-menu';
-    const summary = document.createElement('summary');
-    summary.textContent = label;
-    const items = document.createElement('div');
-    items.className = 'command-menu-items';
-    for (const action of actions) {
-      const button = header.querySelector(`[data-action="${action}"]`);
-      if (button) items.append(button);
-    }
-    menu.append(summary, items);
-    return menu;
-  };
-  const brand = header.querySelector('.brand');
-  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as']);
-  const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
-  const composition = document.createElement('button');
-  composition.type = 'button';
-  composition.dataset.action = 'import-composition';
-  composition.textContent = 'Project composition';
-  composition.title = 'Add a Composition from another project';
-  importMenu.querySelector('.command-menu-items').append(composition);
-  const exportMenu = makeMenu('Export', ['export', 'export-png']);
-  const scale = header.querySelector('#png-scale');
-  if (scale) {
-    const label = document.createElement('label');
-    label.className = 'command-menu-scale';
-    label.append('PNG scale', scale);
-    exportMenu.querySelector('.command-menu-items').append(label);
-  }
-  brand?.after(project, importMenu, exportMenu);
-  header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
-    project.querySelector('.command-menu-items').append(button);
-  });
+  ensureCommandMenus(app, document);
 });
 commandMenuObserver.observe(app, { childList: true });
 app.append(document.createComment('command-menu-init'));
