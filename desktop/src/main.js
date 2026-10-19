@@ -957,6 +957,12 @@ let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
 const selectionHistory = new WeakMap();
+function closeTransientPanels(except = '') {
+  if (except !== 'align') alignmentPreferences.open = false;
+  if (except !== 'grid') gridOpen = false;
+  if (except !== 'layout') layoutOpen = false;
+  if (except !== 'guides') guidesOpen = false;
+}
 function selectionSnapshot(withEditSelection = false) {
   return {
     activeLayer,
@@ -5223,6 +5229,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
+    const opening = !alignmentPreferences.open;
+    if (opening) closeTransientPanels('align');
     alignmentPreferences.open = !alignmentPreferences.open;
     saveAlignmentPreferences();
     render();
@@ -5665,14 +5673,17 @@ app.addEventListener('click', async (e) => {
           editGuides('set-guide-setting', { key: 'gridAnchor', value: 'center' });
           break;
         case 'grid-panel':
+          if (!gridOpen) closeTransientPanels('grid');
           gridOpen = !gridOpen;
           render();
           break;
         case 'layout-panel':
+          if (!layoutOpen) closeTransientPanels('layout');
           layoutOpen = !layoutOpen;
           render();
           break;
         case 'guides-panel':
+          if (!guidesOpen) closeTransientPanels('guides');
           guidesOpen = !guidesOpen;
           render();
           break;
@@ -11468,12 +11479,21 @@ render();
 document.addEventListener('click', (event) => {
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
+  if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
+  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+    closeTransientPanels();
+    render();
+  }
 });
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   const open = [...document.querySelectorAll('.command-menu[open]')];
-  if (!open.length) return;
+  if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
-  open[0].querySelector('summary')?.focus();
+  if (open.length) open[0].querySelector('summary')?.focus();
+  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+    closeTransientPanels();
+    render();
+  }
 });
