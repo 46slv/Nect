@@ -16,3 +16,8 @@ window rectangle was `(L32, T32, R2050, B1204)`.
 This proves native window acquisition and one safe focus operation. It does not
 prove save/reload, context-menu, numeric expression, preset, or Japanese IME
 acceptance; those remain pending a fixture-specific interaction pass.
+
+The captured isolated window showed the Tauri shell, but WebView2 displayed
+`ERR_NETWORK_ACCESS_DENIED` for the editor content. No localhost/network
+restriction was bypassed, and save/reload, context-menu, numeric, preset, and
+IME flows are therefore `NOT_RUN`.
