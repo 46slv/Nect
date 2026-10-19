@@ -195,4 +195,16 @@ The app now uses header/workspace/footer grid rows. The header and workspace use
 - Prettier check for the new structural test: PASS.
 - Production build: PASS, with the existing 1.3 MB JavaScript chunk warning.
 - Real browser after the fix: NOT_RUN due to localhost navigation denial.
-- Aggregate npm test remains FAIL for a separate data-URL loader issue. Reproduced at tests/artboard-pan-dom.test.js: after converting selected imports in src/main.js to file URLs, the loader leaves the first ./text-wrap.js import unchanged, then evaluates the source as data:text/javascript;base64,...; Node reports ERR_UNSUPPORTED_RESOLVE_REQUEST for that relative specifier. No broad harness change was made.
+- Aggregate npm test remains FAIL for a separate data-URL loader issue. Reproduced at tests/artboard-pan-dom.test.js: after converting selected imports in src/main.js to file URLs, the loader leaves the first ./text-wrap.js import unchanged, then evaluates the source as data:text/javascript;base64,...; Node reports ERR_UNSUPPORTED_RESOLVE_REQUEST for that relative specifier. At that checkpoint, no broad harness change had been made.
+
+## Main data-URL test loader / 2026-10-19
+
+Synthetic DOM tests load `src/main.js` from a `data:` URL. Node cannot resolve any relative imports in that module against the `data:` origin, including `./text-wrap.js` which appeared before imports that older fixtures already rewrote. Added `tests/helpers/main-data-url.js` to resolve static and dynamic same-root imports against the real `src/main.js` URL, then applied it to the 37 data-URL test files that lacked a complete rewrite. Its focused test checks both import forms.
+
+`artboard-pan-dom.test.js` now imports its core constructors explicitly, exposes happy-dom's `MutationObserver`, and loads a real Circle through `window.nect.load()` so the existing artwork-preservation assertions act on actual art. The original pan, pointer-ownership, artboard and history assertions remain in place.
+
+- Focused tests: **2 PASS** (`main-data-url-loader.test.js`, `artboard-pan-dom.test.js`).
+- Syntax checks, focused Prettier check and `git diff --check`: **PASS**.
+- Full `npm test` (run once): **1,559 tests; 1,447 PASS; 108 FAIL; 4 skipped**. The Artboard Pan case passed.
+- Failure classification: 77 synthetic-DOM cases fail before exercising their assertions because their fixtures do not expose global `MutationObserver`; 3 Windows subprocess cases fail to launch Node using the configured path. The other 28 report assertion/schema/API mismatches, duplicate `evaluate` declaration, or missing `beginRecovery`. They are unresolved current test/code contract failures outside this loader patch; no clean baseline run is available to attribute them conclusively.
+- Browser acceptance: **NOT RUN**. The existing localhost navigation denial was not retried or bypassed. No dependency install or network retry occurred.

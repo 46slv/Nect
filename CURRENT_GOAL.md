@@ -14,23 +14,28 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Responsive Composition header (2026-10-19)
+## ACTIVE CHECKPOINT - Main data-URL test loader (2026-10-19)
 
-Goal: Keep the Composition and history controls reachable when the toolbar wraps at 900×620. Undo/Redo must remain available to normal pointer and keyboard input without changing project-session semantics.
+Goal: Make synthetic-DOM tests that import `src/main.js` through a data URL resolve every remaining same-root relative module, and keep the Artboard Pan regression test exercising actual artwork.
 
-Current phase: The header now grows with wrapped rows and the app grid places the workspace after it. Code commit 9062720f1025e1e22438c0830a829e261f80f5c9 is complete. Real browser confirmation remains pending because local navigation was denied.
+Current phase: A shared test helper resolves static `from './…'` and dynamic `import('./…')` specifiers against `desktop/src/main.js`. It is used in the 37 data-URL test files that had not resolved all relative imports. The Artboard Pan fixture now loads a real Circle through `window.nect.load()` and bridges `MutationObserver` into the synthetic browser globals.
 
 Proven:
-- The prior CSS had flex-wrap: wrap with a fixed 48px header; the workspace began at that 48px edge, so later header rows overlapped the Tools nav and Playwright reported it intercepted the Undo click.
-- The new structural layout regression test PASS: node --test tests/responsive-header-layout.test.js.
-- JavaScript syntax checks PASS; the new test file passes Prettier.
-- npm run build PASS, with the existing large JavaScript chunk warning.
-- The existing 900×620 browser E2E now covers normal Undo click, keyboard Redo/Undo and normal Redo click, but was not rerun after the fix because localhost navigation returned ERR_NETWORK_ACCESS_DENIED. No alternate host, route or settings were tried.
-- Aggregate npm test remains FAIL for a separate loader defect. The narrow reproduced failure is tests/artboard-pan-dom.test.js: it imports main.js through a data URL after rewriting selected imports but leaves the first ./text-wrap.js specifier relative; Node fails resolving that specifier from the data URL. No broad test-harness rewrite was made.
+- `node --test tests/main-data-url-loader.test.js tests/artboard-pan-dom.test.js`: **2 PASS**.
+- `node --check` on the helper, its test and Artboard Pan test: **PASS**.
+- Prettier check for the three focused files: **PASS**.
+- One full `npm test` run: **1,559 tests, 1,447 PASS, 108 FAIL, 4 skipped**. Of the failures, 77 synthetic-DOM files lack a global `MutationObserver` binding; 3 subprocess cases fail to launch the configured Windows Node path; 28 remaining cases report assertion/schema/API mismatches, an `evaluate` duplicate declaration, or missing `beginRecovery`. Those remaining cases are outside this loader change; without a baseline run they are recorded as unresolved test/code contract failures, not attributed to this patch.
+- The full run includes the Artboard Pan regression and it passed. No production code was changed by this checkpoint.
+- The previously recorded localhost navigation denial remains a browser acceptance blocker; it was not retried.
 
-Next task: Run the existing 900×620 E2E in an allowed browser environment and confirm Undo/Redo by normal click and keyboard. Then continue the still-open browser/native file lifecycle acceptance.
-Approach: Use the existing E2E viewport and ordinary input only. Do not force-click, change viewport to hide the issue, or bypass the localhost access denial. Keep the unrelated data-URL loader fix as a separate, narrowly scoped task.
-Done for next: Real 900×620 browser evidence shows the wrapped header and workspace do not overlap and all Undo/Redo inputs work; otherwise record the exact remaining failure.
-State: Branch codex/nect-regression-validation-v2; responsive fix commit 9062720f1025e1e22438c0830a829e261f80f5c9; no push. Documentation follow-up is being recorded after this implementation commit.
-Authority: Current user delegation authorizes this responsive fix, its regression coverage, focused checks and local commits. Browser access denial must not be bypassed; no network retry, settings change, push, merge, release or force operation.
+Next task: Triage the full-suite test environment (`MutationObserver` bridge and Windows subprocess path), then investigate the 28 assertion/API contract failures against current requirements. Continue the Composition lifecycle acceptance when the relevant runtime is available.
+
+Approach: Keep the import helper confined to test setup. Classify fresh full-suite outcomes by test harness, host runtime and app contract; do not turn a passing synthetic test into a browser acceptance claim.
+
+Done for next: Each remaining full-suite failure is either fixed with a focused regression or durably attributed to an explicit environment blocker; composition Open/Save/recovery/public-load and browser/native lifecycle evidence is current.
+
+State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `d5c34d59185655c7a44513c91bf9cff48310adcc`; these loader and test changes are the pending checkpoint commit. Working tree is expected clean after that commit. Build was not required for this test-only change. Full `npm test` ran exactly once after the helper update.
+
+Authority: Current delegated task authorizes the shared test-loader fix, focused verification, one full `npm test` run and a development-branch checkpoint. No dependency install or network retry, restoration clone, backup or upload was performed; localhost denial was not bypassed.
+
 Handoff: CONTINUE_CURRENT_TASK

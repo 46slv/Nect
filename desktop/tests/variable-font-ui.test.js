@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Worker as NodeWorker } from 'node:worker_threads';
@@ -59,6 +60,7 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
       /from '(.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const wait = async (condition, label = 'condition') => {
     const end = Date.now() + 15000;

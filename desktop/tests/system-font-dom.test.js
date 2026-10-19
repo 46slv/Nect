@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -54,6 +55,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
       `from './${name}.js'`,
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
     );
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const until = async (predicate) => {
     const deadline = Date.now() + 5000;

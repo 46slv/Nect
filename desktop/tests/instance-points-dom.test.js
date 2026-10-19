@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -49,6 +50,7 @@ test('Instance on Points exposes two required typed inputs and an optional tange
     source = source.replaceAll(`from './${file}.js'`, `from '${moduleUrl}'`);
   }
   source = source.replace("import './style.css';", '');
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((resolve) => setTimeout(resolve, 100));
 

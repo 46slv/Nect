@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -70,6 +71,7 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
   source += '\nwindow.flushCanvasForTest = () => updateCanvas(true);';
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
   const q = (selector) => document.querySelector(selector);
