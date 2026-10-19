@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Whole-project Composition import (2026-10-19)
+## ACTIVE CHECKPOINT - Composition view-state isolation (2026-10-19)
 
-Goal: Connect the existing project Import action to an atomic all-Compositions or one-Composition additive import. Preserve source dimensions, complete Layer stacks, Layer-graph references and referenced shared fonts/images. One batch is one Undo/Redo project operation. Open remains whole-project replacement; SVG/PNG continue to use the active Composition projection.
+Goal: Preserve independent editing and viewport context for each outer Composition while switching through the current header selector. Keep view state window-local, filter stale IDs, avoid document History/dirty changes on switch, and reset old project state on Open/New/recovery.
 
-Current phase: Implementation and focused checks are committed locally as 63d4fd64ee271884bdd6e6a50ba50e0756bcf374. Production core-factory and real browser/native import acceptance are NOT RUN because required dependencies are missing.
+Current phase: Implementation and focused checks complete; local commit pending. The production core factory and real browser/native UI paths are NOT RUN because pako is absent. The header selector exists; the planned keyboard-accessible tablist does not.
 
 Proven:
-- 25 model/import/owner/action-contract tests PASS.
+- 33 focused model/import/owner/view-state/action-contract tests PASS.
 - Syntax checks and git diff --check PASS.
-- Legacy JSON passes through the existing project deserializer; the import dialog offers All Compositions by default or one selected outer Composition.
-- The session owner validates/remaps the entire candidate before one project-history commit; invalid assets reject without changing project revision/history.
-- Open stays on the replacement path; Add SVG is separate. Native source file bindings are released after reading, and stale edits reject the pending import.
+- In-memory state is keyed by stable Composition ID and includes active Layer, node/artwork/point selection, selected Guide, Canvas zoom/fit/pan, graph zoom/scroll, tool, and node-viewer bindings.
+- Restore filters Layer/Node/Guide/Viewer/point IDs against the active Composition; removed Composition states are pruned and new/imported IDs are cleared.
+- Project replacement clears view snapshots and ID-keyed view details; the owner switch remains revision/history-neutral.
 
-Next task: Once an authorized local dependency/runtime is available, run the production core factory and browser/native multi-Composition lifecycle acceptance. The current checkout lacks pako; npm/network retry is excluded by the current instruction.
-Approach: Exercise all-set and single import, collisions, missing-asset atomic failure, one-step Undo/Redo, Open/Save/recovery/public load, and active SVG/PNG output in the actual app/runtime.
-Done for next: The production core and real browser/native paths preserve complete source sets, assets and history; otherwise record the exact local capability blocker and resume trigger.
-State: Branch codex/nect-regression-validation-v2; implementation commit 63d4fd64ee271884bdd6e6a50ba50e0756bcf374; checkpoint note is being synchronized locally. No push. Per-Composition selection/active Layer/zoom/pan retention remains separate follow-on work.
-Authority: Current user delegation authorizes implementation, focused tests, related docs, and local commit. No npm/network retry, push, restore clone, backup, upload, force operation, main merge, release, authentication, or permission change.
+Next task: Commit locally. When an authorized dependency/runtime is available, exercise real UI switching, Undo-driven active-ID changes, project replacement reset, and active-ID safety. The tablist UI is a separate outstanding connection.
+Approach: Review the focused source/docs diff, commit without pushing. Do not retry npm/network. Keep core/UI acceptance marked NOT RUN until executed in an available local runtime.
+Done for next: The view-state connection is committed, limited tests pass, and remaining UI/runtime gaps are recorded accurately.
+State: Branch codex/nect-regression-validation-v2; parent HEAD 9d9bd41d755b355c7fcf85dd2e61480d8828443c; this checkpoint commit will be the branch tip after local commit. No push. Per-Composition view state is not persisted; the Composition tablist remains future UI work.
+Authority: Current user instruction authorizes this implementation, focused tests, related docs, and local commit. No npm/network retry, push, upload, account/permission changes, force operation, main merge, or release.
 Handoff: CONTINUE_CURRENT_TASK

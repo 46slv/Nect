@@ -1,6 +1,6 @@
 # Independently Sized Compositions — Preimplementation Design
 
-**Status:** Stage 1/2 model conversion, Stage 3 session/lifecycle integration, and additive whole-project Composition import are implemented. The focused model/import/owner/action-contract run passes 25 tests; production core-factory runtime and GUI workflows remain NOT RUN because this checkout lacks required external packages. This is not a native UI acceptance or release claim.
+**Status:** Stage 1/2 model conversion, Stage 3 session/lifecycle integration, additive project Composition import, and in-memory per-Composition selection/view-state restore are implemented. The focused model/import/owner/view-state/action-contract run passes 33 tests. Production core-factory runtime and browser/native UI acceptance remain NOT RUN because required external packages are absent.
 
 **Scope:** Desktop project model, tab selection, import, history, and per-Composition SVG/PNG output.
 
@@ -65,10 +65,10 @@ Guides and layout-grid coordinates should be scoped to the Composition whose coo
 
 **Stage 3 (implemented, runtime verification pending):** CompositionSessionOwner routes existing commands and chronological Undo/Redo through the active Document projection while recording complete project snapshots. Add Composition and tab switching are connected to the UI. Native/browser Open, Save, recovery and public load use the project envelope; legacy JSON passes through the core upgrader. SVG and PNG export use the active Composition's dimensions and Layer stack. Project-shared fonts and images remain at the root. The owner tests use doubles, so they do not prove the production core factory or UI lifecycle.
 
-**Remaining:** Selection, active Layer, zoom and pan are reset on switching instead of saved per Composition. Production core-factory runtime and browser/native GUI acceptance for multi-Composition Import/Open/Save/recovery/export are NOT RUN because dependencies are missing in this checkout. Dependency-free model and owner tests do not substitute for those checks.
+**Remaining:** The header still uses a Composition selector; the keyboard-accessible Composition tablist is not implemented. Per-Composition view state is window-local and is not serialized. Production core-factory runtime and browser/native GUI acceptance for multi-Composition Import/Open/Save/recovery/export/view-state restore are NOT RUN because dependencies are missing.
 
 ## Later implementation touchpoints
 
-Use the production core factory and real project lifecycle with an authorized local dependency/runtime. Verify differently sized Compositions, all-set and selected Composition import, shared fonts/images, chronological Undo/Redo, legacy migration, browser/native Open and Save, recovery, public load, and active-Composition SVG/PNG output. Per-Composition view-state retention remains follow-on work.
+Use the production core factory and real project lifecycle with an authorized local dependency/runtime. Verify differently sized Compositions, all-set and selected Composition import, shared fonts/images, chronological Undo/Redo, legacy migration, browser/native Open and Save, recovery, public load, active-Composition SVG/PNG output, and per-Composition view-state restoration. Production runtime coverage remains pending.
 
-**Decision state:** The envelope, active-Document bridge, and additive all-or-one Composition import are connected to the Desktop lifecycle and editing call sites. Outer-Composition references remain deferred; existing Composition Reference continues to identify a Layer graph. Core runtime and UI acceptance are still pending, so this is not an end-to-end verification claim.
+**Decision state:** The envelope, active-Document bridge, additive all-or-one Composition import, and ephemeral per-Composition editing/view-state store are connected to the Desktop selector and session lifecycle. The keyboard-accessible tablist is still pending. Outer-Composition references remain deferred; existing Composition Reference continues to identify a Layer graph. Core runtime and UI acceptance are still pending.

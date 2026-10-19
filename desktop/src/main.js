@@ -21,6 +21,7 @@ import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
+import { createCompositionViewStateStore } from './composition-view-state.js';
 import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
@@ -1001,6 +1002,7 @@ let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
+const compositionViewStates = createCompositionViewStateStore();
 const selectionHistory = new WeakMap();
 function closeTransientPanels(except = '') {
   if (except !== 'align') alignmentPreferences.open = false;
@@ -1036,6 +1038,8 @@ function stepHistory(redo = false) {
     notify('Finish or cancel text composition before Undo/Redo', true);
     return;
   }
+  const priorCompositionId = session.activeCompositionId;
+  saveCompositionViewState();
   const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
@@ -1043,15 +1047,23 @@ function stepHistory(redo = false) {
   if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
     void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
       if (result) {
-        activeLayer =
-          history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
-        render();
+        compositionViewStates.prune(session.projectSnapshot().compositions);
+        if (session.activeCompositionId !== priorCompositionId) {
+          const graphScroll = restoreCompositionViewState();
+          render(false, null, graphScroll);
+        } else {
+          activeLayer =
+            history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
+          render();
+        }
       }
     });
     return;
   }
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
-  const state = selectionHistory.get(history.doc);
+  const compositionChanged = session.activeCompositionId !== priorCompositionId;
+  compositionViewStates.prune(session.projectSnapshot().compositions);
+  const state = compositionChanged ? null : selectionHistory.get(history.doc);
   if (state) {
     ({ activeLayer, selected, artworkTarget } = state);
     artworkSelection = new Set(state.artworkSelection);
@@ -1087,6 +1099,11 @@ function stepHistory(redo = false) {
     artworkSelection = new Set();
     selection = new Set();
   }
+  if (compositionChanged) {
+    compositionViewStates.prune(session.projectSnapshot().compositions);
+    return restoreCompositionViewState();
+  }
+  return null;
 }
 const remapBatches = new Map();
 let characterEdit = null;
@@ -2669,7 +2686,7 @@ function updatePngExportPreview() {
   const button = app.querySelector('[data-action="export-png"]');
   if (button) button.disabled = !preview.size;
 }
-function render(resetView = false, artworkResolution = null) {
+function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
   textTools?.cancel();
   const osOwners = new Set(
     history.doc.layers.flatMap((layer) => layer.nodes.filter((n) => n.osFont).map((n) => n.id)),
@@ -2725,7 +2742,8 @@ function render(resetView = false, artworkResolution = null) {
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
   selection = new Set([...selection].filter((id) => current().nodes.some((n) => n.id === id)));
   let scroll = document.querySelector('.graph-scroll'),
-    oldScroll = scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
+    oldScroll = graphScrollOverride ||
+      (scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0]);
   const doc = history.doc,
     pngPreview = pngExportPreview(doc),
     aids = guideSettings(doc),
@@ -5100,7 +5118,8 @@ async function openCompositionImportDialog() {
         variableAction
       )
         throw Error('Project changed while reading; import the file again');
-      session.dispatch({
+      saveCompositionViewState();
+      const imported = session.dispatch({
         ...session.state,
         type: 'import-project-compositions',
         payload: {
@@ -5110,8 +5129,11 @@ async function openCompositionImportDialog() {
         },
       });
       resetTransient();
-      resetCompositionSelection();
-      render(true);
+      for (const compositionId of imported.importedCompositionIds)
+        compositionViewStates.forget(compositionId);
+      compositionViewStates.prune(session.projectSnapshot().compositions);
+      const graphScroll = restoreCompositionViewState();
+      render(false, null, graphScroll);
       updateDocumentStatus();
       notify(select.value === '__all__' ? 'Compositions imported' : 'Composition imported');
     } catch (error) {
@@ -5267,46 +5289,121 @@ function replaceDocument(
     variableBridge = null;
   }
   resetTransient();
+  compositionViewStates.clear();
+  detailsState.clear();
+  contextMenuScroll.clear();
   viewerState = createViewerState();
   const project = asCompositionProject(next);
   activeCompositionId ??= project.compositions[0].id;
   session = createCompositionSessionOwner(project, { ...sessionOptions, activeCompositionId });
   history = session.historyView;
   documents.replace({ binding, saved });
+  zoom = 1;
+  canvasFit = true;
+  pan = [0, 0];
+  graphZoom = 1;
+  tool = 'select';
+  selectedGuide = null;
   activeLayer = initialLayerId(history.doc);
   selected = current().nodes[0]?.id;
   artworkTarget = null;
   artworkSelection = new Set();
   selection = new Set();
 }
-function resetCompositionSelection() {
-  viewerState = createViewerState();
-  activeLayer = initialLayerId(history.doc);
-  selected = current().nodes[0]?.id;
-  artworkTarget = null;
-  artworkSelection = new Set();
-  selection = new Set();
-  selectedGuide = null;
-  characterEdit = null;
-  tool = 'select';
+function compositionViewDefaults(doc) {
+  const layerId = initialLayerId(doc),
+    layer = doc.layers.find((item) => item.id === layerId),
+    selectedNode = layer?.nodes[0]?.id || null;
+  return {
+    activeLayer: layerId,
+    selected: selectedNode,
+    selection: selectedNode ? [selectedNode] : [],
+    artworkTarget: null,
+    artworkSelection: [],
+    pointSelection: { nodeId: null, ids: [] },
+    pointFocus: null,
+    selectedGuide: null,
+    zoom: 1,
+    canvasFit: true,
+    pan: [0, 0],
+    graphZoom: 1,
+    graphScroll: [0, 0],
+    tool: 'select',
+    guideIds: guideSettings(doc).guides.map((guide) => guide.id),
+    viewerState: createViewerState(),
+  };
+}
+function saveCompositionViewState() {
+  const graph = app.querySelector('.graph-scroll');
+  compositionViewStates.save(session.activeCompositionId, {
+    activeLayer,
+    selected,
+    selection: [...selection],
+    artworkTarget,
+    artworkSelection: [...artworkSelection],
+    pointSelection: { nodeId: pointSelection.nodeId, ids: [...pointSelection.ids] },
+    pointFocus: pointFocus ? { ...pointFocus } : null,
+    selectedGuide,
+    zoom,
+    canvasFit,
+    pan: [...pan],
+    graphZoom,
+    graphScroll: graph ? [graph.scrollLeft, graph.scrollTop] : [0, 0],
+    tool,
+    viewerState,
+  });
+}
+function restoreCompositionViewState() {
+  const state = compositionViewStates.restore(
+    session.activeCompositionId,
+    history.doc,
+    compositionViewDefaults(history.doc),
+  );
+  activeLayer = state.activeLayer;
+  selected = state.selected;
+  selection = new Set(state.selection);
+  artworkTarget = state.artworkTarget;
+  artworkSelection = new Set(state.artworkSelection);
+  pointSelection = {
+    nodeId: state.pointSelection.nodeId,
+    ids: new Set(state.pointSelection.ids),
+  };
+  pointFocus = state.pointFocus ? { ...state.pointFocus } : null;
+  selectedGuide = state.selectedGuide;
+  zoom = state.zoom;
+  canvasFit = state.canvasFit;
+  pan = [...state.pan];
+  graphZoom = state.graphZoom;
+  tool = state.tool;
+  viewerState = state.viewerState;
+  return state.graphScroll;
 }
 function switchActiveComposition(compositionId) {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  if (compositionId === session.activeCompositionId) return false;
+  const project = session.projectSnapshot();
+  if (!project.compositions.some((composition) => composition.id === compositionId))
+    throw Error('Unknown active Composition ID');
+  saveCompositionViewState();
   resetTransient();
   if (!session.switchComposition(compositionId)) return false;
-  resetCompositionSelection();
-  render(true);
+  compositionViewStates.prune(project.compositions);
+  const graphScroll = restoreCompositionViewState();
+  render(false, null, graphScroll);
   updateDocumentStatus();
   return true;
 }
 function addComposition() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  saveCompositionViewState();
   resetTransient();
-  session.createComposition();
-  resetCompositionSelection();
-  render(true);
+  const compositionId = session.createComposition();
+  compositionViewStates.forget(compositionId);
+  compositionViewStates.prune(session.projectSnapshot().compositions);
+  const graphScroll = restoreCompositionViewState();
+  render(false, null, graphScroll);
   updateDocumentStatus();
 }
 function download(text, name, type) {
@@ -5668,14 +5765,16 @@ app.addEventListener('click', async (e) => {
   if (d.action) {
     try {
       switch (d.action) {
-        case 'undo':
-          stepHistory();
-          render();
+        case 'undo': {
+          const graphScroll = stepHistory();
+          render(false, null, graphScroll);
           break;
-        case 'redo':
-          stepHistory(true);
-          render();
+        }
+        case 'redo': {
+          const graphScroll = stepHistory(true);
+          render(false, null, graphScroll);
           break;
+        }
         case 'save':
         case 'save-as': {
           try {
@@ -11450,8 +11549,8 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
-    stepHistory(e.shiftKey);
-    render();
+    const graphScroll = stepHistory(e.shiftKey);
+    render(false, null, graphScroll);
   }
   if (e.key === 'Delete' && selectedGuide) {
     const result = editGuides('delete-guide', { guideId: selectedGuide });

@@ -164,3 +164,13 @@ The existing Import action reads the project envelope and offers All Composition
 - Production core factory and browser/native import acceptance: **NOT RUN**; required external packages are absent. No npm/network retry was made. The real-browser E2E assertions are prepared coverage, not a runtime pass.
 
 Next: when an authorized local dependency/runtime is available, run the core factory and exercise all-set/single Composition import, repeated collision remapping, atomic failure, one-step Undo/Redo, Open/Save/recovery/public load and active SVG/PNG output. Per-Composition selection and view-state retention remains separate work.
+
+## Per-Composition selection and view state / 2026-10-19
+
+The Composition selector now saves/restores in-memory UI state by stable Composition ID: active Layer, node/artwork/point selection, selected Guide, Canvas zoom/fit/pan, graph zoom/scroll, tool, and node-viewer bindings. Restore filters Layers, Nodes, Guides, Viewer references, and authored point IDs against the target Composition. Project replacement clears these snapshots and other ID-keyed details state; newly added/imported IDs start with defaults. Switching itself does not dispatch a document command or add History/dirty state. The current header control is a selector, not the planned keyboard-accessible tablist.
+
+- Focused model/import/owner/view-state/action-contract tests: **33 PASS**.
+- Changed JavaScript syntax checks and git diff --check: **PASS**.
+- Production core-factory and browser/native UI acceptance: **NOT RUN**; `desktop/node_modules/pako/browser/deflate` is absent. No npm/network retry was made.
+
+Next: when an authorized local dependency/runtime is available, exercise Composition switching with node/artwork/point selections and distinct Canvas/graph views, undo-driven active-ID changes, Open/New/recovery resets, and verify no IDs from another Composition survive. Implement the separate accessible Composition tablist only when that UI connection is in scope.
