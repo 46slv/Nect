@@ -6,6 +6,7 @@ Run from `desktop/`:
 node scripts/regression-runner.mjs
 node scripts/regression-runner.mjs composition
 node scripts/regression-runner.mjs graph layers numeric
+node tests/import-actions.e2e.js
 ```
 
 The default `smoke` suite is intentionally short. The runner records `PASS` or
@@ -19,6 +20,7 @@ selected; unsupported browser/native checks remain `NOT_RUN` in the checklist.
 | node connections / copy   | graph       | command session, clipboard, duplication, wiring |
 | layer order / duplicate   | layers      | ordering and duplication                        |
 | numeric input             | numeric     | scrub, expressions, math                        |
+| Import menu and chooser   | browser     | DOM dropdown renders; SVG/image/composition clicks reach file chooser |
 
 ## Luna/manual checklist (not scriptable)
 
@@ -33,6 +35,7 @@ mutation and record `NOT_RUN`, `FAIL`, or `PASS` explicitly.
 | Drag                | two-node graph; drag selected node through canvas                 | one committed edit; cancel restores; no retargeted IDs                                            |
 | Context menu        | node selected; open right-click menu and copy/paste               | menu action uses same command path; copy/paste preserves IDs/contracts                            |
 | Browser smoke       | launch dev server and load localhost                              | if network policy returns `ERR_NETWORK_ACCESS_DENIED`, mark `NOT_RUN` and retain browser evidence |
+| Import DOM flow     | click Import summary, then SVG/image/composition actions          | menu items are visible and each click opens the expected file chooser; `tests/import-actions.e2e.js` |
 
 ## Slop review
 
