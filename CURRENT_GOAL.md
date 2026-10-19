@@ -18,18 +18,18 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Connect the existing project Import action to an atomic all-Compositions or one-Composition additive import. Preserve source dimensions, complete Layer stacks, Layer-graph references and referenced shared fonts/images. One batch is one Undo/Redo project operation. Open remains whole-project replacement; SVG/PNG continue to use the active Composition projection.
 
-Current phase: Implementation and focused checks complete; local commit pending. Production core-factory and real browser/native import acceptance are NOT RUN because required dependencies are missing.
+Current phase: Implementation and focused checks are committed locally as 63d4fd64ee271884bdd6e6a50ba50e0756bcf374. Production core-factory and real browser/native import acceptance are NOT RUN because required dependencies are missing.
 
 Proven:
 - 25 model/import/owner/action-contract tests PASS.
 - Syntax checks and git diff --check PASS.
 - Legacy JSON passes through the existing project deserializer; the import dialog offers All Compositions by default or one selected outer Composition.
 - The session owner validates/remaps the entire candidate before one project-history commit; invalid assets reject without changing project revision/history.
-- Open stays on the replacement path; Add SVG is separate. Native source-file bindings are released after reading, and stale edits reject the pending import.
+- Open stays on the replacement path; Add SVG is separate. Native source file bindings are released after reading, and stale edits reject the pending import.
 
 Next task: Once an authorized local dependency/runtime is available, run the production core factory and browser/native multi-Composition lifecycle acceptance. The current checkout lacks pako; npm/network retry is excluded by the current instruction.
 Approach: Exercise all-set and single import, collisions, missing-asset atomic failure, one-step Undo/Redo, Open/Save/recovery/public load, and active SVG/PNG output in the actual app/runtime.
 Done for next: The production core and real browser/native paths preserve complete source sets, assets and history; otherwise record the exact local capability blocker and resume trigger.
-State: Branch codex/nect-regression-validation-v2; parent HEAD b5284afca12867824734c8b4336165d186a7e159; this checkpoint commit is the branch tip after local commit. No push. Per-Composition selection/active Layer/zoom/pan retention remains separate follow-on work.
+State: Branch codex/nect-regression-validation-v2; implementation commit 63d4fd64ee271884bdd6e6a50ba50e0756bcf374; checkpoint note is being synchronized locally. No push. Per-Composition selection/active Layer/zoom/pan retention remains separate follow-on work.
 Authority: Current user delegation authorizes implementation, focused tests, related docs, and local commit. No npm/network retry, push, restore clone, backup, upload, force operation, main merge, release, authentication, or permission change.
 Handoff: CONTINUE_CURRENT_TASK
