@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { displayLengthToDocumentUnits } from '../src/artboard-units.js';
+import {
+  displayLengthToDocumentUnits,
+  svgRootSizeAttributes,
+} from '../src/artboard-units.js';
 import { pngDimensions } from '../src/raster.js';
 
 const mm = (value) => displayLengthToDocumentUnits(value, 'mm');
@@ -18,10 +21,35 @@ test('PPI output rounds physical document dimensions to whole pixels', () => {
 });
 
 test('A4 at 300 PPI uses deterministic nearest-pixel rounding', () => {
-  assert.deepEqual(pngDimensions({ width: mm(210), height: mm(297) }, { mode: 'ppi', ppi: 300 }), {
+  const doc = { width: mm(210), height: mm(297) },
+    size = pngDimensions(doc, { mode: 'ppi', ppi: 300 });
+
+  assert.deepEqual(size, {
     width: 2480,
     height: 3508,
   });
+  const fit = Math.min(size.width / doc.width, size.height / doc.height);
+  assert.ok(size.width - doc.width * fit < 1);
+  assert.ok(size.height - doc.height * fit < 1);
+});
+
+test('100 × 50 mm stays physically consistent through SVG cm roots and 300 PPI PNG sizing', () => {
+  const doc = { width: mm(100), height: mm(50) },
+    before = structuredClone(doc),
+    svg = svgRootSizeAttributes(doc, 'cm'),
+    png = pngDimensions(doc, { mode: 'ppi', ppi: 300 });
+
+  assert.equal(svg.width, '10cm');
+  assert.equal(svg.height, '5cm');
+  assert.equal(svg.viewBox, `0 0 ${doc.width} ${doc.height}`);
+  assert.deepEqual(png, { width: 1181, height: 591 });
+
+  // The SVG default preserveAspectRatio fits the source into the rounded pixel
+  // viewport; these standard-format cases leave less than one pixel of slack.
+  const fit = Math.min(png.width / doc.width, png.height / doc.height);
+  assert.ok(png.width - doc.width * fit < 1);
+  assert.ok(png.height - doc.height * fit < 1);
+  assert.deepEqual(doc, before, 'unit formatting and PNG sizing leave source dimensions unchanged');
 });
 
 test('existing numeric scale behavior and explicit scale mode remain unchanged', () => {

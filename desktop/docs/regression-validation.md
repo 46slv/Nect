@@ -37,6 +37,21 @@ mutation and record `NOT_RUN`, `FAIL`, or `PASS` explicitly.
 | Browser smoke       | launch dev server and load localhost                              | if network policy returns `ERR_NETWORK_ACCESS_DENIED`, mark `NOT_RUN` and retain browser evidence |
 | Import DOM flow     | click Import summary, then SVG/image/composition actions          | menu items are visible and each click opens the expected file chooser; `tests/import-actions.e2e.js` |
 
+### Artboard units → SVG → PNG
+
+Use a disposable new document. Set Artboard units to `mm`, set its width/height to
+`100` / `50`, and save a baseline project JSON. Switch units to `cm` and back;
+compare the project JSON to confirm display units alone did not edit it. Export
+SVG with units `cm`, then export PNG in `Physical × PPI` mode at `300`. Capture the
+unit fields and PNG preview; retain the baseline JSON, SVG and PNG. The SVG root
+must say `width="10cm" height="5cm"` with
+`viewBox="0 0 377.9527559055118 188.9763779527559"`; PNG preview and file must
+both be `1181 × 591 px`. Compare project JSON again after both exports. **PASS**
+only if dimensions match, unit switching/exports leave project JSON unchanged,
+and no visible stretch or full-pixel border appears. Record the screenshot, three
+files, and reviewer/runtime version. Any mismatch is **FAIL**; if the application
+could not be run, mark **NOT_RUN** (not PASS).
+
 ## Slop review
 
 Run the existing `npm run format:check`, `npm test`, and `npm run build`. Review only
