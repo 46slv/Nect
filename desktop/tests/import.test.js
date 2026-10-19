@@ -2,12 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { importSVG } from '../src/svg-import.js';
-import { evaluate, pathArea, exportSVG } from '../src/core.js';
+import { evaluate, pathArea, pathBounds, exportSVG, serialize, deserialize } from '../src/core.js';
 const Parser = new Window().DOMParser;
 
 const cssPixelsForMillimetres = (value) => (value * 96) / 25.4;
 const close = (actual, expected) =>
   assert.ok(Math.abs(actual - expected) <= 1e-9 * Math.max(1, Math.abs(expected)));
+const viewportMatrix = (doc) => {
+  const layer = doc.layers[0],
+    transform = layer.nodes.find((n) => n.name === 'SVG viewport mapping');
+  assert.ok(transform, 'expected a non-identity SVG viewport Transform');
+  return evaluate(layer).run(transform.id).matrix;
+};
+const closeMatrix = (actual, expected) =>
+  actual.forEach((value, index) => close(value, expected[index]));
 
 test('physical SVG root sizes import as 96 CSS px/in and round-trip through mm and cm', () => {
   const original = importSVG(
@@ -63,28 +71,90 @@ test('zero-origin physical SVG viewBox accepts matching user units and default p
   );
 });
 
-test('SVG importer rejects viewport transforms it cannot preserve', () => {
-  assert.throws(
-    () =>
-      importSVG(
-        '<svg width="100mm" height="50mm" viewBox="10 20 377.9527559055 188.9763779528"><rect x="10" y="20" width="96" height="48"/></svg>',
-        Parser,
-      ),
-    /zero-origin SVG viewBox/,
+test('SVG viewBox maps non-zero origins and physical root sizes through Transform', () => {
+  const width = cssPixelsForMillimetres(100),
+    height = cssPixelsForMillimetres(50),
+    imported = importSVG(
+      '<svg width="100mm" height="50mm" viewBox="10 20 100 50"><rect x="10" y="20" width="100" height="50" fill="#123456"/></svg>',
+      Parser,
+    ),
+    scale = width / 100;
+
+  close(imported.width, width);
+  close(imported.height, height);
+  closeMatrix(viewportMatrix(imported), [scale, 0, 0, scale, -10 * scale, -20 * scale]);
+  assert.equal(imported.layers[0].nodes.filter((n) => n.name === 'SVG viewport mapping').length, 1);
+  const exported = exportSVG(imported);
+  assert.match(exported, /transform="matrix\(/);
+  assert.equal(exportSVG(deserialize(serialize(imported))), exported);
+});
+
+test('SVG viewBox default meet and none produce independent expected viewport matrices', () => {
+  const markup = (preserve = '') =>
+      `<svg width="100" height="100" viewBox="0 0 200 100"${preserve ? ` preserveAspectRatio="${preserve}"` : ''}><rect width="200" height="100"/></svg>`,
+    meet = importSVG(markup(), Parser),
+    none = importSVG(markup('none'), Parser);
+
+  closeMatrix(viewportMatrix(meet), [0.5, 0, 0, 0.5, 0, 25]);
+  closeMatrix(viewportMatrix(none), [0.5, 0, 0, 1, 0, 0]);
+});
+
+test('SVG percentage rectangle dimensions resolve in viewBox user space before mapping', () => {
+  const imported = importSVG(
+      '<svg width="100mm" height="50mm" viewBox="10 20 100 50"><rect x="10" y="20" width="50%" height="50%"/></svg>',
+      Parser,
+    ),
+    source = imported.layers[0].nodes.find((n) => n.type === 'Rectangle'),
+    geometry = evaluate(imported.layers[0]).run(source.id);
+
+  assert.deepEqual(pathBounds(geometry), [
+    [10, 35, 60],
+    [20, 32.5, 45],
+  ]);
+});
+
+test('SVG viewport Transform carries strokes and user-space gradients as one painted group', () => {
+  const imported = importSVG(
+    '<svg width="100mm" height="50mm" viewBox="10 20 100 50"><defs><linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="10" y1="20" x2="110" y2="70" spreadMethod="pad" color-interpolation="sRGB"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><path d="M10 20H110V70H10Z" fill="url(#ramp)" stroke="#123456" stroke-width="2"/></svg>',
+    Parser,
   );
-  for (const [viewBox, preserveAspectRatio] of [
-    ['200 100', 'xMidYMid meet'],
-    ['200 150', 'xMidYMid meet'],
-    ['200 150', 'none'],
+  const matrix = viewportMatrix(imported),
+    exported = exportSVG(imported);
+
+  close(matrix[0], cssPixelsForMillimetres(100) / 100);
+  close(matrix[3], cssPixelsForMillimetres(50) / 50);
+  close(matrix[4], -10 * matrix[0]);
+  close(matrix[5], -20 * matrix[3]);
+  assert.match(exported, /transform="matrix\(/);
+  assert.match(exported, /stroke-width="2"/);
+  assert.match(exported, /x1="10"/);
+  assert.match(exported, /x2="110"/);
+});
+
+test('SVG importer rejects preserveAspectRatio mappings and clipping it cannot preserve', () => {
+  for (const preserveAspectRatio of [
+    'xMinYMin',
+    'xMaxYMax meet',
+    'xMidYMid slice',
+    'xMinYMid slice',
   ])
     assert.throws(
       () =>
         importSVG(
-          `<svg width="100mm" height="50mm" viewBox="0 0 ${viewBox}" preserveAspectRatio="${preserveAspectRatio}"><rect width="200" height="100"/></svg>`,
+          `<svg width="100" height="100" viewBox="0 0 200 100" preserveAspectRatio="${preserveAspectRatio}"><rect width="200" height="100"/></svg>`,
           Parser,
         ),
-      /viewBox scaling is not supported/,
+      /Unsupported SVG preserveAspectRatio/,
     );
+  assert.throws(
+    () =>
+      importSVG('<svg><clipPath id="clip"><rect width="10" height="10"/></clipPath></svg>', Parser),
+    /Unsupported SVG element: clipPath/,
+  );
+  assert.throws(
+    () => importSVG('<svg><rect width="10" height="10" clip-path="url(#clip)"/></svg>', Parser),
+    /Unsupported SVG attribute: clip-path/,
+  );
 });
 
 test('fill none without a stroke remains transparent instead of acquiring the layer default fill', () => {

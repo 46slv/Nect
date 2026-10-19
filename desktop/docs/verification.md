@@ -274,3 +274,12 @@ SVG import now converts absolute root lengths (px, mm, cm, in, pt, pc and q) to 
 - Scoped Prettier checks and `git diff --check`: **PASS**.
 - Production `npm run build`: **PASS** (136 modules); Vite reports the existing large minified-chunk warning.
 - Full `npm test` and actual WebView2 import/export: **NOT_RUN**. No dependency install or network retry occurred.
+
+## SVG viewBox viewport mapping / 2026-10-19
+
+SVG import now retains physical root dimensions in the 96 CSS px/in document basis and maps user coordinates through the existing paint-mode Transform. Non-zero viewBox origins and root/viewBox scale differences are supported. Default/explicit xMidYMid meet applies uniform scaling with centered letterboxing; none applies independent X/Y scales. Other alignment variants, slice, and clipping remain unsupported and fail closed. Add SVG moves the same mapping once to the final PaintedPath of its hidden source Composition, leaving the destination artboard and authored user-space geometry unchanged.
+
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS (import.test.js, svg-part.test.js, svg-export-units.test.js). Independent expected matrices cover non-zero origins, a 100 x 50 mm viewport, default meet letterboxing, and none; percentage rectangles use viewBox user-space dimensions. Stroke and user-space gradient markup remains in the transformed paint group. Import/Add serialization round-trips preserve that mapping, and unsupported Add input leaves session state/Undo unchanged.
+- Scoped Prettier checks and git diff --check: PASS.
+- Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (1.34 MB).
+- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation, network retry, push, or remote mutation occurred at this verification stage.

@@ -2,6 +2,7 @@ import {
   document,
   layer,
   node,
+  connect,
   parsePath,
   validate,
   parseStrokeDash,
@@ -55,6 +56,66 @@ function sameSvgExtent(left, right) {
   return Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
 }
 
+function svgViewportMatrix(viewBox, viewportWidth, viewportHeight, preserveAspectRatio) {
+  if (!viewBox) return null;
+  const [minX, minY, boxWidth, boxHeight] = viewBox,
+    scaleX = viewportWidth / boxWidth,
+    scaleY = viewportHeight / boxHeight;
+  let sx = scaleX,
+    sy = scaleY,
+    tx,
+    ty;
+  if (preserveAspectRatio !== 'none') {
+    sx = sy = Math.min(scaleX, scaleY);
+    tx = (viewportWidth - boxWidth * sx) / 2 - minX * sx;
+    ty = (viewportHeight - boxHeight * sy) / 2 - minY * sy;
+  } else {
+    tx = -minX * sx;
+    ty = -minY * sy;
+  }
+  const matrix = [sx, 0, 0, sy, tx, ty];
+  if (!matrix.every(Number.isFinite) || sx <= 0 || sy <= 0)
+    throw Error('SVG viewBox transform exceeds finite coordinates');
+  if (sameSvgExtent(sx, 1) && sameSvgExtent(sy, 1) && sameSvgExtent(tx, 0) && sameSvgExtent(ty, 0))
+    return null;
+  return matrix;
+}
+
+function addSvgViewportTransform(layer, matrix) {
+  if (!matrix) return;
+  const output = layer.nodes.find((n) => n.id === layer.output);
+  if (!output || output.type !== 'Output' || !output.params.path.source)
+    throw Error('SVG viewport transform requires a connected Output');
+  const previous = layer.nodes.find((n) => n.id === output.params.path.source);
+  if (!previous) throw Error('SVG viewport transform source is missing');
+  const transform = node('Transform', previous.position[0] + 310, previous.position[1]);
+  transform.name = 'SVG viewport mapping';
+  transform.paintMode = true;
+  transform.params.path.type = 'PaintedPath';
+  transform.params.position = {
+    type: 'Vector2',
+    value: [matrix[4], matrix[5]],
+    expression: '',
+    locked: false,
+  };
+  transform.params.uniformScale = {
+    type: 'Boolean',
+    value: false,
+    expression: '',
+    locked: false,
+  };
+  transform.params.scaleWidth = {
+    type: 'Scalar',
+    value: matrix[0],
+    expression: '',
+    locked: false,
+  };
+  transform.params.scale.value = matrix[3];
+  layer.nodes.splice(layer.nodes.indexOf(output), 0, transform);
+  connect(layer, previous.id, transform.id, 'path');
+  connect(layer, transform.id, output.id, 'path');
+}
+
 const solidColor = (raw) => {
   if (raw === 'none') return null;
   if (/^#[0-9a-f]{3}$/i.test(raw)) raw = '#' + [...raw.slice(1)].map((x) => x + x).join('');
@@ -84,11 +145,9 @@ export function importSVGTree(source) {
   const preserveAspectRatio = root.getAttribute('preserveAspectRatio');
   if (
     preserveAspectRatio !== null &&
-    !/^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max)(?:\s+(?:meet|slice))?)$/.test(
-      preserveAspectRatio.trim(),
-    )
+    !['none', 'xMidYMid', 'xMidYMid meet'].includes(preserveAspectRatio.trim())
   )
-    throw Error('Unsupported SVG preserveAspectRatio value');
+    throw Error('Unsupported SVG preserveAspectRatio; supported values are none and xMidYMid meet');
   const allowed = new Set([
     'svg',
     'g',
@@ -334,21 +393,20 @@ export function importSVGTree(source) {
     .map(Number);
   if (viewBox && (viewBox.length !== 4 || !viewBox.every(Number.isFinite)))
     throw Error('Invalid SVG viewBox');
-  if (viewBox && (viewBox[0] !== 0 || viewBox[1] !== 0))
-    throw Error('Only zero-origin SVG viewBox is supported');
   if (viewBox && (viewBox[2] <= 0 || viewBox[3] <= 0))
     throw Error('SVG viewBox dimensions must be positive');
   const viewportWidth = svgRootLength(root.getAttribute('width'), 'width', viewBox?.[2] ?? 960),
     viewportHeight = svgRootLength(root.getAttribute('height'), 'height', viewBox?.[3] ?? 540);
-  if (
-    viewBox &&
-    (!sameSvgExtent(viewportWidth, viewBox[2]) || !sameSvgExtent(viewportHeight, viewBox[3]))
-  )
-    throw Error(
-      'SVG viewBox scaling is not supported; root dimensions must match viewBox units at 96 CSS px/in',
+  result.width = viewportWidth;
+  result.height = viewportHeight;
+  const userSpaceWidth = viewBox?.[2] ?? viewportWidth,
+    userSpaceHeight = viewBox?.[3] ?? viewportHeight,
+    viewportMatrix = svgViewportMatrix(
+      viewBox,
+      viewportWidth,
+      viewportHeight,
+      preserveAspectRatio?.trim() || 'xMidYMid meet',
     );
-  result.width = viewBox?.[2] ?? viewportWidth;
-  result.height = viewBox?.[3] ?? viewportHeight;
   const rectangleDimension = (el, key, basis) => {
     const raw = el.getAttribute(key);
     if (raw && /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/i.test(raw)) {
@@ -395,8 +453,8 @@ export function importSVGTree(source) {
       n.params.size.value = [number(el, 'rx', 0) * 2, number(el, 'ry', 0) * 2];
       if (n.params.size.value.some((v) => v < 0)) throw Error('Negative ellipse radius');
     } else {
-      const w = rectangleDimension(el, 'width', result.width),
-        h = rectangleDimension(el, 'height', result.height),
+      const w = rectangleDimension(el, 'width', userSpaceWidth),
+        h = rectangleDimension(el, 'height', userSpaceHeight),
         x = number(el, 'x', 0),
         y = number(el, 'y', 0);
       if (w < 0 || h < 0) throw Error('Negative rectangle size');
@@ -592,5 +650,9 @@ export function importSVGTree(source) {
     result.layers.push(l);
   }
   if (!result.layers.length) throw Error('SVG contains no supported shapes');
+  if (viewportMatrix) {
+    result.schemaVersion = Math.max(result.schemaVersion, 31);
+    for (const l of result.layers) addSvgViewportTransform(l, viewportMatrix);
+  }
   return validate(result);
 }

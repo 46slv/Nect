@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Physical-unit SVG import/export boundaries (2026-10-19)
+## ACTIVE CHECKPOINT - SVG viewBox viewport mapping (2026-10-19)
 
-Goal: Preserve physical SVG root dimensions in the 96 CSS px/in document basis and prevent unsupported viewBox transforms from silently changing size or position.
+Goal: Map supported SVG `viewBox` user coordinates into the physical root viewport without losing non-zero origins, scale, stroke, or user-space gradient placement. Keep Import SVG replacement and Add SVG append semantics separate.
 
-Current phase: Bounded Import SVG and Add SVG tests, importer repair, documentation, production build, source commit, and normal branch synchronization are complete.
+Current phase: Implementation, focused verification, compatibility docs, and production build are complete. Commit the bounded checkpoint, push the working branch normally, and verify remote HEAD.
 
 Proven:
 
-- Import SVG converts absolute root lengths px/mm/cm/in/pt/pc/q to CSS pixels. A 100 x 50 mm source round-trips through fixed mm and cm SVG export; a matching zero-origin viewBox and explicit `xMidYMid meet` retain dimensions.
-- Non-zero viewBox origins and root/viewBox scale or letterbox mismatches are rejected because transform-preserving geometry import is outside the current subset. Add SVG appends px user-space geometry without resizing the destination Composition and rejects an invalid source atomically.
-- Focused Import SVG, Add SVG, and root-unit tests: 20/20 PASS. Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing large-chunk warning).
-- Full `npm test` and actual WebView2 file interaction: NOT_RUN. No dependency installation or network retry occurred.
+- Absolute root lengths still convert px/mm/cm/in/pt/pc/q to the 96 CSS px/in basis; root artboard width and height remain physical viewport dimensions.
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS. Independent matrices cover non-zero origin, a 100 x 50 mm viewport, default `xMidYMid meet` letterboxing, and `none`; percentage geometry uses viewBox user-space dimensions. Paint group fixtures retain stroke and gradient markup. Add SVG retains one viewport Transform and leaves the destination size unchanged.
+- Other alignment modes and `slice` fail explicitly. `<clipPath>` and `clip-path` remain unsupported and fail closed.
+- Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing 1.34 MB chunk warning). Full `npm test` and actual WebView2 import/export remain NOT_RUN.
 
-Next task: Evaluate whether transform-preserving import for non-zero origins and mismatched root/viewBox sizes should be the next bounded compatibility increment; the current verified behavior remains explicit rejection.
+Next task: Commit the implementation, tests, verification record and compatibility documentation; push normally and verify remote SHA.
 
-Approach: Keep Import SVG's replace-document contract distinct from Add SVG's append-to-Composition contract. Extend transforms only with fixtures that prove 96 CSS px/in geometry and expected preserveAspectRatio mapping; otherwise keep rejecting unsupported cases.
+Approach: Apply the viewport affine mapping once after paints so strokes and user-space gradients follow the same SVG coordinate transform. Copy that single mapping to the final output of the Add SVG source Composition while leaving source geometry in user units.
 
-Done for next: Physical root lengths and the safe zero-origin identity mapping are verified; unsupported viewport transforms cannot silently alter imported artwork; this checkpoint is committed and synchronized.
+Done for next: Independent expected-matrix tests pass for non-zero origins, physical root sizing, meet letterboxing and `none`; Import and Add paths pass focused assertions for paint mapping and atomic unsupported input; build and sync evidence are recorded.
 
-State: Source commit `c70f395` is pushed to `codex/nect-regression-validation-v2` and its remote SHA was verified. The working tree retains only the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs, which remain untouched.
+State: Branch `codex/nect-regression-validation-v2`, base HEAD `789234efc6e1dcbb164fbfbb4795157231bf356f`, matching the remote before this checkpoint. Current source changes are uncommitted. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
 
-Authority: The user's current delegated instruction authorizes this bounded SVG import/export review, corrective implementation, focused tests/build, documentation, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credential/permission change, or alter the preserved trial outputs.
+Authority: The user's delegated instruction authorizes this bounded SVG viewBox implementation, tests/build/docs, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
 
 Handoff: CONTINUE_CURRENT_TASK
