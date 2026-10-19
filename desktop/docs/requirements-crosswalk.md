@@ -99,7 +99,7 @@ These official Adobe pages document useful task details. They are references for
 
 ### P1 — design studies only
 
-- **Independently sized Compositions:** specify ownership of dimensions, coordinate origin, Artboard relationship, resize behavior, placements, save/reopen and SVG/PNG output before considering an implementation packet.
+- **Independently sized Compositions:** [staged design](composition-size-design.md) defines per-Composition canonical-pixel frames and compatibility boundaries. A dependency-free legacy-frame conversion/validator exists, but it is not connected to project Open/Save, UI, import, or export; independent sizes remain P1 and are not operational application scope. Outer-Composition references are deferred; existing Layer-graph references retain their current meaning.
 - **Multi-input Boolean:** define ordered input arity, open/closed-path rules, stable identity when inputs are added/removed, atomic failure, editable output and the same UI/machine command contract before implementation.
 - **Feature-specific alignment semantics:** select only if the representative task needs object/key-object/artboard reference modes or even-spacing behavior; write the Nect rule and test fixture before implementation.
 

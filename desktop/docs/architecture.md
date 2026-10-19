@@ -6,6 +6,7 @@
 - `src/fonts.js`, `src/text-layout.js`: bounded local font assets and deterministic Japanese/Latin outline layout, shared by editor and CLI. See [typography](typography.md).
 - `src/main.js`, `src/style.css`: browser editor. Canvas and graph mutate the same document. No second geometry source of truth exists.
 - `src/svg-import.js`: strict browser/XML adapter for basic SVG shapes and compound path data. It rejects unsupported attributes/elements rather than silently changing rendering.
+- `src/composition-project-model.js`: dependency-free, isolated preimplementation model for an outer Composition envelope and legacy single-frame conversion. It is not used by project validation, serialization, storage, Open/Save, UI, import, or export; the operational project format remains the single root frame below.
 - `src/storage.js`: thin browser-download / Tauri-command adapter. Native destinations are selected by the user; the frontend does not receive a general filesystem API.
 - `src-tauri/`: Tauri 2 host and Windows NSIS configuration. Chosen for small distribution and reusable existing browser UI. This is a scaffold pending compilation and Windows interaction verification.
 - `cli/export.js`: Node headless adapter. It supplies fonts and calls the same core API. Future cloud rendering should wrap this adapter with request limits, timeouts and isolation; no endpoint exists yet.
@@ -25,7 +26,7 @@
 
 ## Project schema
 
-Root: `{schemaVersion:2, name, width, height, layers, fontAssets?}`. The artboard ratio is independent from the 16:9 workspace design.
+Operational root: `{schemaVersion, name, width, height, layers, fontAssets?}`. The schema version tracks supported node/document features. The isolated Composition model utility has its own envelope version and does not change this saved format. The artboard ratio is independent from the 16:9 workspace design.
 
 Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). One layer equals one composition. No implicit node sharing.
 
