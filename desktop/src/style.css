@@ -1053,6 +1053,11 @@ header > .muted {
   white-space: nowrap;
   min-width: 0;
 }
+
+/* Menu panels extend below the header; a scroll container would clip them. */
+header {
+  overflow: visible;
+}
 image.guide-layer-shape {
   opacity: 0.25;
 }
