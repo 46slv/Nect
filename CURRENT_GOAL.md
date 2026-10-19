@@ -18,7 +18,7 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Preserve physical SVG root dimensions in the 96 CSS px/in document basis and prevent unsupported viewBox transforms from silently changing size or position.
 
-Current phase: Bounded Import SVG and Add SVG tests, importer repair, documentation, and production build are complete; checkpoint commit and normal branch synchronization remain.
+Current phase: Bounded Import SVG and Add SVG tests, importer repair, documentation, production build, source commit, and normal branch synchronization are complete.
 
 Proven:
 
@@ -31,9 +31,9 @@ Next task: Evaluate whether transform-preserving import for non-zero origins and
 
 Approach: Keep Import SVG's replace-document contract distinct from Add SVG's append-to-Composition contract. Extend transforms only with fixtures that prove 96 CSS px/in geometry and expected preserveAspectRatio mapping; otherwise keep rejecting unsupported cases.
 
-Done for next: Physical root lengths and the safe zero-origin identity mapping are verified; unsupported viewport transforms cannot silently alter imported artwork; the source/tests/docs checkpoint is committed and synchronized.
+Done for next: Physical root lengths and the safe zero-origin identity mapping are verified; unsupported viewport transforms cannot silently alter imported artwork; this checkpoint is committed and synchronized.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-commit HEAD `3dba12f22800861cf7bdc2f325ea7cf5b68bf84c`. Scoped source/tests/docs are modified. Preserve pre-existing untracked `desktop/native-artifact-4edbda9/` outputs. Remote was at the pre-commit HEAD at start.
+State: Source commit `c70f395` is pushed to `codex/nect-regression-validation-v2` and its remote SHA was verified. The working tree retains only the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs, which remain untouched.
 
 Authority: The user's current delegated instruction authorizes this bounded SVG import/export review, corrective implementation, focused tests/build, documentation, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credential/permission change, or alter the preserved trial outputs.
 
