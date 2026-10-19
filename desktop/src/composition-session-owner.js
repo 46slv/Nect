@@ -1,4 +1,5 @@
 import { validateCompositionProject } from './composition-project-model.js';
+import { prepareProjectCompositionsImport } from './composition-project-import.js';
 
 function documentFor(project, compositionId, cloneDocument) {
   const composition = project.compositions.find((entry) => entry.id === compositionId);
@@ -475,6 +476,26 @@ export class CompositionSessionOwner {
   }
 
   dispatch(command) {
+    if (command?.type === 'import-project-compositions') {
+      this.#assertCurrentCommand(command);
+      this.#assertQuiescent();
+      const prepared = prepareProjectCompositionsImport(
+        this.#history.doc,
+        command.payload.sourceProject,
+        command.payload.compositionIds,
+      );
+      const changed = this.#commitProject(
+        prepared.project,
+        prepared.compositionIds[0],
+        'import-project-compositions',
+      );
+      return {
+        ...this.state,
+        changed,
+        importedCompositionIds: prepared.compositionIds,
+        projectRevision: this.#history.revision,
+      };
+    }
     if (command?.type === 'undo' || command?.type === 'redo')
       return this.#stepHistory(command.type, command);
     const session = this.#session;

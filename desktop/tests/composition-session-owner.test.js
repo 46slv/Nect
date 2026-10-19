@@ -191,6 +191,100 @@ test('Composition switching never adds a history step or changes undo/redo avail
   assert.equal(owner.activeCompositionId, secondId);
 });
 
+test('all project Composition imports remap IDs/assets and commit as one Undo/Redo step', () => {
+  const { owner, firstId, secondId } = fixture();
+  send(owner, 'add-shared-assets', {
+    fontAssets: { 'font-shared': { name: 'Destination font', data: 'destination-font' } },
+    imageAssets: { 'image-shared': { name: 'Destination image', data: 'destination-image' } },
+  });
+  const before = owner.projectSnapshot(),
+    beforeText = serializeCompositionProject(before),
+    beforeRevision = owner.projectRevision,
+    beforeHistoryLength = owner.historyView.past.length,
+    sourceProject = clone(before);
+  sourceProject.name = 'Source project';
+  sourceProject.schemaVersion++;
+  sourceProject.fontAssets['font-shared'] = { name: 'Source font', data: 'source-font' };
+  sourceProject.imageAssets['image-shared'] = { name: 'Source image', data: 'source-image' };
+  const importedSource = sourceProject.compositions.find((item) => item.id === firstId);
+  importedSource.name = 'Imported logo';
+  importedSource.width = 777;
+  importedSource.height = 333;
+  importedSource.layers = [
+    {
+      id: before.compositions[0].layers[0].id,
+      name: 'Artwork',
+      nodes: [
+        {
+          id: 'source-reference',
+          type: 'Composition Reference',
+          compositionReference: { compositionId: 'source-reference-layer' },
+        },
+        {
+          id: 'source-text',
+          type: 'Text',
+          font: 'font-shared',
+          characterPositions: { styles: [{ font: 'font-shared' }] },
+        },
+        { id: 'source-image', type: 'Image', asset: 'image-shared' },
+      ],
+    },
+    {
+      id: 'source-reference-layer',
+      name: 'Reference source',
+      nodes: [],
+    },
+  ];
+  const invalidSource = clone(sourceProject);
+  delete invalidSource.fontAssets['font-shared'];
+  assert.throws(
+    () =>
+      send(owner, 'import-project-compositions', {
+        sourceProject: invalidSource,
+      }),
+    /Missing font asset/,
+  );
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeText);
+  assert.equal(owner.projectRevision, beforeRevision);
+  assert.equal(owner.historyView.past.length, beforeHistoryLength);
+
+  const result = send(owner, 'import-project-compositions', { sourceProject }),
+    importedIds = result.importedCompositionIds,
+    after = owner.projectSnapshot(),
+    imported = after.compositions.filter((item) => importedIds.includes(item.id)),
+    serializedAfter = serializeCompositionProject(after);
+  assert.deepEqual(importedIds, [
+    firstId + '-import-1',
+    secondId + '-import-1',
+  ]);
+  assert.equal(after.compositions.length, 4);
+  assert.equal(owner.activeCompositionId, importedIds[0]);
+  assert.equal(owner.projectRevision, beforeRevision + 1);
+  assert.equal(owner.historyView.past.length, beforeHistoryLength + 1);
+  assert.deepEqual(
+    imported.map((item) => [item.name, item.width, item.height]),
+    [
+      ['Imported logo', 777, 333],
+      ['Tall', 320, 960],
+    ],
+  );
+  assert.deepEqual(imported[0].layers.map((item) => item.name), ['Artwork', 'Reference source']);
+  assert.equal(
+    imported[0].layers[0].nodes[0].compositionReference.compositionId,
+    imported[0].layers[1].id,
+  );
+  assert.equal(imported[1].layers[0].id, before.compositions[1].layers[0].id + '-import-1');
+  assert.equal(after.fontAssets['font-shared'].data, 'destination-font');
+  assert.equal(after.fontAssets['font-shared-import-1'].data, 'source-font');
+  assert.equal(imported[0].layers[0].nodes[1].font, 'font-shared-import-1');
+  assert.equal(after.imageAssets['image-shared-import-1'].data, 'source-image');
+  assert.equal(imported[0].layers[0].nodes[2].asset, 'image-shared-import-1');
+
+  send(owner, 'undo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), beforeText);
+  send(owner, 'redo');
+  assert.equal(serializeCompositionProject(owner.projectSnapshot()), serializedAfter);
+});
 test('session-compatible History views stay stable across project edits and Composition switches', () => {
   const { owner, firstId, secondId } = fixture(),
     history = owner.historyView,

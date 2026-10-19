@@ -5029,59 +5029,93 @@ async function confirmReplace(action = 'opening another document') {
   return accepted;
 }
 async function openCompositionImportDialog() {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  const owner = session,
+    revision = session.state.expectedRevision,
+    generation = documents.generation;
   const opened = desktop
     ? await openFile()
-    : await new Promise((resolve) => {
+    : await new Promise((resolve, reject) => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json,application/json';
         input.hidden = true;
         document.body.append(input);
         input.onchange = async () => {
-          const file = input.files?.[0];
-          resolve(file ? { name: file.name, contents: await file.text() } : null);
-          input.remove();
+          try {
+            const file = input.files?.[0];
+            if (file && file.size > MAX_PROJECT_BYTES) throw Error('Project exceeds 50 MB');
+            resolve(file ? { name: file.name, contents: await file.text() } : null);
+          } catch (error) {
+            reject(error);
+          } finally {
+            input.remove();
+          }
         };
         input.click();
       });
   if (!opened) return;
   let source;
   try {
-    source = deserialize(opened.contents);
+    if (new TextEncoder().encode(opened.contents).byteLength > MAX_PROJECT_BYTES)
+      throw Error('Project exceeds 50 MB');
+    source = deserializeProject(opened.contents);
   } catch (error) {
-    notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+    notify('Composition import rejected; current document preserved: ' + error.message, true);
     return;
+  } finally {
+    await documents.releaseUnused(opened.binding);
   }
   const dialog = document.createElement('dialog');
   dialog.innerHTML =
-    '<form method="dialog"><h3>Project composition</h3><label>Composition <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+    '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
   const select = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
-  for (const layer of source.layers) {
+  const allOption = document.createElement('option');
+  allOption.value = '__all__';
+  allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
+  select.append(allOption);
+  for (const composition of source.compositions) {
     const option = document.createElement('option');
-    option.value = layer.id;
-    option.textContent = layer.name || layer.id;
+    option.value = composition.id;
+    option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
     select.append(option);
   }
-  status.textContent = `${source.layers.length} compositions`;
+  status.textContent =
+    source.compositions.length +
+    ' Compositions in ' +
+    source.name +
+    '; All adds the project set in one Undo step; choose one to add only that Composition.';
   dialog.addEventListener('close', () => {
     const value = dialog.returnValue;
     dialog.remove();
     if (value !== 'import' || !select.value) return;
     try {
+      if (
+        session !== owner ||
+        session.state.expectedRevision !== revision ||
+        documents.generation !== generation ||
+        documents.hasDraft() ||
+        variableAction
+      )
+        throw Error('Project changed while reading; import the file again');
       session.dispatch({
         ...session.state,
-        type: 'import-composition',
+        type: 'import-project-compositions',
         payload: {
-          sourceText: opened.contents,
-          compositionId: select.value,
+          sourceProject: source,
+          compositionIds:
+            select.value === '__all__' ? undefined : [select.value],
         },
       });
       resetTransient();
-      render();
-      notify('Composition imported');
+      resetCompositionSelection();
+      render(true);
+      updateDocumentStatus();
+      notify(select.value === '__all__' ? 'Compositions imported' : 'Composition imported');
     } catch (error) {
-      notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+      notify('Composition import rejected; current document preserved: ' + error.message, true);
     }
   });
   document.body.append(dialog);

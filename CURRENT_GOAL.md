@@ -14,36 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Multi-Composition session integration (2026-10-19)
+## ACTIVE CHECKPOINT - Whole-project Composition import (2026-10-19)
 
-Goal: Connect commands, chronological Undo/Redo, native/browser Open, Save,
-recovery, and public load to the multi-Composition project envelope while
-preserving inactive Compositions and shared assets. SVG/PNG use the active
-Composition projection.
+Goal: Connect the existing project Import action to an atomic all-Compositions or one-Composition additive import. Preserve source dimensions, complete Layer stacks, Layer-graph references and referenced shared fonts/images. One batch is one Undo/Redo project operation. Open remains whole-project replacement; SVG/PNG continue to use the active Composition projection.
 
-Current phase: Implementation complete; focused dependency-free checks passed.
-Production core-factory runtime and UI lifecycle remain unverified.
+Current phase: Implementation and focused checks complete; local commit pending. Production core-factory and real browser/native import acceptance are NOT RUN because required dependencies are missing.
 
 Proven:
-- 19 focused model/owner tests PASS.
-- JavaScript syntax and git diff --check PASS.
-- main.js uses project snapshots for persistence/recovery and active Composition
-  projections for existing commands and SVG/PNG output.
-- Legacy single-Document JSON goes through the core deserializer/upgrader.
+- 25 model/import/owner/action-contract tests PASS.
+- Syntax checks and git diff --check PASS.
+- Legacy JSON passes through the existing project deserializer; the import dialog offers All Compositions by default or one selected outer Composition.
+- The session owner validates/remaps the entire candidate before one project-history commit; invalid assets reject without changing project revision/history.
+- Open stays on the replacement path; Add SVG is separate. Native source-file bindings are released after reading, and stale edits reject the pending import.
 
-Next task: Run the core factory and multi-Composition lifecycle acceptance
-when an authorized local dependency/runtime is available.
-Approach: Verify differently sized Compositions, shared assets, cross-tab
-Undo/Redo, legacy migration, Open/Save/recovery/public load, and active
-SVG/PNG output in the real runtime.
-Done for next: The core owner and real browser/native lifecycle preserve every
-Composition, project-shared assets, and active output sizing through reopen,
-recovery and Undo/Redo.
-State: Branch codex/nect-regression-validation-v2; implementation and tests
-committed locally; no push performed. Required external
-packages are absent; npm/network retry is excluded by the current instruction.
-Authority: Current user delegation permits implementation, focused tests,
-related docs, and local commit. No network/npm retry, push, restore clone,
-backup, upload, force operation, main merge, release, authentication, or
-permission change.
+Next task: Once an authorized local dependency/runtime is available, run the production core factory and browser/native multi-Composition lifecycle acceptance. The current checkout lacks pako; npm/network retry is excluded by the current instruction.
+Approach: Exercise all-set and single import, collisions, missing-asset atomic failure, one-step Undo/Redo, Open/Save/recovery/public load, and active SVG/PNG output in the actual app/runtime.
+Done for next: The production core and real browser/native paths preserve complete source sets, assets and history; otherwise record the exact local capability blocker and resume trigger.
+State: Branch codex/nect-regression-validation-v2; parent HEAD b5284afca12867824734c8b4336165d186a7e159; this checkpoint commit is the branch tip after local commit. No push. Per-Composition selection/active Layer/zoom/pan retention remains separate follow-on work.
+Authority: Current user delegation authorizes implementation, focused tests, related docs, and local commit. No npm/network retry, push, restore clone, backup, upload, force operation, main merge, release, authentication, or permission change.
 Handoff: CONTINUE_CURRENT_TASK

@@ -1,7 +1,12 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { blankDocument, serialize } from '../src/core.js';
+import { blankDocument } from '../src/core.js';
+import {
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  validateCompositionProject,
+} from '../src/composition-project-model.js';
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
@@ -15,62 +20,113 @@ const record = (name, pass, detail = '') => result.steps.push({ name, pass, deta
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:4173');
   await page.waitForSelector('.node');
-  const source = blankDocument();
-  const sourceText = serialize(source);
-  const initial = await page.evaluate(() => window.nect.document);
-  await page.getByText('Import', { exact: true }).click();
-  await page.getByText('Project composition', { exact: true }).click();
-  await page.locator('body > input[type="file"]').last().setInputFiles({
-    name: 'source.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(sourceText),
+  const wide = migrateLegacyDocumentToCompositionProject(blankDocument()),
+    tall = migrateLegacyDocumentToCompositionProject(blankDocument());
+  wide.name = 'Import source';
+  wide.compositions[0].id = 'source-wide';
+  wide.compositions[0].name = 'Wide source';
+  wide.compositions[0].width = 1280;
+  wide.compositions[0].height = 720;
+  tall.compositions[0].id = 'source-tall';
+  tall.compositions[0].name = 'Tall source';
+  tall.compositions[0].width = 320;
+  tall.compositions[0].height = 960;
+  const sourceProject = validateCompositionProject({
+    ...wide,
+    compositions: [wide.compositions[0], tall.compositions[0]],
   });
-  await page.waitForSelector('dialog[open] [data-composition-choice]');
-  record('file chooser and composition list', true);
+  const sourceText = serializeCompositionProject(sourceProject);
+  const initial = await page.evaluate(() => window.nect.projectSnapshot());
+  assert.equal(initial.compositions.length, 1);
+  const openImportDialog = async () => {
+    await page.getByText('Import', { exact: true }).click();
+    await page.getByText('Project compositions', { exact: true }).click();
+    await page.locator('body > input[type="file"]').last().setInputFiles({
+      name: 'source.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(sourceText),
+    });
+    await page.waitForSelector('dialog[open] [data-composition-choice]');
+  };
+
+  await openImportDialog();
+  const choices = await page.locator('dialog[open] [data-composition-choice] option').count(),
+    defaultChoice = await page.locator('dialog[open] [data-composition-choice]').inputValue();
+  assert.equal(choices, 3);
+  assert.equal(defaultChoice, '__all__');
   await page.locator('dialog[open] button[value="import"]').click();
-  await page.waitForTimeout(300);
-  result.afterImport = await page.evaluate(() => ({
-    layers: window.nect.document.layers.length,
-    dialogs: document.querySelectorAll('dialog[open]').length,
-    status: document.querySelector('.status')?.textContent,
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 3);
+  const first = await page.evaluate(() => ({
+    project: window.nect.projectSnapshot(),
+    activeCompositionId: window.nect.activeCompositionId,
+    openDialogs: document.querySelectorAll('dialog[open]').length,
   }));
-  await page.waitForFunction(() => window.nect.document.layers.length === 2);
-  const first = await page.evaluate(() => window.nect.document);
-  record('import', first.layers.length === 2);
-  await page.getByText('Import', { exact: true }).click();
-  await page.getByText('Project composition', { exact: true }).click();
-  await page.locator('body > input[type="file"]').last().setInputFiles({
-    name: 'source.json',
-    mimeType: 'application/json',
-    buffer: Buffer.from(sourceText),
-  });
+  const firstImported = first.project.compositions.slice(1);
+  record(
+    'import all complete outer Compositions',
+    first.activeCompositionId === firstImported[0].id &&
+      firstImported.map(({ name, width, height }) => [name, width, height]).toString() ===
+        [['Wide source', 1280, 720], ['Tall source', 320, 960]].toString() &&
+      firstImported.every((composition) => composition.layers.length === 1) &&
+      first.openDialogs === 0,
+  );
+
+  const beforeSecondImport = JSON.stringify(first.project);
+  await openImportDialog();
   await page.locator('dialog[open] button[value="import"]').click();
-  await page.waitForTimeout(300);
-  result.afterSecondImport = await page.evaluate(() => ({
-    layers: window.nect.document.layers.length,
-    ids: window.nect.document.layers.map((layer) => layer.id),
-    status: document.querySelector('.status')?.textContent,
-  }));
-  await page.waitForFunction(() => window.nect.document.layers.length === 3);
-  const second = await page.evaluate(() => window.nect.document);
-  const ids = second.layers.map((layer) => layer.id);
-  record('repeat import remaps IDs', new Set(ids).size === ids.length);
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 5);
+  const second = await page.evaluate(() => window.nect.projectSnapshot());
+  const compositionIds = second.compositions.map((composition) => composition.id),
+    layerIds = second.compositions.flatMap((composition) =>
+      composition.layers.map((layer) => layer.id),
+    );
+  record(
+    'repeat import remaps outer and Layer IDs',
+    new Set(compositionIds).size === compositionIds.length &&
+      new Set(layerIds).size === layerIds.length,
+  );
+
+  const beforeUndo = JSON.stringify(second);
   await page.locator('[data-action="undo"]').click();
-  record('undo', (await page.evaluate(() => window.nect.document.layers.length)) === 2);
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 3);
+  record(
+    'one Undo removes exactly the second full import',
+    JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeSecondImport,
+  );
   await page.locator('[data-action="redo"]').click();
-  record('redo', (await page.evaluate(() => window.nect.document.layers.length)) === 3);
-  const saved = await page.evaluate(() => window.nect.export ? null : JSON.stringify(window.nect.document));
-  await page.evaluate((text) => window.nect.load(text), saved || JSON.stringify(second));
-  record('save/reload model roundtrip', (await page.evaluate(() => window.nect.document.layers.length)) === 3);
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 5);
+  record(
+    'Redo restores the whole import batch',
+    JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeUndo,
+  );
+
+  const saved = await page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
+  await page.evaluate((text) => window.nect.load(text), saved);
+  record(
+    'project save/load model roundtrip',
+    (await page.evaluate(() => window.nect.projectSnapshot().compositions.length)) === 5,
+  );
+  await page.evaluate((text) => window.nect.load(text), sourceText);
+  record(
+    'public load replaces the project',
+    (await page.evaluate(() => window.nect.projectSnapshot().compositions.length)) === 2,
+  );
+
+  const beforeInvalid = JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot()));
   await page.getByText('Import', { exact: true }).click();
-  await page.getByText('Project composition', { exact: true }).click();
+  await page.getByText('Project compositions', { exact: true }).click();
   await page.locator('body > input[type="file"]').last().setInputFiles({
     name: 'invalid.json',
     mimeType: 'application/json',
     buffer: Buffer.from('{}'),
   });
-  await page.waitForFunction(() => document.querySelector('.status')?.textContent.includes('rejected'));
-  record('invalid JSON atomic rejection', JSON.stringify(await page.evaluate(() => window.nect.document)) === JSON.stringify(await page.evaluate((x) => x, second)));
+  await page.waitForFunction(() =>
+    document.querySelector('.status .message')?.textContent.includes('rejected'),
+  );
+  record(
+    'invalid project is rejected atomically',
+    JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeInvalid,
+  );
   assert.equal(result.errors.length, 0, result.errors.join('; '));
   assert.ok(result.steps.every((step) => step.pass), JSON.stringify(result.steps));
 } catch (error) {

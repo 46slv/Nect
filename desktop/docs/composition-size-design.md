@@ -1,6 +1,6 @@
 # Independently Sized Compositions — Preimplementation Design
 
-**Status:** Stage 1/2 model conversion and Stage 3 session/lifecycle integration are implemented. The focused owner/model run passes 19 tests; core factory runtime and GUI workflows remain NOT RUN because this checkout lacks required external packages. This is not a native UI acceptance or release claim.
+**Status:** Stage 1/2 model conversion, Stage 3 session/lifecycle integration, and additive whole-project Composition import are implemented. The focused model/import/owner/action-contract run passes 25 tests; production core-factory runtime and GUI workflows remain NOT RUN because this checkout lacks required external packages. This is not a native UI acceptance or release claim.
 
 **Scope:** Desktop project model, tab selection, import, history, and per-Composition SVG/PNG output.
 
@@ -26,7 +26,7 @@ Changing a Composition's frame size leaves its authored coordinates and artwork 
 - Preserve the existing `set-document-settings(width,height)` behavior as a compatibility adapter for one-Composition projects. Multi-Composition commands must name a target ID; ambiguous untargeted writes fail validation.
 - Store `activeCompositionId` and per-Composition active Layer, node/artwork selection, zoom, and pan as window/session UI state keyed by stable ID. Tab switches create no document revision, dirty state, or History entry. If state is missing on reopen, select the first editable Composition and its initial editable Layer; tab selection need not be persisted in the project.
 - Place the horizontal, keyboard-accessible Composition tablist above the current Layer panel. Keep the current Layer controls scoped to the active Composition. Deleting the active Composition selects the nearest remaining one. Reject deletion of the last Composition.
-- Change “Import Composition” to enumerate outer Compositions and import the chosen complete container with its source dimensions, ordered Layers, nested references, and required assets. Remap imported IDs atomically and add one new tab. Do not fit content to the destination, merge the imported Layers into the active Composition, or change the active Composition's size. Regular Open continues to replace the whole project after successful validation.
+- Change the project Import action to enumerate outer Compositions and add either the complete source set or one selected container with source dimensions, ordered Layers, Layer-graph references, and required shared assets. Remap imported IDs atomically and commit the batch as one History operation. Do not fit content to the destination, merge imported Layers into the active Composition, or change its size. Regular Open continues to replace the whole project after successful validation.
 
 ## References and coordinate-dependent state
 
@@ -50,7 +50,7 @@ Guides and layout-grid coordinates should be scoped to the Composition whose coo
 
 1. Opening a valid legacy one-frame project creates one Composition with exactly the old dimensions, Layer order, node values, and stable content IDs; saving and reopening it preserves them.
 2. A project with at least two different frame sizes saves/reopens without size or content drift. Resizing one frame leaves every other frame and all artwork coordinates unchanged.
-3. Importing a differently sized legacy or new project Composition preserves its source dimensions, Layer stack, nested-reference closure, and required assets; no destination-size fallback or implicit fit occurs. A failed import makes no partial changes.
+3. Importing a differently sized legacy or new project Composition, alone or as part of the complete source set, preserves its source dimensions, Layer stack, Layer-graph references, and required assets; no destination-size fallback or implicit fit occurs. A failed batch makes no partial changes.
 4. A size/name/import change is one document History operation with exact Undo/Redo. Switching tabs does not change document revision, dirty state, or History, and restores that Composition's editing context.
 5. SVG and PNG exported for each Composition independently match its frame dimensions and visible Layer output. A two-Composition fixture proves the inactive frame is neither rendered nor used for sizing.
 6. Invalid dimensions, duplicate IDs, missing references, reference cycles, and unsupported schema states fail atomically. Tests cover the existing maximum dimension and output pixel limits.
@@ -65,10 +65,10 @@ Guides and layout-grid coordinates should be scoped to the Composition whose coo
 
 **Stage 3 (implemented, runtime verification pending):** CompositionSessionOwner routes existing commands and chronological Undo/Redo through the active Document projection while recording complete project snapshots. Add Composition and tab switching are connected to the UI. Native/browser Open, Save, recovery and public load use the project envelope; legacy JSON passes through the core upgrader. SVG and PNG export use the active Composition's dimensions and Layer stack. Project-shared fonts and images remain at the root. The owner tests use doubles, so they do not prove the production core factory or UI lifecycle.
 
-**Remaining:** whole-container project Composition import is not connected. Selection, active Layer, zoom and pan are reset on switching instead of saved per Composition. Core factory runtime and browser/native GUI acceptance for multi-Composition Open/Save/recovery/export are NOT RUN because dependencies are missing in this checkout. The project-envelope tests do not substitute for those checks.
+**Remaining:** Selection, active Layer, zoom and pan are reset on switching instead of saved per Composition. Production core-factory runtime and browser/native GUI acceptance for multi-Composition Import/Open/Save/recovery/export are NOT RUN because dependencies are missing in this checkout. Dependency-free model and owner tests do not substitute for those checks.
 
 ## Later implementation touchpoints
 
-Use the production core factory and real project lifecycle with an authorized local dependency/runtime. Then verify multiple differently sized Compositions, shared fonts/images, chronological Undo/Redo, legacy-file migration, browser/native Open and Save, recovery, public load, and active-Composition SVG/PNG output. Whole-container import and per-Composition view-state retention remain separate follow-on work.
+Use the production core factory and real project lifecycle with an authorized local dependency/runtime. Verify differently sized Compositions, all-set and selected Composition import, shared fonts/images, chronological Undo/Redo, legacy migration, browser/native Open and Save, recovery, public load, and active-Composition SVG/PNG output. Per-Composition view-state retention remains follow-on work.
 
-**Decision state:** the envelope and active-Document bridge are connected to the current Desktop lifecycle and editing call sites. Outer-Composition references remain deferred; existing Composition Reference continues to identify a Layer graph. Core runtime and UI acceptance are still pending, so this checkpoint does not claim the lifecycle is verified end to end.
+**Decision state:** The envelope, active-Document bridge, and additive all-or-one Composition import are connected to the Desktop lifecycle and editing call sites. Outer-Composition references remain deferred; existing Composition Reference continues to identify a Layer graph. Core runtime and UI acceptance are still pending, so this is not an end-to-end verification claim.

@@ -151,6 +151,16 @@ The active Composition projection is now wired to the production command call si
 - node --check for the changed JavaScript modules: **PASS**.
 - git diff --check: **PASS**.
 - Production core-factory execution and browser/native UI lifecycle: **NOT RUN**; required external packages are absent. No npm or network retry was made.
-- Whole-container project Composition import and per-Composition selection/view-state retention remain outside this slice.
+- Whole-project Composition import is connected in the follow-up below; per-Composition selection/view-state retention remains outside this slice.
 
 Next: run the core factory and multi-Composition lifecycle acceptance using an authorized local dependency/runtime, then exercise browser/native Open, Save, recovery, active SVG/PNG export, shared assets and Undo/Redo. These checks are separate from the passed dependency-free owner/model tests.
+
+## Whole-project Composition import / 2026-10-19
+
+The existing Import action reads the project envelope and offers All Compositions as the default or one selected source Composition. All adds preserve each source frame, ordered Layer stack, Layer-graph references and required shared font/image assets. Entity and conflicting asset IDs are remapped; the validated batch commits as one project-history operation. Open still replaces the project, and Add SVG remains a separate action. Native source-file bindings are released after reading; stale edits during selection reject the import without mutation.
+
+- Focused model/import/owner/action-contract tests: **25 PASS**.
+- JavaScript syntax checks and git diff --check: **PASS**.
+- Production core factory and browser/native import acceptance: **NOT RUN**; required external packages are absent. No npm/network retry was made. The real-browser E2E assertions are prepared coverage, not a runtime pass.
+
+Next: when an authorized local dependency/runtime is available, run the core factory and exercise all-set/single Composition import, repeated collision remapping, atomic failure, one-step Undo/Redo, Open/Save/recovery/public load and active SVG/PNG output. Per-Composition selection and view-state retention remains separate work.
