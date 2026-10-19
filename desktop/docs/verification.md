@@ -313,3 +313,13 @@ The existing authored-base Vector2 X scrub already uses the common Session gestu
 - Focused DOM and Session tests: **9/9 PASS** (`authored-value-dom.test.js`, `authored-value-expressions.test.js`). One drag produces one undoable document change; one Undo restores the initial document. Escape cancel restores the original document without adding history. The machine command produces the same committed document and its Undo also restores the initial document.
 - Production `npm run build`: **PASS (exit 0)**, Vite 7.3.7, 136 modules; the existing large-chunk warning remains.
 - Full `npm test` and native/WebView GUI verification: **NOT_RUN**. Pair-kerning tests were not rerun in this slice.
+
+## Browser PNG export bytes and artboard units / 2026-10-19
+
+The focused Playwright route exercises the Artboard px/mm/cm selector and the real Export PNG UI. It opens the Export menu, exports a 100 x 50 mm artboard at 300 PPI, captures the Chromium download, and compares the saved file byte-for-byte with the encoder Blob. DPR 1 and 2 produce identical dimensions.
+
+- `node --test tests/artboard-units.e2e.js`: **1/1 PASS** on the existing `http://127.0.0.1:5173` Vite route in headless Google Chrome.
+- Both PNG samples: **1181 x 591 px**, `pHYs` **11811 x 11811 px/m**, unit specifier 1; PNG chunk CRC checks and browser decode: **PASS**. Samples and a JSON summary remain locally under `desktop/test-results/`.
+- Focused Node tests (`png-density.test.js`, `png-export-size.test.js`, `artboard-units.test.js`, `transient-panel-contract.test.js`): **14/14 PASS**. Native WebView2 GUI and full suite: **NOT_RUN**.
+- The first E2E attempt targeted the Export PNG button while its Export details menu was closed. The runner now opens that menu through its summary and exercises the visible action; no application-source change was needed.
+- No dependency install, network retry, host/port change, or Notion write occurred.
