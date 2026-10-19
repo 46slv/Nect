@@ -34,6 +34,14 @@ function replaceRecord(target, source) {
   Object.assign(target, source);
 }
 
+function freezeDocument(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeDocument(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 /**
  * Owns the project snapshot/history while using the existing CommandSession for
  * edits to the currently active legacy Document projection.
@@ -57,6 +65,9 @@ export class CompositionSessionOwner {
   #fonts;
   #busy;
   #onCommitted;
+  #historyViewCache = new WeakMap();
+  #historyView = null;
+  #prepared = null;
 
   constructor(
     project,
@@ -108,6 +119,55 @@ export class CompositionSessionOwner {
 
   #documentFor(project, compositionId) {
     return documentFor(project, compositionId, this.#cloneDocument);
+  }
+
+  #documentView(project, compositionId) {
+    let views = this.#historyViewCache.get(project);
+    if (!views) {
+      views = new Map();
+      this.#historyViewCache.set(project, views);
+    }
+    if (!views.has(compositionId))
+      views.set(compositionId, freezeDocument(this.#documentFor(project, compositionId)));
+    return views.get(compositionId);
+  }
+
+  #applyProjectEdit(edit) {
+    const previous = this.#history.doc,
+      views = this.#historyViewCache.get(previous),
+      revision = this.#history.revision;
+    try {
+      this.#history.apply(edit);
+    } catch (error) {
+      const restored = this.#history.doc;
+      this.#historyViewCache.delete(previous);
+      if (views) this.#historyViewCache.set(restored, views);
+      throw error;
+    }
+    if (this.#history.revision !== revision) {
+      const past = this.#history.past.at(-1);
+      this.#historyViewCache.delete(previous);
+      if (views && past) this.#historyViewCache.set(past, views);
+    }
+  }
+
+  #compositionFor(project) {
+    return project.compositions.some((entry) => entry.id === this.#activeCompositionId)
+      ? this.#activeCompositionId
+      : project.compositions[0].id;
+  }
+
+  #assertPrepared(token) {
+    const prepared = this.#prepared;
+    if (
+      !prepared ||
+      prepared.token !== token ||
+      prepared.projectRevision !== this.#history.revision ||
+      prepared.session !== this.#session ||
+      prepared.compositionId !== this.#activeCompositionId
+    )
+      throw Error('STALE_REVISION: document changed');
+    return prepared;
   }
 
   #makeSession(project, compositionId) {
@@ -170,7 +230,7 @@ export class CompositionSessionOwner {
             busy: this.#busy,
             retainHistory: false,
           });
-    this.#history.apply((history) => {
+    this.#applyProjectEdit((history) => {
       replaceRecord(history, candidate);
     });
     this.#activeCompositionId = activeCompositionId;
@@ -202,6 +262,39 @@ export class CompositionSessionOwner {
     return this.#activeCompositionId;
   }
 
+  get id() {
+    return this.#session.id;
+  }
+
+  get historyView() {
+    if (!this.#historyView) {
+      const owner = this;
+      this.#historyView = Object.freeze({
+        get doc() {
+          return owner.#documentView(owner.#history.doc, owner.#activeCompositionId);
+        },
+        get past() {
+          return Object.freeze(
+            owner.#history.past.map((project) =>
+              owner.#documentView(project, owner.#compositionFor(project)),
+            ),
+          );
+        },
+        get future() {
+          return Object.freeze(
+            owner.#history.future.map((project) =>
+              owner.#documentView(project, owner.#compositionFor(project)),
+            ),
+          );
+        },
+        get revision() {
+          return owner.#history.revision;
+        },
+      });
+    }
+    return this.#historyView;
+  }
+
   get state() {
     return this.#session.state;
   }
@@ -218,12 +311,156 @@ export class CompositionSessionOwner {
     });
   }
 
+  get hasGesture() {
+    return this.#session.hasGesture;
+  }
+
+  get hasTextComposition() {
+    return this.#session.hasTextComposition;
+  }
+
+  get hasTextDrafts() {
+    return this.#session.hasTextDrafts;
+  }
+
+  get gestureState() {
+    return this.#session.gestureState;
+  }
+
   activeDocument() {
     return this.#session.snapshot();
   }
 
   projectSnapshot() {
     return this.#cloneDocument(this.#history.doc);
+  }
+
+  snapshot() {
+    return this.#session.snapshot();
+  }
+
+  previewSnapshot(gestureId) {
+    return this.#session.previewSnapshot(gestureId);
+  }
+
+  textDraftSnapshot(draftId) {
+    return this.#session.textDraftSnapshot(draftId);
+  }
+
+  async prepareCommand(command, bridge, options = {}) {
+    this.#assertCurrentCommand(command);
+    this.#assertQuiescent();
+    const session = this.#session,
+      compositionId = this.#activeCompositionId,
+      projectRevision = this.#history.revision;
+    if (command.type === 'undo' || command.type === 'redo') {
+      const project =
+        (command.type === 'undo' ? this.#history.past : this.#history.future).at(-1) ||
+        this.#history.doc;
+      const targetCompositionId = this.#compositionFor(project);
+      const document = this.#documentFor(project, targetCompositionId);
+      const ticket = await bridge.prepareDocument(document, options);
+      if (
+        this.#session !== session ||
+        this.#activeCompositionId !== compositionId ||
+        this.#history.revision !== projectRevision
+      ) {
+        bridge.cancel();
+        throw Error('STALE_REVISION: document changed');
+      }
+      const token = Object.freeze({});
+      this.#prepared = {
+        token,
+        projectRevision,
+        session,
+        compositionId,
+        type: command.type,
+        command,
+        bridge,
+        ticket,
+        document,
+      };
+      return token;
+    }
+
+    const innerToken = await session.prepareCommand(command, bridge, options);
+    if (
+      this.#session !== session ||
+      this.#activeCompositionId !== compositionId ||
+      this.#history.revision !== projectRevision
+    ) {
+      session.cancelPrepared(bridge);
+      throw Error('STALE_REVISION: document changed');
+    }
+    const token = Object.freeze({});
+    this.#prepared = {
+      token,
+      projectRevision,
+      session,
+      compositionId,
+      type: command.type,
+      command,
+      bridge,
+      innerToken,
+    };
+    return token;
+  }
+
+  preparedSnapshot(token) {
+    const prepared = this.#assertPrepared(token);
+    if (!prepared.ticket) return prepared.session.preparedSnapshot(prepared.innerToken);
+    prepared.bridge.assertFresh(prepared.ticket);
+    return {
+      ...this.state,
+      document: this.#cloneDocument(prepared.document),
+      fonts: { ...this.#fonts(), ...prepared.bridge.preparedFonts(prepared.ticket) },
+    };
+  }
+
+  commitPrepared(token) {
+    const prepared = this.#assertPrepared(token);
+    this.#assertQuiescent();
+    if (prepared.ticket) {
+      prepared.bridge.assertFresh(prepared.ticket);
+      prepared.bridge.activate(prepared.ticket);
+      this.#prepared = null;
+      return this.#stepHistory(prepared.type, prepared.command);
+    }
+
+    const revision = prepared.session.state.expectedRevision;
+    try {
+      const result = prepared.session.commitPrepared(prepared.innerToken);
+      if (prepared.session.state.expectedRevision !== revision) {
+        const candidate = projectWithDocument(
+          this.#history.doc,
+          prepared.compositionId,
+          prepared.session.snapshot(),
+        );
+        this.#applyProjectEdit((history) => {
+          replaceRecord(history, candidate);
+        });
+        this.#notifyCommitted('edit');
+      }
+      this.#prepared = null;
+      return { ...result, projectRevision: this.#history.revision };
+    } catch (error) {
+      if (prepared.session.state.expectedRevision !== revision) {
+        this.#session = this.#makeSession(this.#history.doc, prepared.compositionId);
+      }
+      this.#prepared = null;
+      throw error;
+    }
+  }
+
+  cancelPrepared(bridge) {
+    const prepared = this.#prepared;
+    this.#prepared = null;
+    if (prepared?.bridge === bridge) {
+      if (prepared.ticket) bridge.cancel();
+      else prepared.session.cancelPrepared(bridge);
+      return;
+    }
+    this.#session.cancelPrepared?.(bridge);
   }
 
   switchComposition(compositionId) {
@@ -251,7 +488,7 @@ export class CompositionSessionOwner {
           compositionId,
           session.snapshot(),
         );
-        this.#history.apply((history) => {
+        this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
         this.#notifyCommitted('edit');

@@ -59,12 +59,37 @@ class TestCommandSession {
     this.hasGesture = false;
     this.hasTextComposition = false;
     this.hasTextDrafts = false;
+    this.prepared = null;
   }
   get state() {
     return { sessionId: this.id, expectedRevision: this.revision };
   }
   snapshot() {
     return clone(this.doc);
+  }
+  async prepareCommand({ sessionId, expectedRevision, type, payload = {} }) {
+    if (sessionId !== this.id || expectedRevision !== this.revision)
+      throw Error('STALE_REVISION: document changed');
+    if (type !== 'set-document-settings') throw Error('Unsupported prepared test command');
+    const candidate = clone(this.doc);
+    candidate[payload.key] = payload.value;
+    const token = Object.freeze({});
+    this.prepared = { token, candidate };
+    return token;
+  }
+  preparedSnapshot(token) {
+    if (!this.prepared || this.prepared.token !== token) throw Error('STALE_REVISION');
+    return { ...this.state, document: clone(this.prepared.candidate), fonts: {} };
+  }
+  commitPrepared(token) {
+    if (!this.prepared || this.prepared.token !== token) throw Error('STALE_REVISION');
+    this.doc = clone(this.prepared.candidate);
+    this.prepared = null;
+    this.revision++;
+    return { ...this.state, changed: true };
+  }
+  cancelPrepared() {
+    this.prepared = null;
   }
   dispatch({ sessionId, expectedRevision, type, payload = {} }) {
     if (sessionId !== this.id) throw Error('STALE_SESSION: document changed');
@@ -164,6 +189,63 @@ test('Composition switching never adds a history step or changes undo/redo avail
   assert.deepEqual(owner.historyState, before.historyState);
   assert.equal(serializeCompositionProject(owner.projectSnapshot()), before.project);
   assert.equal(owner.activeCompositionId, secondId);
+});
+
+test('session-compatible History views stay stable across project edits and Composition switches', () => {
+  const { owner, firstId, secondId } = fixture(),
+    history = owner.historyView,
+    firstDocument = history.doc;
+
+  assert.strictEqual(owner.historyView, history);
+  assert.equal(owner.id, owner.state.sessionId);
+  assert.equal(firstDocument.width, 960);
+  assert.strictEqual(history.doc, firstDocument);
+  assert.ok(Object.isFrozen(firstDocument));
+
+  send(owner, 'set-document-settings', { key: 'width', value: 1280 });
+  assert.equal(history.doc.width, 1280);
+  assert.strictEqual(history.past.at(-1), firstDocument);
+  assert.strictEqual(history.past.at(-1), history.past.at(-1));
+
+  owner.switchComposition(secondId);
+  const secondDocument = history.doc;
+  assert.equal(secondDocument.width, 320);
+  send(owner, 'set-document-settings', { key: 'width', value: 480 });
+  assert.strictEqual(history.past.at(-1), secondDocument);
+  assert.equal(history.past.at(-1).width, 320);
+  assert.equal(owner.activeCompositionId, secondId);
+  assert.equal(owner.projectSnapshot().compositions.find((item) => item.id === firstId).width, 1280);
+});
+
+test('prepared edits enter project History and variable-aware Undo restores the project snapshot', async () => {
+  const { owner, firstId } = fixture(),
+    bridge = {
+      async prepareDocument(document) {
+        return { document: clone(document) };
+      },
+      assertFresh(ticket) {
+        if (!ticket?.document) throw Error('STALE_PREPARED');
+      },
+      preparedFonts: () => ({}),
+      activate() {},
+      cancel() {},
+    };
+
+  const editToken = await owner.prepareCommand(
+    { ...owner.state, type: 'set-document-settings', payload: { key: 'width', value: 1280 } },
+    bridge,
+  );
+  assert.equal(owner.preparedSnapshot(editToken).document.width, 1280);
+  owner.commitPrepared(editToken);
+  assert.equal(owner.projectSnapshot().compositions[0].width, 1280);
+  assert.equal(owner.historyState.canUndo, true);
+
+  const undoToken = await owner.prepareCommand({ ...owner.state, type: 'undo' }, bridge);
+  assert.equal(owner.preparedSnapshot(undoToken).document.width, 960);
+  owner.commitPrepared(undoToken);
+  assert.equal(owner.activeCompositionId, firstId);
+  assert.equal(owner.projectSnapshot().compositions[0].width, 960);
+  assert.equal(owner.historyState.canRedo, true);
 });
 
 test('Undo in another Composition retains shared font and image assets', () => {

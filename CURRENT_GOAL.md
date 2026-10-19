@@ -14,30 +14,36 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — REQ-23 named node preset first phase (2026-10-19)
+## ACTIVE CHECKPOINT — Multi-Composition session integration (2026-10-19)
 
-Goal: Document-local named snapshots of self-contained selected source/effect
-nodes, additive cross-Composition apply with fresh IDs, ordinary node re-editing,
-explicit update, persistence and one Undo per changed operation.
-Current phase: implementation and focused verification complete; source pushed,
-Draft PR32 open against codex/req31-handle-polar-20261019.
-Remote-verified implementation: 88c4b257df92c4bbe9199e39697be96a6781f1f3.
-Draft PR: https://github.com/46slv/Nect/pull/32.
-Proven: 35 focused tests and production build PASS; actual Note Chrome 155
-fixture PASS for save/apply/edit/update, Undo/Redo, persistence and atomic refusal.
-Evidence: desktop/docs/named-presets.md; desktop/tests/named-presets.test.js and
-named-presets.e2e.js; portable Chrome receipt under desktop/docs/evidence.
-Next task: Review the bounded Draft PR at its exact remote SHA.
-Approach: sole source writer in independent task-6/Nect-req23, branch
-codex/req23-named-presets-20261019, base ca376c67529364a4518bdf06b6893bd3c8896392.
-Done for next: preserve partial REQ-23 scope and native/physical-IME gaps.
-State: schema39 optional nodePresets; existing version floors/backfills preserved.
-Admission rejects Output/Composition Reference, external node dependencies and
-missing/changed document assets. Apply preserves existing Output and connections.
-Authority: current delegation permits code/test/docs/dev commit/push/Draft PR;
-mainline merge, release/distribution and auth/permission changes excluded.
-Native Tauri/EXE and physical IME remain unverified. No global full-suite audit,
-unrelated repairs, old worktree/user-artwork edits or Notion writes.
-Macro public controls, external preset files/shared libraries and effect-stack
-redesign are excluded. This is bounded partial REQ-23 coverage.
-Handoff: CONTINUE_CURRENT_TASK.
+Goal: Connect commands, chronological Undo/Redo, native/browser Open, Save,
+recovery, and public load to the multi-Composition project envelope while
+preserving inactive Compositions and shared assets. SVG/PNG use the active
+Composition projection.
+
+Current phase: Implementation complete; focused dependency-free checks passed.
+Production core-factory runtime and UI lifecycle remain unverified.
+
+Proven:
+- 19 focused model/owner tests PASS.
+- JavaScript syntax and git diff --check PASS.
+- main.js uses project snapshots for persistence/recovery and active Composition
+  projections for existing commands and SVG/PNG output.
+- Legacy single-Document JSON goes through the core deserializer/upgrader.
+
+Next task: Run the core factory and multi-Composition lifecycle acceptance
+when an authorized local dependency/runtime is available.
+Approach: Verify differently sized Compositions, shared assets, cross-tab
+Undo/Redo, legacy migration, Open/Save/recovery/public load, and active
+SVG/PNG output in the real runtime.
+Done for next: The core owner and real browser/native lifecycle preserve every
+Composition, project-shared assets, and active output sizing through reopen,
+recovery and Undo/Redo.
+State: Branch codex/nect-regression-validation-v2; implementation and tests
+committed locally; no push performed. Required external
+packages are absent; npm/network retry is excluded by the current instruction.
+Authority: Current user delegation permits implementation, focused tests,
+related docs, and local commit. No network/npm retry, push, restore clone,
+backup, upload, force operation, main merge, release, authentication, or
+permission change.
+Handoff: CONTINUE_CURRENT_TASK

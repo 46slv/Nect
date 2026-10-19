@@ -142,3 +142,15 @@ The cumulative slice adds inline stable-ID naming, explicit layer Hide/Show and 
 - Independent review found and verified fixes for pointer-toolbar Space continuity, sub-1% artboard zoom direction, busy graph wheel guards and retained graph centering extent.
 - Added real-Chrome navigation assertions and 1280×800 / 1600×1000 screenshots to the full `npm run test:e2e` chain. Exact Windows CI execution remains pending at this source checkpoint; do not infer a browser pass from local DOM tests.
 - Local Chromium still fails before page creation because its process-singleton socket is restricted. Native WebView2/high-DPI/physical pinch/real IME remain unverified.
+
+## Multi-Composition session integration / 2026-10-19
+
+The active Composition projection is now wired to the production command call sites and project-level Undo/Redo. Native/browser Open, Save, recovery, and public window.nect.load read or write the complete project envelope; old single-Document JSON uses the existing core deserializer/upgrader before migration. SVG and PNG export continue through the active Composition projection, preserving its independent dimensions. Project-shared fonts and images remain at project scope. The Add Composition action and selector connect creation and switching to the owner. Existing Composition Reference nodes retain their Layer-graph meaning.
+
+- Focused model/owner tests: **19 PASS**, including legacy upgrader routing, stable history projections, prepared edit and project Undo.
+- node --check for the changed JavaScript modules: **PASS**.
+- git diff --check: **PASS**.
+- Production core-factory execution and browser/native UI lifecycle: **NOT RUN**; required external packages are absent. No npm or network retry was made.
+- Whole-container project Composition import and per-Composition selection/view-state retention remain outside this slice.
+
+Next: run the core factory and multi-Composition lifecycle acceptance using an authorized local dependency/runtime, then exercise browser/native Open, Save, recovery, active SVG/PNG export, shared assets and Undo/Redo. These checks are separate from the passed dependency-free owner/model tests.

@@ -567,6 +567,14 @@ import {
   MAX_PROJECT_BYTES,
 } from './fonts.js';
 import {
+  activeCompositionDocument,
+  deserializeCompositionProject,
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  validateCompositionProject,
+} from './composition-project-model.js';
+import { createCompositionSessionOwner } from './composition-session-owner-core.js';
+import {
   blankDocument,
   hasEmptyOutput,
   node,
@@ -598,12 +606,9 @@ import {
   signature,
   connect,
   disconnect,
-  serialize,
   deserialize,
   exportSVG,
   renderElement,
-  History,
-  CommandSession,
   createVariableDocumentPreparer,
   scrubNumericValues,
   guideDefaults,
@@ -794,8 +799,11 @@ async function preparedChange(
   }
 }
 async function prepareOpenDocument(next, options = {}) {
-  if (!hasVariableFonts(next)) {
-    replaceDocument(next, options);
+  const project = asCompositionProject(next),
+    activeCompositionId = options.activeCompositionId ?? project.compositions[0].id,
+    document = activeCompositionDocument(project, activeCompositionId);
+  if (!hasVariableFonts(document)) {
+    replaceDocument(project, { ...options, activeCompositionId });
     return;
   }
   cancelVariableAction();
@@ -806,7 +814,7 @@ async function prepareOpenDocument(next, options = {}) {
   variableAction = action;
   notify('Preparing variable fonts before opening… Escape cancels');
   try {
-    const ticket = await bridge.prepareDocument(next, { signal: action.controller.signal });
+    const ticket = await bridge.prepareDocument(document, { signal: action.controller.signal });
     if (
       variableAction !== action ||
       session !== owner ||
@@ -817,13 +825,14 @@ async function prepareOpenDocument(next, options = {}) {
     variableBridge?.dispose();
     variableBridge = bridge;
     variableAction = null;
-    replaceDocument(next, { ...options, prepared: true });
+    replaceDocument(project, { ...options, activeCompositionId, prepared: true });
   } catch (error) {
     if (variableAction === action) variableAction = null;
     bridge.dispose();
     throw Error(variableError(error));
   }
 }
+
 document.addEventListener(
   'keydown',
   (event) => {
@@ -864,11 +873,36 @@ const sessionOptions = {
       composing
     ),
 };
+function asCompositionProject(value) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    (Object.hasOwn(value, 'compositionSchemaVersion') || Object.hasOwn(value, 'compositions'))
+  )
+    return validateCompositionProject(value);
+  return migrateLegacyDocumentToCompositionProject(value);
+}
+function deserializeProject(text) {
+  if (typeof text !== 'string') throw Error('Project JSON must be text');
+  if (new TextEncoder().encode(text).byteLength > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
+  return deserializeCompositionProject(text, deserialize);
+}
+function serializeProject(project) {
+  const text = serializeCompositionProject(project);
+  if (new TextEncoder().encode(text).byteLength > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
+  return text;
+}
+
 let sourceEpoch = 0,
   sourcePicker = null,
   sourceReturn = null;
 let viewerState = createViewerState();
-let session = new CommandSession(blankDocument(), sessionOptions);
+let session = createCompositionSessionOwner(
+  migrateLegacyDocumentToCompositionProject(blankDocument()),
+  sessionOptions,
+);
 let history = session.historyView,
   activeLayer = history.doc.layers[0].id,
   selected = null,
@@ -908,15 +942,17 @@ let history = session.historyView,
   drag = null,
   penId = null,
   penDraft = null;
-// Committed History states are frozen. Keep only the current state's encoding,
-// so pointer previews/status reads do not repeatedly encode embedded fonts.
-let encodedDocument = null,
+// Composition project History is the file/recovery unit. Switching the active
+// Composition does not change the saved project.
+let encodedSession = null,
+  encodedProjectRevision = null,
   encodedText;
 function readDocument() {
-  const doc = history.doc;
-  if (doc !== encodedDocument) {
-    encodedText = serialize(doc);
-    encodedDocument = doc;
+  const revision = session.projectRevision;
+  if (session !== encodedSession || revision !== encodedProjectRevision) {
+    encodedText = serializeProject(session.projectSnapshot());
+    encodedSession = session;
+    encodedProjectRevision = revision;
   }
   return encodedText;
 }
@@ -1043,6 +1079,13 @@ function stepHistory(redo = false) {
         state.pointFocus && ids.has(state.pointFocus.pointId) ? { ...state.pointFocus } : null;
       for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
     }
+  }
+  if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
+    activeLayer = history.doc.layers[0].id;
+    selected = null;
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selection = new Set();
   }
 }
 const remapBatches = new Map();
@@ -2713,7 +2756,7 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${session.projectSnapshot().compositions.length > 1 ? `<label>Composition <select data-active-composition aria-label="Composition">${session.projectSnapshot().compositions.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === session.activeCompositionId ? 'selected' : ''}>${esc(composition.name)}</option>`).join('')}</select></label>` : ''}<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -5050,7 +5093,7 @@ function adoptSVGPart(text, name, request) {
   if (
     request.generation !== documents.generation ||
     documents.hasDraft() ||
-    serialize(history.doc) !== request.before
+    readDocument() !== request.before
   )
     throw Error('Document changed while reading; add the SVG again');
   const source = readSVGSource(text);
@@ -5075,7 +5118,7 @@ function adoptSVGPart(text, name, request) {
 }
 async function importDesktopSVG() {
   const request = ++openRequest,
-    before = serialize(history.doc),
+    before = readDocument(),
     generation = documents.generation,
     envelope = session.state;
   notify('Choose an SVG file…');
@@ -5085,7 +5128,7 @@ async function importDesktopSVG() {
     notify('SVG selection cancelled');
     return;
   }
-  if (documents.hasDraft() || serialize(history.doc) !== before)
+  if (documents.hasDraft() || readDocument() !== before)
     throw Error('Document changed while reading; import the SVG again');
   const source = readSVGSource(opened.contents);
   const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
@@ -5110,7 +5153,7 @@ function updateDocumentStatus() {
     contents: readDocument(),
     name: history.doc.name || 'Untitled',
     dirty,
-    revision: session.state.expectedRevision,
+    revision: session.projectRevision,
   });
   updateRecoveryStatus();
 }
@@ -5163,7 +5206,7 @@ async function showRecoveryCopies(startup = false) {
     throw Error('Document changed; choose the recovery copy again');
   if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
   const contents = await readRecovery(chosen.id),
-    next = deserialize(contents);
+    next = deserializeProject(contents);
   await preflightImages(next);
   if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
     throw Error('Document changed; current document preserved');
@@ -5177,7 +5220,10 @@ async function showRecoveryCopies(startup = false) {
     !protectedCopy,
   );
 }
-function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
+function replaceDocument(
+  next,
+  { binding = null, saved = false, prepared = false, activeCompositionId = null } = {},
+) {
   sourceEpoch++;
   sourcePicker = null;
   sourceReturn = null;
@@ -5188,14 +5234,46 @@ function replaceDocument(next, { binding = null, saved = false, prepared = false
   }
   resetTransient();
   viewerState = createViewerState();
-  session = new CommandSession(next, sessionOptions);
+  const project = asCompositionProject(next);
+  activeCompositionId ??= project.compositions[0].id;
+  session = createCompositionSessionOwner(project, { ...sessionOptions, activeCompositionId });
   history = session.historyView;
   documents.replace({ binding, saved });
-  activeLayer = initialLayerId(next);
+  activeLayer = initialLayerId(history.doc);
   selected = current().nodes[0]?.id;
   artworkTarget = null;
   artworkSelection = new Set();
   selection = new Set();
+}
+function resetCompositionSelection() {
+  viewerState = createViewerState();
+  activeLayer = initialLayerId(history.doc);
+  selected = current().nodes[0]?.id;
+  artworkTarget = null;
+  artworkSelection = new Set();
+  selection = new Set();
+  selectedGuide = null;
+  characterEdit = null;
+  tool = 'select';
+}
+function switchActiveComposition(compositionId) {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  resetTransient();
+  if (!session.switchComposition(compositionId)) return false;
+  resetCompositionSelection();
+  render(true);
+  updateDocumentStatus();
+  return true;
+}
+function addComposition() {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  resetTransient();
+  session.createComposition();
+  resetCompositionSelection();
+  render(true);
+  updateDocumentStatus();
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -5602,7 +5680,7 @@ app.addEventListener('click', async (e) => {
         case 'import-image':
           imagePick = {
             id: ++imageRequest,
-            before: serialize(history.doc),
+            before: readDocument(),
             doc: history.doc,
             commandState: session.state,
           };
@@ -5623,7 +5701,7 @@ app.addEventListener('click', async (e) => {
           svgPartTarget(history.doc, current().id);
           svgPartPick = {
             id: ++svgPartRequest,
-            before: serialize(history.doc),
+            before: readDocument(),
             generation: documents.generation,
             envelope: session.state,
             layerId: current().id,
@@ -5662,21 +5740,21 @@ app.addEventListener('click', async (e) => {
           if (!(await confirmReplace())) break;
           if (desktop) {
             const request = ++openRequest,
-              before = serialize(history.doc),
+              before = readDocument(),
               generation = documents.generation;
             const opened = await openFile();
             try {
               if (request !== openRequest || generation !== documents.generation) break;
-              if (serialize(history.doc) !== before)
+              if (readDocument() !== before)
                 throw Error('Document changed while reading; open the file again');
               if (opened !== null) {
-                const next = deserialize(opened.contents);
+                const next = deserializeProject(opened.contents);
                 await preflightImages(next);
                 if (
                   request !== openRequest ||
                   generation !== documents.generation ||
                   documents.hasDraft() ||
-                  serialize(history.doc) !== before
+                  readDocument() !== before
                 )
                   throw Error('Document changed while reading; open the file again');
                 await prepareOpenDocument(next, { binding: opened.binding, saved: true });
@@ -5688,6 +5766,10 @@ app.addEventListener('click', async (e) => {
               await documents.releaseUnused(opened?.binding);
             }
           } else document.querySelector('#open-file').click();
+          break;
+        case 'add-composition':
+          addComposition();
+          notify('Composition added');
           break;
         case 'new': {
           if (!(await confirmReplace('creating a new document'))) break;
@@ -5885,7 +5967,7 @@ app.addEventListener('click', async (e) => {
       node: d.loadFont || d.loadCharacterFont || d.loadVariableFont,
       variable: !!d.loadVariableFont,
       ...(d.loadCharacterFont ? { characters: [...(characterEdit?.selected || [])] } : {}),
-      before: serialize(history.doc),
+      before: readDocument(),
       commandState: session.state,
     };
     const input = document.querySelector('#font-file');
@@ -6259,7 +6341,7 @@ function commitFont(bytes, name, request) {
       'Switch to a static font in Default font before loading a static font. Use Load variable TTF for variable fonts.',
     );
   if (fontRequest?.id !== request.id) return;
-  if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
+  if (readDocument() !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
   if (
     request.characters &&
@@ -6655,7 +6737,7 @@ async function loadInstalledFont(id, nodeId, characters) {
     layer: current().id,
     node: nodeId,
     ...(characters ? { characters } : {}),
-    before: serialize(history.doc),
+    before: readDocument(),
     commandState: session.state,
   });
   notify(`Loading ${entry[1]}…`);
@@ -7276,6 +7358,15 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.activeComposition !== undefined) {
+    try {
+      switchActiveComposition(el.value);
+    } catch (error) {
+      notify(error.message, true);
+      render();
+    }
+    return;
+  }
   if (d.artboardUnit !== undefined) {
     if (!ARTBOARD_UNITS.includes(el.value)) return;
     artboardUnit = el.value;
@@ -7502,7 +7593,7 @@ app.addEventListener('change', async (e) => {
     }
     const request = imagePick || {
       id: ++imageRequest,
-      before: serialize(history.doc),
+      before: readDocument(),
       doc: history.doc,
       commandState: session.state,
     };
@@ -7510,7 +7601,7 @@ app.addEventListener('change', async (e) => {
     try {
       const asset = await prepareImage(file);
       if (request.id !== imageRequest) return;
-      if (history.doc !== request.doc || serialize(history.doc) !== request.before)
+      if (history.doc !== request.doc || readDocument() !== request.before)
         throw Error('Document changed while reading; import the image again');
       const created = session.dispatch({
         ...request.commandState,
@@ -7550,7 +7641,7 @@ app.addEventListener('change', async (e) => {
       if (request.variable) {
         if (
           fontRequest?.id !== request.id ||
-          serialize(history.doc) !== request.before ||
+          readDocument() !== request.before ||
           activeLayer !== request.layer
         )
           throw Error('Document changed while reading; load the font again');
@@ -7587,17 +7678,17 @@ app.addEventListener('change', async (e) => {
     if (!file) return;
     try {
       const request = ++openRequest,
-        before = serialize(history.doc),
+        before = readDocument(),
         generation = documents.generation,
         envelope = session.state;
       if (file.size > (el.id === 'open-file' ? MAX_PROJECT_BYTES : 10_000_000))
         throw Error('File exceeds the supported size limit');
       const text = await file.text(),
         source = el.id === 'import-svg-file' ? readSVGSource(text) : null,
-        next = source ? null : deserialize(text);
+        next = source ? null : deserializeProject(text);
       if (next) await preflightImages(next);
       if (request !== openRequest || generation !== documents.generation) return;
-      if (documents.hasDraft() || serialize(history.doc) !== before)
+      if (documents.hasDraft() || readDocument() !== before)
         throw Error('Document changed while reading; open the file again');
       if (el.id === 'open-file') await prepareOpenDocument(next, { saved: true });
       else {
@@ -11513,10 +11604,24 @@ window.nect = {
       doc.imageAssets,
     );
   },
+  get activeCompositionId() {
+    return session.activeCompositionId;
+  },
+  get compositions() {
+    return session.projectSnapshot().compositions.map(({ id, name, width, height }) => ({
+      id,
+      name,
+      width,
+      height,
+    }));
+  },
+  projectSnapshot: () => session.projectSnapshot(),
   load(text) {
-    const d = deserialize(text);
-    if (hasVariableFonts(d)) return prepareOpenDocument(d).then(() => render(true));
-    replaceDocument(d);
+    const project = deserializeProject(text),
+      activeDocument = activeCompositionDocument(project, project.compositions[0].id);
+    if (hasVariableFonts(activeDocument))
+      return prepareOpenDocument(project).then(() => render(true));
+    replaceDocument(project);
     render(true);
   },
   export: (options) => exportSVG(history.doc, fonts, options),

@@ -177,7 +177,7 @@ export function serializeCompositionProject(project) {
   return JSON.stringify(project);
 }
 
-export function deserializeCompositionProject(text) {
+export function deserializeCompositionProject(text, deserializeLegacyDocument = null) {
   if (typeof text !== 'string') throw Error('Composition project JSON must be text');
   const parsed = JSON.parse(text);
   if (
@@ -185,7 +185,11 @@ export function deserializeCompositionProject(text) {
     (Object.hasOwn(parsed, 'compositionSchemaVersion') || Object.hasOwn(parsed, 'compositions'))
   )
     return validateCompositionProject(parsed);
-  return migrateLegacyDocumentToCompositionProject(parsed);
+  const legacy =
+    typeof deserializeLegacyDocument === 'function'
+      ? deserializeLegacyDocument(text)
+      : parsed;
+  return migrateLegacyDocumentToCompositionProject(legacy);
 }
 
 function legacyIds(document) {

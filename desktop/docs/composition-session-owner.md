@@ -1,26 +1,11 @@
 # Composition session owner
 
-`CompositionSessionOwner` is the state boundary for a multi-Composition project.
-`composition-session-owner-core.js` supplies the existing core `CommandSession`,
-`History`, validator and clone policy. The owner projects only the active
-Composition to that `CommandSession`, then records each committed edit back into
-one project `History` snapshot. The snapshot contains every Composition and the
-shared font/image asset registries; core History keeps embedded asset bytes
-shared between snapshots.
+CompositionSessionOwner owns the full multi-Composition project snapshot and chronological project History. It projects the active Composition into the existing CommandSession for core command validation, then maps every committed edit back into that Composition while retaining the other Composition records and project-shared font/image assets.
 
-Undo/Redo is project-wide and chronological. After editing A then B, Undo first
-restores B, then A; Redo reapplies them in the same order. Asset additions are
-part of that same project snapshot, so an edit Undo in B retains a font or image
-previously added in A. Switching tabs does not change the project revision or
-undo/redo availability. Unknown Composition IDs and invalid project candidates
-are rejected before replacing the current session. Composition create, rename,
-resize and delete each use one project History step. The active CommandSession
-does not retain a duplicate local undo stack.
+Undo and Redo traverse project History, including edits made in different Compositions. Composition switching does not add a history entry or change the project revision. Create, rename, resize and delete operations are single project-history steps. The owner exposes a stable History facade whose doc, past and future values are legacy Document projections for the active Composition; this keeps existing selection-history bookkeeping attached to stable snapshots. Prepared commands and variable-aware Undo/Redo use the existing document-preparation bridge before committing project History.
 
-Owner orchestration tests inject small History/Session doubles, so they run
-without the app's external packages. The core factory is a thin binding to the
-real implementations; this checkout cannot load that binding because required
-packages are missing. The app still needs to route document commands and
-Undo/Redo through the core factory before it can expose Composition tabs or
-persist the multi-Composition envelope. Native Open/Save, recovery, export,
-variable-font activation and UI selection/view state are not connected here.
+main.js now creates this owner at startup and routes command dispatch, Undo/Redo, New, native and browser Open, Save, recovery, and window.nect.load through the project envelope. Old single-Document JSON is passed through the core deserializer/upgrader before migration. SVG and PNG export use the active Composition's Document projection and dimensions. The UI exposes Add Composition and an active-Composition selector when multiple Compositions exist. A tab switch resets selection and view state to the new Composition's initial context; preserving a separate view context per tab is not part of this slice.
+
+The existing Composition Reference remains a reference to a Layer node graph. The project model continues to reject missing targets and references that cross outer Composition boundaries; it does not introduce references to outer Compositions. Whole-container project import is not connected by this slice.
+
+The owner orchestration tests inject small History and Session doubles. The focused model/owner run passes 19 tests, including legacy core-upgrader routing, stable History projections, project-wide edits and prepared Undo. Syntax checks and git diff --check also pass. The core factory runtime, browser interaction, and native Open/Save/recovery dialogs are NOT RUN because this checkout lacks required external packages; no npm or network retry was made. Run the core factory and multi-Composition lifecycle/UI acceptance when an authorized local dependency/runtime is available.

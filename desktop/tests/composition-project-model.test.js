@@ -215,6 +215,25 @@ test('legacy JSON is migrated once on read and new JSON is validated without rem
   assert.deepEqual(reopened.compositions[0].editor, legacy.editor);
 });
 
+test('legacy JSON runs the core upgrader before outer Composition migration', () => {
+  const legacy = legacyDocument(),
+    sourceText = JSON.stringify(legacy);
+  let calls = 0;
+  const project = deserializeCompositionProject(sourceText, (text) => {
+    calls++;
+    const upgraded = JSON.parse(text);
+    upgraded.schemaVersion = 27;
+    upgraded.name = 'Core-upgraded project';
+    return upgraded;
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(project.schemaVersion, 27);
+  assert.equal(project.name, 'Core-upgraded project');
+  assert.equal(project.compositions.length, 1);
+  assert.equal(project.compositions[0].width, legacy.width);
+});
+
 test('active Document edits update one Composition and shared assets, preserving the other', () => {
   const project = twoCompositionProject(),
     before = structuredClone(project),
