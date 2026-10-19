@@ -62,7 +62,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer, dirty: documents.dirty}); window.markPenSaved = () => { documents.saved = serialize(history.doc); };';
+    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer, dirty: documents.dirty}); window.markPenSaved = () => { documents.saved = serializeProject(session.projectSnapshot()); };';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=

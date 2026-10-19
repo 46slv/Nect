@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   document,
   node,
@@ -17,7 +18,7 @@ import { makeVariableFontAsset, parseFont } from '../src/fonts.js';
 import { createNodeVariableWorkerTransport } from '../cli/variable-font-node.js';
 
 const exec = promisify(execFile);
-const cli = new URL('../cli/export.js', import.meta.url);
+const cli = fileURLToPath(new URL('../cli/export.js', import.meta.url));
 const fixture = await fs.readFile(
   new URL('./fixtures/variable-font/Roboto-variable.ttf', import.meta.url),
 );
@@ -62,7 +63,7 @@ async function temp(t) {
   return dir;
 }
 const run = (input, output) =>
-  exec(process.execPath, [cli.pathname, input, output], { timeout: 15000 });
+  exec(process.execPath, [cli, input, output], { timeout: 15000 });
 
 test('cold CLI prepares real weight/width axes exactly and exits; repeated export is deterministic', async (t) => {
   const dir = await temp(t),

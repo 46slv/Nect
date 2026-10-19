@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { deflate } from 'pako';
 import {
   CommandSession,
@@ -381,9 +382,13 @@ test('image luminance budget failures roll back parameter edits and browser SVG 
     const input = path.join(dir, 'input.json'),
       output = path.join(dir, 'output.svg');
     await fs.writeFile(input, serialize(exportFixture.doc));
-    execFileSync(process.execPath, ['cli/export.js', input, output], {
-      cwd: path.resolve(new URL('..', import.meta.url).pathname),
-    });
+    execFileSync(
+      process.execPath,
+      [fileURLToPath(new URL('../cli/export.js', import.meta.url)), input, output],
+      {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+      },
+    );
     assert.equal(await fs.readFile(output, 'utf8'), browserSvg);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

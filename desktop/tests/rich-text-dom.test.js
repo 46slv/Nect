@@ -41,7 +41,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>[['system-0','Japanese fixture',null]], readSystemFont=()=>globalThis.readRichFont();`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>[['system-0','Japanese fixture',null]], readSystemFont=()=>globalThis.readRichFont(); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
     )
     .replace(
       /from '(\.\/[^']+)'/g,

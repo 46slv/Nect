@@ -14,29 +14,29 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Happy DOM observer and full-suite triage (2026-10-19)
+## ACTIVE CHECKPOINT - Test extraction and Windows CLI failure repair (2026-10-19)
 
-Goal: Remove the synthetic-DOM startup failures caused by missing MutationObserver bindings, verify the focused paths and one full `npm test` run, classify remaining failures, and save a local checkpoint.
+Goal: Separate test-module extraction defects from production defects, repair the affected DOM fixtures and Windows file-URL handling, and commit the targeted cleanup locally.
 
-Current phase: The 82 happy-dom test fixtures that lacked the browser global now bind the real `win.MutationObserver`. The focused deletion and ordering fixtures were aligned with the editor's existing focus, all-points browsing, and scheduled-render behavior. No application source was changed.
+Current phase: Fixture fixes and isolated test runs are complete; checkpoint documentation is updated and a local commit remains.
 
 Proven:
 
-- Focused serial run of deletion, ordering, Auto Handles, Bend, and Smooth DOM tests: **22 PASS**.
-- `git diff --check`: **PASS**.
-- One full `npm test` run completed with exit code 1. Its log contains **0 `MutationObserver` errors** and 70 `test at` failure reports. The default spec reporter did not emit a root aggregate count; the 70 reports are not directly comparable to the previous aggregate of 1,559 tests / 1,447 PASS / 108 FAIL / 4 skipped.
-- The prior 108 failures were classified as 77 missing observer bindings, 3 Windows child-process failures, and 28 assertion/schema/API mismatches. The current three child-process failures are environmental path issues: one cannot find `C:\Program Files\nodejs\node.exe` (`ENOENT`); two variable-font CLI tests pass `/C:/...` and Node resolves the malformed `C:\C:\...` path (`MODULE_NOT_FOUND`). No `EPERM` or `EACCES` denial was observed.
-- Remaining assertion/API failures include old schema/expectation mismatches, duplicate `evaluate` declaration, and missing test helpers `serialize` / `beginRecovery`. They were not changed because this run supplied no evidence that the observer bridge caused them.
-- Full-run diagnostic log: `%TEMP%\nect-npm-test-mutationobserver.log`.
+- In production `main.js`, project persistence uses `serializeProject(session.projectSnapshot())`; the injected DOM helper's `serialize(history.doc)` referenced a name outside its data-URL module. The fixture now uses the production project serializer.
+- Production imports and passes all recovery functions to `RecoveryAutosave`. Three tests replace `storage.js` without retaining those names; their isolated storage stubs now include the recovery surface.
+- Production imports `evaluateCore` and declares its own local `evaluate` wrapper. The snap test injected a second `evaluate`; it now instruments the existing wrapper.
+- Windows child-process tests now convert script and working-directory URLs with `fileURLToPath`, while launching with `process.execPath`.
+- Focused results: `artwork-snap-dom` **1 PASS**; `system-font-dom` **1 PASS**; `variable-font-ui` **1 PASS**; `variable-font-cli` **5 PASS**. The repaired image CLI comparison **1 PASS**. `blank-artwork-dom` has 8 PASS and one remaining assertion failure (the parent suite also fails): expected 2 layers, got 1. `rich-text-dom` has one remaining assertion failure (24 vs 5). `image-luminance` has 10 PASS and one remaining default-vector fingerprint mismatch (expected `sha256:85550975e61ac8b2b1fef571d2356555fdec3924cefa07f82ffeb4978322e3d0`, got `sha256:93ed6708de2add4813a461700e772d8b5a02c9de115ef84f9a51e1ac31624ff0`). Their relation to product behavior requires separate classification.
+- `git diff --check`: **PASS**. No full-suite run, network retry, or native/real-browser runtime validation was performed.
 
-Next task: Reconcile the remaining failure reports against the prior baseline and accepted contracts; fix only a clearly evidenced regression attributable to this fixture change. Then resume the Composition lifecycle acceptance where runtime access permits.
+Next task: Classify the remaining blank-artwork layer-count, rich-text metric, and vector-fingerprint failures against current Composition behavior and accepted contracts; then resume native/browser Open, Save, recovery, and public-load acceptance for multi-Composition projects.
 
-Approach: Keep the actual happy-dom observer, preserve assertions, and do not change Windows process or permission settings. Treat the three child-process errors as environment/path failures.
+Approach: Keep this checkpoint's edits in test fixtures only. Investigate each remaining assertion independently before changing production behavior or expected values. Run the actual application acceptance only when its runtime is available.
 
-Done for next: Focused and full-run evidence is recorded, the local checkpoint is committed, and the exact resulting HEAD is reported to the parent.
+Done for next: The extraction and Windows-path failures are corrected, the current target evidence is recorded, and this local checkpoint is committed without pushing.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `8621a15788424413918ec6d3ae4ae201a8eade80`; test diff currently touches 82 DOM test files. No push, network retry, localhost retry, or product-source change.
+State: Branch `codex/nect-regression-validation-v2`; base HEAD `f1a6dd143e23ede7b2b7037ae56cf8388b7667db`; this checkpoint changes seven test files plus this record. Dependencies needed by the selected Node tests were available locally. Native runtime remains unverified. No network, push, or permission changes.
 
-Authority: Parent's delegated request to fix the observer fixture setup, run target tests and one full `npm test`, classify subprocess failures, and create a local commit. Push was not requested for this follow-up.
+Authority: User's follow-up authorizes these localized fixes, targeted tests, and a local commit; it forbids network retry, push, and runtime-access bypass.
 
 Handoff: CONTINUE_CURRENT_TASK
