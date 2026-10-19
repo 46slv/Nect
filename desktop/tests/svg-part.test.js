@@ -58,6 +58,46 @@ for (const blank of [false, true])
     f.send('redo');
     assert.deepEqual(f.s.snapshot(), after);
   });
+test('Add SVG retains CSS-pixel user geometry and leaves the destination Composition size unchanged', () => {
+  const f = fixture(true),
+    before = f.s.snapshot(),
+    result = f.send('add-svg-part', {
+      layerId: before.layers[0].id,
+      source: tree('<svg width="100mm" height="50mm"><rect width="96" height="48"/></svg>'),
+      name: 'physical.svg',
+    }),
+    after = f.s.snapshot(),
+    source = after.layers.find((layer) => layer.id === result.sourceLayerId),
+    geometry = source.nodes.find((n) => n.type === 'Multi Path'),
+    xs = geometry.points.map((point) => point.position.value[0]),
+    ys = geometry.points.map((point) => point.position.value[1]);
+
+  assert.equal(after.width, before.width);
+  assert.equal(after.height, before.height);
+  assert.equal(Math.max(...xs) - Math.min(...xs), 96);
+  assert.equal(Math.max(...ys) - Math.min(...ys), 48);
+});
+
+test('Add SVG rejects unsupported viewport scaling atomically without replacing existing work', () => {
+  const f = fixture(true);
+  f.add();
+  const before = serialize(f.s.snapshot()),
+    state = f.s.state;
+
+  assert.throws(
+    () =>
+      f.send('add-svg-part', {
+        layerId: f.d.layers[0].id,
+        source: tree(
+          '<svg width="100mm" height="50mm" viewBox="0 0 200 150" preserveAspectRatio="xMidYMid meet"><rect width="200" height="150"/></svg>',
+        ),
+      }),
+    /viewBox scaling is not supported/,
+  );
+  assert.equal(serialize(f.s.snapshot()), before);
+  assert.deepEqual(f.s.state, state);
+});
+
 test('SVG instances duplicate, move and transform without changing embedded paths or unrelated layers', () => {
   const f = fixture();
   // Distinct nodes are minted by another document; add it before the Session.

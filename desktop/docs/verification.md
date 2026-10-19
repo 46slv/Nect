@@ -265,3 +265,12 @@ The SVG export-copy control now offers `Default` or 2–8 decimal places. Defaul
 - Changed JavaScript syntax checks and scoped Prettier checks: **PASS**.
 - Production `npm run build`: **PASS**, with the existing large minified-chunk warning (1.34 MB).
 - Full `npm test` and actual WebView2/UI file inspection: **NOT_RUN**. No dependency install or network retry occurred.
+
+## Physical-unit SVG import and viewport boundary / 2026-10-19
+
+SVG import now converts absolute root lengths (px, mm, cm, in, pt, pc and q) to the editor's 96 CSS px/in document basis. Import/export covers a 100 x 50 mm artboard both with no `viewBox` and with a zero-origin `viewBox` whose user-space extents already match the physical viewport in CSS pixels. Explicit `xMidYMid meet` is accepted for this identity mapping. A non-zero `viewBox` origin or root dimensions that require viewBox scaling/letterboxing are rejected rather than silently shifting or rescaling unsupported geometry. Add SVG shares this bounded parser but appends its user-space geometry as a hidden source Composition and leaves the destination Composition dimensions unchanged; a rejected Add SVG request leaves session state and Undo untouched.
+
+- Focused import, Add SVG, and export-unit tests: **20/20 PASS** (`import.test.js`, `svg-part.test.js`, `svg-export-units.test.js`). The tests cover 100 x 50 mm / 10 x 5 cm round-trip, absolute-unit conversion, matching root/viewBox extents, non-zero-origin rejection, uniform and aspect-ratio scale mismatch, `xMidYMid meet` and `none`, and Add SVG's separate composition contract.
+- Scoped Prettier checks and `git diff --check`: **PASS**.
+- Production `npm run build`: **PASS** (136 modules); Vite reports the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2 import/export: **NOT_RUN**. No dependency install or network retry occurred.

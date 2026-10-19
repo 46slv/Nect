@@ -10,6 +10,7 @@ import {
   pathData,
   pathBounds,
 } from './core.js';
+import { CSS_PIXELS_PER_INCH, MILLIMETRES_PER_INCH } from './artboard-units.js';
 import { createLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill } from './radial-gradient.js';
 import { readSVGSource, svgTreeRoot } from './svg-tree.js';
@@ -29,6 +30,31 @@ export const SVG_IMPORT_LIMITS = Object.freeze({
 });
 const gradientId = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 const localGradient = /^url\(#([A-Za-z_][A-Za-z0-9_.-]{0,127})\)$/;
+const svgRootUnitScale = Object.freeze({
+  px: 1,
+  mm: CSS_PIXELS_PER_INCH / MILLIMETRES_PER_INCH,
+  cm: CSS_PIXELS_PER_INCH / (MILLIMETRES_PER_INCH / 10),
+  in: CSS_PIXELS_PER_INCH,
+  pt: CSS_PIXELS_PER_INCH / 72,
+  pc: CSS_PIXELS_PER_INCH / 6,
+  q: CSS_PIXELS_PER_INCH / (MILLIMETRES_PER_INCH * 4),
+});
+
+function svgRootLength(raw, key, fallback) {
+  if (raw === null) return fallback;
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(px|mm|cm|in|pt|pc|q)?$/i.exec(
+    raw.trim(),
+  );
+  if (!match) throw Error(`Unsupported SVG viewport ${key} units`);
+  const value = Number(match[1]) * svgRootUnitScale[(match[2] || 'px').toLowerCase()];
+  if (!Number.isFinite(value) || value <= 0) throw Error(`SVG viewport ${key} must be positive`);
+  return value;
+}
+
+function sameSvgExtent(left, right) {
+  return Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
+}
+
 const solidColor = (raw) => {
   if (raw === 'none') return null;
   if (/^#[0-9a-f]{3}$/i.test(raw)) raw = '#' + [...raw.slice(1)].map((x) => x + x).join('');
@@ -55,6 +81,14 @@ export function importSVGTree(source) {
   if (root.localName !== 'svg') throw Error('Invalid SVG document');
   if (root.namespaceURI !== null && root.namespaceURI !== 'http://www.w3.org/2000/svg')
     throw Error('Unsupported SVG namespace');
+  const preserveAspectRatio = root.getAttribute('preserveAspectRatio');
+  if (
+    preserveAspectRatio !== null &&
+    !/^(?:none|x(?:Min|Mid|Max)Y(?:Min|Mid|Max)(?:\s+(?:meet|slice))?)$/.test(
+      preserveAspectRatio.trim(),
+    )
+  )
+    throw Error('Unsupported SVG preserveAspectRatio value');
   const allowed = new Set([
     'svg',
     'g',
@@ -134,7 +168,7 @@ export function importSVGTree(source) {
       'stroke-dashoffset',
     ];
     const attrs = {
-      svg: ['xmlns', 'width', 'height', 'viewBox'],
+      svg: ['xmlns', 'width', 'height', 'viewBox', 'preserveAspectRatio'],
       g: ['data-layer'],
       path: ['d', 'data-layer'],
       circle: ['cx', 'cy', 'r'],
@@ -298,16 +332,23 @@ export function importSVGTree(source) {
     ?.trim()
     .split(/[\s,]+/)
     .map(Number);
+  if (viewBox && (viewBox.length !== 4 || !viewBox.every(Number.isFinite)))
+    throw Error('Invalid SVG viewBox');
+  if (viewBox && (viewBox[0] !== 0 || viewBox[1] !== 0))
+    throw Error('Only zero-origin SVG viewBox is supported');
+  if (viewBox && (viewBox[2] <= 0 || viewBox[3] <= 0))
+    throw Error('SVG viewBox dimensions must be positive');
+  const viewportWidth = svgRootLength(root.getAttribute('width'), 'width', viewBox?.[2] ?? 960),
+    viewportHeight = svgRootLength(root.getAttribute('height'), 'height', viewBox?.[3] ?? 540);
   if (
     viewBox &&
-    (viewBox.length !== 4 ||
-      !viewBox.every(Number.isFinite) ||
-      viewBox[0] !== 0 ||
-      viewBox[1] !== 0)
+    (!sameSvgExtent(viewportWidth, viewBox[2]) || !sameSvgExtent(viewportHeight, viewBox[3]))
   )
-    throw Error('Only zero-origin SVG viewBox is supported');
-  result.width = viewBox?.[2] ?? number(root, 'width', 960);
-  result.height = viewBox?.[3] ?? number(root, 'height', 540);
+    throw Error(
+      'SVG viewBox scaling is not supported; root dimensions must match viewBox units at 96 CSS px/in',
+    );
+  result.width = viewBox?.[2] ?? viewportWidth;
+  result.height = viewBox?.[3] ?? viewportHeight;
   const rectangleDimension = (el, key, basis) => {
     const raw = el.getAttribute(key);
     if (raw && /^[+-]?(?:\d*\.)?\d+(?:e[+-]?\d+)?%$/i.test(raw)) {

@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Format-scoped export settings presets (2026-10-19)
+## ACTIVE CHECKPOINT - Physical-unit SVG import/export boundaries (2026-10-19)
 
-Goal: Save and reapply supported SVG and PNG export settings in the toolbar, keeping each preset format-specific and separate from project data and Undo.
+Goal: Preserve physical SVG root dimensions in the 96 CSS px/in document basis and prevent unsupported viewBox transforms from silently changing size or position.
 
-Current phase: Implementation, focused verification, source commit, and normal branch synchronization are complete.
+Current phase: Bounded Import SVG and Add SVG tests, importer repair, documentation, and production build are complete; checkpoint commit and normal branch synchronization remain.
 
 Proven:
 
-- SVG presets contain only fixed/responsive sizing, supported units, and geometry precision. PNG presets contain either one supported scale or positive PPI. Exact-key validation rejects mixed-format and unsupported fields.
-- The toolbar saves, reloads, and applies settings through the existing export controls. Applying one format leaves the other format's settings unchanged. Presets use a versioned local preference key and do not change project JSON or Undo history. Invalid saves surface feedback through the existing status area.
-- Focused preset, DOM integration, responsive SVG, unit, PNG sizing, and PNG density tests: 23/23 PASS. Scoped Prettier, `git diff --check`, and production build: PASS (136 modules; existing large-chunk warning).
-- Full test suite and actual WebView2 interaction: NOT_RUN. No dependency installation or network retry was made.
+- Import SVG converts absolute root lengths px/mm/cm/in/pt/pc/q to CSS pixels. A 100 x 50 mm source round-trips through fixed mm and cm SVG export; a matching zero-origin viewBox and explicit `xMidYMid meet` retain dimensions.
+- Non-zero viewBox origins and root/viewBox scale or letterbox mismatches are rejected because transform-preserving geometry import is outside the current subset. Add SVG appends px user-space geometry without resizing the destination Composition and rejects an invalid source atomically.
+- Focused Import SVG, Add SVG, and root-unit tests: 20/20 PASS. Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing large-chunk warning).
+- Full `npm test` and actual WebView2 file interaction: NOT_RUN. No dependency installation or network retry occurred.
 
-Next task: Re-read the live Composition/session completion route and choose its next eligible checkpoint, preserving the existing Goal and human gates.
+Next task: Evaluate whether transform-preserving import for non-zero origins and mismatched root/viewBox sizes should be the next bounded compatibility increment; the current verified behavior remains explicit rejection.
 
-Approach: Use current repository/route evidence to select one bounded implementation or validation step. Keep the next checkpoint focused and continue only within the existing authorization.
+Approach: Keep Import SVG's replace-document contract distinct from Add SVG's append-to-Composition contract. Extend transforms only with fixtures that prove 96 CSS px/in geometry and expected preserveAspectRatio mapping; otherwise keep rejecting unsupported cases.
 
-Done for next: Select the next mission checkpoint from current requirements and route evidence; this export preset checkpoint remains implemented, verified, and synchronized.
+Done for next: Physical root lengths and the safe zero-origin identity mapping are verified; unsupported viewport transforms cannot silently alter imported artwork; the source/tests/docs checkpoint is committed and synchronized.
 
-State: Feature source commit `ca6d206481cd5371febdbc51b5102ae6ff8e4224` is pushed on `codex/nect-regression-validation-v2`; remote branch was verified at the same SHA. The only pre-existing local untracked files are the two outputs under `desktop/native-artifact-4edbda9/`.
+State: Branch `codex/nect-regression-validation-v2`; pre-commit HEAD `3dba12f22800861cf7bdc2f325ea7cf5b68bf84c`. Scoped source/tests/docs are modified. Preserve pre-existing untracked `desktop/native-artifact-4edbda9/` outputs. Remote was at the pre-commit HEAD at start.
 
-Authority: The user's current delegated instruction authorizes this bounded export preset work, focused checks, records, commit, and normal development-branch push. Do not perform a force push, mainline merge, release, dependency/network retry, credential or permission change, or modify the preserved trial outputs.
+Authority: The user's current delegated instruction authorizes this bounded SVG import/export review, corrective implementation, focused tests/build, documentation, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credential/permission change, or alter the preserved trial outputs.
 
 Handoff: CONTINUE_CURRENT_TASK
