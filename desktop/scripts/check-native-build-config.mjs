@@ -10,7 +10,9 @@ const pkg = JSON.parse(packageJson);
 const checks = {
   frontendDist: tauri.build?.frontendDist === '../dist',
   customProtocolFeature: /custom-protocol\s*=\s*\[\s*"tauri\/custom-protocol"\s*\]/.test(cargo),
-  releaseCommandUsesTauriCli: /desktop:build/.test(JSON.stringify(pkg.scripts)) && /tauri/.test(pkg.scripts['desktop:build'] || ''),
+  releaseCommandUsesTauriCli:
+    /desktop:build/.test(JSON.stringify(pkg.scripts)) &&
+    /tauri/.test(pkg.scripts['desktop:build'] || ''),
 };
 for (const [name, pass] of Object.entries(checks)) console.log(`${pass ? 'PASS' : 'FAIL'} ${name}`);
 if (Object.values(checks).some((pass) => !pass)) process.exitCode = 1;
