@@ -5819,6 +5819,15 @@ export class CommandSession {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
     if (type === 'import-composition') {
+      if (
+        this.#busy() ||
+        this.#gesture ||
+        this.hasTextComposition ||
+        [...this.#textDrafts.values()].some(
+          (draft) => draft.revision === this.#history.revision && draft.state.changed,
+        )
+      )
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
       if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
         throw Error('Invalid composition import payload');
       const imported = prepareCompositionImport(
@@ -7066,7 +7075,9 @@ export class CommandSession {
       if (ids.some((id) => !target.nodes.some((node) => node.id === id)))
         throw Error('Missing node');
       const protectedIds = target.nodes
-        .filter((n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type))
+        .filter(
+          (n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type),
+        )
         .map((n) => n.id);
       if (type === 'delete-node' && protectedIds.some((id) => selected.has(id)))
         throw Error('Cannot delete a locked or Output node');
@@ -7527,7 +7538,10 @@ export class CommandSession {
         )
           throw Error('Invalid Text settings');
         for (const [key, value] of Object.entries(settings)) {
-          if (['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) && value === null)
+          if (
+            ['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) &&
+            value === null
+          )
             delete node[key];
           else node[key] = clone(value);
         }
@@ -7537,7 +7551,9 @@ export class CommandSession {
           candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
         if (Object.hasOwn(settings, 'fontFeatures') || node.fontFeatures) {
           const preflight = evaluate(
-            { ...target, output: node.id }, resolveFonts(candidate, baseFonts), candidate.imageAssets,
+            { ...target, output: node.id },
+            resolveFonts(candidate, baseFonts),
+            candidate.imageAssets,
           );
           if (preflight.error) throw Error(preflight.error);
         }
