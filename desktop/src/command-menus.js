@@ -4,6 +4,12 @@ export function ensureCommandMenus(app, document) {
   const makeMenu = (label, actions) => {
     const menu = document.createElement('details');
     menu.className = 'command-menu';
+    menu.addEventListener('toggle', () => {
+      if (!menu.open) return;
+      header.querySelectorAll('.command-menu[open]').forEach((other) => {
+        if (other !== menu) other.open = false;
+      });
+    });
     const summary = document.createElement('summary');
     summary.textContent = label;
     const items = document.createElement('div');

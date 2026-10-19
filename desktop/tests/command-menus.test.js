@@ -36,4 +36,18 @@ test('command menus are idempotent and preserve an open Import menu', () => {
     importMenu.querySelector('[data-action="import-composition"]')?.textContent,
     'Project composition',
   );
+
+  const menus = [...app.querySelectorAll('.command-menu')];
+  const [, , exportMenu] = menus;
+  for (const active of [menus[0], menus[1], exportMenu, menus[0]]) {
+    active.open = true;
+    active.dispatchEvent(new window.Event('toggle'));
+    assert.equal(menus.filter((entry) => entry.open).length, 1);
+    assert.equal(active.open, true);
+  }
+  menus.forEach((entry) => (entry.open = false));
+  assert.equal(
+    menus.some((entry) => entry.open),
+    false,
+  );
 });
