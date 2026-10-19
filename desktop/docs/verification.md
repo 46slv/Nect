@@ -323,3 +323,11 @@ The focused Playwright route exercises the Artboard px/mm/cm selector and the re
 - Focused Node tests (`png-density.test.js`, `png-export-size.test.js`, `artboard-units.test.js`, `transient-panel-contract.test.js`): **14/14 PASS**. Native WebView2 GUI and full suite: **NOT_RUN**.
 - The first E2E attempt targeted the Export PNG button while its Export details menu was closed. The runner now opens that menu through its summary and exercises the visible action; no application-source change was needed.
 - No dependency install, network retry, host/port change, or Notion write occurred.
+
+## Responsive header hit targets at 900×620 / 2026-10-19
+
+The existing composition-import Playwright E2E now verifies the corrected wrapped header at its 900×620 viewport. It opens Project, Import, and Export with ordinary clicks and confirms each newly opened details menu closes the previous one. Before normal Undo and Redo clicks, the test checks the center point with `elementFromPoint`; both points resolve to their respective header buttons, and each click changes the imported Composition count as expected.
+
+- `node tests/project-composition-import.e2e.js` with `BASE_URL=http://127.0.0.1:5173`: **10/10 recorded steps PASS**, no page errors. Undo hit `data-action=undo` at (421.14, 53); Redo hit `data-action=redo` at (444.67, 53). The normal click sequence removes and restores the complete second import.
+- `node --test tests/responsive-header-layout.test.js`: **1/1 PASS**. The post-import 900×620 screenshot shows the wrapped header above the Tools navigation; one review image and the JSON receipt remain locally in `desktop/test-results/`.
+- Production source was unchanged; no build was needed. Native WebView2 verification and the full suite remain **NOT_RUN**.
