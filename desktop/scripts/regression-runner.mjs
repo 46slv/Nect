@@ -12,6 +12,7 @@ const suites = {
   ],
   composition: [
     'project-composition-import.test.js',
+    'import-action-contract.test.js',
     'composition-reference.test.js',
     'svg-composition.test.js',
   ],
