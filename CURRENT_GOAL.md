@@ -14,29 +14,28 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Test extraction and Windows CLI failure repair (2026-10-19)
+## ACTIVE CHECKPOINT - Classify residual DOM and fingerprint failures (2026-10-19)
 
-Goal: Separate test-module extraction defects from production defects, repair the affected DOM fixtures and Windows file-URL handling, and commit the targeted cleanup locally.
+Goal: Determine whether the blank-artwork, rich-text schema, and vector-fingerprint failures indicate product defects; fix confirmed fixture defects without weakening the intended contracts.
 
-Current phase: Fixture fixes and isolated test runs are complete; checkpoint documentation is updated and a local commit remains.
+Current phase: The two DOM failures are corrected in fixtures and their focused tests pass. The vector fingerprint assertion is a known stale baseline golden and remains unchanged. Local commit is pending.
 
 Proven:
 
-- In production `main.js`, project persistence uses `serializeProject(session.projectSnapshot())`; the injected DOM helper's `serialize(history.doc)` referenced a name outside its data-URL module. The fixture now uses the production project serializer.
-- Production imports and passes all recovery functions to `RecoveryAutosave`. Three tests replace `storage.js` without retaining those names; their isolated storage stubs now include the recovery surface.
-- Production imports `evaluateCore` and declares its own local `evaluate` wrapper. The snap test injected a second `evaluate`; it now instruments the existing wrapper.
-- Windows child-process tests now convert script and working-directory URLs with `fileURLToPath`, while launching with `process.execPath`.
-- Focused results: `artwork-snap-dom` **1 PASS**; `system-font-dom` **1 PASS**; `variable-font-ui` **1 PASS**; `variable-font-cli` **5 PASS**. The repaired image CLI comparison **1 PASS**. `blank-artwork-dom` has 8 PASS and one remaining assertion failure (the parent suite also fails): expected 2 layers, got 1. `rich-text-dom` has one remaining assertion failure (24 vs 5). `image-luminance` has 10 PASS and one remaining default-vector fingerprint mismatch (expected `sha256:85550975e61ac8b2b1fef571d2356555fdec3924cefa07f82ffeb4978322e3d0`, got `sha256:93ed6708de2add4813a461700e772d8b5a02c9de115ef84f9a51e1ac31624ff0`). Their relation to product behavior requires separate classification.
-- `git diff --check`: **PASS**. No full-suite run, network retry, or native/real-browser runtime validation was performed.
+- Blank-artwork failure occurred on the Text iteration after New. REQ-210 specifies that a normal Text Tool click selects the variant and a primary Canvas press/release creates Text. The fixture selected Text but never made a valid primary canvas click; Happy DOM also provided a zero-sized stage. It now emits primary pointer events, supplies realistic stage bounds, and clicks the Canvas. `blank-artwork-dom.test.js`: **10/10 PASS**; `text-tool-dom.test.js`: **5/5 PASS**. This was not an active-Composition read/write defect.
+- The UI creates artwork through `session.dispatch`; the public `win.nect.document` getter calls the session snapshot, and `CompositionSessionOwner.snapshot()` delegates to the active CommandSession. The targeted model/owner tests pass **20/20**, including legacy JSON migration, multiple Composition roundtrip, active-only edits, cross-Composition Undo/Redo, and switching without a history step. The actual native/WebView Composition selector flow remains unverified.
+- The rich-text assertion assumed a new typography edit promotes every document to schema 5. The default `document()` schema moved to 24 in commit `8c5b075`, while `updateTextTypography` correctly uses `max(existing, 5)`. The fixture now explicitly loads schema 2, verifies it remains 2 on read, and verifies the edit promotes it to 5. `rich-text-dom.test.js`: **1/1 PASS**.
+- The pinned vector fingerprint mismatch is documented in `desktop/docs/dither-controls.md` as already failing against the unchanged baseline; the doc records the old golden as stale and leaves it intact. The current actual value remains `sha256:93ed6708de2add4813a461700e772d8b5a02c9de115ef84f9a51e1ac31624ff0`; its preceding area assertion passes at 256. Current default tone power and legacy Halftone mode are omitted from fingerprint additions. No production change or expected-hash update is justified here.
+- `git diff --check`: **PASS**. No full-suite run, network retry, or real browser/native runtime validation was performed.
 
-Next task: Classify the remaining blank-artwork layer-count, rich-text metric, and vector-fingerprint failures against current Composition behavior and accepted contracts; then resume native/browser Open, Save, recovery, and public-load acceptance for multi-Composition projects.
+Next task: Resume the Composition lifecycle acceptance for Open, Save, recovery, and public load when the app runtime is available. Keep the documented stale vector golden visible as a known test failure rather than rewriting it without a baseline correction decision.
 
-Approach: Keep this checkpoint's edits in test fixtures only. Investigate each remaining assertion independently before changing production behavior or expected values. Run the actual application acceptance only when its runtime is available.
+Approach: Preserve the schema-2 legacy fixture and primary Canvas Text Tool sequence. Continue with the current Composition owner as the sole session/history authority; validate inactive Compositions through project serialization and targeted owner tests.
 
-Done for next: The extraction and Windows-path failures are corrected, the current target evidence is recorded, and this local checkpoint is committed without pushing.
+Done for next: Both fixture failures now exercise their accepted contracts and pass; the fingerprint assertion is classified as pre-existing stale golden and left unchanged; this local checkpoint is committed without pushing.
 
-State: Branch `codex/nect-regression-validation-v2`; base HEAD `f1a6dd143e23ede7b2b7037ae56cf8388b7667db`; this checkpoint changes seven test files plus this record. Dependencies needed by the selected Node tests were available locally. Native runtime remains unverified. No network, push, or permission changes.
+State: Branch `codex/nect-regression-validation-v2`; base HEAD `e59d4a0e0a30f5bbb617174efac2ec53489a1caf`; this checkpoint changes two test fixtures plus this record. Selected Node tests ran with locally available dependencies. Native/real-browser runtime remains unverified. No network, push, or permission changes.
 
-Authority: User's follow-up authorizes these localized fixes, targeted tests, and a local commit; it forbids network retry, push, and runtime-access bypass.
+Authority: User's follow-up authorizes classifying these assertions, localized test fixes, targeted verification, and a local commit; no full audit or repeated full suite.
 
 Handoff: CONTINUE_CURRENT_TASK

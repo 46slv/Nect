@@ -91,6 +91,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
         cancelable: true,
         pointerId: 3,
         button: 0,
+        isPrimary: true,
         clientX: screen[0],
         clientY: screen[1],
         ...extra,
@@ -263,6 +264,15 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
           key(stage(), 'Enter');
         }
         if (tool === 'Text') {
+          stage().getBoundingClientRect = () => ({
+            left: 80,
+            top: 40,
+            right: 1080,
+            bottom: 740,
+            width: 1000,
+            height: 700,
+          });
+          penPoint([250, 100]);
           const readyDeadline = Date.now() + 5000;
           while (win.nect.evaluate().error !== null) {
             assert.ok(Date.now() < readyDeadline, win.nect.evaluate().error);

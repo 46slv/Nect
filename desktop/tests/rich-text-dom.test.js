@@ -60,6 +60,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   const doc = newDocument(),
     t = node('Text'),
     out = node('Output');
+  doc.schemaVersion = 2;
   t.text = 'ABA';
   t.params.size.value = 40;
   out.params.path.source = t.id;
@@ -67,6 +68,7 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
   await until(() => win.nect.evaluate().error === null);
+  assert.equal(win.nect.document.schemaVersion, 2);
   const get = () => win.nect.document.layers[0].nodes[0],
     saved = () => JSON.stringify(win.nect.document);
   const field = (key) => document.querySelector(`[data-character-style="${key}"]`);
