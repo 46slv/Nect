@@ -1,0 +1,14 @@
+{
+  "sourceSha": "76940ea316a58add594d745d6203fdb180af9aa2",
+  "buildCommand": "cargo build --release --locked --manifest-path src-tauri/Cargo.toml",
+  "artifact": "native-artifact-76940/nect-svg-desktop.exe",
+  "sha256": "26E771C79B998D1F79CE39FC9CF0A98E6908CEDF4CBF9AE92CBFBF904509B3BE",
+  "size": 9124864,
+  "checks": {
+    "cargoReleaseBuild": "PASS",
+    "regressionRunner": "PASS: 27/27",
+    "webBuild": "PASS",
+    "processStartup": "PASS: launched with process-local NECT_SVG_ACCEPTANCE_ROOT and created isolated storage roots; closed without UI interaction",
+    "nativeUi": "NOT_RUN: Computer Use inventory exposed no Windows native apps/windows"
+  }
+}
