@@ -25,6 +25,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
     'requestAnimationFrame',
   ])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;

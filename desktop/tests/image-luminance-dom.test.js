@@ -12,6 +12,7 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'Event', 'requestAnimationFrame'])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;

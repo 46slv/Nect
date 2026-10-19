@@ -12,6 +12,7 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
     return pending.length;
@@ -209,6 +210,7 @@ test('layer ordering is a stable-ID permutation with exact selection, focus and 
         if (mode === 'remap') {
           const remap = doc.layers[0].nodes.find((n) => n.type === 'Path Remap');
           selectNode(remap.id);
+          click(`[data-point-panel-mode="${remap.id}"]`);
           const box = $('[data-batch-point]');
           box.checked = true;
           box.dispatchEvent(new win.Event('change', { bubbles: true }));

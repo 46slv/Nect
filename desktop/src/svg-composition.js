@@ -14,6 +14,9 @@ export function svgComposition(imported, name) {
   composition.visible = false;
   composition.nodes = [];
   const branches = [];
+  const viewportTransform = imported.layers
+    .flatMap((layer) => layer.nodes)
+    .find((n) => n.type === 'Transform' && n.name === 'SVG viewport mapping');
   let row = 0;
   for (const layer of imported.layers) {
     const paints = layer.nodes.filter((n) => paintTypes.has(n.type));
@@ -95,8 +98,19 @@ export function svgComposition(imported, name) {
     });
     return source;
   });
-  const source = appearances.length === 1 ? appearances[0] : join(appearances, 1580, 40);
-  const output = node('Output', 1890, 40);
+  let source = appearances.length === 1 ? appearances[0] : join(appearances, 1580, 40);
+  if (viewportTransform) {
+    const transform = node('Transform', 1890, 40);
+    transform.name = 'SVG viewport mapping';
+    transform.paintMode = true;
+    for (const [key, value] of Object.entries(viewportTransform.params))
+      if (key !== 'path') transform.params[key] = structuredClone(value);
+    transform.params.path.type = 'PaintedPath';
+    composition.nodes.push(transform);
+    connect(composition, source, transform.id, 'path');
+    source = transform.id;
+  }
+  const output = node('Output', 2200, 40);
   composition.nodes.push(output);
   connect(composition, source, output.id, 'path');
   composition.output = output.id;

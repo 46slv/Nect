@@ -18,6 +18,12 @@
 body {
   margin: 0;
 }
+#app {
+  display: grid;
+  grid-template-rows: auto minmax(500px, 1fr) auto;
+  height: 100vh;
+  min-height: 577px;
+}
 button,
 input,
 select,
@@ -56,7 +62,7 @@ textarea:focus-visible {
   outline-offset: 1px;
 }
 header {
-  height: 48px;
+  height: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -130,6 +136,33 @@ header {
   margin-left: 8px;
   color: var(--muted);
 }
+.composition-tabs {
+  display: flex;
+  flex: 0 1 250px;
+  align-items: center;
+  gap: 3px;
+  width: 250px;
+  min-width: 112px;
+  max-width: 30vw;
+  height: 34px;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.composition-tab {
+  flex: 0 0 auto;
+  min-width: 70px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composition-tab[aria-selected='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
 .divider {
   height: 20px;
   border-left: 1px solid var(--line);
@@ -144,7 +177,7 @@ header {
 .workspace {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 274px;
-  height: calc(100vh - 77px);
+  height: auto;
   min-height: 500px;
 }
 .tools {
@@ -1053,6 +1086,11 @@ header > .muted {
   white-space: nowrap;
   min-width: 0;
 }
+
+/* Menu panels extend below the header; a scroll container would clip them. */
+header {
+  overflow: visible;
+}
 image.guide-layer-shape {
   opacity: 0.25;
 }
@@ -1514,8 +1552,18 @@ input[data-scrub-step].scrubbing {
   width: 120px;
   min-width: 100px;
 }
-.graph-pan-pad { display: inline-grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 0 3px; vertical-align: middle; }
-.graph-pan-pad button { min-width: 1.55em; padding: 1px 3px; line-height: 1.1; }
+.graph-pan-pad {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  margin: 0 3px;
+  vertical-align: middle;
+}
+.graph-pan-pad button {
+  min-width: 1.55em;
+  padding: 1px 3px;
+  line-height: 1.1;
+}
 .navigation-hint {
   margin-right: 12px;
 }
@@ -2141,4 +2189,50 @@ input[data-scrub-step].scrubbing {
 .node-preset-controls select {
   width: 140px;
   min-width: 80px;
+}
+
+#export-presets {
+  position: relative;
+  flex: 0 0 auto;
+}
+#export-presets > summary {
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#export-presets > summary::-webkit-details-marker {
+  display: none;
+}
+.export-preset-menu {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  gap: 8px;
+  min-width: min(620px, calc(100vw - 20px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 5px 16px #26374722;
+}
+.export-preset-row {
+  display: grid;
+  grid-template-columns: min-content minmax(100px, 1fr) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.export-preset-row input {
+  min-width: 0;
+}
+.export-preset-row button {
+  white-space: nowrap;
+}
+.export-preset-error {
+  color: #983d21;
 }

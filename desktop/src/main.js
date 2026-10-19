@@ -1,4 +1,11 @@
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
+import {
+  ARTBOARD_UNITS,
+  displayLengthToDocumentUnits,
+  formatDocumentLength,
+} from './artboard-units.js';
+import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
+import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
@@ -16,6 +23,7 @@ import { desktopTextIntent } from './desktop-font-text.js';
 import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
+import { createCompositionViewStateStore } from './composition-view-state.js';
 import { attachExpressionCompletion } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
@@ -32,6 +40,7 @@ import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-ed
 import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import './style.css';
+import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -561,6 +570,14 @@ import {
   MAX_PROJECT_BYTES,
 } from './fonts.js';
 import {
+  activeCompositionDocument,
+  deserializeCompositionProject,
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  validateCompositionProject,
+} from './composition-project-model.js';
+import { createCompositionSessionOwner } from './composition-session-owner-core.js';
+import {
   blankDocument,
   hasEmptyOutput,
   node,
@@ -572,6 +589,8 @@ import {
   definitions,
   parameters,
   activeParameters,
+  booleanInputKeys,
+  booleanPendingInputKey,
   operationOptions,
   setOperation,
   bypassContract,
@@ -592,12 +611,9 @@ import {
   signature,
   connect,
   disconnect,
-  serialize,
   deserialize,
   exportSVG,
   renderElement,
-  History,
-  CommandSession,
   createVariableDocumentPreparer,
   scrubNumericValues,
   guideDefaults,
@@ -788,8 +804,11 @@ async function preparedChange(
   }
 }
 async function prepareOpenDocument(next, options = {}) {
-  if (!hasVariableFonts(next)) {
-    replaceDocument(next, options);
+  const project = asCompositionProject(next),
+    activeCompositionId = options.activeCompositionId ?? project.compositions[0].id,
+    document = activeCompositionDocument(project, activeCompositionId);
+  if (!hasVariableFonts(document)) {
+    replaceDocument(project, { ...options, activeCompositionId });
     return;
   }
   cancelVariableAction();
@@ -800,7 +819,7 @@ async function prepareOpenDocument(next, options = {}) {
   variableAction = action;
   notify('Preparing variable fonts before opening… Escape cancels');
   try {
-    const ticket = await bridge.prepareDocument(next, { signal: action.controller.signal });
+    const ticket = await bridge.prepareDocument(document, { signal: action.controller.signal });
     if (
       variableAction !== action ||
       session !== owner ||
@@ -811,13 +830,14 @@ async function prepareOpenDocument(next, options = {}) {
     variableBridge?.dispose();
     variableBridge = bridge;
     variableAction = null;
-    replaceDocument(next, { ...options, prepared: true });
+    replaceDocument(project, { ...options, activeCompositionId, prepared: true });
   } catch (error) {
     if (variableAction === action) variableAction = null;
     bridge.dispose();
     throw Error(variableError(error));
   }
 }
+
 document.addEventListener(
   'keydown',
   (event) => {
@@ -858,11 +878,36 @@ const sessionOptions = {
       composing
     ),
 };
+function asCompositionProject(value) {
+  if (
+    value &&
+    typeof value === 'object' &&
+    (Object.hasOwn(value, 'compositionSchemaVersion') || Object.hasOwn(value, 'compositions'))
+  )
+    return validateCompositionProject(value);
+  return migrateLegacyDocumentToCompositionProject(value);
+}
+function deserializeProject(text) {
+  if (typeof text !== 'string') throw Error('Project JSON must be text');
+  if (new TextEncoder().encode(text).byteLength > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
+  return deserializeCompositionProject(text, deserialize);
+}
+function serializeProject(project) {
+  const text = serializeCompositionProject(project);
+  if (new TextEncoder().encode(text).byteLength > MAX_PROJECT_BYTES)
+    throw Error('Project exceeds 50 MB');
+  return text;
+}
+
 let sourceEpoch = 0,
   sourcePicker = null,
   sourceReturn = null;
 let viewerState = createViewerState();
-let session = new CommandSession(blankDocument(), sessionOptions);
+let session = createCompositionSessionOwner(
+  migrateLegacyDocumentToCompositionProject(blankDocument()),
+  sessionOptions,
+);
 let history = session.historyView,
   activeLayer = history.doc.layers[0].id,
   selected = null,
@@ -902,15 +947,17 @@ let history = session.historyView,
   drag = null,
   penId = null,
   penDraft = null;
-// Committed History states are frozen. Keep only the current state's encoding,
-// so pointer previews/status reads do not repeatedly encode embedded fonts.
-let encodedDocument = null,
+// Composition project History is the file/recovery unit. Switching the active
+// Composition does not change the saved project.
+let encodedSession = null,
+  encodedProjectRevision = null,
   encodedText;
 function readDocument() {
-  const doc = history.doc;
-  if (doc !== encodedDocument) {
-    encodedText = serialize(doc);
-    encodedDocument = doc;
+  const revision = session.projectRevision;
+  if (session !== encodedSession || revision !== encodedProjectRevision) {
+    encodedText = serializeProject(session.projectSnapshot());
+    encodedSession = session;
+    encodedProjectRevision = revision;
   }
   return encodedText;
 }
@@ -949,13 +996,44 @@ let openRequest = 0,
   imagePick = null,
   svgPartRequest = 0,
   svgPartPick = null,
+  artboardUnit = 'px',
+  svgExportUnit = 'px',
+  svgExportSizing = 'fixed',
+  svgExportPrecision = 'default',
   pngScale = 1,
+  pngExportMode = 'scale',
+  pngPpi = 300,
+  selectedSvgExportPreset = null,
+  svgExportPresetName = '',
+  selectedPngExportPreset = null,
+  pngExportPresetName = '',
   exportInFlight = false;
+let exportPresetStorage = null,
+  exportPresets = [],
+  exportPresetLoadError = '';
+try {
+  if (typeof localStorage !== 'undefined') {
+    exportPresetStorage = localStorage;
+    exportPresets = loadExportPresets(exportPresetStorage);
+  }
+} catch (reason) {
+  exportPresetLoadError = reason?.message || 'Saved export presets could not be loaded';
+}
 let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
+const compositionViewStates = createCompositionViewStateStore();
 const selectionHistory = new WeakMap();
+let focusedCompositionTabId = null,
+  tabRenderSession = null,
+  tabRenderCompositionId = null;
+function closeTransientPanels(except = '') {
+  if (except !== 'align') alignmentPreferences.open = false;
+  if (except !== 'grid') gridOpen = false;
+  if (except !== 'layout') layoutOpen = false;
+  if (except !== 'guides') guidesOpen = false;
+}
 function selectionSnapshot(withEditSelection = false) {
   return {
     activeLayer,
@@ -984,6 +1062,8 @@ function stepHistory(redo = false) {
     notify('Finish or cancel text composition before Undo/Redo', true);
     return;
   }
+  const priorCompositionId = session.activeCompositionId;
+  saveCompositionViewState();
   const priorUI = selectionSnapshot(selectionHistory.get(history.doc)?.restoreEditSelection);
   resetTransient();
   selectionHistory.set(history.doc, priorUI);
@@ -991,15 +1071,23 @@ function stepHistory(redo = false) {
   if (hasVariableFonts(history.doc) || (target && hasVariableFonts(target))) {
     void preparedChange(redo ? 'redo' : 'undo', {}, redo ? 'Redone' : 'Undone').then((result) => {
       if (result) {
-        activeLayer =
-          history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
-        render();
+        compositionViewStates.prune(session.projectSnapshot().compositions);
+        if (session.activeCompositionId !== priorCompositionId) {
+          const graphScroll = restoreCompositionViewState();
+          render(false, null, graphScroll);
+        } else {
+          activeLayer =
+            history.doc.layers.find((l) => l.id === activeLayer)?.id || history.doc.layers[0].id;
+          render();
+        }
       }
     });
     return;
   }
   session.dispatch({ ...session.state, type: redo ? 'redo' : 'undo' });
-  const state = selectionHistory.get(history.doc);
+  const compositionChanged = session.activeCompositionId !== priorCompositionId;
+  compositionViewStates.prune(session.projectSnapshot().compositions);
+  const state = compositionChanged ? null : selectionHistory.get(history.doc);
   if (state) {
     ({ activeLayer, selected, artworkTarget } = state);
     artworkSelection = new Set(state.artworkSelection);
@@ -1028,6 +1116,18 @@ function stepHistory(redo = false) {
       for (const [id, batch] of structuredClone(state.remapBatches)) remapBatches.set(id, batch);
     }
   }
+  if (!history.doc.layers.some((layer) => layer.id === activeLayer)) {
+    activeLayer = history.doc.layers[0].id;
+    selected = null;
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selection = new Set();
+  }
+  if (compositionChanged) {
+    compositionViewStates.prune(session.projectSnapshot().compositions);
+    return restoreCompositionViewState();
+  }
+  return null;
 }
 const remapBatches = new Map();
 let characterEdit = null;
@@ -1485,7 +1585,10 @@ function moveOtherNumeric(d, e, dx) {
     d.original = Number(d.capture.value || 0);
     if (!Number.isFinite(d.original)) return;
     if (d.commandTarget) {
-      d.gesture = beginGraphGesture({ ...d.commandTarget, initial: d.original });
+      const initial = d.capture.dataset.dimension
+        ? displayLengthToDocumentUnits(d.original, d.capture.dataset.dimensionUnit || 'px')
+        : d.original;
+      d.gesture = beginGraphGesture({ ...d.commandTarget, initial });
       if (!d.gesture) return;
     }
     d.started = true;
@@ -1506,10 +1609,13 @@ function moveOtherNumeric(d, e, dx) {
     return;
   }
   try {
+    const commandValue = d.capture.dataset.dimension
+      ? displayLengthToDocumentUnits(value, d.capture.dataset.dimensionUnit || 'px')
+      : value;
     d.gesture = session.dispatch({
       ...session.state,
       type: 'update-gesture',
-      payload: { ...d.gesture, update: { value } },
+      payload: { ...d.gesture, update: { value: commandValue } },
     });
     d.preview = session.previewSnapshot(d.gesture.gestureId).document;
     if (d.commandTarget.command === 'set-document-settings') fitCanvas();
@@ -1685,8 +1791,18 @@ const nodeTypeLabel = (type) => (type === 'Join Geometry' ? 'Join Paths' : type)
 const nodeDisplayName = (n) =>
   n.type === 'Join Geometry' && n.name === 'Join Geometry' ? 'Join Paths' : n.name;
 
+function booleanInputNote(n) {
+  return n.type === 'Boolean'
+    ? '<p class="font-note"><span aria-hidden="true">\u2139</span> Closed paths only. Subtract removes inputs after A from A; Difference is symmetric difference.</p>'
+    : '';
+}
 function editorParameters(n) {
-  if (!isTransform(n)) return activeParameters(n);
+  if (!isTransform(n)) {
+    const entries = activeParameters(n);
+    if (n.type === 'Boolean' && !n.booleanInputOrder && (n.params.b.source || n.params.b.locked))
+      entries.push([booleanPendingInputKey, { type: 'Path', value: null, locked: false }]);
+    return entries;
+  }
   const keys = [
     n.type === 'Transform' ? 'path' : 'vector',
     'anchor',
@@ -1851,6 +1967,16 @@ function field(n, key, q) {
         endOpacity: 'End Opacity (%)',
         copiesAbove: 'Copies Above',
       }[key] || key;
+  if (n.type === 'Boolean') {
+    const index = booleanInputKeys(n).indexOf(key);
+    name =
+      key === booleanPendingInputKey ||
+      (!q.source && !q.locked && key !== 'b' && key === booleanInputKeys(n).at(-1))
+        ? 'Add input'
+        : index >= 0 && index < 26
+          ? String.fromCharCode(65 + index)
+          : `Input ${index + 1}`;
+  }
   let control;
   const connectLabel =
     n.type === 'Convert to Path' && key === 'path'
@@ -2544,10 +2670,15 @@ function operationControls(n) {
   return `<div class="field"><label>${hasDotControls(n.type) ? 'Dot shape' : n.type === 'Closed Path Offset' ? 'Join' : 'Operation'}</label><select data-operation="${n.id}" aria-label="${esc(nodeDisplayName(n))} ${hasDotControls(n.type) ? 'dot shape' : 'operation'}">${options.map((op) => `<option value="${op}" ${n.operation === op ? 'selected' : ''}>${n.type === 'Halftone' && op === 'subtract' ? 'Legacy calibrated' : op[0].toUpperCase() + op.slice(1)}</option>`).join('')}</select></div>`;
 }
 function expandedNodeBody(n, result) {
-  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
+  return `<div class="node-body">${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${textControls(n)}${multiPathControls(n)}${editorParameters(
     n,
   )
-    .filter(([k]) => isTransform(n) || Object.hasOwn(n.params, k))
+    .filter(
+      ([k]) =>
+        isTransform(n) ||
+        Object.hasOwn(n.params, k) ||
+        (n.type === 'Boolean' && k === booleanPendingInputKey),
+    )
     .map(([k, q]) => field(n, k, q))
     .join(
       '',
@@ -2559,7 +2690,150 @@ function nodeHTML(n, result) {
     : expandedNodeBody(n, result);
   return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
-function render(resetView = false, artworkResolution = null) {
+function updateArtboardUnitDisplay() {
+  for (const input of app.querySelectorAll('[data-dimension]')) {
+    const dimension = input.dataset.dimension,
+      shortName = dimension === 'width' ? 'W' : 'H';
+    const displayValue = formatDocumentLength(history.doc[dimension], artboardUnit);
+    input.dataset.dimensionUnit = artboardUnit;
+    input.defaultValue = displayValue;
+    input.value = displayValue;
+    input.setAttribute('aria-label', `Artboard ${dimension} (${artboardUnit})`);
+    const label = input.closest('.field')?.querySelector('label');
+    if (label) label.textContent = `Artboard ${shortName} (${artboardUnit})`;
+  }
+  const size = app.querySelector('[data-artboard-size]');
+  if (size) {
+    size.textContent = `${formatDocumentLength(history.doc.width, artboardUnit)} × ${formatDocumentLength(
+      history.doc.height,
+      artboardUnit,
+    )} ${artboardUnit}`;
+  }
+}
+function pngExportSettings() {
+  return pngExportMode === 'ppi'
+    ? { mode: 'ppi', ppi: pngPpi }
+    : { mode: 'scale', scale: pngScale };
+}
+function exportPresetPanelMarkup() {
+  const options = (format, selected) =>
+    '<option value=""' +
+    (selected ? '' : ' selected') +
+    '>Select ' +
+    format.toUpperCase() +
+    ' preset</option>' +
+    exportPresets
+      .filter((preset) => preset.format === format)
+      .map(
+        (preset) =>
+          '<option value="' +
+          esc(preset.name) +
+          '"' +
+          (preset.name === selected ? ' selected' : '') +
+          '>' +
+          esc(preset.name) +
+          '</option>',
+      )
+      .join('');
+  return (
+    '<details id="export-presets"><summary>Export presets</summary><div class="export-preset-menu">' +
+    '<div class="export-preset-row" role="group" aria-label="SVG export presets"><label for="svg-export-preset">SVG</label><select id="svg-export-preset" aria-label="SVG export preset">' +
+    options('svg', selectedSvgExportPreset) +
+    '</select><input id="svg-export-preset-name" type="text" maxlength="100" placeholder="SVG preset name" aria-label="SVG preset name" value="' +
+    esc(svgExportPresetName) +
+    '"><button type="button" data-action="save-svg-export-preset"></button></div>' +
+    '<div class="export-preset-row" role="group" aria-label="PNG export presets"><label for="png-export-preset">PNG</label><select id="png-export-preset" aria-label="PNG export preset">' +
+    options('png', selectedPngExportPreset) +
+    '</select><input id="png-export-preset-name" type="text" maxlength="100" placeholder="PNG preset name" aria-label="PNG preset name" value="' +
+    esc(pngExportPresetName) +
+    '"><button type="button" data-action="save-png-export-preset"></button></div>' +
+    (exportPresetLoadError
+      ? '<output class="export-preset-error" role="alert">' +
+        esc(exportPresetLoadError) +
+        '</output>'
+      : '') +
+    '</div></details>'
+  );
+}
+function updateExportPresetSaveLabel(format) {
+  const name = app.querySelector('#' + format + '-export-preset-name')?.value.trim() || '',
+    exists = exportPresets.some((preset) => preset.format === format && preset.name === name),
+    button = app.querySelector('[data-action="save-' + format + '-export-preset"]');
+  if (button)
+    button.textContent = (exists ? 'Update ' : 'Save ') + format.toUpperCase() + ' preset';
+}
+function clearExportPresetSelection(format) {
+  if (format === 'svg') {
+    selectedSvgExportPreset = null;
+    const select = app.querySelector('#svg-export-preset');
+    if (select) select.value = '';
+  } else {
+    selectedPngExportPreset = null;
+    const select = app.querySelector('#png-export-preset');
+    if (select) select.value = '';
+  }
+}
+function saveCurrentExportPreset(format) {
+  const nameInput = app.querySelector('#' + format + '-export-preset-name'),
+    settings =
+      format === 'svg'
+        ? { sizing: svgExportSizing, unit: svgExportUnit, precision: svgExportPrecision }
+        : pngExportSettings(),
+    result = saveExportPreset(exportPresetStorage, {
+      format,
+      name: nameInput?.value ?? '',
+      settings,
+    });
+  exportPresets = result.presets;
+  exportPresetLoadError = '';
+  if (format === 'svg') {
+    selectedSvgExportPreset = result.preset.name;
+    svgExportPresetName = result.preset.name;
+  } else {
+    selectedPngExportPreset = result.preset.name;
+    pngExportPresetName = result.preset.name;
+  }
+  render();
+  notify(format.toUpperCase() + ' preset saved');
+}
+function applySavedExportPreset(format, name) {
+  const preset = exportPresets.find((item) => item.format === format && item.name === name);
+  if (!preset) throw Error('Saved export preset was not found');
+  const settings = applyExportPreset(preset, format);
+  if (format === 'svg') {
+    svgExportSizing = settings.sizing;
+    svgExportUnit = settings.unit;
+    svgExportPrecision = settings.precision;
+    selectedSvgExportPreset = preset.name;
+    svgExportPresetName = preset.name;
+  } else {
+    pngExportMode = settings.mode;
+    if (settings.mode === 'scale') pngScale = settings.scale;
+    else pngPpi = settings.ppi;
+    selectedPngExportPreset = preset.name;
+    pngExportPresetName = preset.name;
+  }
+  render();
+  notify(format.toUpperCase() + ' preset applied');
+}
+function pngExportPreview(doc) {
+  try {
+    const size = pngDimensions(doc, pngExportSettings());
+    return { size, label: `${size.width} × ${size.height} px` };
+  } catch (error) {
+    return { size: null, label: error.message || 'Invalid PNG dimensions' };
+  }
+}
+function updatePngExportPreview() {
+  const output = app.querySelector('[data-png-dimensions]');
+  if (!output) return;
+  const preview = pngExportPreview(history.doc);
+  output.textContent = preview.label;
+  output.dataset.valid = String(!!preview.size);
+  const button = app.querySelector('[data-action="export-png"]');
+  if (button) button.disabled = !preview.size;
+}
+function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
   textTools?.cancel();
   const osOwners = new Set(
     history.doc.layers.flatMap((layer) => layer.nodes.filter((n) => n.osFont).map((n) => n.id)),
@@ -2590,6 +2864,7 @@ function render(resetView = false, artworkResolution = null) {
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
+  const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -2615,8 +2890,11 @@ function render(resetView = false, artworkResolution = null) {
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
   selection = new Set([...selection].filter((id) => current().nodes.some((n) => n.id === id)));
   let scroll = document.querySelector('.graph-scroll'),
-    oldScroll = scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0];
+    oldScroll =
+      graphScrollOverride ||
+      (scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0]);
   const doc = history.doc,
+    pngPreview = pngExportPreview(doc),
     aids = guideSettings(doc),
     l = current();
   activeLayer = l.id;
@@ -2645,7 +2923,17 @@ function render(resetView = false, artworkResolution = null) {
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="png-scale" aria-label="PNG export scale">${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${pngScale === v ? 'selected' : ''}>${v}× PNG</option>`).join('')}</select><button data-action="export-png" title="Transparent artboard · ${Math.round(doc.width * pngScale)} × ${Math.round(doc.height * pngScale)} px">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${
+    session.projectSnapshot().compositions.length > 1
+      ? `<label>Composition <select data-active-composition aria-label="Composition">${session
+          .projectSnapshot()
+          .compositions.map(
+            (composition) =>
+              `<option value="${esc(composition.id)}" ${composition.id === session.activeCompositionId ? 'selected' : ''}>${esc(composition.name)}</option>`,
+          )
+          .join('')}</select></label>`
+      : ''
+  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -2661,7 +2949,7 @@ function render(resetView = false, artworkResolution = null) {
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span>${doc.width} × ${doc.height}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -2685,12 +2973,14 @@ function render(resetView = false, artworkResolution = null) {
       '',
     )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
-      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
+      ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
         )
           .filter(
             ([k, q]) =>
-              (isTransform(n) || Object.hasOwn(n.params, k)) &&
+              (isTransform(n) ||
+                Object.hasOwn(n.params, k) ||
+                (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
               !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
           .map(([k, q]) => field(n, k, q))
@@ -2700,7 +2990,7 @@ function render(resetView = false, artworkResolution = null) {
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3>'
           : '<p>Select artwork or a graph node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label>Artboard W</label><input type="number" data-dimension="width" value="${doc.width}" aria-label="Artboard width"></div><div class="field"><label>Artboard H</label><input type="number" data-dimension="height" value="${doc.height}" aria-label="Artboard height"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
@@ -2708,6 +2998,7 @@ function render(resetView = false, artworkResolution = null) {
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  renderCompositionTablist();
   mountViewers(app, viewerState, {
     doc,
     fonts,
@@ -2717,6 +3008,16 @@ function render(resetView = false, artworkResolution = null) {
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
   });
+  const pngExportButton = app.querySelector('[data-action="export-png"]');
+  if (pngExportButton) {
+    pngExportButton.insertAdjacentHTML('afterend', exportPresetPanelMarkup());
+    const panel = app.querySelector('#export-presets');
+    if (panel) panel.open = exportPresetsOpen;
+    updateExportPresetSaveLabel('svg');
+    updateExportPresetSaveLabel('png');
+  }
+  const svgPrecision = app.querySelector('#svg-export-precision');
+  if (svgPrecision) svgPrecision.value = svgExportPrecision;
   prepareNumericInputs(app);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
@@ -4918,59 +5219,96 @@ async function confirmReplace(action = 'opening another document') {
   return accepted;
 }
 async function openCompositionImportDialog() {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  const owner = session,
+    revision = session.state.expectedRevision,
+    generation = documents.generation;
   const opened = desktop
     ? await openFile()
-    : await new Promise((resolve) => {
+    : await new Promise((resolve, reject) => {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json,application/json';
         input.hidden = true;
         document.body.append(input);
         input.onchange = async () => {
-          const file = input.files?.[0];
-          resolve(file ? { name: file.name, contents: await file.text() } : null);
-          input.remove();
+          try {
+            const file = input.files?.[0];
+            if (file && file.size > MAX_PROJECT_BYTES) throw Error('Project exceeds 50 MB');
+            resolve(file ? { name: file.name, contents: await file.text() } : null);
+          } catch (error) {
+            reject(error);
+          } finally {
+            input.remove();
+          }
         };
         input.click();
       });
   if (!opened) return;
   let source;
   try {
-    source = deserialize(opened.contents);
+    if (new TextEncoder().encode(opened.contents).byteLength > MAX_PROJECT_BYTES)
+      throw Error('Project exceeds 50 MB');
+    source = deserializeProject(opened.contents);
   } catch (error) {
-    notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+    notify('Composition import rejected; current document preserved: ' + error.message, true);
     return;
+  } finally {
+    await documents.releaseUnused(opened.binding);
   }
   const dialog = document.createElement('dialog');
   dialog.innerHTML =
-    '<form method="dialog"><h3>Project composition</h3><label>Composition <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
+    '<form method="dialog"><h3>Project compositions</h3><label>Compositions to add <select data-composition-choice></select></label><output role="status"></output><footer><button value="cancel">Cancel</button><button value="import">Import</button></footer></form>';
   const select = dialog.querySelector('[data-composition-choice]');
   const status = dialog.querySelector('output');
-  for (const layer of source.layers) {
+  const allOption = document.createElement('option');
+  allOption.value = '__all__';
+  allOption.textContent = 'All Compositions (' + source.compositions.length + ')';
+  select.append(allOption);
+  for (const composition of source.compositions) {
     const option = document.createElement('option');
-    option.value = layer.id;
-    option.textContent = layer.name || layer.id;
+    option.value = composition.id;
+    option.textContent = composition.name + ' - ' + composition.width + ' x ' + composition.height;
     select.append(option);
   }
-  status.textContent = `${source.layers.length} compositions`;
+  status.textContent =
+    source.compositions.length +
+    ' Compositions in ' +
+    source.name +
+    '; All adds the project set in one Undo step; choose one to add only that Composition.';
   dialog.addEventListener('close', () => {
     const value = dialog.returnValue;
     dialog.remove();
     if (value !== 'import' || !select.value) return;
     try {
-      session.dispatch({
+      if (
+        session !== owner ||
+        session.state.expectedRevision !== revision ||
+        documents.generation !== generation ||
+        documents.hasDraft() ||
+        variableAction
+      )
+        throw Error('Project changed while reading; import the file again');
+      saveCompositionViewState();
+      const imported = session.dispatch({
         ...session.state,
-        type: 'import-composition',
+        type: 'import-project-compositions',
         payload: {
-          sourceText: opened.contents,
-          compositionId: select.value,
+          sourceProject: source,
+          compositionIds: select.value === '__all__' ? undefined : [select.value],
         },
       });
       resetTransient();
-      render();
-      notify('Composition imported');
+      for (const compositionId of imported.importedCompositionIds)
+        compositionViewStates.forget(compositionId);
+      compositionViewStates.prune(session.projectSnapshot().compositions);
+      const graphScroll = restoreCompositionViewState();
+      render(false, null, graphScroll);
+      updateDocumentStatus();
+      notify(select.value === '__all__' ? 'Compositions imported' : 'Composition imported');
     } catch (error) {
-      notify(`Composition import rejected; current document preserved: ${error.message}`, true);
+      notify('Composition import rejected; current document preserved: ' + error.message, true);
     }
   });
   document.body.append(dialog);
@@ -4982,7 +5320,7 @@ function adoptSVGPart(text, name, request) {
   if (
     request.generation !== documents.generation ||
     documents.hasDraft() ||
-    serialize(history.doc) !== request.before
+    readDocument() !== request.before
   )
     throw Error('Document changed while reading; add the SVG again');
   const source = readSVGSource(text);
@@ -5007,7 +5345,7 @@ function adoptSVGPart(text, name, request) {
 }
 async function importDesktopSVG() {
   const request = ++openRequest,
-    before = serialize(history.doc),
+    before = readDocument(),
     generation = documents.generation,
     envelope = session.state;
   notify('Choose an SVG file…');
@@ -5017,7 +5355,7 @@ async function importDesktopSVG() {
     notify('SVG selection cancelled');
     return;
   }
-  if (documents.hasDraft() || serialize(history.doc) !== before)
+  if (documents.hasDraft() || readDocument() !== before)
     throw Error('Document changed while reading; import the SVG again');
   const source = readSVGSource(opened.contents);
   const result = session.dispatch({ ...envelope, type: 'import-svg', payload: { source } });
@@ -5042,7 +5380,7 @@ function updateDocumentStatus() {
     contents: readDocument(),
     name: history.doc.name || 'Untitled',
     dirty,
-    revision: session.state.expectedRevision,
+    revision: session.projectRevision,
   });
   updateRecoveryStatus();
 }
@@ -5095,7 +5433,7 @@ async function showRecoveryCopies(startup = false) {
     throw Error('Document changed; choose the recovery copy again');
   if (!startup && !(await confirmReplace('restoring a recovery copy'))) return;
   const contents = await readRecovery(chosen.id),
-    next = deserialize(contents);
+    next = deserializeProject(contents);
   await preflightImages(next);
   if (generation !== documents.generation || before !== readDocument() || documents.hasDraft())
     throw Error('Document changed; current document preserved');
@@ -5109,7 +5447,10 @@ async function showRecoveryCopies(startup = false) {
     !protectedCopy,
   );
 }
-function replaceDocument(next, { binding = null, saved = false, prepared = false } = {}) {
+function replaceDocument(
+  next,
+  { binding = null, saved = false, prepared = false, activeCompositionId = null } = {},
+) {
   sourceEpoch++;
   sourcePicker = null;
   sourceReturn = null;
@@ -5119,15 +5460,211 @@ function replaceDocument(next, { binding = null, saved = false, prepared = false
     variableBridge = null;
   }
   resetTransient();
+  compositionViewStates.clear();
+  detailsState.clear();
+  contextMenuScroll.clear();
   viewerState = createViewerState();
-  session = new CommandSession(next, sessionOptions);
+  const project = asCompositionProject(next);
+  activeCompositionId ??= project.compositions[0].id;
+  session = createCompositionSessionOwner(project, { ...sessionOptions, activeCompositionId });
   history = session.historyView;
   documents.replace({ binding, saved });
-  activeLayer = initialLayerId(next);
+  zoom = 1;
+  canvasFit = true;
+  pan = [0, 0];
+  graphZoom = 1;
+  tool = 'select';
+  selectedGuide = null;
+  activeLayer = initialLayerId(history.doc);
   selected = current().nodes[0]?.id;
   artworkTarget = null;
   artworkSelection = new Set();
   selection = new Set();
+}
+function compositionViewDefaults(doc) {
+  const layerId = initialLayerId(doc),
+    layer = doc.layers.find((item) => item.id === layerId),
+    selectedNode = layer?.nodes[0]?.id || null;
+  return {
+    activeLayer: layerId,
+    selected: selectedNode,
+    selection: selectedNode ? [selectedNode] : [],
+    artworkTarget: null,
+    artworkSelection: [],
+    pointSelection: { nodeId: null, ids: [] },
+    pointFocus: null,
+    selectedGuide: null,
+    zoom: 1,
+    canvasFit: true,
+    pan: [0, 0],
+    graphZoom: 1,
+    graphScroll: [0, 0],
+    tool: 'select',
+    guideIds: guideSettings(doc).guides.map((guide) => guide.id),
+    viewerState: createViewerState(),
+  };
+}
+function saveCompositionViewState() {
+  const graph = app.querySelector('.graph-scroll');
+  compositionViewStates.save(session.activeCompositionId, {
+    activeLayer,
+    selected,
+    selection: [...selection],
+    artworkTarget,
+    artworkSelection: [...artworkSelection],
+    pointSelection: { nodeId: pointSelection.nodeId, ids: [...pointSelection.ids] },
+    pointFocus: pointFocus ? { ...pointFocus } : null,
+    selectedGuide,
+    zoom,
+    canvasFit,
+    pan: [...pan],
+    graphZoom,
+    graphScroll: graph ? [graph.scrollLeft, graph.scrollTop] : [0, 0],
+    tool,
+    viewerState,
+  });
+}
+function restoreCompositionViewState() {
+  const state = compositionViewStates.restore(
+    session.activeCompositionId,
+    history.doc,
+    compositionViewDefaults(history.doc),
+  );
+  activeLayer = state.activeLayer;
+  selected = state.selected;
+  selection = new Set(state.selection);
+  artworkTarget = state.artworkTarget;
+  artworkSelection = new Set(state.artworkSelection);
+  pointSelection = {
+    nodeId: state.pointSelection.nodeId,
+    ids: new Set(state.pointSelection.ids),
+  };
+  pointFocus = state.pointFocus ? { ...state.pointFocus } : null;
+  selectedGuide = state.selectedGuide;
+  zoom = state.zoom;
+  canvasFit = state.canvasFit;
+  pan = [...state.pan];
+  graphZoom = state.graphZoom;
+  tool = state.tool;
+  viewerState = state.viewerState;
+  return state.graphScroll;
+}
+function switchActiveComposition(compositionId) {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  if (compositionId === session.activeCompositionId) return false;
+  const project = session.projectSnapshot();
+  if (!project.compositions.some((composition) => composition.id === compositionId))
+    throw Error('Unknown active Composition ID');
+  saveCompositionViewState();
+  resetTransient();
+  if (!session.switchComposition(compositionId)) return false;
+  compositionViewStates.prune(project.compositions);
+  const graphScroll = restoreCompositionViewState();
+  render(false, null, graphScroll);
+  updateDocumentStatus();
+  return true;
+}
+function renderCompositionTablist() {
+  const compositions = session.projectSnapshot().compositions,
+    activeId = session.activeCompositionId,
+    select = app.querySelector('[data-active-composition]')?.closest('label'),
+    workspace = app.querySelector('.workspace');
+  if (tabRenderSession !== session || tabRenderCompositionId !== activeId) {
+    focusedCompositionTabId = activeId;
+    tabRenderSession = session;
+    tabRenderCompositionId = activeId;
+  }
+  if (compositions.length < 2) return;
+  focusedCompositionTabId ??= activeId;
+  if (!compositions.some((composition) => composition.id === focusedCompositionTabId))
+    focusedCompositionTabId = activeId;
+  const tablist = document.createElement('div');
+  tablist.className = 'composition-tabs';
+  tablist.setAttribute('role', 'tablist');
+  tablist.setAttribute('aria-label', 'Compositions');
+  tablist.setAttribute('aria-orientation', 'horizontal');
+  for (const composition of compositions) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'composition-tab';
+    tab.id = `composition-tab-${composition.id}`;
+    tab.dataset.activeComposition = composition.id;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', 'composition-panel');
+    tab.setAttribute('aria-selected', String(composition.id === activeId));
+    tab.tabIndex = composition.id === focusedCompositionTabId ? 0 : -1;
+    tab.title = composition.name;
+    tab.textContent = composition.name;
+    tablist.append(tab);
+  }
+  select?.replaceWith(tablist);
+  if (workspace) {
+    workspace.id = 'composition-panel';
+    workspace.setAttribute('role', 'tabpanel');
+    workspace.setAttribute('aria-labelledby', `composition-tab-${activeId}`);
+  }
+}
+function focusCompositionTab(compositionId) {
+  const tabs = [...app.querySelectorAll('[role="tab"][data-active-composition]')],
+    tab = tabs.find((item) => item.dataset.activeComposition === compositionId);
+  if (!tab) return;
+  focusedCompositionTabId = compositionId;
+  for (const item of tabs) item.tabIndex = item === tab ? 0 : -1;
+  tab.focus();
+}
+function activateCompositionTab(compositionId) {
+  try {
+    switchActiveComposition(compositionId);
+  } catch (error) {
+    notify(error.message, true);
+    render();
+  }
+  focusCompositionTab(session.activeCompositionId);
+}
+app.addEventListener('keydown', (event) => {
+  const tab = event.target.closest?.('[role="tab"][data-active-composition]');
+  if (!tab || event.altKey || event.ctrlKey || event.metaKey) return;
+  const tabs = [...app.querySelectorAll('[role="tab"][data-active-composition]')],
+    index = tabs.indexOf(tab);
+  if (index < 0) return;
+  let target = null;
+  switch (event.key) {
+    case 'ArrowRight':
+      target = tabs[(index + 1) % tabs.length];
+      break;
+    case 'ArrowLeft':
+      target = tabs[(index + tabs.length - 1) % tabs.length];
+      break;
+    case 'Home':
+      target = tabs[0];
+      break;
+    case 'End':
+      target = tabs.at(-1);
+      break;
+    case 'Enter':
+    case ' ':
+    case 'Space':
+      event.preventDefault();
+      activateCompositionTab(tab.dataset.activeComposition);
+      return;
+    default:
+      return;
+  }
+  event.preventDefault();
+  focusCompositionTab(target.dataset.activeComposition);
+});
+function addComposition() {
+  if (variableAction) throw Error('Finish or cancel variable font preparation first');
+  if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
+  saveCompositionViewState();
+  resetTransient();
+  const compositionId = session.createComposition();
+  compositionViewStates.forget(compositionId);
+  compositionViewStates.prune(session.projectSnapshot().compositions);
+  const graphScroll = restoreCompositionViewState();
+  render(false, null, graphScroll);
+  updateDocumentStatus();
 }
 function download(text, name, type) {
   const a = document.createElement('a'),
@@ -5168,6 +5705,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.activeComposition !== undefined) {
+    activateCompositionTab(d.activeComposition);
+    return;
+  }
   if (Object.hasOwn(d, 'sourceNav')) {
     sourceNavigationAction(b);
     return;
@@ -5222,6 +5763,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
+    const opening = !alignmentPreferences.open;
+    if (opening) closeTransientPanels('align');
     alignmentPreferences.open = !alignmentPreferences.open;
     saveAlignmentPreferences();
     render();
@@ -5486,14 +6029,16 @@ app.addEventListener('click', async (e) => {
   if (d.action) {
     try {
       switch (d.action) {
-        case 'undo':
-          stepHistory();
-          render();
+        case 'undo': {
+          const graphScroll = stepHistory();
+          render(false, null, graphScroll);
           break;
-        case 'redo':
-          stepHistory(true);
-          render();
+        }
+        case 'redo': {
+          const graphScroll = stepHistory(true);
+          render(false, null, graphScroll);
           break;
+        }
         case 'save':
         case 'save-as': {
           try {
@@ -5505,18 +6050,36 @@ app.addEventListener('click', async (e) => {
           }
           break;
         }
+        case 'save-svg-export-preset':
+        case 'save-png-export-preset': {
+          const format = d.action === 'save-svg-export-preset' ? 'svg' : 'png';
+          try {
+            saveCurrentExportPreset(format);
+          } catch (reason) {
+            notify(reason?.message || 'Export preset could not be saved', true);
+          }
+          break;
+        }
         case 'export':
         case 'export-png': {
           if (exportInFlight) break;
           exportInFlight = true;
           try {
-            const svg = exportSVG(history.doc, fonts);
             if (d.action === 'export') {
+              const svg = exportSVG(history.doc, fonts, {
+                unit: svgExportUnit,
+                responsive: svgExportSizing === 'responsive',
+                ...(svgExportPrecision === 'default'
+                  ? {}
+                  : { precision: Number(svgExportPrecision) }),
+              });
               if (await saveFile(svg, 'nect-artwork.svg', 'svg'))
                 notify('SVG exported · transparent artboard; guides excluded');
             } else {
-              const size = pngDimensions(history.doc, pngScale);
-              const blob = await rasterizeSVG(svg, size);
+              const size = pngDimensions(history.doc, pngExportSettings());
+              const svg = exportSVG(history.doc, fonts);
+              const ppi = pngExportMode === 'ppi' ? pngPpi : null,
+                blob = await rasterizeSVG(svg, size, ppi);
               if (await saveFile(blob, 'nect-artwork.png', 'png'))
                 notify(`PNG exported · ${size.width} × ${size.height} · transparent background`);
             }
@@ -5531,7 +6094,7 @@ app.addEventListener('click', async (e) => {
         case 'import-image':
           imagePick = {
             id: ++imageRequest,
-            before: serialize(history.doc),
+            before: readDocument(),
             doc: history.doc,
             commandState: session.state,
           };
@@ -5552,7 +6115,7 @@ app.addEventListener('click', async (e) => {
           svgPartTarget(history.doc, current().id);
           svgPartPick = {
             id: ++svgPartRequest,
-            before: serialize(history.doc),
+            before: readDocument(),
             generation: documents.generation,
             envelope: session.state,
             layerId: current().id,
@@ -5591,21 +6154,21 @@ app.addEventListener('click', async (e) => {
           if (!(await confirmReplace())) break;
           if (desktop) {
             const request = ++openRequest,
-              before = serialize(history.doc),
+              before = readDocument(),
               generation = documents.generation;
             const opened = await openFile();
             try {
               if (request !== openRequest || generation !== documents.generation) break;
-              if (serialize(history.doc) !== before)
+              if (readDocument() !== before)
                 throw Error('Document changed while reading; open the file again');
               if (opened !== null) {
-                const next = deserialize(opened.contents);
+                const next = deserializeProject(opened.contents);
                 await preflightImages(next);
                 if (
                   request !== openRequest ||
                   generation !== documents.generation ||
                   documents.hasDraft() ||
-                  serialize(history.doc) !== before
+                  readDocument() !== before
                 )
                   throw Error('Document changed while reading; open the file again');
                 await prepareOpenDocument(next, { binding: opened.binding, saved: true });
@@ -5617,6 +6180,10 @@ app.addEventListener('click', async (e) => {
               await documents.releaseUnused(opened?.binding);
             }
           } else document.querySelector('#open-file').click();
+          break;
+        case 'add-composition':
+          addComposition();
+          notify('Composition added');
           break;
         case 'new': {
           if (!(await confirmReplace('creating a new document'))) break;
@@ -5664,14 +6231,17 @@ app.addEventListener('click', async (e) => {
           editGuides('set-guide-setting', { key: 'gridAnchor', value: 'center' });
           break;
         case 'grid-panel':
+          if (!gridOpen) closeTransientPanels('grid');
           gridOpen = !gridOpen;
           render();
           break;
         case 'layout-panel':
+          if (!layoutOpen) closeTransientPanels('layout');
           layoutOpen = !layoutOpen;
           render();
           break;
         case 'guides-panel':
+          if (!guidesOpen) closeTransientPanels('guides');
           guidesOpen = !guidesOpen;
           render();
           break;
@@ -5769,7 +6339,7 @@ app.addEventListener('click', async (e) => {
         case 'help': {
           let dialog = document.createElement('dialog');
           dialog.innerHTML =
-            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect paths to Boolean A/B, then through Path Remap, Fill / Stroke, and Output. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
+            '<h3>Nect SVG</h3><p>The editor starts with a blank document. New creates a blank document; + Blank composition appends an empty vector Output. Each layer owns an independent node composition. Toolbar shapes and Text append independent artwork. Canvas or Layers selects final artwork; graph titles select a source node. Drag the node-stage outline/marker for source edits. Blank canvas clears selection. Shift-drag locks horizontal, vertical or 45°; release Shift to move freely. Focus the artboard for Arrow: 1 unit, Shift+Arrow: 10; unsupported artwork shows its reason.</p><p>Pen creates independent Curve artwork without replacing existing layers. Click for corners, drag for Bézier handles, and click the first point to close. Enter, Escape or Finish path finishes an open curve. Cancel path discards the detached draft. One-point drafts are discarded on finish. Each finished path is one Undo. Add node → Curve and Use as output remain explicit graph operations.</p><p>Connect closed paths to Boolean A/B. Drag a path to Add input for C and later inputs. Save JSON retains all nodes and edits; SVG is the evaluated artwork.</p><p>Ctrl+Z / Ctrl+Shift+Z: Undo / Redo. Focus either view for +/− zoom, Ctrl/Cmd+1 actual size, Shift+1 fit. Artboard: plain wheel pans; Shift+wheel pans horizontally; Ctrl/Cmd+wheel zooms at the pointer. Space + drag or middle drag pans. Fit artboard centers the artboard; 100% is one document unit per CSS pixel.</p><p>Node graph: Ctrl/Cmd+D duplicates selected nodes beside the selection in one Undo. Middle drag, Ctrl/Cmd+Shift+drag or Space+drag pans; Alt or Ctrl/Cmd+wheel zooms (5–200%). Ctrl/Cmd+1 restores actual size while the graph is focused. Hold a dragged node near an edge to scroll; right/bottom grow automatically, left/top stop at the origin. Node edges and centers snap into alignment within 6 screen pixels; hold Ctrl/Cmd during the drag to bypass. Escape cancels a node drag. Fit all frames measured cards; Shift+2 fits selected cards. Reset view restores 100% at the origin. Fitting is limited to 5–200%.</p><button>Close</button>';
           dialog.querySelector('button').onclick = () => closeEditorDialog(dialog);
           showEditorDialog(dialog);
           break;
@@ -5811,7 +6381,7 @@ app.addEventListener('click', async (e) => {
       node: d.loadFont || d.loadCharacterFont || d.loadVariableFont,
       variable: !!d.loadVariableFont,
       ...(d.loadCharacterFont ? { characters: [...(characterEdit?.selected || [])] } : {}),
-      before: serialize(history.doc),
+      before: readDocument(),
       commandState: session.state,
     };
     const input = document.querySelector('#font-file');
@@ -6185,7 +6755,7 @@ function commitFont(bytes, name, request) {
       'Switch to a static font in Default font before loading a static font. Use Load variable TTF for variable fonts.',
     );
   if (fontRequest?.id !== request.id) return;
-  if (serialize(history.doc) !== request.before || activeLayer !== request.layer)
+  if (readDocument() !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
   if (
     request.characters &&
@@ -6581,7 +7151,7 @@ async function loadInstalledFont(id, nodeId, characters) {
     layer: current().id,
     node: nodeId,
     ...(characters ? { characters } : {}),
-    before: serialize(history.doc),
+    before: readDocument(),
     commandState: session.state,
   });
   notify(`Loading ${entry[1]}…`);
@@ -7089,6 +7659,26 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.id === 'svg-export-preset-name') {
+    svgExportPresetName = e.target.value;
+    if (e.target.value.trim() !== (selectedSvgExportPreset || ''))
+      clearExportPresetSelection('svg');
+    updateExportPresetSaveLabel('svg');
+    return;
+  }
+  if (e.target.id === 'png-export-preset-name') {
+    pngExportPresetName = e.target.value;
+    if (e.target.value.trim() !== (selectedPngExportPreset || ''))
+      clearExportPresetSelection('png');
+    updateExportPresetSaveLabel('png');
+    return;
+  }
+  if (e.target.id === 'png-ppi') {
+    clearExportPresetSelection('png');
+    pngPpi = Number(e.target.value);
+    updatePngExportPreview();
+    return;
+  }
   if (e.target.matches('[data-grid-opacity]')) {
     const value = e.target.value.trim() ? Number(e.target.value) / 100 : NaN;
     if (Number.isFinite(value) && value >= 0 && value <= 1) previewGridOpacity(value);
@@ -7197,6 +7787,52 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (el.id === 'svg-export-preset' || el.id === 'png-export-preset') {
+    const format = el.id === 'svg-export-preset' ? 'svg' : 'png';
+    if (!el.value) {
+      clearExportPresetSelection(format);
+      if (format === 'svg') svgExportPresetName = '';
+      else pngExportPresetName = '';
+      const nameInput = app.querySelector('#' + format + '-export-preset-name');
+      if (nameInput) nameInput.value = '';
+      updateExportPresetSaveLabel(format);
+      return;
+    }
+    try {
+      applySavedExportPreset(format, el.value);
+    } catch (reason) {
+      clearExportPresetSelection(format);
+      el.value = '';
+      notify(reason?.message || 'Export preset could not be applied', true);
+    }
+    return;
+  }
+  if (d.artboardUnit !== undefined) {
+    if (!ARTBOARD_UNITS.includes(el.value)) return;
+    artboardUnit = el.value;
+    updateArtboardUnitDisplay();
+    return;
+  }
+  if (d.svgExportUnit !== undefined) {
+    if (!ARTBOARD_UNITS.includes(el.value)) return;
+    clearExportPresetSelection('svg');
+    svgExportUnit = el.value;
+    return;
+  }
+  if (d.svgExportSizing !== undefined) {
+    if (!['fixed', 'responsive'].includes(el.value)) return;
+    clearExportPresetSelection('svg');
+    svgExportSizing = el.value;
+    const units = app.querySelector('#svg-export-unit');
+    if (units) units.hidden = svgExportSizing !== 'fixed';
+    return;
+  }
+  if (d.svgExportPrecision !== undefined) {
+    if (el.value !== 'default' && !SVG_EXPORT_PRECISIONS.includes(Number(el.value))) return;
+    clearExportPresetSelection('svg');
+    svgExportPrecision = el.value;
+    return;
+  }
   if (d.osText) {
     if (!e.isComposing) await commitOsText(d.osText, el.value);
     return;
@@ -7388,7 +8024,21 @@ app.addEventListener('change', async (e) => {
     else notify('Expected a finite batch delta', true);
     return;
   }
+  if (el.id === 'png-export-mode') {
+    if (!['scale', 'ppi'].includes(el.value)) return;
+    clearExportPresetSelection('png');
+    pngExportMode = el.value;
+    render();
+    return;
+  }
+  if (el.id === 'png-ppi') {
+    clearExportPresetSelection('png');
+    pngPpi = Number(el.value);
+    updatePngExportPreview();
+    return;
+  }
   if (el.id === 'png-scale') {
+    clearExportPresetSelection('png');
     pngScale = Number(el.value);
     render();
     return;
@@ -7401,7 +8051,7 @@ app.addEventListener('change', async (e) => {
     }
     const request = imagePick || {
       id: ++imageRequest,
-      before: serialize(history.doc),
+      before: readDocument(),
       doc: history.doc,
       commandState: session.state,
     };
@@ -7409,7 +8059,7 @@ app.addEventListener('change', async (e) => {
     try {
       const asset = await prepareImage(file);
       if (request.id !== imageRequest) return;
-      if (history.doc !== request.doc || serialize(history.doc) !== request.before)
+      if (history.doc !== request.doc || readDocument() !== request.before)
         throw Error('Document changed while reading; import the image again');
       const created = session.dispatch({
         ...request.commandState,
@@ -7449,7 +8099,7 @@ app.addEventListener('change', async (e) => {
       if (request.variable) {
         if (
           fontRequest?.id !== request.id ||
-          serialize(history.doc) !== request.before ||
+          readDocument() !== request.before ||
           activeLayer !== request.layer
         )
           throw Error('Document changed while reading; load the font again');
@@ -7486,17 +8136,17 @@ app.addEventListener('change', async (e) => {
     if (!file) return;
     try {
       const request = ++openRequest,
-        before = serialize(history.doc),
+        before = readDocument(),
         generation = documents.generation,
         envelope = session.state;
       if (file.size > (el.id === 'open-file' ? MAX_PROJECT_BYTES : 10_000_000))
         throw Error('File exceeds the supported size limit');
       const text = await file.text(),
         source = el.id === 'import-svg-file' ? readSVGSource(text) : null,
-        next = source ? null : deserialize(text);
+        next = source ? null : deserializeProject(text);
       if (next) await preflightImages(next);
       if (request !== openRequest || generation !== documents.generation) return;
-      if (documents.hasDraft() || serialize(history.doc) !== before)
+      if (documents.hasDraft() || readDocument() !== before)
         throw Error('Document changed while reading; open the file again');
       if (el.id === 'open-file') await prepareOpenDocument(next, { saved: true });
       else {
@@ -7848,7 +8498,10 @@ app.addEventListener('change', async (e) => {
       else if (d.dimension)
         commandChange(
           'set-document-settings',
-          { key: d.dimension, value: Number(el.value) },
+          {
+            key: d.dimension,
+            value: displayLengthToDocumentUnits(el.value, d.dimensionUnit || 'px'),
+          },
           undefined,
           true,
         );
@@ -10689,8 +11342,15 @@ app.addEventListener('contextmenu', (e) => {
   }
   const card = e.target.closest('.graph .node');
   if (card) return openNodeContextMenu(card.dataset.id, e.clientX, e.clientY);
-  const layer = e.target.closest('.layer[data-layer],.artboard [data-layer],[data-artwork-selection]');
-  if (layer) return openArtworkContextMenu(layer.dataset.layer || layer.dataset.artworkSelection, e.clientX, e.clientY);
+  const layer = e.target.closest(
+    '.layer[data-layer],.artboard [data-layer],[data-artwork-selection]',
+  );
+  if (layer)
+    return openArtworkContextMenu(
+      layer.dataset.layer || layer.dataset.artworkSelection,
+      e.clientX,
+      e.clientY,
+    );
   if (e.target.closest('.graph-scroll')) openGraphBackgroundMenu(e.clientX, e.clientY);
 });
 app.addEventListener(
@@ -11214,8 +11874,8 @@ document.addEventListener('keydown', (e) => {
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
     e.preventDefault();
-    stepHistory(e.shiftKey);
-    render();
+    const graphScroll = stepHistory(e.shiftKey);
+    render(false, null, graphScroll);
   }
   if (e.key === 'Delete' && selectedGuide) {
     const result = editGuides('delete-guide', { guideId: selectedGuide });
@@ -11402,13 +12062,27 @@ window.nect = {
       doc.imageAssets,
     );
   },
+  get activeCompositionId() {
+    return session.activeCompositionId;
+  },
+  get compositions() {
+    return session.projectSnapshot().compositions.map(({ id, name, width, height }) => ({
+      id,
+      name,
+      width,
+      height,
+    }));
+  },
+  projectSnapshot: () => session.projectSnapshot(),
   load(text) {
-    const d = deserialize(text);
-    if (hasVariableFonts(d)) return prepareOpenDocument(d).then(() => render(true));
-    replaceDocument(d);
+    const project = deserializeProject(text),
+      activeDocument = activeCompositionDocument(project, project.compositions[0].id);
+    if (hasVariableFonts(activeDocument))
+      return prepareOpenDocument(project).then(() => render(true));
+    replaceDocument(project);
     render(true);
   },
-  export: () => exportSVG(history.doc, fonts),
+  export: (options) => exportSVG(history.doc, fonts, options),
 };
 
 app.addEventListener('keydown', (event) => {
@@ -11429,43 +12103,7 @@ app.addEventListener('click', async (event) => {
 
 // Keep the command surface compact without changing command ownership.
 const commandMenuObserver = new MutationObserver(() => {
-  const header = app.querySelector('header');
-  if (!header || header.querySelector('.command-menu')) return;
-  const makeMenu = (label, actions) => {
-    const menu = document.createElement('details');
-    menu.className = 'command-menu';
-    const summary = document.createElement('summary');
-    summary.textContent = label;
-    const items = document.createElement('div');
-    items.className = 'command-menu-items';
-    for (const action of actions) {
-      const button = header.querySelector(`[data-action="${action}"]`);
-      if (button) items.append(button);
-    }
-    menu.append(summary, items);
-    return menu;
-  };
-  const brand = header.querySelector('.brand');
-  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as']);
-  const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
-  const composition = document.createElement('button');
-  composition.type = 'button';
-  composition.dataset.action = 'import-composition';
-  composition.textContent = 'Project composition';
-  composition.title = 'Add a Composition from another project';
-  importMenu.querySelector('.command-menu-items').append(composition);
-  const exportMenu = makeMenu('Export', ['export', 'export-png']);
-  const scale = header.querySelector('#png-scale');
-  if (scale) {
-    const label = document.createElement('label');
-    label.className = 'command-menu-scale';
-    label.append('PNG scale', scale);
-    exportMenu.querySelector('.command-menu-items').append(label);
-  }
-  brand?.after(project, importMenu, exportMenu);
-  header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
-    project.querySelector('.command-menu-items').append(button);
-  });
+  ensureCommandMenus(app, document);
 });
 commandMenuObserver.observe(app, { childList: true });
 app.append(document.createComment('command-menu-init'));
@@ -11496,12 +12134,21 @@ render();
 document.addEventListener('click', (event) => {
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
+  if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
+  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+    closeTransientPanels();
+    render();
+  }
 });
 document.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   const open = [...document.querySelectorAll('.command-menu[open]')];
-  if (!open.length) return;
+  if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
-  open[0].querySelector('summary')?.focus();
+  if (open.length) open[0].querySelector('summary')?.focus();
+  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+    closeTransientPanels();
+    render();
+  }
 });

@@ -8,6 +8,7 @@ test('node parameter feedback: split XY, searchable connections and expressions,
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   win.SVGElement.prototype.getScreenCTM = () => ({ inverse: () => ({}) });
   globalThis.fetch = async () => ({

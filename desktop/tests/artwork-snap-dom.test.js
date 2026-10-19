@@ -8,6 +8,7 @@ test('Artwork snap UI: target invalidation, controller/shape/text integration, h
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
     return pending.length;
@@ -58,15 +59,21 @@ test('Artwork snap UI: target invalidation, controller/shape/text integration, h
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
-    .replace('  evaluate,', '  evaluate as actualEvaluate,')
     .replace(
       '  collectSnapLayerBounds,',
       '  collectSnapLayerBounds as actualCollectSnapLayerBounds,',
     )
     .replace(
+      `const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) =>
+  evaluateCore(layer, fonts, imageAssets, doc);`,
+      `const evaluate = (layer, fonts = {}, imageAssets = {}, doc = displayDocument()) => {
+  window.snapEvaluationCalls = (window.snapEvaluationCalls || 0) + 1;
+  return evaluateCore(layer, fonts, imageAssets, doc);
+};`,
+    )
+    .replace(
       'const app =',
-      `const evaluate = (...args) => { window.snapEvaluationCalls = (window.snapEvaluationCalls || 0) + 1; return actualEvaluate(...args); };
-const collectSnapLayerBounds = (...args) => { window.snapBoundsCollections = (window.snapBoundsCollections || 0) + 1; return actualCollectSnapLayerBounds(...args); };
+      `const collectSnapLayerBounds = (...args) => { window.snapBoundsCollections = (window.snapBoundsCollections || 0) + 1; return actualCollectSnapLayerBounds(...args); };
 const app =`,
     )
     .replace(

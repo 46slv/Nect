@@ -10,6 +10,7 @@ test('multi-selection user feedback through real DOM handlers', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {

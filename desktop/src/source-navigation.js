@@ -1,4 +1,4 @@
-import { outputType, bypassContract, joinInputKeys } from './core.js';
+import { outputType, bypassContract, joinInputKeys, booleanInputKeys } from './core.js';
 
 const geometry = (type) => type === 'Path' || type === 'PaintedPath';
 const serial = new Set(['Output', 'Fill', 'Stroke', 'Text to Path', 'Transform', 'Path Remap']);
@@ -59,7 +59,7 @@ export function queryShapeSources(doc, root, revision) {
       keys = [contract.input];
     } else if (serial.has(n.type)) keys = ['path'];
     else if (n.type === 'Join Geometry') keys = joinInputKeys(n);
-    else if (n.type === 'Boolean') keys = ['a', 'b'];
+    else if (n.type === 'Boolean') keys = booleanInputKeys(n);
     else {
       issue(n.id, `Source search unsupported for ${n.type}`);
       continue;
@@ -72,8 +72,14 @@ export function queryShapeSources(doc, root, revision) {
     adjacency.set(n.id, edges);
     for (const key of keys) {
       const q = n.params?.[key];
-      // Join's empty spare slots are not missing branches.
-      if (n.type === 'Join Geometry' && !n.bypassed && q && !q.source) continue;
+      // Empty Join and additional Boolean spare slots are not missing branches.
+      if (
+        !n.bypassed &&
+        q &&
+        !q.source &&
+        (n.type === 'Join Geometry' || (n.type === 'Boolean' && !['a', 'b'].includes(key)))
+      )
+        continue;
       if (!q || !geometry(q.type) || !q.source) {
         issue(n.id, `Missing geometry input: ${key}`);
         continue;

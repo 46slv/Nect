@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -12,6 +13,7 @@ test('expandable Join Geometry renders stable input sockets, spare labels, wires
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
     globalThis[key] =
       key === 'requestAnimationFrame' ? (callback) => frames.push(callback) : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;
@@ -76,6 +78,7 @@ test('expandable Join Geometry renders stable input sockets, spare labels, wires
     /from '([.][^']+)'/g,
     (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
   );
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((resolve) => setTimeout(resolve, 100));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 10));

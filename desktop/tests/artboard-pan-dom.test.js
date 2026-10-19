@@ -1,13 +1,21 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
-import '../src/core.js';
+import { blankDocument, connect, node } from '../src/core.js';
 test('Artboard pan owns its pointer and leaves artwork and history unchanged', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
+  for (const key of [
+    'window',
+    'document',
+    'HTMLElement',
+    'DOMPoint',
+    'MutationObserver',
+    'requestAnimationFrame',
+  ])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -69,7 +77,16 @@ test('Artboard pan owns its pointer and leaves artwork and history unchanged', a
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+  await new Promise((r) => setTimeout(r, 100));
+  const artwork = blankDocument(),
+    layer = artwork.layers[0],
+    output = layer.nodes[0],
+    circle = node('Circle');
+  layer.nodes.push(circle);
+  connect(layer, circle.id, output.id, 'path');
+  win.nect.load(JSON.stringify(artwork));
   await new Promise((r) => setTimeout(r, 100));
   const fire = (el, type, x = 100, y = 100, button = 1, pointerId = 1) =>
     el.dispatchEvent(

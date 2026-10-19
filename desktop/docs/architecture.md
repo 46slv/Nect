@@ -6,6 +6,7 @@
 - `src/fonts.js`, `src/text-layout.js`: bounded local font assets and deterministic Japanese/Latin outline layout, shared by editor and CLI. See [typography](typography.md).
 - `src/main.js`, `src/style.css`: browser editor. Canvas and graph mutate the same document. No second geometry source of truth exists.
 - `src/svg-import.js`: strict browser/XML adapter for basic SVG shapes and compound path data. It rejects unsupported attributes/elements rather than silently changing rendering.
+- `src/composition-project-model.js`: dependency-free, isolated model for an outer Composition envelope, legacy migration, validated JSON round-tripping, and active-Composition bridging to/from a single Document. It is not used by the operational project validator, serializer, storage, Open/Save, UI, import, or export; the operational project format remains the single root frame below.
 - `src/storage.js`: thin browser-download / Tauri-command adapter. Native destinations are selected by the user; the frontend does not receive a general filesystem API.
 - `src-tauri/`: Tauri 2 host and Windows NSIS configuration. Chosen for small distribution and reusable existing browser UI. This is a scaffold pending compilation and Windows interaction verification.
 - `cli/export.js`: Node headless adapter. It supplies fonts and calls the same core API. Future cloud rendering should wrap this adapter with request limits, timeouts and isolation; no endpoint exists yet.
@@ -19,13 +20,13 @@
 
 `evaluate(layer, fonts)` returns `{ path, error, warnings, values, run }`. `run(nodeId)` evaluates another node in that composition; results are memoized within one evaluation. A per-composition weak cache records each node’s semantic inputs and upstream revision IDs. Only changed dependency chains recompute; moving a graph card does not invalidate geometry. Cached results are defensively copied. Evaluation depth is bounded to 256 nodes and expressions to 4096 characters.
 
-`pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts)` consume plain geometry. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths. `exportScene` and `exportSVG` validate and migrate a detached document copy, leaving the caller’s authored state and asset metadata unchanged, including frozen Session views and legacy inputs. Scene layers belong to that detached copy; compare stable layer IDs rather than object identity. Export retains validation errors and does not commit migrations to the source document.
+`pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts, { unit })` consume plain geometry. SVG export units default to `px`; explicit `mm` or `cm` writes physical root dimensions while the zero-origin `viewBox` remains in canonical document px. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths. `exportScene` and `exportSVG` validate and migrate a detached document copy, leaving the caller's authored state and asset metadata unchanged, including frozen Session views and legacy inputs. Scene layers belong to that detached copy; compare stable layer IDs rather than object identity. Export retains validation errors and does not commit migrations to the source document.
 
 `serialize(document)` creates JSON. `deserialize(text)` parses and validates a candidate before editor replacement. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes and 96 MB of distinct font bytes; immutable font assets are shared across snapshots. Pointer gestures are one change each.
 
 ## Project schema
 
-Root: `{schemaVersion:2, name, width, height, layers, fontAssets?}`. The artboard ratio is independent from the 16:9 workspace design.
+Operational root: `{schemaVersion, name, width, height, layers, fontAssets?}`. The schema version tracks supported node/document features. The isolated Composition model utility has its own envelope version and does not change this saved format. The artboard ratio is independent from the 16:9 workspace design.
 
 Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). One layer equals one composition. No implicit node sharing.
 
@@ -41,7 +42,7 @@ Evaluated Path: `{contours:[{id,closed,group?,points:[{id,position,handleA,handl
 
 ## Geometry and correspondence
 
-Paper.js 0.12.18 computes cubic Bézier Boolean union/subtract/intersection/exclusion; results remain normal Path values, so Boolean can feed another Boolean or Remap. Open contours are rejected for area Boolean operations rather than silently closed. Exact tangencies and extreme coordinate/precision conditions are not exhaustively verified.
+Paper.js 0.12.18 computes cubic Bézier Boolean union/subtract/intersection/exclusion; results remain normal Path values, so Boolean can feed another Boolean or Remap. Boolean requires A and B, then accepts up to 1,024 ordered Path inputs with stable keys. A legacy two-input document exposes an unpersisted `input_pending` command socket after B is connected or locked; using or locking that socket materializes the ordered inputs. Empty spare inputs are ignored; A and B remain required. Union and Intersect fold all connected inputs. Subtract computes A minus the union of every later input. Difference folds the existing symmetric-difference (`exclude`) operation across inputs. Open contours are rejected atomically rather than silently closed. Legacy A/B projects keep their existing parameter shape and schema version when loaded or re-saved; using an additional input stores `booleanInputOrder` and advances to schema 40. Exact tangencies and extreme coordinate/precision conditions are not exhaustively verified.
 
 Primitive/Curve vertex IDs are stable; Transform preserves their IDs because affine transforms do not alter topology. Boolean, Text and Imported Path contours are marked unstable. Their Remap edits store an exact source-geometry fingerprint and suspend with a warning whenever it changes. This conservative rule can suspend more edits than necessary, but never intentionally assigns an old edit to a different vertex. Suspended definitions remain in the saved file; the user can explicitly rebind a retained edit to the currently displayed point, or clear it. Rebind changes only the source fingerprint and is undoable; it does not automatically infer correspondence. Better provenance mapping is deferred.
 

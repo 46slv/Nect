@@ -8,6 +8,7 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
     return pending.length;

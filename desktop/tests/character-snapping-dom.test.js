@@ -17,6 +17,7 @@ test('same-Text ink alignment and paired equal gaps: transformed offsets, zoom, 
   win.document.body.innerHTML = '<div id="app"></div>';
   let pending = [];
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = (fn) => {
     pending.push(fn);
     return pending.length;

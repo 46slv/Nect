@@ -142,3 +142,192 @@ The cumulative slice adds inline stable-ID naming, explicit layer Hide/Show and 
 - Independent review found and verified fixes for pointer-toolbar Space continuity, sub-1% artboard zoom direction, busy graph wheel guards and retained graph centering extent.
 - Added real-Chrome navigation assertions and 1280×800 / 1600×1000 screenshots to the full `npm run test:e2e` chain. Exact Windows CI execution remains pending at this source checkpoint; do not infer a browser pass from local DOM tests.
 - Local Chromium still fails before page creation because its process-singleton socket is restricted. Native WebView2/high-DPI/physical pinch/real IME remain unverified.
+
+## Multi-Composition session integration / 2026-10-19
+
+The active Composition projection is now wired to the production command call sites and project-level Undo/Redo. Native/browser Open, Save, recovery, and public window.nect.load read or write the complete project envelope; old single-Document JSON uses the existing core deserializer/upgrader before migration. SVG and PNG export continue through the active Composition projection, preserving its independent dimensions. Project-shared fonts and images remain at project scope. The Add Composition action and selector connect creation and switching to the owner. Existing Composition Reference nodes retain their Layer-graph meaning.
+
+- Focused model/owner tests: **19 PASS**, including legacy upgrader routing, stable history projections, prepared edit and project Undo.
+- node --check for the changed JavaScript modules: **PASS**.
+- git diff --check: **PASS**.
+- Production core-factory execution and browser/native UI lifecycle: **NOT RUN**; required external packages are absent. No npm or network retry was made.
+- Whole-project Composition import is connected in the follow-up below; per-Composition selection/view-state retention remains outside this slice.
+
+Next: run the core factory and multi-Composition lifecycle acceptance using an authorized local dependency/runtime, then exercise browser/native Open, Save, recovery, active SVG/PNG export, shared assets and Undo/Redo. These checks are separate from the passed dependency-free owner/model tests.
+
+Follow-up local validation / 2026-10-19:
+
+- One authorized npm ci completed with 43 packages installed and 0 vulnerabilities.
+- Focused Core, Composition model/session/import/view-state, import-action, and document-lifecycle suites: 64 PASS. A direct production Core factory smoke also passed cross-Composition Undo/Redo and active-size SVG projection.
+- npm run build: PASS (Vite reports a 1.3 MB JavaScript chunk-size warning).
+- Real Chrome: all-Composition import and repeated-import ID remapping PASS. The run then timed out clicking Undo because the Tools nav intercepted the hit target at 900×620; Undo/Redo, Open/Save, and the remaining browser assertions are not claimed passed. Receipt: desktop/test-results/project-composition-import-ui.json.
+- Aggregate npm test: FAIL. Representative synthetic-DOM tests hit Invalid URL while resolving relative modules from their data-URL loader. A temporary broad loader change was reverted; it is not part of the Composition implementation.
+- A subsequent local-browser navigation returned ERR_NETWORK_ACCESS_DENIED; no bypass was attempted. Browser Open/Save and native WebView2 Open/Save/recovery are NOT_RUN.
+
+## Whole-project Composition import / 2026-10-19
+
+The existing Import action reads the project envelope and offers All Compositions as the default or one selected source Composition. All adds preserve each source frame, ordered Layer stack, Layer-graph references and required shared font/image assets. Entity and conflicting asset IDs are remapped; the validated batch commits as one project-history operation. Open still replaces the project, and Add SVG remains a separate action. Native source-file bindings are released after reading; stale edits during selection reject the import without mutation.
+
+- Focused model/import/owner/action-contract tests: **25 PASS**.
+- JavaScript syntax checks and git diff --check: **PASS**.
+- Production core factory and browser/native import acceptance: **NOT RUN**; required external packages are absent. No npm/network retry was made. The real-browser E2E assertions are prepared coverage, not a runtime pass.
+
+Next: when an authorized local dependency/runtime is available, run the core factory and exercise all-set/single Composition import, repeated collision remapping, atomic failure, one-step Undo/Redo, Open/Save/recovery/public load and active SVG/PNG output. Per-Composition selection and view-state retention remains separate work.
+
+## Per-Composition selection and view state / 2026-10-19
+
+The Composition selector now saves/restores in-memory UI state by stable Composition ID: active Layer, node/artwork/point selection, selected Guide, Canvas zoom/fit/pan, graph zoom/scroll, tool, and node-viewer bindings. Restore filters Layers, Nodes, Guides, Viewer references, and authored point IDs against the target Composition. Project replacement clears these snapshots and other ID-keyed details state; newly added/imported IDs start with defaults. Switching itself does not dispatch a document command or add History/dirty state. The current header control is a selector, not the planned keyboard-accessible tablist.
+
+- Focused model/import/owner/view-state/action-contract tests: **33 PASS**.
+- Changed JavaScript syntax checks and git diff --check: **PASS**.
+- Production core-factory and browser/native UI acceptance: **NOT RUN**; `desktop/node_modules/pako/browser/deflate` is absent. No npm/network retry was made.
+
+Next: when an authorized local dependency/runtime is available, exercise Composition switching with node/artwork/point selections and distinct Canvas/graph views, undo-driven active-ID changes, Open/New/recovery resets, and verify no IDs from another Composition survive. Implement the separate accessible Composition tablist only when that UI connection is in scope.
+
+## Responsive Composition header / 2026-10-19
+
+The 900×620 E2E receipt recorded the Tools nav intercepting a normal click on Undo. Source inspection identified the cause: the flex-wrapped header retained a fixed 48px height while the workspace began immediately below it, placing later header rows over the first workspace column.
+
+The app now uses header/workspace/footer grid rows. The header and workspace use content-driven heights while retaining a 500px minimum workspace; wrapped controls therefore consume space before the workspace starts. The 900×620 E2E keeps its viewport and now checks pointer Undo/Redo plus keyboard Ctrl+Z and Ctrl+Shift+Z. It was not run after this fix because the browser returned ERR_NETWORK_ACCESS_DENIED; no bypass was attempted.
+
+- Structural layout regression: PASS (node --test tests/responsive-header-layout.test.js).
+- JavaScript syntax checks: PASS.
+- Prettier check for the new structural test: PASS.
+- Production build: PASS, with the existing 1.3 MB JavaScript chunk warning.
+- Real browser after the fix: NOT_RUN due to localhost navigation denial.
+- Aggregate npm test remains FAIL for a separate data-URL loader issue. Reproduced at tests/artboard-pan-dom.test.js: after converting selected imports in src/main.js to file URLs, the loader leaves the first ./text-wrap.js import unchanged, then evaluates the source as data:text/javascript;base64,...; Node reports ERR_UNSUPPORTED_RESOLVE_REQUEST for that relative specifier. At that checkpoint, no broad harness change had been made.
+
+## Composition keyboard tablist / 2026-10-19
+
+Replaced the multi-Composition header selector with a manual-activation tablist. Left/Right and Home/End move focus only; Enter/Space and click activate through the existing `switchActiveComposition` path. `aria-selected` follows the active Composition, roving `tabindex` follows keyboard focus, and the Workspace is labelled as the associated tab panel. Long names truncate visually with the full title retained; the bounded tab strip scrolls horizontally for many Compositions. The existing header/workspace grid remains content-driven for wrapped rows at the 900px target.
+
+- Main happy-dom fixture with long names and 18 tabs, keyboard activation, wraparound, focus/selection state, click selection, and unchanged revision/dirty/history: **PASS**.
+- Related DOM/contract/layout tests: **17/17 PASS** (`blank-artwork-dom.test.js`, `composition-view-state-contract.test.js`, `responsive-header-layout.test.js`).
+- Production build: **PASS**; Vite reports the existing large JavaScript chunk warning.
+- Real browser viewport/keyboard acceptance: **NOT RUN**. Per instruction, the previously observed localhost navigation denial was not retried or bypassed.
+
+## Main data-URL test loader / 2026-10-19
+
+Synthetic DOM tests load `src/main.js` from a `data:` URL. Node cannot resolve any relative imports in that module against the `data:` origin, including `./text-wrap.js` which appeared before imports that older fixtures already rewrote. Added `tests/helpers/main-data-url.js` to resolve static and dynamic same-root imports against the real `src/main.js` URL, then applied it to the 37 data-URL test files that lacked a complete rewrite. Its focused test checks both import forms.
+
+`artboard-pan-dom.test.js` now imports its core constructors explicitly, exposes happy-dom's `MutationObserver`, and loads a real Circle through `window.nect.load()` so the existing artwork-preservation assertions act on actual art. The original pan, pointer-ownership, artboard and history assertions remain in place.
+
+- Focused tests: **2 PASS** (`main-data-url-loader.test.js`, `artboard-pan-dom.test.js`).
+- Syntax checks, focused Prettier check and `git diff --check`: **PASS**.
+- Full `npm test` (run once): **1,559 tests; 1,447 PASS; 108 FAIL; 4 skipped**. The Artboard Pan case passed.
+- Failure classification: 77 synthetic-DOM cases fail before exercising their assertions because their fixtures do not expose global `MutationObserver`; 3 Windows subprocess cases fail to launch Node using the configured path. The other 28 report assertion/schema/API mismatches, duplicate `evaluate` declaration, or missing `beginRecovery`. They are unresolved current test/code contract failures outside this loader patch; no clean baseline run is available to attribute them conclusively.
+- Browser acceptance: **NOT RUN**. The existing localhost navigation denial was not retried or bypassed. No dependency install or network retry occurred.
+
+## Happy DOM MutationObserver fixture alignment / 2026-10-19
+
+The 82 synthetic-DOM test files that installed `window`, `document`, and other browser globals but omitted `MutationObserver` now bind the real `happy-dom` implementation. Two focused fixtures were corrected to focus the artboard before simulating artboard Delete, and to browse all Remap points and await the scheduled batch-control render before asserting Undo/Redo behavior. No application source or assertions were weakened.
+
+- Focused serial run: deletion DOM, ordering DOM, Auto Handles, Bend, and Smooth: **22 PASS**.
+- `git diff --check`: **PASS**.
+- The single full `npm test` run exited 1. Its log has **0 `MutationObserver` errors** and 70 `test at` failure reports; the default spec reporter emitted no root aggregate. Previous summarized baseline: 1,559 tests, 1,447 PASS, 108 FAIL, 4 skipped (77 observer bindings, 3 Windows child-process errors, 28 assertion/schema/API mismatches). The report format prevents a direct aggregate comparison.
+- Three current Windows child-process failures are environment/path errors, not approval-flow denials: `image-luminance.test.js` cannot launch `C:\Program Files\nodejs\node.exe` (`ENOENT`); two `variable-font-cli.test.js` cases pass a `/C:/...` CLI argument that Node resolves as `C:\C:\...` (`MODULE_NOT_FOUND`). No `EPERM`/`EACCES` appears in the run.
+- Other current failures are assertion/API/schema expectations, duplicate `evaluate` declaration, missing test helpers (`serialize`, `beginRecovery`), and nested isolated-DOM scenario mismatches. No evidence ties these to the observer bridge; they remain open for scoped triage.
+- Full-run log was retained only in the local temporary directory as `%TEMP%\nect-npm-test-mutationobserver.log`.
+
+No dependency or network retry, no process-setting change, no localhost retry, and no push occurred. The follow-up requested a local commit only.
+
+## Multi-input Boolean / 2026-10-19
+
+The existing Boolean node now folds ordered inputs while retaining Path output. Union and Intersect fold every connected input; Subtract computes A minus the union of later inputs; Difference folds the existing symmetric-difference operation. A and B remain required and open contours are rejected transactionally. Legacy A/B projects retain their existing schema and parameters until the virtual `input_pending` socket is used or locked; that action materializes stable ordered keys and advances the document to schema 40.
+
+- Focused core, Boolean UI, Join, and source-navigation tests: **57/57 PASS** (`core.test.js`, `expandable-boolean.test.js`, `expandable-boolean-dom.test.js`, `expandable-join.test.js`, `expandable-join-dom.test.js`, `source-navigation.test.js`, `source-navigation-dom.test.js`).
+- JavaScript syntax checks, selected Prettier checks for core/source-navigation, the new tests, and architecture/verification docs, and `git diff --check`: **PASS**.
+- Production build: **PASS**. Vite reports the existing large JavaScript chunk warning (about 1.33 MB minified).
+- Native/WebView visual acceptance: **NOT_RUN**; the synthetic DOM test exercises socket rendering, UI wiring, and Undo/Redo.
+- No dependency install, network retry, push, or remote mutation was performed.
+
+## PNG PPI density metadata / 2026-10-19
+
+The Desktop export already had mutually exclusive scale and physical-PPI sizing modes. PPI mode now writes the selected density into PNG `pHYs` as rounded pixels per metre; for 300 PPI the stored value is 11811 px/m (about 299.9994 PPI). Existing density is replaced, while scale mode returns the canvas PNG unchanged and every non-`pHYs` chunk is preserved.
+
+- Focused sizing and density tests: **9 PASS** (`png-density.test.js`, `png-export-size.test.js`). The density test checks chunk CRCs, replacement, unchanged raster chunks, scale-mode behavior, and the export adapter call.
+- `node --check` for `raster.js` / `main.js`: **PASS**. `npm run build`: **PASS**, with the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2/canvas file inspection: **NOT_RUN**. No dependency install or network retry occurred.
+
+## Fixed/responsive SVG output sizing / 2026-10-19
+
+SVG export now offers fixed px/mm/cm root dimensions or responsive `100%` root width/height while retaining the same canonical pixel `viewBox`. The option applies only to the generated SVG string; it does not write to the editable project. The focused live-Text `CommandSession` test confirms serialization, History, and one-step Undo/Redo remain unchanged and the Text node stays editable.
+
+- Focused SVG export, root-unit, and purity tests: **13 PASS** (`svg-responsive-export.test.js`, `svg-export-units.test.js`, `export-purity.test.js`).
+- JavaScript syntax checks, selected Prettier checks, and `npm run build`: **PASS**; Vite reports the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2 SVG-file inspection: **NOT_RUN**. The prior PNG pHYs file-level check remains **NOT_RUN**. No dependency install or network retry occurred.
+
+## SVG geometry precision / 2026-10-19
+
+The SVG export-copy control now offers `Default` or 2–8 decimal places. Default follows the legacy serializer byte-for-byte. An explicit choice rounds paths, image bounds, masks, transforms, gradient geometry, stroke geometry and numeric opacity attributes, while leaving root physical width/height and the canonical pixel `viewBox` unchanged. Formatting is applied at known SVG numeric fields; it does not scan/rewrite SVG markup, so text/layer labels, IDs, colors, URL references and embedded image data remain intact. Export refuses a precision that collapses a contour, positive image/mask extent, positive stroke width, radial radius or linear-gradient axis.
+
+- Focused SVG precision, root units, embedded-image, linear-gradient, and radial-gradient tests: **36 PASS**.
+- Changed JavaScript syntax checks and scoped Prettier checks: **PASS**.
+- Production `npm run build`: **PASS**, with the existing large minified-chunk warning (1.34 MB).
+- Full `npm test` and actual WebView2/UI file inspection: **NOT_RUN**. No dependency install or network retry occurred.
+
+## Physical-unit SVG import and viewport boundary / 2026-10-19
+
+SVG import now converts absolute root lengths (px, mm, cm, in, pt, pc and q) to the editor's 96 CSS px/in document basis. Import/export covers a 100 x 50 mm artboard both with no `viewBox` and with a zero-origin `viewBox` whose user-space extents already match the physical viewport in CSS pixels. Explicit `xMidYMid meet` is accepted for this identity mapping. A non-zero `viewBox` origin or root dimensions that require viewBox scaling/letterboxing are rejected rather than silently shifting or rescaling unsupported geometry. Add SVG shares this bounded parser but appends its user-space geometry as a hidden source Composition and leaves the destination Composition dimensions unchanged; a rejected Add SVG request leaves session state and Undo untouched.
+
+- Focused import, Add SVG, and export-unit tests: **20/20 PASS** (`import.test.js`, `svg-part.test.js`, `svg-export-units.test.js`). The tests cover 100 x 50 mm / 10 x 5 cm round-trip, absolute-unit conversion, matching root/viewBox extents, non-zero-origin rejection, uniform and aspect-ratio scale mismatch, `xMidYMid meet` and `none`, and Add SVG's separate composition contract.
+- Scoped Prettier checks and `git diff --check`: **PASS**.
+- Production `npm run build`: **PASS** (136 modules); Vite reports the existing large minified-chunk warning.
+- Full `npm test` and actual WebView2 import/export: **NOT_RUN**. No dependency install or network retry occurred.
+
+## SVG viewBox viewport mapping / 2026-10-19
+
+SVG import now retains physical root dimensions in the 96 CSS px/in document basis and maps user coordinates through the existing paint-mode Transform. Non-zero viewBox origins and root/viewBox scale differences are supported. Default/explicit xMidYMid meet applies uniform scaling with centered letterboxing; none applies independent X/Y scales. Other alignment variants, slice, and clipping remain unsupported and fail closed. Add SVG moves the same mapping once to the final PaintedPath of its hidden source Composition, leaving the destination artboard and authored user-space geometry unchanged.
+
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS (import.test.js, svg-part.test.js, svg-export-units.test.js). Independent expected matrices cover non-zero origins, a 100 x 50 mm viewport, default meet letterboxing, and none; percentage rectangles use viewBox user-space dimensions. Stroke and user-space gradient markup remains in the transformed paint group. Import/Add serialization round-trips preserve that mapping, and unsupported Add input leaves session state/Undo unchanged.
+- Scoped Prettier checks and git diff --check: PASS.
+- Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (1.34 MB).
+- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry occurred.
+- Development branch sync: implementation commit 1d1e781361885636dde3eaa82bd19485384007de was pushed without force, and git ls-remote matched that commit's SHA. The final closeout-record push and terminal branch SHA are verified at task closeout.
+
+## SVG preserveAspectRatio meet alignments / 2026-10-19
+
+SVG root viewport mapping now supports all nine meet alignment pairs: xMin/xMid/xMax crossed with YMin/YMid/YMax. The omitted default remains xMidYMid meet; bare alignment tokens and an explicit meet token are accepted. Alignment positions use X and Y letterbox slack independently. The prior none mapping is unchanged. Slice, defer, invalid alignment values, and clipping remain unsupported and fail closed.
+
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS (import.test.js, svg-part.test.js, svg-export-units.test.js). The alignment fixture checks all nine token pairs against independently expected matrices with non-zero viewBox origins and alternating horizontal/vertical slack. Default/explicit xMidYMid and none are covered separately.
+- The 100 x 50 mm Add SVG fixture uses xMaxYMin meet; its expected matrix includes horizontal letterboxing and non-zero-origin offset. It asserts exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
+- Scoped Prettier and git diff --check: PASS.
+- Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (about 1.34 MB).
+- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry.
+- Development branch sync: implementation commit 1d130fbd61c2d7583b922ed57a48e33bc9b2df28 was pushed normally and matched the origin SHA. The follow-up checkpoint closeout was pushed on the same branch, and the terminal SHA was verified against origin.
+
+## Corrected standalone Windows build / 2026-10-19
+
+This corrected standalone executable was rebuilt from source commit `aca9f5902f1d1bb3bc06dc5948a169693ab9b1aa` after the frontend build completed with an explicit exit code. The earlier `Nect-aca9f59-standalone.exe` manifest had a different SHA256; the corrected version is archived separately and the earlier Drive files remain preserved.
+
+- `npm run build` with npm offline mode: **PASS (exit 0)**, Vite 7.3.7, 136 modules; the existing large-chunk warning remains.
+- `CARGO_NET_OFFLINE=true cargo build --release --features custom-protocol --locked --manifest-path desktop/src-tauri/Cargo.toml`: **PASS (exit 0)**, target `x86_64-pc-windows-msvc`.
+- Corrected executable: 9,976,320 bytes, SHA256 `04FF296E05BB9BCC1434EA1B71F2582CA4FB5B165F8444FAF4E23F1D12577FCF`; unsigned.
+- Corrected Drive items: `Nect-aca9f59-corrected-standalone.exe` (ID `175W3RcukXFZlCzJXZCBo4BlSU9mYdQ86`) and `Nect-aca9f59-corrected-manifest.json` (ID `1UnqJriDwnHOSGUqm3tY8VFqNwgrV479H`). Prior Drive SHA256: `24311FEEBB0ABBB5D883AE5B1A90243007263E51434557EB655DE21CF185ABC7`.
+- Native GUI verification and full test suite: **NOT_RUN**. The native GUI was not launched; existing Chrome tabs were left untouched.
+
+## Authored-value Vector2 numeric scrub parity / 2026-10-19
+
+The existing authored-base Vector2 X scrub already uses the common Session gesture path. Its test now compares a committed drag with the machine-facing `set-parameter-base` command for the same expression-backed component.
+
+- Focused DOM and Session tests: **9/9 PASS** (`authored-value-dom.test.js`, `authored-value-expressions.test.js`). One drag produces one undoable document change; one Undo restores the initial document. Escape cancel restores the original document without adding history. The machine command produces the same committed document and its Undo also restores the initial document.
+- Production `npm run build`: **PASS (exit 0)**, Vite 7.3.7, 136 modules; the existing large-chunk warning remains.
+- Full `npm test` and native/WebView GUI verification: **NOT_RUN**. Pair-kerning tests were not rerun in this slice.
+
+## Browser PNG export bytes and artboard units / 2026-10-19
+
+The focused Playwright route exercises the Artboard px/mm/cm selector and the real Export PNG UI. It opens the Export menu, exports a 100 x 50 mm artboard at 300 PPI, captures the Chromium download, and compares the saved file byte-for-byte with the encoder Blob. DPR 1 and 2 produce identical dimensions.
+
+- `node --test tests/artboard-units.e2e.js`: **1/1 PASS** on the existing `http://127.0.0.1:5173` Vite route in headless Google Chrome.
+- Both PNG samples: **1181 x 591 px**, `pHYs` **11811 x 11811 px/m**, unit specifier 1; PNG chunk CRC checks and browser decode: **PASS**. Samples and a JSON summary remain locally under `desktop/test-results/`.
+- Focused Node tests (`png-density.test.js`, `png-export-size.test.js`, `artboard-units.test.js`, `transient-panel-contract.test.js`): **14/14 PASS**. Native WebView2 GUI and full suite: **NOT_RUN**.
+- The first E2E attempt targeted the Export PNG button while its Export details menu was closed. The runner now opens that menu through its summary and exercises the visible action; no application-source change was needed.
+- No dependency install, network retry, host/port change, or Notion write occurred.
+
+## Responsive header hit targets at 900×620 / 2026-10-19
+
+The existing composition-import Playwright E2E now verifies the corrected wrapped header at its 900×620 viewport. It opens Project, Import, and Export with ordinary clicks and confirms each newly opened details menu closes the previous one. Before normal Undo and Redo clicks, the test checks the center point with `elementFromPoint`; both points resolve to their respective header buttons, and each click changes the imported Composition count as expected.
+
+- `node tests/project-composition-import.e2e.js` with `BASE_URL=http://127.0.0.1:5173`: **10/10 recorded steps PASS**, no page errors. Undo hit `data-action=undo` at (421.14, 53); Redo hit `data-action=redo` at (444.67, 53). The normal click sequence removes and restores the complete second import.
+- `node --test tests/responsive-header-layout.test.js`: **1/1 PASS**. The post-import 900×620 screenshot shows the wrapped header above the Tools navigation; one review image and the JSON receipt remain locally in `desktop/test-results/`.
+- Production source was unchanged; no build was needed. Native WebView2 verification and the full suite remain **NOT_RUN**.

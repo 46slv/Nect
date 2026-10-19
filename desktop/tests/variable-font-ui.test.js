@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Worker as NodeWorker } from 'node:worker_threads';
@@ -13,6 +14,7 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   globalThis.fetch = async () => ({
     ok: true,
@@ -53,12 +55,13 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.mixedFontCatalog, readSystemFont=(id)=>globalThis.readMixedFont(id);`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.mixedFontCatalog, readSystemFont=(id)=>globalThis.readMixedFont(id); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
     )
     .replace(
       /from '(.\/[^']+)'/g,
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const wait = async (condition, label = 'condition') => {
     const end = Date.now() + 15000;

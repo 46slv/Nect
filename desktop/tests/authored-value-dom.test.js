@@ -7,6 +7,7 @@ test('authored base controls edit, scrub, cancel, show effective result and dist
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {
@@ -83,9 +84,20 @@ test('authored base controls edit, scrub, cancel, show effective result and dist
   await tick();
   assert.deepEqual(q().value, [30, 10]);
   assert.match(result(), /130, 210/);
+  const scrubbed = saved();
   undo();
   await tick();
   assert.equal(saved(), initial);
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-parameter-base',
+    payload: { layerId: layer.id, nodeId: b.id, key: 'value', axis: 0, value: 30 },
+  });
+  await tick();
+  assert.equal(saved(), scrubbed, 'machine command matches the numeric scrub document');
+  undo();
+  await tick();
+  assert.equal(saved(), initial, 'machine command Undo restores the original document');
   pointer(base(), 'pointerdown', 100);
   pointer(document, 'pointermove', 114);
   document.dispatchEvent(

@@ -14,30 +14,28 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — REQ-23 named node preset first phase (2026-10-19)
+## ACTIVE CHECKPOINT - SVG preserveAspectRatio meet alignment (2026-10-19)
 
-Goal: Document-local named snapshots of self-contained selected source/effect
-nodes, additive cross-Composition apply with fresh IDs, ordinary node re-editing,
-explicit update, persistence and one Undo per changed operation.
-Current phase: implementation and focused verification complete; source pushed,
-Draft PR32 open against codex/req31-handle-polar-20261019.
-Remote-verified implementation: 88c4b257df92c4bbe9199e39697be96a6781f1f3.
-Draft PR: https://github.com/46slv/Nect/pull/32.
-Proven: 35 focused tests and production build PASS; actual Note Chrome 155
-fixture PASS for save/apply/edit/update, Undo/Redo, persistence and atomic refusal.
-Evidence: desktop/docs/named-presets.md; desktop/tests/named-presets.test.js and
-named-presets.e2e.js; portable Chrome receipt under desktop/docs/evidence.
-Next task: Review the bounded Draft PR at its exact remote SHA.
-Approach: sole source writer in independent task-6/Nect-req23, branch
-codex/req23-named-presets-20261019, base ca376c67529364a4518bdf06b6893bd3c8896392.
-Done for next: preserve partial REQ-23 scope and native/physical-IME gaps.
-State: schema39 optional nodePresets; existing version floors/backfills preserved.
-Admission rejects Output/Composition Reference, external node dependencies and
-missing/changed document assets. Apply preserves existing Output and connections.
-Authority: current delegation permits code/test/docs/dev commit/push/Draft PR;
-mainline merge, release/distribution and auth/permission changes excluded.
-Native Tauri/EXE and physical IME remain unverified. No global full-suite audit,
-unrelated repairs, old worktree/user-artwork edits or Notion writes.
-Macro public controls, external preset files/shared libraries and effect-stack
-redesign are excluded. This is bounded partial REQ-23 coverage.
-Handoff: CONTINUE_CURRENT_TASK.
+Goal: Extend the root `viewBox` Transform to preserve all nine `meet` alignment choices while retaining prior default and `none` mapping, physical viewport sizing, and the separate Import/Add SVG contracts.
+
+Current phase: The alignment matrix, focused tests, documentation, and production build are complete and synchronized to the development branch.
+
+Proven:
+
+- The prior SVG viewport matrix, 96 CSS px/in physical root dimensions, paint grouping, and single-transform Add SVG path are present at branch base `62563a9deb5c4054278c61162a6f02ad483ab512`.
+- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS. Independent expected matrices cover all nine min/mid/max X/Y alignments with separate horizontal and vertical slack, non-zero origins, default/explicit mid alignment, and unchanged `none` behavior.
+- A physical 100 x 50 mm Add SVG fixture verifies `xMaxYMin meet`, exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
+- `slice`, `defer`, invalid alignment values, and clipping remain unsupported and fail closed. Production build, scoped formatting, and `git diff --check`: PASS. Full `npm test` and actual WebView2 import/export remain NOT_RUN.
+- Implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` was pushed normally and matched the origin branch SHA.
+
+Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this alignment checkpoint is complete.
+
+Approach: Normalize supported preserveAspectRatio tokens; compute X/Y meet offsets independently from Min/Mid/Max alignment while keeping uniform meet scale. Retain the paint-mode Transform so stroke and gradient behavior stays shared with the prior viewport mapping.
+
+Done for next: All nine meet alignment matrices match independent expected values; default and `none` remain unchanged; Add SVG applies one mapping and preserves destination size, serialization, Undo, and Redo; unsupported slice/clip behavior remains explicit; focused tests, formatting, build, commit, and remote evidence are recorded.
+
+State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` is pushed and matched the remote SHA. The follow-up checkpoint closeout is committed and pushed on this branch; its terminal branch SHA was verified against origin. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+
+Authority: The user's follow-up authorizes this bounded meet-alignment implementation, focused tests/build/docs, commit, and normal development-branch push. Keep `slice`/clip unsupported. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
+
+Handoff: CONTINUE_CURRENT_TASK

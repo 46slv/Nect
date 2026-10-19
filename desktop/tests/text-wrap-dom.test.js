@@ -19,6 +19,7 @@ test('Wrap width controls preserve source, range IDs, IME, history and atomic re
     'requestAnimationFrame',
   ])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.DOMPoint = class {
     constructor(x, y) {
       this.x = x;

@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "suites": [
+    "smoke"
+  ],
+  "files": [
+    "project-composition-import.test.js",
+    "command-session.test.js",
+    "node-clipboard.test.js",
+    "artwork-ordering.test.js",
+    "numeric-scrub.test.js"
+  ],
+  "startedAt": "2026-10-19T09:46:58.939Z",
+  "cases": [],
+  "exitCode": 0,
+  "durationMs": 1140,
+  "stdout": "✔ Forward/Backward swap exactly adjacent records and preserve every asset, setting and record identity (65.1813ms)\n✔ missing/ambiguous IDs, invalid directions, invalid documents and locked targets reject atomically (9.6859ms)\n✔ boundary attempts and repeated stale operations are no-ops preserving Redo; one accepted swap is one exact Undo (2.4237ms)\n✔ crossing a locked neighbor is allowed without changing it; geometry eligibility never restricts ordering (9.2203ms)\n✔ paint order changes in SVG and exact project reload without changing the schema or artwork (9.4674ms)\n✔ typed graph commands preserve fallback and stable IDs through shared Undo/Redo (35.2808ms)\n✔ foreign/stale envelopes, cycles, invalid operations and locks refuse atomically (6.3866ms)\n✔ snapshot is detached; active gestures block commands; transitional UI shares one History (4.6167ms)\n✔ parameter commands share expressions, fallback, locks and Undo without mutating caller values (23.9588ms)\n✔ invalid properties preserve authored state, revision and redo; point keys use stable IDs (9.4159ms)\n✔ copy is a snapshot with no authored/history change; cross-Composition paste retains internal edges and relative positions in one Undo (21.2887ms)\n✔ external inputs remain original only in the source Composition; cross-Composition and missing references refuse atomically (10.3095ms)\n✔ expressions, position References and internal sockets remap together without changing fallback settings (2.8124ms)\n✔ image, SVG Composition Reference, Keyer, Mask and Text retain same-document assets and saved data (87.4488ms)\n✔ Curve and Multi Path identities and Text path attachments copy to the new generator (58.8262ms)\n✔ empty clipboard/new Session, Output-only selection, locked destination and active gestures refuse safely (4.2924ms)\n✔ copied assets removed by Undo cannot be silently rebound; dangling Composition targets refuse (2.37ms)\n✔ actual SVG part references paste without flattening or losing their source Composition (25.6468ms)\n✔ replacing the document through SVG import clears the private clipboard (3.6772ms)\n✔ numeric scrub uses screen pixels, activation dead zone and explicit units (1.3774ms)\n✔ mixed scrubs clamp one common delta and retain exact no-op values (0.2266ms)\n✔ non-finite values and invalid numeric scrub contracts are rejected (0.425ms)\n✔ composition import is atomic, remaps repeated IDs, and is one undo step (8.3305ms)\n✔ invalid composition import leaves the session untouched (0.6246ms)\n✔ composition dependencies and embedded image assets follow the imported composition (1.8153ms)\n✔ missing dependency or image asset rejects atomically (0.9175ms)\n✔ composition import is blocked during busy, gesture, or text composition and then commits once (2.0679ms)\nℹ tests 27\nℹ suites 0\nℹ pass 27\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1084.8823\n",
+  "stderr": ""
+}

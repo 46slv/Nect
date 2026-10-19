@@ -1,5 +1,7 @@
 // A two-stop fill in absolute artboard coordinates. Geometry and ID allocation
 // belong to the caller; this module has no DOM, graph or rendering dependencies.
+import { formatSvgExtent, formatSvgNumber } from './svg-number-format.js';
+
 const inputKeys = ['center', 'radius', 'startColor', 'endColor'];
 const fillKeys = ['kind', ...inputKeys];
 
@@ -72,7 +74,7 @@ export function validateRadialGradientFill(fill) {
   copyFill(fill);
 }
 
-export function renderRadialGradientFill(fill, id) {
+export function renderRadialGradientFill(fill, id, precision) {
   const { center, radius, startColor, endColor } = copyFill(fill);
   // Restrict IDs to a bounded ASCII subset safe in both XML and a local URL.
   if (
@@ -86,11 +88,11 @@ export function renderRadialGradientFill(fill, id) {
   return {
     definition:
       `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" ` +
-      `cx="${center[0]}" cy="${center[1]}" r="${radius}" ` +
-      `fx="${center[0]}" fy="${center[1]}" fr="0" ` +
+      `cx="${formatSvgNumber(center[0], precision)}" cy="${formatSvgNumber(center[1], precision)}" r="${formatSvgExtent(radius, precision)}" ` +
+      `fx="${formatSvgNumber(center[0], precision)}" fy="${formatSvgNumber(center[1], precision)}" fr="0" ` +
       'spreadMethod="pad" color-interpolation="sRGB">' +
-      `<stop offset="0" stop-color="${startColor.hex}" stop-opacity="${startColor.alpha}"/>` +
-      `<stop offset="1" stop-color="${endColor.hex}" stop-opacity="${endColor.alpha}"/>` +
+      `<stop offset="0" stop-color="${startColor.hex}" stop-opacity="${formatSvgNumber(startColor.alpha, precision)}"/>` +
+      `<stop offset="1" stop-color="${endColor.hex}" stop-opacity="${formatSvgNumber(endColor.alpha, precision)}"/>` +
       '</radialGradient>',
     paint: `url(#${id})`,
   };

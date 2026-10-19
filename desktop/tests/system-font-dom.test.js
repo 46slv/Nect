@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
@@ -12,6 +13,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.fetch = async () => ({
     ok: true,
     arrayBuffer: () => buffer('../public/fonts/DejaVuSans.ttf'),
@@ -30,7 +32,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop = true, saveFile = async () => true, openFile = async () => null, listSystemFonts = async () => [['system-0', 'Japanese fixture', null], ['system-1', 'Variable face', 'Variable fonts unsupported'], ['system-2', 'DejaVu Sans', null]], readSystemFont = (id) => globalThis.readInstalledTestFont(id);`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop = true, saveFile = async () => true, openFile = async () => null, listSystemFonts = async () => [['system-0', 'Japanese fixture', null], ['system-1', 'Variable face', 'Variable fonts unsupported'], ['system-2', 'DejaVu Sans', null]], readSystemFont = (id) => globalThis.readInstalledTestFont(id); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
     );
   for (const name of [
     'artwork-creation',
@@ -54,6 +56,7 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
       `from './${name}.js'`,
       `from '${new URL(`../src/${name}.js`, import.meta.url)}'`,
     );
+  source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const until = async (predicate) => {
     const deadline = Date.now() + 5000;

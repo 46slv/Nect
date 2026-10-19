@@ -8,6 +8,7 @@ test('OS font picker commits geometry only and rejects cancel, pending duplicate
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement']) globalThis[key] = win[key];
+  globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   const matrix = {
     a: 1,

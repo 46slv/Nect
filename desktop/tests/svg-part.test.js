@@ -14,6 +14,8 @@ import {
 } from '../src/core.js';
 import { readSVGSource } from '../src/svg-tree.js';
 const Parser = new Window().DOMParser;
+const close = (actual, expected) =>
+  assert.ok(Math.abs(actual - expected) <= 1e-9 * Math.max(1, Math.abs(expected)));
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 160"><path d="M10 10H90V90H10Z M30 30V70H70V30Z" fill="#ff0000" fill-opacity="0.5"/><rect x="60" y="10" width="80" height="80" fill="#0000ff" fill-opacity="0.5"/><path d="M10 120H140" fill="none" stroke="#008000" stroke-width="4" stroke-linecap="round"/><rect x="150" y="110" width="20" height="20" fill="none"/></svg>`;
 const tree = (s = svg) => readSVGSource(s, Parser);
 function fixture(blank = false) {
@@ -58,6 +60,86 @@ for (const blank of [false, true])
     f.send('redo');
     assert.deepEqual(f.s.snapshot(), after);
   });
+test('Add SVG retains CSS-pixel user geometry and leaves the destination Composition size unchanged', () => {
+  const f = fixture(true),
+    before = f.s.snapshot(),
+    result = f.send('add-svg-part', {
+      layerId: before.layers[0].id,
+      source: tree('<svg width="100mm" height="50mm"><rect width="96" height="48"/></svg>'),
+      name: 'physical.svg',
+    }),
+    after = f.s.snapshot(),
+    source = after.layers.find((layer) => layer.id === result.sourceLayerId),
+    geometry = source.nodes.find((n) => n.type === 'Multi Path'),
+    xs = geometry.points.map((point) => point.position.value[0]),
+    ys = geometry.points.map((point) => point.position.value[1]);
+
+  assert.equal(after.width, before.width);
+  assert.equal(after.height, before.height);
+  assert.equal(Math.max(...xs) - Math.min(...xs), 96);
+  assert.equal(Math.max(...ys) - Math.min(...ys), 48);
+});
+
+test('Add SVG applies its viewport mapping once in the hidden source Composition', () => {
+  const f = fixture(true),
+    before = f.s.snapshot(),
+    beforeJSON = serialize(before),
+    markup =
+      '<svg width="100mm" height="50mm" viewBox="10 20 100 100" preserveAspectRatio="xMaxYMin meet"><defs><linearGradient id="ramp" gradientUnits="userSpaceOnUse" x1="10" y1="20" x2="110" y2="120" spreadMethod="pad" color-interpolation="sRGB"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient></defs><path d="M10 20H110V120H10Z" fill="url(#ramp)" stroke="#123456" stroke-width="2"/></svg>',
+    result = f.send('add-svg-part', {
+      layerId: before.layers[0].id,
+      source: tree(markup),
+      name: 'mapped.svg',
+    }),
+    after = f.s.snapshot(),
+    source = after.layers.find((layer) => layer.id === result.sourceLayerId),
+    transforms = source.nodes.filter(
+      (n) => n.type === 'Transform' && n.name === 'SVG viewport mapping',
+    ),
+    matrix = evaluate(source, {}, after.imageAssets, after).run(transforms[0].id).matrix,
+    viewportWidth = (100 * 96) / 25.4,
+    scale = (50 * 96) / 25.4 / 100;
+
+  assert.equal(after.width, before.width);
+  assert.equal(after.height, before.height);
+  assert.equal(transforms.length, 1);
+  close(matrix[0], scale);
+  close(matrix[3], scale);
+  close(matrix[4], viewportWidth - 100 * scale - 10 * scale);
+  close(matrix[5], -20 * scale);
+  const exported = exportSVG(after);
+  assert.match(exported, /transform="matrix\(/);
+  assert.match(exported, /stroke-width="2"/);
+  assert.match(exported, /x1="10"/);
+  assert.match(exported, /x2="110"/);
+  assert.equal(exportSVG(deserialize(serialize(after))), exported);
+  assert.equal(f.s.historyView.past.length, 1);
+  f.send('undo');
+  assert.equal(serialize(f.s.snapshot()), beforeJSON);
+  f.send('redo');
+  assert.deepEqual(f.s.snapshot(), after);
+});
+
+test('Add SVG rejects unsupported viewport alignment atomically without replacing existing work', () => {
+  const f = fixture(true);
+  f.add();
+  const before = serialize(f.s.snapshot()),
+    state = f.s.state;
+
+  assert.throws(
+    () =>
+      f.send('add-svg-part', {
+        layerId: f.d.layers[0].id,
+        source: tree(
+          '<svg width="100mm" height="50mm" viewBox="0 0 200 150" preserveAspectRatio="xMinYMid slice"><rect width="200" height="150"/></svg>',
+        ),
+      }),
+    /Unsupported SVG preserveAspectRatio/,
+  );
+  assert.equal(serialize(f.s.snapshot()), before);
+  assert.deepEqual(f.s.state, state);
+});
+
 test('SVG instances duplicate, move and transform without changing embedded paths or unrelated layers', () => {
   const f = fixture();
   // Distinct nodes are minted by another document; add it before the Session.

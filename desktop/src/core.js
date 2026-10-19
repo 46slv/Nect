@@ -1,5 +1,7 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import { appendSVGPart } from './svg-part.js';
+import { svgRootAttributes } from './artboard-units.js';
+import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
 import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
 import { maskAppearance } from './appearance-mask.js';
@@ -1036,6 +1038,8 @@ export function duplicateNodes(layer, ids, { append = true } = {}) {
 }
 
 const NODE_PRESET_SCHEMA_VERSION = 39;
+const BOOLEAN_INPUT_SCHEMA_VERSION = 40;
+export const booleanPendingInputKey = 'input_pending';
 function presetName(name) {
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 100)
     throw Error('Preset name must contain 1–100 characters');
@@ -1086,7 +1090,11 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: NODE_PRESET_SCHEMA_VERSION,
+    schemaVersion: preset.nodes.some(
+      (n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined,
+    )
+      ? BOOLEAN_INPUT_SCHEMA_VERSION
+      : NODE_PRESET_SCHEMA_VERSION,
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
@@ -1159,7 +1167,8 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
 }
 export const JOIN_SLOT_LIMIT = 1024;
 export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
-// Only command/migration paths call this; reads never allocate or renumber sockets.
+export const booleanInputKeys = (n) => n.booleanInputOrder ?? ['a', 'b'];
+// Only command/migration paths call these; reads never allocate or renumber sockets.
 function normalizeJoinInputs(n, compact = false, migration = false) {
   if (n.type !== 'Join Geometry') return;
   n.joinInputOrder ??= ['a', 'b'];
@@ -1185,11 +1194,40 @@ function normalizeJoinInputs(n, compact = false, migration = false) {
     n.joinInputOrder.push(key);
   }
 }
+function normalizeBooleanInputs(n, compact = false) {
+  // A/B remain the complete legacy representation. Persist the expanded order only
+  // after the spare socket is explicitly used or locked.
+  if (n.type !== 'Boolean' || !n.booleanInputOrder) return;
+  let keys = n.booleanInputOrder;
+  if (compact) {
+    const last = keys.at(-1);
+    keys = keys.filter((key) => {
+      if (
+        key === 'a' ||
+        key === 'b' ||
+        key === last ||
+        n.params[key].source ||
+        n.params[key].locked
+      )
+        return true;
+      delete n.params[key];
+      return false;
+    });
+  }
+  const last = n.params[keys.at(-1)];
+  if (last && (last.source || last.locked) && keys.length < JOIN_SLOT_LIMIT) {
+    const key = 'input_' + uid('slot');
+    n.params[key] = p('Path', null);
+    n.booleanInputOrder = [...keys, key];
+  } else n.booleanInputOrder = keys;
+}
 export function parameters(n) {
   const entries =
     n.type === 'Join Geometry'
       ? joinInputKeys(n).map((key) => [key, n.params[key]])
-      : Object.entries(n.params);
+      : n.type === 'Boolean'
+        ? booleanInputKeys(n).map((key) => [key, n.params[key]])
+        : Object.entries(n.params);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
@@ -1381,7 +1419,16 @@ export function translateRemapPoints(n, input, pointIds, delta) {
   n.edits = draft.edits;
 }
 export function parameter(n, key) {
-  return parameters(n).find(([k]) => k === key)?.[1] || transformParameter(n, key);
+  const actual = parameters(n).find(([k]) => k === key)?.[1];
+  if (actual) return actual;
+  if (
+    n.type === 'Boolean' &&
+    key === booleanPendingInputKey &&
+    !n.booleanInputOrder &&
+    (n.params.b?.source || n.params.b?.locked)
+  )
+    return p('Path', null);
+  return transformParameter(n, key);
 }
 export function expression(source, resolveReference, referencesOnly = false, baseValue) {
   if (source.length > 4096) throw Error('Expression exceeds 4096 characters');
@@ -2191,11 +2238,32 @@ export function signature(path) {
     ]),
   );
 }
-export function pathData(path) {
+export function pathData(path, precision) {
   const obj = toPaper(path);
-  const result = obj.pathData;
-  obj.remove();
-  return result;
+  try {
+    if (precision === undefined) return obj.pathData;
+    for (const source of obj.children) {
+      const roundedData = source.getPathData(null, precision),
+        rounded = new scope.Path({ pathData: roundedData, insert: false });
+      try {
+        const before = source.bounds,
+          after = rounded.bounds;
+        if (
+          (before.width > 0 && after.width === 0) ||
+          (before.height > 0 && after.height === 0) ||
+          (source.closed && Math.abs(source.area) > 0 && Math.abs(rounded.area) === 0)
+        )
+          throw Error(
+            `SVG precision ${precision} decimals collapses small geometry; choose a higher precision or Default`,
+          );
+      } finally {
+        rounded.remove();
+      }
+    }
+    return obj.getPathData(null, precision);
+  } finally {
+    obj.remove();
+  }
 }
 export function pathBounds(path) {
   if (path.kind === 'image') {
@@ -3577,41 +3645,52 @@ export function evaluate(
         result.unstable = true;
         result.fingerprint = signature(result);
       } else if (n.type === 'Boolean') {
-        let a = read('a'),
-          b = read('b');
+        const keys = booleanInputKeys(n),
+          inputs = keys.filter((key) => n.params[key].source).map((key) => [key, read(key)]),
+          a = inputs.find(([key]) => key === 'a')?.[1],
+          b = inputs.find(([key]) => key === 'b')?.[1];
         if (!a || !b) throw Error('Connect both Boolean paths');
-        if ([...a.contours, ...b.contours].some((c) => !c.closed))
+        if (inputs.some(([, path]) => path.contours.some((contour) => !contour.closed)))
           throw Error('Boolean requires closed contours');
-        let pa = booleanOperand(a),
-          pb = booleanOperand(b);
-        let op = {
+        const op = {
           union: 'unite',
           subtract: 'subtract',
           intersect: 'intersect',
           difference: 'exclude',
         }[n.operation];
         if (!op) throw Error('Unknown Boolean operation');
-        let r = pa[op](pb, { insert: false });
-        result = fromPaper(r, n.id);
-        result.characterOccurrences = [
-          ...routeCharacters(
-            a,
-            `${n.id}:a`,
-            null,
-            'Canvas character editing is unavailable through Boolean',
-          ),
-          ...routeCharacters(
-            b,
-            `${n.id}:b`,
-            null,
-            'Canvas character editing is unavailable through Boolean',
-          ),
-        ];
-        result.unstable = true;
-        result.fingerprint = signature(result);
-        pa.remove();
-        pb.remove();
-        r.remove();
+        const liveOperands = new Set();
+        try {
+          let combined;
+          for (const [, path] of inputs) {
+            const next = booleanOperand(path);
+            liveOperands.add(next);
+            if (!combined) {
+              combined = next;
+              continue;
+            }
+            const previous = combined;
+            combined = previous[op](next, { insert: false });
+            liveOperands.add(combined);
+            previous.remove();
+            liveOperands.delete(previous);
+            next.remove();
+            liveOperands.delete(next);
+          }
+          result = fromPaper(combined, n.id);
+          result.characterOccurrences = inputs.flatMap(([key, path]) =>
+            routeCharacters(
+              path,
+              n.id + ':' + key,
+              null,
+              'Canvas character editing is unavailable through Boolean',
+            ),
+          );
+          result.unstable = true;
+          result.fingerprint = signature(result);
+        } finally {
+          for (const item of liveOperands) item.remove();
+        }
       } else if (hasEmptyOutput(layer, n)) result = { contours: [] };
       else {
         result = read('path');
@@ -3951,7 +4030,7 @@ export function assertClosedOffsetChange(
     n.type === 'Join Geometry'
       ? joinInputKeys(n).map((key) => n.params[key]?.source)
       : n.type === 'Boolean'
-        ? ['a', 'b'].map((key) => n.params[key]?.source)
+        ? booleanInputKeys(n).map((key) => n.params[key]?.source)
         : n.type === 'Luminance Instances'
           ? Object.values(n.params).map((q) => q.source)
           : n.type === 'Instance on Points'
@@ -4016,7 +4095,13 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
   let from = layer.nodes.find((n) => n.id === sourceId),
     to = layer.nodes.find((n) => n.id === targetId),
     q = to && parameter(to, key);
+  const pendingBooleanInput =
+    to?.type === 'Boolean' &&
+    key === booleanPendingInputKey &&
+    !to.booleanInputOrder &&
+    !Object.hasOwn(to.params, key);
   if (!from || !q) throw Error('Missing socket');
+  if (validating && pendingBooleanInput) throw Error('Invalid Boolean input order');
   if (q.locked && !validating) throw Error('Parameter is locked');
   if (
     to.bypassed &&
@@ -4052,6 +4137,10 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     n.paintMode,
     Object.entries(n.params).map(([key, q]) => [key, q.type]),
   ]);
+  if (pendingBooleanInput) {
+    to.booleanInputOrder = ['a', 'b', key];
+    to.params[key] = q;
+  }
   const old = q.source,
     oldPort = q.sourcePort;
   q.source = sourceId;
@@ -4066,6 +4155,10 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
       else n.paintMode = mode;
       for (const [key, type] of types) n.params[key].type = type;
     }
+    if (pendingBooleanInput) {
+      delete to.params[key];
+      delete to.booleanInputOrder;
+    }
     if (old) q.source = old;
     else delete q.source;
     if (oldPort !== undefined) q.sourcePort = oldPort;
@@ -4073,6 +4166,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     throw e;
   }
   normalizeJoinInputs(to);
+  normalizeBooleanInputs(to);
 }
 export function disconnect(n, key) {
   const q = parameter(n, key);
@@ -4080,6 +4174,7 @@ export function disconnect(n, key) {
   delete q.source;
   delete q.sourcePort;
   normalizeJoinInputs(n, true);
+  normalizeBooleanInputs(n, true);
 }
 // Upgrade on load/validation only; storage is never written by migration.
 export function migratePaint(doc) {
@@ -4165,7 +4260,8 @@ export function validate(doc) {
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
-      doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION)
+      doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
+      doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4369,6 +4465,8 @@ export function validate(doc) {
       }
       if (n.type !== 'Join Geometry' && n.joinInputOrder !== undefined)
         throw Error('Join input order requires Join Geometry');
+      if (n.type !== 'Boolean' && n.booleanInputOrder !== undefined)
+        throw Error('Boolean input order requires Boolean');
       if (n.type === 'Join Geometry') {
         if (sourceSchemaVersion < 23) {
           if (
@@ -4410,6 +4508,54 @@ export function validate(doc) {
             throw Error('Invalid Join input parameter');
         }
       }
+      if (n.type === 'Boolean') {
+        if (sourceSchemaVersion < BOOLEAN_INPUT_SCHEMA_VERSION) {
+          if (
+            n.booleanInputOrder !== undefined ||
+            Object.keys(n.params).length !== 2 ||
+            !Object.hasOwn(n.params, 'a') ||
+            !Object.hasOwn(n.params, 'b')
+          )
+            throw Error(
+              'Expandable Boolean inputs require schemaVersion ' + BOOLEAN_INPUT_SCHEMA_VERSION,
+            );
+        } else if (n.booleanInputOrder !== undefined && !Array.isArray(n.booleanInputOrder))
+          throw Error('Invalid Boolean input order');
+        const keys = booleanInputKeys(n);
+        if (
+          !Array.isArray(keys) ||
+          keys.length < 2 ||
+          keys.length > JOIN_SLOT_LIMIT ||
+          keys[0] !== 'a' ||
+          keys[1] !== 'b' ||
+          new Set(keys).size !== keys.length ||
+          Object.keys(n.params).length !== keys.length ||
+          keys.some(
+            (key, index) =>
+              typeof key !== 'string' ||
+              (index > 1 && !/^input_[A-Za-z0-9_-]{1,100}$/.test(key)) ||
+              !Object.hasOwn(n.params, key),
+          )
+        )
+          throw Error('Invalid Boolean input order');
+        if (n.booleanInputOrder) {
+          const last = n.params[keys.at(-1)];
+          if (keys.length < JOIN_SLOT_LIMIT && (last.source || last.locked))
+            throw Error('Boolean input order must retain an empty spare socket');
+        }
+        for (const key of keys) {
+          const q = n.params[key];
+          param(q, 'Path');
+          if (
+            q.expression ||
+            Object.keys(q).some(
+              (field) =>
+                !['type', 'value', 'expression', 'locked', 'source', 'sourcePort'].includes(field),
+            )
+          )
+            throw Error('Invalid Boolean input parameter');
+        }
+      }
       const extraTransform = isTransform(n)
         ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
         : [];
@@ -4419,7 +4565,8 @@ export function validate(doc) {
         Object.keys(n.params).length !==
         Object.keys(definitions[n.type]).length +
           extraTransform.length +
-          (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0)
+          (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0) +
+          (n.type === 'Boolean' && n.booleanInputOrder ? n.booleanInputOrder.length - 2 : 0)
       )
         throw Error('Unexpected parameter');
       for (const key of extraTransform) param(n.params[key], transformExtensions[key].type);
@@ -4731,6 +4878,10 @@ export function validate(doc) {
     doc.schemaVersion = Math.max(doc.schemaVersion, 18);
   if (hasNodeType('Join Geometry')) doc.schemaVersion = Math.max(doc.schemaVersion, 23);
   if (
+    doc.layers.some((layer) => layer.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder))
+  )
+    doc.schemaVersion = Math.max(doc.schemaVersion, BOOLEAN_INPUT_SCHEMA_VERSION);
+  if (
     hasNodeType('Luminance to Points') ||
     doc.layers.some((layer) => layer.nodes.some((n) => hasDotControls(n.type)))
   )
@@ -4778,31 +4929,41 @@ export function renderElement(
   assets = {},
   attributes = '',
   gradientId = 'nect-gradient-0',
+  precision,
 ) {
   if (isPaintedGroup(value)) {
     const content = value.children
-      .map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`))
+      .map((child, i) => renderElement(child, l, assets, '', `${gradientId}-${i}`, precision))
       .join('');
     const mask = value.mask;
     const id = `${gradientId}-mask`;
     const definition = mask
-      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${mask.region[0]}" y="${mask.region[1]}" width="${mask.region[2]}" height="${mask.region[3]}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
+      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
       : '';
     // The mask and its source share the group's local coordinates. A later
     // appearance transform moves both, preserving nested masks and source alpha.
-    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${value.matrix.join(' ')})">${mask ? `${definition}<g mask="url(#${id})">${content}</g>` : content}</g>`;
+    const matrix = value.matrix.map((number) => formatSvgNumber(number, precision));
+    if (
+      precision !== undefined &&
+      value.matrix[0] * value.matrix[3] - value.matrix[1] * value.matrix[2] !== 0 &&
+      Number(matrix[0]) * Number(matrix[3]) - Number(matrix[1]) * Number(matrix[2]) === 0
+    )
+      throw Error(
+        `SVG precision ${precision} decimals collapses small geometry; choose a higher precision or Default`,
+      );
+    return `<g ${attributes} data-layer="${escape(l.name)}" transform="matrix(${matrix.join(' ')})">${mask ? `${definition}<g mask="url(#${id})">${content}</g>` : content}</g>`;
   }
   if (value.kind === 'image') {
     const asset = imageAssetFor(value, assets);
-    return `<image ${attributes} data-layer="${escape(l.name)}" x="${value.position[0]}" y="${value.position[1]}" width="${value.size[0]}" height="${value.size[1]}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
+    return `<image ${attributes} data-layer="${escape(l.name)}" x="${formatSvgNumber(value.position[0], precision)}" y="${formatSvgNumber(value.position[1], precision)}" width="${formatSvgExtent(value.size[0], precision)}" height="${formatSvgExtent(value.size[1], precision)}" preserveAspectRatio="none" href="${imageURL(asset)}"/>`;
   }
   const fill = value.fill,
     stroke = value.stroke,
     gradient =
       fill?.kind === 'linear-gradient'
-        ? renderLinearGradientFill(fill, gradientId)
+        ? renderLinearGradientFill(fill, gradientId, precision)
         : fill?.kind === 'radial-gradient'
-          ? renderRadialGradientFill(fill, gradientId)
+          ? renderRadialGradientFill(fill, gradientId, precision)
           : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
@@ -4817,10 +4978,12 @@ export function renderElement(
         .map((contours) => {
           const opacity = contours[0].repeaterOpacity;
           const content = shape({ ...path, contours: contours.map(({ group, ...c }) => c) });
-          return opacity === undefined ? content : `<g opacity="${opacity}">${content}</g>`;
+          return opacity === undefined
+            ? content
+            : `<g opacity="${formatSvgNumber(opacity, precision)}">${content}</g>`;
         })
         .join('')}</g>`;
-    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${fill.alpha}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${stroke.alpha}" stroke-width="${stroke.width}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${stroke.miterLimit}" stroke-dasharray="${stroke.dash.length ? stroke.dash.join(' ') : 'none'}" stroke-dashoffset="${stroke.dashOffset}"` : ''}/>`;
+    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${formatSvgNumber(fill.alpha, precision)}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${formatSvgNumber(stroke.alpha, precision)}" stroke-width="${formatSvgExtent(stroke.width, precision)}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${formatSvgNumber(stroke.miterLimit, precision)}" stroke-dasharray="${stroke.dash.length ? stroke.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(stroke.dashOffset, precision)}"` : ''}/>`;
   }
   return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
@@ -4853,9 +5016,21 @@ function exportValidatedScene(doc, fonts) {
       return { layer: l, value: result.path };
     });
 }
-export function exportSVG(doc, fonts = {}) {
+export function exportSVG(doc, fonts = {}, options = {}) {
+  if (
+    !options ||
+    typeof options !== 'object' ||
+    Array.isArray(options) ||
+    Object.keys(options).some((key) => !['unit', 'responsive', 'precision'].includes(key)) ||
+    (options.responsive !== undefined && typeof options.responsive !== 'boolean')
+  )
+    throw Error('Invalid SVG export options');
+  const precision = validateSvgPrecision(options.precision);
   doc = validate(clone(doc));
   const scene = exportValidatedScene(doc, fonts);
+  const rootAttributes = svgRootAttributes(doc, options.unit ?? 'px', {
+    responsive: options.responsive ?? false,
+  });
   let bytes = 512;
   const elements = [];
   for (const { layer, value } of scene) {
@@ -4865,20 +5040,22 @@ export function exportSVG(doc, fonts = {}) {
       doc.imageAssets,
       '',
       `nect-gradient-${doc.layers.indexOf(layer)}`,
+      precision,
     );
     bytes += utf8ByteLength(element);
     if (bytes > MAX_PROJECT_BYTES)
       throw Error('SVG export exceeds 50 MB; reduce embedded image size or repetitions');
     elements.push(element);
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${doc.width}" height="${doc.height}" viewBox="0 0 ${doc.width} ${doc.height}">${elements.join('')}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" ${rootAttributes}>${elements.join('')}</svg>`;
 }
 export class History {
-  constructor(doc) {
+  constructor(doc, { retainHistory = true } = {}) {
     this.past = [];
     this.future = [];
     this.doc = doc;
     this.revision = 0;
+    this.retainHistory = retainHistory;
   }
   apply(fn) {
     let before = cloneDocument(this.doc);
@@ -4893,6 +5070,10 @@ export class History {
   }
   record(before) {
     this.revision++;
+    if (!this.retainHistory) {
+      this.future = [];
+      return;
+    }
     this.past.push(before);
     this.future = [];
     const retainedFontBytes = () => {
@@ -4970,11 +5151,14 @@ export class CommandSession {
   #prepared = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
-  constructor(doc, { fonts = () => ({}), busy = () => false, onCommitted = () => {} } = {}) {
+  constructor(
+    doc,
+    { fonts = () => ({}), busy = () => false, onCommitted = () => {}, retainHistory = true } = {},
+  ) {
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
-    this.#history = new History(cloneDocument(doc));
+    this.#history = new History(cloneDocument(doc), { retainHistory });
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
@@ -5004,6 +5188,9 @@ export class CommandSession {
     return [...this.#textDrafts.values()].some(
       (draft) => draft.composition && draft.revision === this.#history.revision,
     );
+  }
+  get hasTextDrafts() {
+    return this.#textDrafts.size > 0;
   }
   get hasGesture() {
     return this.#gesture !== null;
@@ -5819,6 +6006,15 @@ export class CommandSession {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload))
       throw Error('Invalid command payload');
     if (type === 'import-composition') {
+      if (
+        this.#busy() ||
+        this.#gesture ||
+        this.hasTextComposition ||
+        [...this.#textDrafts.values()].some(
+          (draft) => draft.revision === this.#history.revision && draft.state.changed,
+        )
+      )
+        throw Error('GESTURE_ACTIVE: finish or cancel the active edit');
       if (typeof payload.sourceText !== 'string' || typeof payload.compositionId !== 'string')
         throw Error('Invalid composition import payload');
       const imported = prepareCompositionImport(
@@ -7066,7 +7262,9 @@ export class CommandSession {
       if (ids.some((id) => !target.nodes.some((node) => node.id === id)))
         throw Error('Missing node');
       const protectedIds = target.nodes
-        .filter((n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type))
+        .filter(
+          (n) => n.locked || n.id === target.output || ['Output', 'Image Output'].includes(n.type),
+        )
         .map((n) => n.id);
       if (type === 'delete-node' && protectedIds.some((id) => selected.has(id)))
         throw Error('Cannot delete a locked or Output node');
@@ -7082,7 +7280,10 @@ export class CommandSession {
             delete q.source;
             delete q.sourcePort;
           }
-      for (const node of target.nodes) normalizeJoinInputs(node, true);
+      for (const node of target.nodes) {
+        normalizeJoinInputs(node, true);
+        normalizeBooleanInputs(node, true);
+      }
     } else if (type === 'preview-node') {
       const source = target.nodes.find((node) => node.id === payload.nodeId);
       if (!source) throw Error('Missing node');
@@ -7527,7 +7728,10 @@ export class CommandSession {
         )
           throw Error('Invalid Text settings');
         for (const [key, value] of Object.entries(settings)) {
-          if (['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) && value === null)
+          if (
+            ['leading', 'pathAttachment', 'textWrap', 'fontFeatures'].includes(key) &&
+            value === null
+          )
             delete node[key];
           else node[key] = clone(value);
         }
@@ -7537,7 +7741,9 @@ export class CommandSession {
           candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
         if (Object.hasOwn(settings, 'fontFeatures') || node.fontFeatures) {
           const preflight = evaluate(
-            { ...target, output: node.id }, resolveFonts(candidate, baseFonts), candidate.imageAssets,
+            { ...target, output: node.id },
+            resolveFonts(candidate, baseFonts),
+            candidate.imageAssets,
           );
           if (preflight.error) throw Error(preflight.error);
         }
@@ -7605,8 +7811,18 @@ export class CommandSession {
       if (!q) throw Error('Missing parameter');
       if (type === 'set-parameter-lock') {
         if (typeof payload.locked !== 'boolean') throw Error('Invalid lock state');
+        if (
+          payload.locked &&
+          node.type === 'Boolean' &&
+          payload.key === booleanPendingInputKey &&
+          !node.booleanInputOrder
+        ) {
+          node.booleanInputOrder = ['a', 'b', payload.key];
+          node.params[payload.key] = q;
+        }
         q.locked = payload.locked;
         normalizeJoinInputs(node, true);
+        normalizeBooleanInputs(node, true);
       } else {
         if (q.locked) throw Error('Parameter is locked');
         if (type === 'set-parameter-expression') {
@@ -7670,6 +7886,12 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, BOOLEAN_INPUT_SCHEMA_VERSION);
     validate(candidate);
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);
