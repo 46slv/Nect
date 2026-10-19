@@ -93,6 +93,18 @@ try {
     'one Undo removes exactly the second full import',
     JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeSecondImport,
   );
+  await page.keyboard.press('Control+Shift+z');
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 5);
+  record(
+    'keyboard Redo restores the whole import batch',
+    JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeUndo,
+  );
+  await page.keyboard.press('Control+z');
+  await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 3);
+  record(
+    'keyboard Undo removes the whole import batch',
+    JSON.stringify(await page.evaluate(() => window.nect.projectSnapshot())) === beforeSecondImport,
+  );
   await page.locator('[data-action="redo"]').click();
   await page.waitForFunction(() => window.nect.projectSnapshot().compositions.length === 5);
   record(
