@@ -282,4 +282,5 @@ SVG import now retains physical root dimensions in the 96 CSS px/in document bas
 - Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS (import.test.js, svg-part.test.js, svg-export-units.test.js). Independent expected matrices cover non-zero origins, a 100 x 50 mm viewport, default meet letterboxing, and none; percentage rectangles use viewBox user-space dimensions. Stroke and user-space gradient markup remains in the transformed paint group. Import/Add serialization round-trips preserve that mapping, and unsupported Add input leaves session state/Undo unchanged.
 - Scoped Prettier checks and git diff --check: PASS.
 - Production npm run build: PASS (136 modules); Vite reports the existing large minified-chunk warning (1.34 MB).
-- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation, network retry, push, or remote mutation occurred at this verification stage.
+- Full npm test and actual WebView2 import/export: NOT_RUN. No dependency installation or network retry occurred.
+- Development branch sync: implementation commit 1d1e781361885636dde3eaa82bd19485384007de was pushed without force, and git ls-remote matched that commit's SHA. The final closeout-record push and terminal branch SHA are verified at task closeout.

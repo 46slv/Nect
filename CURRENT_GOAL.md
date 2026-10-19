@@ -18,7 +18,7 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Map supported SVG `viewBox` user coordinates into the physical root viewport without losing non-zero origins, scale, stroke, or user-space gradient placement. Keep Import SVG replacement and Add SVG append semantics separate.
 
-Current phase: Implementation, focused verification, compatibility docs, and production build are complete. Commit the bounded checkpoint, push the working branch normally, and verify remote HEAD.
+Current phase: The bounded viewBox mapping is implemented, verified, documented, committed, and synchronized to the development branch.
 
 Proven:
 
@@ -26,14 +26,15 @@ Proven:
 - Focused Import SVG, Add SVG, and SVG export-unit suites: 25/25 PASS. Independent matrices cover non-zero origin, a 100 x 50 mm viewport, default `xMidYMid meet` letterboxing, and `none`; percentage geometry uses viewBox user-space dimensions. Paint group fixtures retain stroke and gradient markup. Add SVG retains one viewport Transform and leaves the destination size unchanged.
 - Other alignment modes and `slice` fail explicitly. `<clipPath>` and `clip-path` remain unsupported and fail closed.
 - Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing 1.34 MB chunk warning). Full `npm test` and actual WebView2 import/export remain NOT_RUN.
+- Implementation commit `1d1e781361885636dde3eaa82bd19485384007de` was pushed normally; `git ls-remote` confirmed the same origin branch SHA.
 
-Next task: Commit the implementation, tests, verification record and compatibility documentation; push normally and verify remote SHA.
+Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this bounded viewBox checkpoint is complete.
 
 Approach: Apply the viewport affine mapping once after paints so strokes and user-space gradients follow the same SVG coordinate transform. Copy that single mapping to the final output of the Add SVG source Composition while leaving source geometry in user units.
 
-Done for next: Independent expected-matrix tests pass for non-zero origins, physical root sizing, meet letterboxing and `none`; Import and Add paths pass focused assertions for paint mapping and atomic unsupported input; build and sync evidence are recorded.
+Done for next: Independent expected-matrix tests pass for non-zero origins, physical root sizing, meet letterboxing and `none`; Import and Add paths pass focused assertions for paint mapping and atomic unsupported input; build, commit, and remote synchronization evidence are recorded.
 
-State: Branch `codex/nect-regression-validation-v2`, base HEAD `789234efc6e1dcbb164fbfbb4795157231bf356f`, matching the remote before this checkpoint. Current source changes are uncommitted. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d1e781361885636dde3eaa82bd19485384007de` is pushed and was confirmed as the matching remote SHA. A follow-up closeout record will be committed and synchronized on this same branch. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
 
 Authority: The user's delegated instruction authorizes this bounded SVG viewBox implementation, tests/build/docs, commit, and normal development-branch push. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
 
