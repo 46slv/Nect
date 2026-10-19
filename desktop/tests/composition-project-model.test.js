@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  activeCompositionDocument,
+  applyActiveCompositionDocument,
   COMPOSITION_SCHEMA_VERSION,
+  deserializeCompositionProject,
   migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
   validateCompositionProject,
 } from '../src/composition-project-model.js';
 
@@ -56,11 +60,13 @@ test('migrates a legacy frame into one outer Composition without changing its co
     name: 'Composition 1',
     width: source.width,
     height: source.height,
+    editor: source.editor,
     layers: source.layers,
   });
   assert.deepEqual(migrated.fontAssets, source.fontAssets);
   assert.deepEqual(migrated.imageAssets, source.imageAssets);
-  assert.deepEqual(migrated.editor, source.editor);
+  assert.equal('editor' in migrated, false);
+  assert.deepEqual(migrated.compositions[0].editor, source.editor);
   assert.deepEqual(migrated.nodePresets, source.nodePresets);
   assert.equal(migrated.compositions[0].layers[0].nodes[0].asset, 'image-asset-1');
   assert.equal(migrated.compositions[0].layers[0].nodes[0].font, 'font-asset-1');
@@ -138,5 +144,127 @@ test('validates Composition dimensions and rejects ambiguous legacy root fields'
 
   const ambiguousRoot = structuredClone(valid);
   ambiguousRoot.width = 960;
-  assert.throws(() => validateCompositionProject(ambiguousRoot), /legacy root frame fields/);
+  assert.throws(() => validateCompositionProject(ambiguousRoot), /legacy root document fields/);
+});
+
+function twoCompositionProject() {
+  const first = migrateLegacyDocumentToCompositionProject(
+      legacyDocument({ width: 1280, height: 720 }),
+    ),
+    secondSource = legacyDocument({ width: 320, height: 960 });
+  secondSource.layers[0].id = 'layer-two';
+  secondSource.layers[0].nodes[0].id = 'node-two';
+  secondSource.layers[0].nodes[0].points[0].id = 'point-two';
+  secondSource.layers[0].output = 'node-two';
+  secondSource.editor.guides[0].id = 'guide-two';
+  const second = migrateLegacyDocumentToCompositionProject(secondSource).compositions[0];
+  second.id = 'composition-two';
+  second.name = 'Tall format';
+  first.compositions.push(second);
+  return validateCompositionProject(first);
+}
+
+test('serializes and reopens multiple differently sized Compositions without loss', () => {
+  const project = twoCompositionProject(),
+    before = structuredClone(project),
+    serialized = serializeCompositionProject(project),
+    reopened = deserializeCompositionProject(serialized);
+
+  assert.deepEqual(
+    reopened.compositions.map(({ width, height }) => [width, height]),
+    [
+      [1280, 720],
+      [320, 960],
+    ],
+  );
+  assert.deepEqual(reopened, before);
+  assert.deepEqual(project, before, 'serialization must not mutate the project');
+});
+
+test('keeps legacy Layer-graph references within one outer Composition', () => {
+  const project = twoCompositionProject(),
+    source = project.compositions[0].layers[0];
+  source.nodes.push({
+    id: 'reference-node',
+    type: 'Composition Reference',
+    compositionReference: { compositionId: source.id },
+  });
+  assert.strictEqual(validateCompositionProject(project), project);
+
+  source.nodes[source.nodes.length - 1].compositionReference.compositionId =
+    project.compositions[1].layers[0].id;
+  assert.throws(
+    () => validateCompositionProject(project),
+    /cannot cross outer Compositions/,
+  );
+});
+
+test('legacy JSON is migrated once on read and new JSON is validated without remigration', () => {
+  const legacy = legacyDocument({ width: 417, height: 263 }),
+    migrated = deserializeCompositionProject(JSON.stringify(legacy)),
+    compositionId = migrated.compositions[0].id,
+    reopened = deserializeCompositionProject(serializeCompositionProject(migrated));
+
+  assert.equal(migrated.compositions.length, 1);
+  assert.deepEqual(
+    [migrated.compositions[0].width, migrated.compositions[0].height],
+    [417, 263],
+  );
+  assert.equal(reopened.compositions.length, 1);
+  assert.equal(reopened.compositions[0].id, compositionId);
+  assert.deepEqual(reopened.compositions[0].editor, legacy.editor);
+});
+
+test('active Document edits update one Composition and shared assets, preserving the other', () => {
+  const project = twoCompositionProject(),
+    before = structuredClone(project),
+    activeId = project.compositions[0].id,
+    inactiveBefore = structuredClone(project.compositions[1]),
+    active = activeCompositionDocument(project, activeId);
+  active.width = 1440;
+  active.layers[0].name = 'Edited active layer';
+  active.editor.guides[0].position = 25;
+  active.imageAssets['image-asset-2'] = { name: 'new-image.png', data: 'new-image-bytes' };
+
+  const updated = applyActiveCompositionDocument(project, activeId, active);
+
+  assert.equal(updated.compositions[0].width, 1440);
+  assert.equal(updated.compositions[0].height, 720);
+  assert.equal(updated.compositions[0].layers[0].name, 'Edited active layer');
+  assert.equal(updated.compositions[0].editor.guides[0].position, 25);
+  assert.deepEqual(updated.compositions[1], inactiveBefore);
+  assert.deepEqual(updated.imageAssets['image-asset-2'], {
+    name: 'new-image.png',
+    data: 'new-image-bytes',
+  });
+  assert.deepEqual(updated.fontAssets, before.fontAssets);
+  assert.deepEqual(
+    project,
+    before,
+    'project remains unchanged until the returned candidate is used',
+  );
+});
+
+test('invalid active IDs and edited data fail without mutating the source project', () => {
+  const project = twoCompositionProject(),
+    before = JSON.stringify(project),
+    validEdit = activeCompositionDocument(project, project.compositions[0].id);
+
+  assert.throws(() => activeCompositionDocument(project, 'missing-composition'), /Unknown active/);
+  assert.throws(
+    () => applyActiveCompositionDocument(project, 'missing-composition', validEdit),
+    /Unknown active/,
+  );
+  const invalidSize = structuredClone(validEdit);
+  invalidSize.width = 0;
+  assert.throws(
+    () => applyActiveCompositionDocument(project, project.compositions[0].id, invalidSize),
+  );
+  const duplicateId = structuredClone(validEdit);
+  duplicateId.layers[0].nodes[0].id = project.compositions[1].layers[0].id;
+  assert.throws(
+    () => applyActiveCompositionDocument(project, project.compositions[0].id, duplicateId),
+    /Duplicate ID/,
+  );
+  assert.equal(JSON.stringify(project), before);
 });

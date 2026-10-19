@@ -80,9 +80,10 @@ function assertDocumentEnvelope(project) {
   if (
     Object.hasOwn(project, 'width') ||
     Object.hasOwn(project, 'height') ||
-    Object.hasOwn(project, 'layers')
+    Object.hasOwn(project, 'layers') ||
+    Object.hasOwn(project, 'editor')
   )
-    throw Error('Composition project cannot use legacy root frame fields');
+    throw Error('Composition project cannot use legacy root document fields');
   if (
     !Array.isArray(project.compositions) ||
     project.compositions.length < 1 ||
@@ -97,6 +98,10 @@ function assertGlobalEntityIds(project) {
   for (const composition of compositions) {
     if (!isRecord(composition)) throw Error('Invalid Composition');
     assertUniqueId(composition.id, 'Composition', ids);
+    for (const guide of composition.editor?.guides || []) {
+      if (!isRecord(guide)) throw Error('Invalid guide');
+      assertUniqueId(guide.id, 'Guide', ids);
+    }
     for (const layer of composition.layers || []) {
       if (!isRecord(layer)) throw Error('Invalid Layer');
       assertUniqueId(layer.id, 'Layer', ids);
@@ -114,10 +119,6 @@ function assertGlobalEntityIds(project) {
     }
   }
 
-  for (const guide of project.editor?.guides || []) {
-    if (!isRecord(guide)) throw Error('Invalid guide');
-    assertUniqueId(guide.id, 'Guide', ids);
-  }
   for (const preset of project.nodePresets || []) {
     if (!isRecord(preset)) throw Error('Invalid node preset');
     assertUniqueId(preset.id, 'Node preset', ids);
@@ -145,12 +146,46 @@ function assertCompositionProjectFields(project) {
     }
   }
   assertGlobalEntityIds(project);
+  assertLayerReferenceScope(project);
+}
+
+function assertLayerReferenceScope(project) {
+  const layerOwners = new Map();
+  for (const composition of project.compositions)
+    for (const layer of composition.layers) layerOwners.set(layer.id, composition.id);
+
+  for (const composition of project.compositions)
+    for (const layer of composition.layers)
+      for (const node of layer.nodes)
+        if (node.type === 'Composition Reference') {
+          const targetId = node.compositionReference?.compositionId;
+          if (!layerOwners.has(targetId))
+            throw Error('Composition Reference target is missing');
+          if (layerOwners.get(targetId) !== composition.id)
+            throw Error('Composition Reference cannot cross outer Compositions');
+        }
 }
 
 export function validateCompositionProject(project) {
   assertJsonTree(project);
   assertCompositionProjectFields(project);
   return project;
+}
+
+export function serializeCompositionProject(project) {
+  validateCompositionProject(project);
+  return JSON.stringify(project);
+}
+
+export function deserializeCompositionProject(text) {
+  if (typeof text !== 'string') throw Error('Composition project JSON must be text');
+  const parsed = JSON.parse(text);
+  if (
+    isRecord(parsed) &&
+    (Object.hasOwn(parsed, 'compositionSchemaVersion') || Object.hasOwn(parsed, 'compositions'))
+  )
+    return validateCompositionProject(parsed);
+  return migrateLegacyDocumentToCompositionProject(parsed);
 }
 
 function legacyIds(document) {
@@ -202,7 +237,7 @@ function nextCompositionId(ids) {
 export function migrateLegacyDocumentToCompositionProject(document) {
   const copy = cloneJson(document);
   const ids = assertLegacyDocument(copy);
-  const { width, height, layers, ...project } = copy;
+  const { width, height, layers, editor, ...project } = copy;
   const compositionId = nextCompositionId(ids);
   const migrated = {
     ...project,
@@ -213,9 +248,51 @@ export function migrateLegacyDocumentToCompositionProject(document) {
         name: 'Composition 1',
         width,
         height,
+        ...(editor === undefined ? {} : { editor }),
         layers,
       },
     ],
   };
   return validateCompositionProject(migrated);
+}
+
+export function activeCompositionDocument(project, compositionId) {
+  const copy = cloneJson(validateCompositionProject(project));
+  const composition = copy.compositions.find((item) => item.id === compositionId);
+  if (!composition) throw Error('Unknown active Composition ID');
+  const projectFields = { ...copy };
+  delete projectFields.compositionSchemaVersion;
+  delete projectFields.compositions;
+  return {
+    ...projectFields,
+    width: composition.width,
+    height: composition.height,
+    ...(composition.editor === undefined ? {} : { editor: composition.editor }),
+    layers: composition.layers,
+  };
+}
+
+export function applyActiveCompositionDocument(project, compositionId, editedDocument) {
+  const base = cloneJson(validateCompositionProject(project));
+  const targetIndex = base.compositions.findIndex((item) => item.id === compositionId);
+  if (targetIndex < 0) throw Error('Unknown active Composition ID');
+  const edited = cloneJson(editedDocument);
+  assertLegacyDocument(edited);
+  const { width, height, layers, editor, ...editedProjectFields } = edited;
+  const projectFields = { ...base };
+  delete projectFields.compositionSchemaVersion;
+  delete projectFields.compositions;
+  Object.assign(projectFields, editedProjectFields);
+  const compositions = base.compositions.map((composition, index) => {
+    if (index !== targetIndex) return composition;
+    const updated = { ...composition, width, height, layers };
+    if (editor === undefined) delete updated.editor;
+    else updated.editor = editor;
+    return updated;
+  });
+  return validateCompositionProject({
+    ...projectFields,
+    compositionSchemaVersion: base.compositionSchemaVersion,
+    compositions,
+  });
 }
