@@ -18,7 +18,7 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Connect command history, Save/Open, browser Open, recovery and public load to the multi-Composition Session without losing inactive Compositions, Layers or shared assets.
 
-Current phase: The production main-module integration path and targeted owner/model regressions pass. A local commit is next.
+Current phase: The production main-module integration path and targeted owner/model regressions are committed locally as 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f. Native runtime acceptance remains.
 
 Proven:
 
@@ -27,13 +27,13 @@ Proven:
 - node --test desktop/tests/blank-artwork-dom.test.js desktop/tests/composition-project-model.test.js desktop/tests/composition-session-owner.test.js: 31/31 PASS. Prettier and git diff --check: PASS. No full suite, dependency install, network operation or push was run.
 - SVG output dimensions and the production PNG dimension calculation follow the active Composition. Real PNG raster pixels and native WebView/Tauri file operations have not been exercised here.
 
-Next task: Commit the tested fixture and this checkpoint locally; then the next concrete runtime acceptance is native WebView file binding/reopen plus pixel-level PNG output when that permitted runtime is available.
+Next task: Validate native WebView/Tauri file binding and reopen plus pixel-level PNG output when that permitted runtime is available.
 
 Approach: Keep the change test-focused: the existing main/session/storage integration passed the focused paths, so no production code modification is indicated by this acceptance.
 
-Done for next: Local commit exists; the test records the behavior and exact remaining native-runtime acceptance boundary.
+Done for next: Focused integration is committed as 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f; the exact remaining native-runtime acceptance boundary is recorded.
 
-State: Branch codex/nect-regression-validation-v2; starting HEAD db467691d7715b3afc5ea5c9f492aff63d775ae3; this checkpoint's test and record changes are pending a local commit. No remote update requested.
+State: Branch codex/nect-regression-validation-v2; implementation/test commit 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f; this closure record is the following local commit; working tree clean after commit. No remote update.
 
 Authority: User explicitly authorized Nect implementation/tests and a development-branch local commit. Network/retry, push, restoration clones, backups and uploads are excluded. Existing access-denial boundaries remain in force.
 
