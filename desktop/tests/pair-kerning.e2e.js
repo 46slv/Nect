@@ -107,6 +107,27 @@ try {
     await page.mouse.up();
   };
   await load();
+  const parityInitial = await saved();
+  await range(1);
+  await edit(42);
+  const uiKerningResult = await saved();
+  await undo();
+  assert.equal(await saved(), parityInitial, 'UI kerning Undo restores the original document');
+  await empty();
+  await page.evaluate((value) => {
+    const state = window.nect.commandState;
+    window.nect.dispatch({
+      ...state,
+      type: 'set-character-kerning',
+      payload: { nodeId: 'pair-text', changes: { 'c1:c2': value } },
+    });
+  }, 42);
+  assert.equal(await saved(), uiKerningResult, 'shared command matches the UI document result');
+  await undo();
+  assert.equal(await saved(), parityInitial, 'shared command Undo restores the original document');
+  await empty();
+
+  await load();
   const initial = await saved();
   await range(1);
   assert.equal(await saved(), initial);
