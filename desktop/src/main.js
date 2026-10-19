@@ -1004,6 +1004,9 @@ let contextMenuScroll = new Map();
 const detailsState = new Map();
 const compositionViewStates = createCompositionViewStateStore();
 const selectionHistory = new WeakMap();
+let focusedCompositionTabId = null,
+  tabRenderSession = null,
+  tabRenderCompositionId = null;
 function closeTransientPanels(except = '') {
   if (except !== 'align') alignmentPreferences.open = false;
   if (except !== 'grid') gridOpen = false;
@@ -2837,6 +2840,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  renderCompositionTablist();
   mountViewers(app, viewerState, {
     doc,
     fonts,
@@ -5394,6 +5398,95 @@ function switchActiveComposition(compositionId) {
   updateDocumentStatus();
   return true;
 }
+function renderCompositionTablist() {
+  const compositions = session.projectSnapshot().compositions,
+    activeId = session.activeCompositionId,
+    select = app.querySelector('[data-active-composition]')?.closest('label'),
+    workspace = app.querySelector('.workspace');
+  if (tabRenderSession !== session || tabRenderCompositionId !== activeId) {
+    focusedCompositionTabId = activeId;
+    tabRenderSession = session;
+    tabRenderCompositionId = activeId;
+  }
+  if (compositions.length < 2) return;
+  focusedCompositionTabId ??= activeId;
+  if (!compositions.some((composition) => composition.id === focusedCompositionTabId))
+    focusedCompositionTabId = activeId;
+  const tablist = document.createElement('div');
+  tablist.className = 'composition-tabs';
+  tablist.setAttribute('role', 'tablist');
+  tablist.setAttribute('aria-label', 'Compositions');
+  tablist.setAttribute('aria-orientation', 'horizontal');
+  for (const composition of compositions) {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'composition-tab';
+    tab.id = `composition-tab-${composition.id}`;
+    tab.dataset.activeComposition = composition.id;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', 'composition-panel');
+    tab.setAttribute('aria-selected', String(composition.id === activeId));
+    tab.tabIndex = composition.id === focusedCompositionTabId ? 0 : -1;
+    tab.title = composition.name;
+    tab.textContent = composition.name;
+    tablist.append(tab);
+  }
+  select?.replaceWith(tablist);
+  if (workspace) {
+    workspace.id = 'composition-panel';
+    workspace.setAttribute('role', 'tabpanel');
+    workspace.setAttribute('aria-labelledby', `composition-tab-${activeId}`);
+  }
+}
+function focusCompositionTab(compositionId) {
+  const tabs = [...app.querySelectorAll('[role="tab"][data-active-composition]')],
+    tab = tabs.find((item) => item.dataset.activeComposition === compositionId);
+  if (!tab) return;
+  focusedCompositionTabId = compositionId;
+  for (const item of tabs) item.tabIndex = item === tab ? 0 : -1;
+  tab.focus();
+}
+function activateCompositionTab(compositionId) {
+  try {
+    switchActiveComposition(compositionId);
+  } catch (error) {
+    notify(error.message, true);
+    render();
+  }
+  focusCompositionTab(session.activeCompositionId);
+}
+app.addEventListener('keydown', (event) => {
+  const tab = event.target.closest?.('[role="tab"][data-active-composition]');
+  if (!tab || event.altKey || event.ctrlKey || event.metaKey) return;
+  const tabs = [...app.querySelectorAll('[role="tab"][data-active-composition]')],
+    index = tabs.indexOf(tab);
+  if (index < 0) return;
+  let target = null;
+  switch (event.key) {
+    case 'ArrowRight':
+      target = tabs[(index + 1) % tabs.length];
+      break;
+    case 'ArrowLeft':
+      target = tabs[(index + tabs.length - 1) % tabs.length];
+      break;
+    case 'Home':
+      target = tabs[0];
+      break;
+    case 'End':
+      target = tabs.at(-1);
+      break;
+    case 'Enter':
+    case ' ':
+    case 'Space':
+      event.preventDefault();
+      activateCompositionTab(tab.dataset.activeComposition);
+      return;
+    default:
+      return;
+  }
+  event.preventDefault();
+  focusCompositionTab(target.dataset.activeComposition);
+});
 function addComposition() {
   if (variableAction) throw Error('Finish or cancel variable font preparation first');
   if (documents.hasDraft()) throw Error('Finish or cancel the active edit first');
@@ -5445,6 +5538,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.activeComposition !== undefined) {
+    activateCompositionTab(d.activeComposition);
+    return;
+  }
   if (Object.hasOwn(d, 'sourceNav')) {
     sourceNavigationAction(b);
     return;
@@ -7491,15 +7588,6 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
-  if (d.activeComposition !== undefined) {
-    try {
-      switchActiveComposition(el.value);
-    } catch (error) {
-      notify(error.message, true);
-      render();
-    }
-    return;
-  }
   if (d.artboardUnit !== undefined) {
     if (!ARTBOARD_UNITS.includes(el.value)) return;
     artboardUnit = el.value;

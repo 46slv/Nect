@@ -514,10 +514,11 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
           payload: { layerId, key: 'visible', value },
         });
       const switchTo = async (compositionId) => {
-        const select = $('[data-active-composition]');
-        select.value = compositionId;
-        select.dispatchEvent(new win.Event('change', { bubbles: true }));
-        flush();
+        const tab = [...document.querySelectorAll('[data-active-composition]')].find(
+          (item) => item.dataset.activeComposition === compositionId,
+        );
+        assert.ok(tab);
+        tab.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       };
       const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -652,6 +653,99 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
       assert.equal(win.nect.fileState.dirty, false);
       assert.ok(firstLegacy.layers.length >= 2, 'the fixture includes a non-active Layer');
       assert.ok(fileIO.released.includes('memory-readback'), 'replaced file bindings are released');
+    },
+  );
+  await t.test(
+    'Composition tabs support manual keyboard activation and scroll across long lists',
+    () => {
+      const project = migrateLegacyDocumentToCompositionProject(makeDoc());
+      project.compositions[0].name =
+        'Composition with a deliberately long name that exceeds one tab width';
+      for (let i = 1; i < 18; i++) {
+        const doc = makeDoc();
+        doc.width = 300 + i;
+        doc.height = 700 + i;
+        const composition = migrateLegacyDocumentToCompositionProject(doc).compositions[0];
+        composition.id = `keyboard-composition-${i}`;
+        composition.name =
+          i === 8
+            ? 'Another deliberately long Composition name beyond its visible tab width'
+            : `Composition ${i + 1}`;
+        project.compositions.push(composition);
+      }
+      load(project);
+      const tabs = () => [...document.querySelectorAll('[role="tab"][data-active-composition]')],
+        list = $('[role="tablist"]'),
+        panel = $('.workspace'),
+        before = {
+          active: win.nect.activeCompositionId,
+          revision: win.nect.fileState.revision,
+          dirty: win.nect.fileState.dirty,
+          history: ui().past,
+          project: JSON.stringify(win.nect.projectSnapshot()),
+        };
+      assert.ok(list);
+      assert.equal(list.getAttribute('aria-label'), 'Compositions');
+      assert.equal(list.getAttribute('aria-orientation'), 'horizontal');
+      assert.equal(tabs().length, 18);
+      assert.equal(tabs()[0].tabIndex, 0);
+      assert.equal(tabs()[0].getAttribute('aria-selected'), 'true');
+      assert.equal(tabs()[1].tabIndex, -1);
+      assert.equal(tabs()[1].getAttribute('aria-selected'), 'false');
+      assert.equal(tabs()[0].title, project.compositions[0].name);
+      assert.equal(panel.getAttribute('role'), 'tabpanel');
+      assert.equal(panel.getAttribute('aria-labelledby'), tabs()[0].id);
+
+      assert.equal(key(tabs()[0], 'ArrowRight'), true);
+      assert.equal(document.activeElement.dataset.activeComposition, project.compositions[1].id);
+      assert.equal(
+        tabs()[0].getAttribute('aria-selected'),
+        'true',
+        'arrow navigation moves focus without activation',
+      );
+      assert.equal(tabs()[1].getAttribute('aria-selected'), 'false');
+      assert.equal(win.nect.activeCompositionId, before.active);
+      assert.equal(key(document.activeElement, 'Enter'), true);
+      assert.equal(win.nect.activeCompositionId, project.compositions[1].id);
+      assert.equal(tabs()[1].getAttribute('aria-selected'), 'true');
+
+      assert.equal(key(tabs()[1], 'ArrowLeft'), true);
+      assert.equal(document.activeElement.dataset.activeComposition, project.compositions[0].id);
+      assert.equal(win.nect.activeCompositionId, project.compositions[1].id);
+      assert.equal(key(document.activeElement, ' '), true);
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+
+      assert.equal(key(tabs()[0], 'End'), true);
+      assert.equal(
+        document.activeElement.dataset.activeComposition,
+        project.compositions.at(-1).id,
+      );
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+      assert.equal(key(document.activeElement, 'Enter'), true);
+      assert.equal(win.nect.activeCompositionId, project.compositions.at(-1).id);
+      assert.equal(key(tabs().at(-1), 'Home'), true);
+      assert.equal(document.activeElement.dataset.activeComposition, project.compositions[0].id);
+      assert.equal(key(document.activeElement, 'Space'), true);
+      assert.equal(win.nect.activeCompositionId, project.compositions[0].id);
+      assert.equal(key(tabs()[0], 'ArrowLeft'), true, 'left arrow wraps to the last Composition');
+      assert.equal(
+        document.activeElement.dataset.activeComposition,
+        project.compositions.at(-1).id,
+      );
+      assert.equal(
+        key(document.activeElement, 'ArrowRight'),
+        true,
+        'right arrow wraps to the first Composition',
+      );
+      assert.equal(document.activeElement.dataset.activeComposition, project.compositions[0].id);
+
+      tabs().at(-1).click();
+      assert.equal(win.nect.activeCompositionId, project.compositions.at(-1).id);
+      assert.equal(tabs().at(-1).getAttribute('aria-selected'), 'true');
+      assert.equal(win.nect.fileState.revision, before.revision);
+      assert.equal(win.nect.fileState.dirty, before.dirty);
+      assert.equal(ui().past, before.history);
+      assert.equal(JSON.stringify(win.nect.projectSnapshot()), before.project);
     },
   );
   win.happyDOM.abort();

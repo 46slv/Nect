@@ -197,6 +197,15 @@ The app now uses header/workspace/footer grid rows. The header and workspace use
 - Real browser after the fix: NOT_RUN due to localhost navigation denial.
 - Aggregate npm test remains FAIL for a separate data-URL loader issue. Reproduced at tests/artboard-pan-dom.test.js: after converting selected imports in src/main.js to file URLs, the loader leaves the first ./text-wrap.js import unchanged, then evaluates the source as data:text/javascript;base64,...; Node reports ERR_UNSUPPORTED_RESOLVE_REQUEST for that relative specifier. At that checkpoint, no broad harness change had been made.
 
+## Composition keyboard tablist / 2026-10-19
+
+Replaced the multi-Composition header selector with a manual-activation tablist. Left/Right and Home/End move focus only; Enter/Space and click activate through the existing `switchActiveComposition` path. `aria-selected` follows the active Composition, roving `tabindex` follows keyboard focus, and the Workspace is labelled as the associated tab panel. Long names truncate visually with the full title retained; the bounded tab strip scrolls horizontally for many Compositions. The existing header/workspace grid remains content-driven for wrapped rows at the 900px target.
+
+- Main happy-dom fixture with long names and 18 tabs, keyboard activation, wraparound, focus/selection state, click selection, and unchanged revision/dirty/history: **PASS**.
+- Related DOM/contract/layout tests: **17/17 PASS** (`blank-artwork-dom.test.js`, `composition-view-state-contract.test.js`, `responsive-header-layout.test.js`).
+- Production build: **PASS**; Vite reports the existing large JavaScript chunk warning.
+- Real browser viewport/keyboard acceptance: **NOT RUN**. Per instruction, the previously observed localhost navigation denial was not retried or bypassed.
+
 ## Main data-URL test loader / 2026-10-19
 
 Synthetic DOM tests load `src/main.js` from a `data:` URL. Node cannot resolve any relative imports in that module against the `data:` origin, including `./text-wrap.js` which appeared before imports that older fixtures already rewrote. Added `tests/helpers/main-data-url.js` to resolve static and dynamic same-root imports against the real `src/main.js` URL, then applied it to the 37 data-URL test files that lacked a complete rewrite. Its focused test checks both import forms.

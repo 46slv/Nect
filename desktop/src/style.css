@@ -136,6 +136,33 @@ header {
   margin-left: 8px;
   color: var(--muted);
 }
+.composition-tabs {
+  display: flex;
+  flex: 0 1 250px;
+  align-items: center;
+  gap: 3px;
+  width: 250px;
+  min-width: 112px;
+  max-width: 30vw;
+  height: 34px;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.composition-tab {
+  flex: 0 0 auto;
+  min-width: 70px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composition-tab[aria-selected='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
 .divider {
   height: 20px;
   border-left: 1px solid var(--line);

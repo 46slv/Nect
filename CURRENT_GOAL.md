@@ -14,27 +14,29 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Composition lifecycle integration (2026-10-19)
+## ACTIVE CHECKPOINT - Accessible Composition tablist (2026-10-19)
 
-Goal: Connect command history, Save/Open, browser Open, recovery and public load to the multi-Composition Session without losing inactive Compositions, Layers or shared assets.
+Goal: Replace the multi-Composition header selector with an accessible horizontal tablist. Preserve the existing Session switch path so switching Composition does not change authored project state, revision, dirty state or Undo/Redo history. Scope: UI, focused tests, related documentation, local commit and normal push to the existing development branch.
 
-Current phase: The production main-module integration path and targeted owner/model regressions are committed locally as 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f. Native runtime acceptance remains.
+Current phase: Tablist UI and focused verification are complete; the local checkpoint commit and remote synchronization are being finalized.
 
 Proven:
 
-- Extended desktop/tests/blank-artwork-dom.test.js to import actual main.js, CompositionSessionOwner, DocumentLifecycle and RecoveryAutosave, replacing only native filesystem/recovery I/O with in-memory adapters. This exercises the real core factory through the UI Session.
-- The test uses two differently sized Compositions, shared embedded font/image assets and a non-active Layer. It verifies tab switching creates no history step; project-wide Undo/Redo; SVG dimensions and PNG sizing from the active Composition; Save As, native Open readback and Save through an existing binding; Recovery Copies restore as unsaved; browser Open through the toolbar and file input; public load; invalid JSON leaves current state intact; and legacy root-Document migration.
-- node --test desktop/tests/blank-artwork-dom.test.js desktop/tests/composition-project-model.test.js desktop/tests/composition-session-owner.test.js: 31/31 PASS. Prettier and git diff --check: PASS. No full suite, dependency install, network operation or push was run.
-- SVG output dimensions and the production PNG dimension calculation follow the active Composition. Real PNG raster pixels and native WebView/Tauri file operations have not been exercised here.
+- `desktop/src/main.js` renders ARIA tabs and a tab panel. Left/Right/Home/End move focus; Enter/Space/click activate through `switchActiveComposition`. `aria-selected` and roving `tabindex` track selection and focus separately.
+- `desktop/src/style.css` bounds and horizontally scrolls the tab strip, truncates long labels, styles selected tabs, and retains the existing global `button:focus-visible` outline.
+- `desktop/tests/blank-artwork-dom.test.js` covers 18 tabs, long names, keyboard wraparound/manual activation, clicks, and unchanged revision, dirty state, History and project snapshot. Related DOM, contract and responsive tests: 17/17 PASS.
+- `npm --prefix desktop run build`: PASS; Vite reports the existing large JavaScript chunk warning. `git diff --check`: PASS; Git reports a CRLF-to-LF normalization warning for `composition-size-design.md`.
+- The existing application lifecycle fixture covers project Save/Open, recovery, browser Open, public load, legacy migration, shared fonts/images, active-Composition export sizing and preservation of inactive Compositions.
+- Real browser/native visual and keyboard/scroll acceptance: NOT_RUN. The prior localhost navigation denial was not retried or bypassed.
 
-Next task: Validate native WebView/Tauri file binding and reopen plus pixel-level PNG output when that permitted runtime is available.
+Next task: Commit only the seven tablist source/test/design/verification files and this checkpoint, push `codex/nect-regression-validation-v2` normally, then verify `origin/refs/heads/codex/nect-regression-validation-v2` resolves to the exact local HEAD. Manual native/WebView interaction acceptance remains after synchronization.
 
-Approach: Keep the change test-focused: the existing main/session/storage integration passed the focused paths, so no production code modification is indicated by this acceptance.
+Approach: Preserve the existing Session command and switching paths. Do not retry npm/dependency installation or create another checkout. Before this commit, local base HEAD is `86c4dc91fbf4133320f2bd214f19aacb4ab34c9b`; the branch is five commits ahead of origin. Remote HEAD was freshly read as `8621a15788424413918ec6d3ae4ae201a8eade80`.
 
-Done for next: Focused integration is committed as 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f; the exact remaining native-runtime acceptance boundary is recorded.
+Done for next: The scoped implementation and checkpoint are committed, the normal development-branch push completes, and exact local/remote HEAD equality is confirmed. Then the only outstanding acceptance is hands-on native/browser tablist interaction.
 
-State: Branch codex/nect-regression-validation-v2; implementation/test commit 235ccbae89a24d5a46d6bd7be6566f5e4fe4536f; this closure record is the following local commit; working tree clean after commit. No remote update.
+State: Branch `codex/nect-regression-validation-v2`; pre-commit local HEAD `86c4dc91fbf4133320f2bd214f19aacb4ab34c9b`; pre-push remote HEAD `8621a15788424413918ec6d3ae4ae201a8eade80`; seven scoped tablist files modified plus this checkpoint. The target commit includes the tablist implementation, tests, related docs and this active checkpoint.
 
-Authority: User explicitly authorized Nect implementation/tests and a development-branch local commit. Network/retry, push, restoration clones, backups and uploads are excluded. Existing access-denial boundaries remain in force.
+Authority: Current user instruction authorizes this Composition tablist implementation, focused tests and documentation, a local commit, and a normal push to this development branch. Main merge, release, force push/history rewrite and credential/permission changes remain excluded.
 
 Handoff: CONTINUE_CURRENT_TASK

@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
+const source = await readFile(new URL('../src/main.js', import.meta.url), 'utf8'),
+  css = await readFile(new URL('../src/style.css', import.meta.url), 'utf8');
 
-test('Composition selector saves and restores window state without a document command', () => {
+test('Composition activation saves and restores window state without a document command', () => {
   const start = source.indexOf('function switchActiveComposition(compositionId) {'),
     end = source.indexOf('function addComposition()', start),
     flow = source.slice(start, end);
@@ -42,10 +43,31 @@ test('Add and project Import save the outgoing view and initialize the newly act
   assert.match(importFlow, /saveCompositionViewState\(\)/);
   assert.match(importFlow, /restoreCompositionViewState\(\)/);
   assert.match(importFlow, /compositionViewStates\.forget\(compositionId\)/);
-  assert.match(importFlow, /compositionViewStates\.prune\(session\.projectSnapshot\(\)\.compositions\)/);
+  assert.match(
+    importFlow,
+    /compositionViewStates\.prune\(session\.projectSnapshot\(\)\.compositions\)/,
+  );
 });
 
-test('Composition selection remains a selector control; no tablist is claimed', () => {
-  assert.match(source, /data-active-composition/);
-  assert.doesNotMatch(source, /role="tablist"/);
+test('Composition tablist exposes accessible selection, keyboard activation, and horizontal scrolling', () => {
+  assert.match(source, /setAttribute\('role', 'tablist'\)/);
+  assert.match(source, /setAttribute\('role', 'tab'\)/);
+  assert.match(source, /setAttribute\('aria-selected'/);
+  assert.match(source, /setAttribute\('aria-controls', 'composition-panel'\)/);
+  assert.match(source, /setAttribute\('role', 'tabpanel'\)/);
+  assert.match(
+    source,
+    /case 'ArrowRight':[\s\S]*?case 'ArrowLeft':[\s\S]*?case 'Home':[\s\S]*?case 'End':/,
+  );
+  assert.match(source, /case 'Enter':[\s\S]*?case ' '/);
+  assert.match(source, /function switchActiveComposition\(compositionId\)/);
+  const tabStyles = css.match(/\.composition-tabs\s*\{([^}]*)\}/)?.[1],
+    tabButtonStyles = css.match(/\.composition-tab\s*\{([^}]*)\}/)?.[1];
+  assert.ok(tabStyles);
+  assert.ok(tabButtonStyles);
+  assert.match(tabStyles, /overflow-x:\s*auto/);
+  assert.match(tabStyles, /max-width:\s*30vw/);
+  assert.match(tabButtonStyles, /text-overflow:\s*ellipsis/);
+  assert.match(tabButtonStyles, /white-space:\s*nowrap/);
+  assert.match(css, /\.composition-tab\[aria-selected=['"]true['"]\]/);
 });
