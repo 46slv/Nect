@@ -18,22 +18,22 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Save and reapply supported SVG and PNG export settings in the toolbar, keeping each preset format-specific and separate from project data and Undo.
 
-Current phase: Focused implementation and verification are complete; update records, commit, and synchronize the development branch.
+Current phase: Implementation, focused verification, source commit, and normal branch synchronization are complete.
 
 Proven:
 
 - SVG presets contain only fixed/responsive sizing, supported units, and geometry precision. PNG presets contain either one supported scale or positive PPI. Exact-key validation rejects mixed-format and unsupported fields.
-- The toolbar saves, reloads, and applies settings through the existing export controls. Applying one format leaves the other format's settings unchanged. Presets use a versioned local preference key and do not change project JSON or Undo history.
-- Focused preset, DOM integration, responsive SVG, unit, PNG sizing, and PNG density tests: 23/23 PASS. Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing large-chunk warning).
+- The toolbar saves, reloads, and applies settings through the existing export controls. Applying one format leaves the other format's settings unchanged. Presets use a versioned local preference key and do not change project JSON or Undo history. Invalid saves surface feedback through the existing status area.
+- Focused preset, DOM integration, responsive SVG, unit, PNG sizing, and PNG density tests: 23/23 PASS. Scoped Prettier, `git diff --check`, and production build: PASS (136 modules; existing large-chunk warning).
 - Full test suite and actual WebView2 interaction: NOT_RUN. No dependency installation or network retry was made.
 
-Next task: Stage only the preset source, UI, tests, export documentation, and this checkpoint; review the staged diff; commit and normally push; verify remote branch HEAD equals local.
+Next task: Re-read the live Composition/session completion route and choose its next eligible checkpoint, preserving the existing Goal and human gates.
 
-Approach: Preserve existing defaults and shared export paths, keep the presets as local preferences, and avoid touching pre-existing untracked native trial artifacts.
+Approach: Use current repository/route evidence to select one bounded implementation or validation step. Keep the next checkpoint focused and continue only within the existing authorization.
 
-Done for next: Format-specific presets save/reload/apply without cross-format state changes or project/Undo mutation; focused checks pass; the scoped commit is pushed and the remote branch matches its SHA.
+Done for next: Select the next mission checkpoint from current requirements and route evidence; this export preset checkpoint remains implemented, verified, and synchronized.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-commit HEAD `4edbda927146edb3ab5d6a732301769ec9646a06`. Scoped source/docs/tests are modified or untracked. Preserve pre-existing untracked `desktop/native-artifact-4edbda9/` outputs; build output is ignored. Remote was at the pre-commit HEAD at start.
+State: Feature source commit `ca6d206481cd5371febdbc51b5102ae6ff8e4224` is pushed on `codex/nect-regression-validation-v2`; remote branch was verified at the same SHA. The only pre-existing local untracked files are the two outputs under `desktop/native-artifact-4edbda9/`.
 
 Authority: The user's current delegated instruction authorizes this bounded export preset work, focused checks, records, commit, and normal development-branch push. Do not perform a force push, mainline merge, release, dependency/network retry, credential or permission change, or modify the preserved trial outputs.
 
