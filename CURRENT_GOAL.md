@@ -34,7 +34,7 @@ Approach: Keep the import helper confined to test setup. Classify fresh full-sui
 
 Done for next: Each remaining full-suite failure is either fixed with a focused regression or durably attributed to an explicit environment blocker; composition Open/Save/recovery/public-load and browser/native lifecycle evidence is current.
 
-State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `d5c34d59185655c7a44513c91bf9cff48310adcc`; loader/test checkpoint commit: `e5dd338d8c2f45c75aee902cb74d9c106429193a`; verification is committed and the working tree is clean after the documentation follow-up. Build was not required for this test-only change. Full `npm test` ran exactly once after the helper update.
+State: Branch `codex/nect-regression-validation-v2`; pre-checkpoint HEAD `d5c34d59185655c7a44513c91bf9cff48310adcc`; loader/test checkpoint commit: `e5dd338d8c2f45c75aee902cb74d9c106429193a`; remote pointer `origin/codex/nect-regression-validation-v2` is synchronized, and the working tree is clean after the documentation follow-up. Build was not required for this test-only change. Full `npm test` ran exactly once after the helper update.
 
 Authority: Current delegated task authorizes the shared test-loader fix, focused verification, one full `npm test` run and a development-branch checkpoint. No dependency install or network retry, restoration clone, backup or upload was performed; localhost denial was not bypassed.
 
