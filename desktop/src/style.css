@@ -1552,8 +1552,18 @@ input[data-scrub-step].scrubbing {
   width: 120px;
   min-width: 100px;
 }
-.graph-pan-pad { display: inline-grid; grid-template-columns: repeat(2, 1fr); gap: 1px; margin: 0 3px; vertical-align: middle; }
-.graph-pan-pad button { min-width: 1.55em; padding: 1px 3px; line-height: 1.1; }
+.graph-pan-pad {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  margin: 0 3px;
+  vertical-align: middle;
+}
+.graph-pan-pad button {
+  min-width: 1.55em;
+  padding: 1px 3px;
+  line-height: 1.1;
+}
 .navigation-hint {
   margin-right: 12px;
 }
@@ -2179,4 +2189,50 @@ input[data-scrub-step].scrubbing {
 .node-preset-controls select {
   width: 140px;
   min-width: 80px;
+}
+
+#export-presets {
+  position: relative;
+  flex: 0 0 auto;
+}
+#export-presets > summary {
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: white;
+  padding: 5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#export-presets > summary::-webkit-details-marker {
+  display: none;
+}
+.export-preset-menu {
+  position: absolute;
+  z-index: 1000;
+  top: calc(100% + 5px);
+  right: 0;
+  display: grid;
+  gap: 8px;
+  min-width: min(620px, calc(100vw - 20px));
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  box-shadow: 0 5px 16px #26374722;
+}
+.export-preset-row {
+  display: grid;
+  grid-template-columns: min-content minmax(100px, 1fr) minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.export-preset-row input {
+  min-width: 0;
+}
+.export-preset-row button {
+  white-space: nowrap;
+}
+.export-preset-error {
+  color: #983d21;
 }

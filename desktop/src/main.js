@@ -5,6 +5,7 @@ import {
   formatDocumentLength,
 } from './artboard-units.js';
 import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
+import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
@@ -1002,7 +1003,22 @@ let openRequest = 0,
   pngScale = 1,
   pngExportMode = 'scale',
   pngPpi = 300,
+  selectedSvgExportPreset = null,
+  svgExportPresetName = '',
+  selectedPngExportPreset = null,
+  pngExportPresetName = '',
   exportInFlight = false;
+let exportPresetStorage = null,
+  exportPresets = [],
+  exportPresetLoadError = '';
+try {
+  if (typeof localStorage !== 'undefined') {
+    exportPresetStorage = localStorage;
+    exportPresets = loadExportPresets(exportPresetStorage);
+  }
+} catch (reason) {
+  exportPresetLoadError = reason?.message || 'Saved export presets could not be loaded';
+}
 let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
@@ -1570,10 +1586,7 @@ function moveOtherNumeric(d, e, dx) {
     if (!Number.isFinite(d.original)) return;
     if (d.commandTarget) {
       const initial = d.capture.dataset.dimension
-        ? displayLengthToDocumentUnits(
-            d.original,
-            d.capture.dataset.dimensionUnit || 'px',
-          )
+        ? displayLengthToDocumentUnits(d.original, d.capture.dataset.dimensionUnit || 'px')
         : d.original;
       d.gesture = beginGraphGesture({ ...d.commandTarget, initial });
       if (!d.gesture) return;
@@ -1786,11 +1799,7 @@ function booleanInputNote(n) {
 function editorParameters(n) {
   if (!isTransform(n)) {
     const entries = activeParameters(n);
-    if (
-      n.type === 'Boolean' &&
-      !n.booleanInputOrder &&
-      (n.params.b.source || n.params.b.locked)
-    )
+    if (n.type === 'Boolean' && !n.booleanInputOrder && (n.params.b.source || n.params.b.locked))
       entries.push([booleanPendingInputKey, { type: 'Path', value: null, locked: false }]);
     return entries;
   }
@@ -2706,6 +2715,107 @@ function pngExportSettings() {
     ? { mode: 'ppi', ppi: pngPpi }
     : { mode: 'scale', scale: pngScale };
 }
+function exportPresetPanelMarkup() {
+  const options = (format, selected) =>
+    '<option value=""' +
+    (selected ? '' : ' selected') +
+    '>Select ' +
+    format.toUpperCase() +
+    ' preset</option>' +
+    exportPresets
+      .filter((preset) => preset.format === format)
+      .map(
+        (preset) =>
+          '<option value="' +
+          esc(preset.name) +
+          '"' +
+          (preset.name === selected ? ' selected' : '') +
+          '>' +
+          esc(preset.name) +
+          '</option>',
+      )
+      .join('');
+  return (
+    '<details id="export-presets"><summary>Export presets</summary><div class="export-preset-menu">' +
+    '<div class="export-preset-row" role="group" aria-label="SVG export presets"><label for="svg-export-preset">SVG</label><select id="svg-export-preset" aria-label="SVG export preset">' +
+    options('svg', selectedSvgExportPreset) +
+    '</select><input id="svg-export-preset-name" type="text" maxlength="100" placeholder="SVG preset name" aria-label="SVG preset name" value="' +
+    esc(svgExportPresetName) +
+    '"><button type="button" data-action="save-svg-export-preset"></button></div>' +
+    '<div class="export-preset-row" role="group" aria-label="PNG export presets"><label for="png-export-preset">PNG</label><select id="png-export-preset" aria-label="PNG export preset">' +
+    options('png', selectedPngExportPreset) +
+    '</select><input id="png-export-preset-name" type="text" maxlength="100" placeholder="PNG preset name" aria-label="PNG preset name" value="' +
+    esc(pngExportPresetName) +
+    '"><button type="button" data-action="save-png-export-preset"></button></div>' +
+    (exportPresetLoadError
+      ? '<output class="export-preset-error" role="alert">' +
+        esc(exportPresetLoadError) +
+        '</output>'
+      : '') +
+    '</div></details>'
+  );
+}
+function updateExportPresetSaveLabel(format) {
+  const name = app.querySelector('#' + format + '-export-preset-name')?.value.trim() || '',
+    exists = exportPresets.some((preset) => preset.format === format && preset.name === name),
+    button = app.querySelector('[data-action="save-' + format + '-export-preset"]');
+  if (button)
+    button.textContent = (exists ? 'Update ' : 'Save ') + format.toUpperCase() + ' preset';
+}
+function clearExportPresetSelection(format) {
+  if (format === 'svg') {
+    selectedSvgExportPreset = null;
+    const select = app.querySelector('#svg-export-preset');
+    if (select) select.value = '';
+  } else {
+    selectedPngExportPreset = null;
+    const select = app.querySelector('#png-export-preset');
+    if (select) select.value = '';
+  }
+}
+function saveCurrentExportPreset(format) {
+  const nameInput = app.querySelector('#' + format + '-export-preset-name'),
+    settings =
+      format === 'svg'
+        ? { sizing: svgExportSizing, unit: svgExportUnit, precision: svgExportPrecision }
+        : pngExportSettings(),
+    result = saveExportPreset(exportPresetStorage, {
+      format,
+      name: nameInput?.value ?? '',
+      settings,
+    });
+  exportPresets = result.presets;
+  exportPresetLoadError = '';
+  if (format === 'svg') {
+    selectedSvgExportPreset = result.preset.name;
+    svgExportPresetName = result.preset.name;
+  } else {
+    selectedPngExportPreset = result.preset.name;
+    pngExportPresetName = result.preset.name;
+  }
+  render();
+  notify(format.toUpperCase() + ' preset saved');
+}
+function applySavedExportPreset(format, name) {
+  const preset = exportPresets.find((item) => item.format === format && item.name === name);
+  if (!preset) throw Error('Saved export preset was not found');
+  const settings = applyExportPreset(preset, format);
+  if (format === 'svg') {
+    svgExportSizing = settings.sizing;
+    svgExportUnit = settings.unit;
+    svgExportPrecision = settings.precision;
+    selectedSvgExportPreset = preset.name;
+    svgExportPresetName = preset.name;
+  } else {
+    pngExportMode = settings.mode;
+    if (settings.mode === 'scale') pngScale = settings.scale;
+    else pngPpi = settings.ppi;
+    selectedPngExportPreset = preset.name;
+    pngExportPresetName = preset.name;
+  }
+  render();
+  notify(format.toUpperCase() + ' preset applied');
+}
 function pngExportPreview(doc) {
   try {
     const size = pngDimensions(doc, pngExportSettings());
@@ -2754,6 +2864,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
+  const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -2779,7 +2890,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (!selection.has(selected)) selection = new Set(selected ? [selected] : []);
   selection = new Set([...selection].filter((id) => current().nodes.some((n) => n.id === id)));
   let scroll = document.querySelector('.graph-scroll'),
-    oldScroll = graphScrollOverride ||
+    oldScroll =
+      graphScrollOverride ||
       (scroll && !resetView ? [scroll.scrollLeft, scroll.scrollTop] : [0, 0]);
   const doc = history.doc,
     pngPreview = pngExportPreview(doc),
@@ -2811,7 +2923,17 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     artworkTarget ? artworkSelection : l.id,
     pathBounds,
   );
-  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${session.projectSnapshot().compositions.length > 1 ? `<label>Composition <select data-active-composition aria-label="Composition">${session.projectSnapshot().compositions.map((composition) => `<option value="${esc(composition.id)}" ${composition.id === session.activeCompositionId ? 'selected' : ''}>${esc(composition.name)}</option>`).join('')}</select></label>` : ''}<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  app.innerHTML = `<header><div class="brand"><b>Nect</b><small>SVG</small></div><button data-action="new">New document</button><button data-action="open">Open JSON</button>${
+    session.projectSnapshot().compositions.length > 1
+      ? `<label>Composition <select data-active-composition aria-label="Composition">${session
+          .projectSnapshot()
+          .compositions.map(
+            (composition) =>
+              `<option value="${esc(composition.id)}" ${composition.id === session.activeCompositionId ? 'selected' : ''}>${esc(composition.name)}</option>`,
+          )
+          .join('')}</select></label>`
+      : ''
+  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -2886,6 +3008,16 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
   });
+  const pngExportButton = app.querySelector('[data-action="export-png"]');
+  if (pngExportButton) {
+    pngExportButton.insertAdjacentHTML('afterend', exportPresetPanelMarkup());
+    const panel = app.querySelector('#export-presets');
+    if (panel) panel.open = exportPresetsOpen;
+    updateExportPresetSaveLabel('svg');
+    updateExportPresetSaveLabel('png');
+  }
+  const svgPrecision = app.querySelector('#svg-export-precision');
+  if (svgPrecision) svgPrecision.value = svgExportPrecision;
   prepareNumericInputs(app);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
@@ -5164,8 +5296,7 @@ async function openCompositionImportDialog() {
         type: 'import-project-compositions',
         payload: {
           sourceProject: source,
-          compositionIds:
-            select.value === '__all__' ? undefined : [select.value],
+          compositionIds: select.value === '__all__' ? undefined : [select.value],
         },
       });
       resetTransient();
@@ -5916,6 +6047,16 @@ app.addEventListener('click', async (e) => {
             if (await pending) notify(desktop ? 'Project saved' : 'Project download started');
           } finally {
             updateDocumentStatus();
+          }
+          break;
+        }
+        case 'save-svg-export-preset':
+        case 'save-png-export-preset': {
+          const format = d.action === 'save-svg-export-preset' ? 'svg' : 'png';
+          try {
+            saveCurrentExportPreset(format);
+          } catch (reason) {
+            notify(reason?.message || 'Export preset could not be saved', true);
           }
           break;
         }
@@ -7518,7 +7659,22 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.id === 'svg-export-preset-name') {
+    svgExportPresetName = e.target.value;
+    if (e.target.value.trim() !== (selectedSvgExportPreset || ''))
+      clearExportPresetSelection('svg');
+    updateExportPresetSaveLabel('svg');
+    return;
+  }
+  if (e.target.id === 'png-export-preset-name') {
+    pngExportPresetName = e.target.value;
+    if (e.target.value.trim() !== (selectedPngExportPreset || ''))
+      clearExportPresetSelection('png');
+    updateExportPresetSaveLabel('png');
+    return;
+  }
   if (e.target.id === 'png-ppi') {
+    clearExportPresetSelection('png');
     pngPpi = Number(e.target.value);
     updatePngExportPreview();
     return;
@@ -7631,6 +7787,26 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (el.id === 'svg-export-preset' || el.id === 'png-export-preset') {
+    const format = el.id === 'svg-export-preset' ? 'svg' : 'png';
+    if (!el.value) {
+      clearExportPresetSelection(format);
+      if (format === 'svg') svgExportPresetName = '';
+      else pngExportPresetName = '';
+      const nameInput = app.querySelector('#' + format + '-export-preset-name');
+      if (nameInput) nameInput.value = '';
+      updateExportPresetSaveLabel(format);
+      return;
+    }
+    try {
+      applySavedExportPreset(format, el.value);
+    } catch (reason) {
+      clearExportPresetSelection(format);
+      el.value = '';
+      notify(reason?.message || 'Export preset could not be applied', true);
+    }
+    return;
+  }
   if (d.artboardUnit !== undefined) {
     if (!ARTBOARD_UNITS.includes(el.value)) return;
     artboardUnit = el.value;
@@ -7639,11 +7815,13 @@ app.addEventListener('change', async (e) => {
   }
   if (d.svgExportUnit !== undefined) {
     if (!ARTBOARD_UNITS.includes(el.value)) return;
+    clearExportPresetSelection('svg');
     svgExportUnit = el.value;
     return;
   }
   if (d.svgExportSizing !== undefined) {
     if (!['fixed', 'responsive'].includes(el.value)) return;
+    clearExportPresetSelection('svg');
     svgExportSizing = el.value;
     const units = app.querySelector('#svg-export-unit');
     if (units) units.hidden = svgExportSizing !== 'fixed';
@@ -7651,6 +7829,7 @@ app.addEventListener('change', async (e) => {
   }
   if (d.svgExportPrecision !== undefined) {
     if (el.value !== 'default' && !SVG_EXPORT_PRECISIONS.includes(Number(el.value))) return;
+    clearExportPresetSelection('svg');
     svgExportPrecision = el.value;
     return;
   }
@@ -7847,16 +8026,19 @@ app.addEventListener('change', async (e) => {
   }
   if (el.id === 'png-export-mode') {
     if (!['scale', 'ppi'].includes(el.value)) return;
+    clearExportPresetSelection('png');
     pngExportMode = el.value;
     render();
     return;
   }
   if (el.id === 'png-ppi') {
+    clearExportPresetSelection('png');
     pngPpi = Number(el.value);
     updatePngExportPreview();
     return;
   }
   if (el.id === 'png-scale') {
+    clearExportPresetSelection('png');
     pngScale = Number(el.value);
     render();
     return;

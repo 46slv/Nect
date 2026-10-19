@@ -14,27 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - SVG geometry precision (2026-10-19)
+## ACTIVE CHECKPOINT - Format-scoped export settings presets (2026-10-19)
 
-Goal: Offer an optional decimal precision setting for generated SVG geometry while preserving the byte-identical Default output, root sizing/viewBox relationship, and editable source project.
+Goal: Save and reapply supported SVG and PNG export settings in the toolbar, keeping each preset format-specific and separate from project data and Undo.
 
-Current phase: Implementation, focused verification, records, and production build are complete; checkpoint commit and normal branch synchronization remain.
+Current phase: Focused implementation and verification are complete; update records, commit, and synchronize the development branch.
 
 Proven:
 
-- The selector is output-only (`Default` or 2–8 decimals). SVG numeric formatting is limited to known path/geometry/style fields; layer labels, text, IDs, colors, URL references, embedded image data, root physical dimensions, and canonical pixel `viewBox` are not rewritten.
-- Default output matches byte-for-byte. Explicit precision rejects contour/image/mask/gradient/stroke cases that collapse geometry to zero. The live-Text/session test confirms serialization, History, Text content/type, and Undo/Redo remain unchanged.
-- Focused SVG precision, root unit, embedded image, linear-gradient, and radial-gradient tests: 36/36 PASS. Syntax, scoped Prettier, and production build: PASS.
-- Full `npm test` and actual WebView2/UI file inspection: NOT_RUN. No dependency install, network retry, or browser-access retry was made.
+- SVG presets contain only fixed/responsive sizing, supported units, and geometry precision. PNG presets contain either one supported scale or positive PPI. Exact-key validation rejects mixed-format and unsupported fields.
+- The toolbar saves, reloads, and applies settings through the existing export controls. Applying one format leaves the other format's settings unchanged. Presets use a versioned local preference key and do not change project JSON or Undo history.
+- Focused preset, DOM integration, responsive SVG, unit, PNG sizing, and PNG density tests: 23/23 PASS. Scoped Prettier and `git diff --check`: PASS. Production build: PASS (136 modules; existing large-chunk warning).
+- Full test suite and actual WebView2 interaction: NOT_RUN. No dependency installation or network retry was made.
 
-Next task: Commit and normally push this checkpoint, verify the remote branch HEAD equals local, and select the next export acceptance step from live route evidence.
+Next task: Stage only the preset source, UI, tests, export documentation, and this checkpoint; review the staged diff; commit and normally push; verify remote branch HEAD equals local.
 
-Approach: Keep the selector on the export copy and use the default legacy path unless explicitly changed. Use local focused tests/build only; no dependency/network or denied browser retries.
+Approach: Preserve existing defaults and shared export paths, keep the presets as local preferences, and avoid touching pre-existing untracked native trial artifacts.
 
-Done for next: Default SVG remains byte-identical; explicit numeric precision affects only targeted output fields and refuses total small-geometry collapse; source/session state and root sizing remain unchanged; records are committed and synchronized.
+Done for next: Format-specific presets save/reload/apply without cross-format state changes or project/Undo mutation; focused checks pass; the scoped commit is pushed and the remote branch matches its SHA.
 
-State: Branch `codex/nect-regression-validation-v2`; starting HEAD `c173991c025dfb60ecaaf85ee989d9a7fc124da1`; working tree contains this scoped implementation/test/record change. Build output is ignored. Verify final local/remote HEAD and clean status at checkpoint closure.
+State: Branch `codex/nect-regression-validation-v2`; pre-commit HEAD `4edbda927146edb3ab5d6a732301769ec9646a06`. Scoped source/docs/tests are modified or untracked. Preserve pre-existing untracked `desktop/native-artifact-4edbda9/` outputs; build output is ignored. Remote was at the pre-commit HEAD at start.
 
-Authority: The user's latest instruction explicitly authorizes this decimal precision output-copy option, limited implementation/tests/records, commit, and non-force development-branch push. Source, Undo history, live Text, merge/release, force push, credentials/permission changes, dependency/network retry, browser bypass, and Notion writes remain outside this task.
+Authority: The user's current delegated instruction authorizes this bounded export preset work, focused checks, records, commit, and normal development-branch push. Do not perform a force push, mainline merge, release, dependency/network retry, credential or permission change, or modify the preserved trial outputs.
 
 Handoff: CONTINUE_CURRENT_TASK

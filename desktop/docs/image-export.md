@@ -8,6 +8,12 @@ Editable JSON remains the source of truth. SVG and PNG are evaluated artwork exp
 - PNG rasterizes that same generated SVG into a transparent canvas. The toolbar offers the existing 0.5×, 1×, 2× and 4× scale choices and a physical-size × PPI mode. PPI mode calculates each output side as `round(document px × PPI / 96)`, using Nect's 96 CSS-pixel-per-inch document reference; the live preview shows final pixel dimensions and disables Export PNG when they exceed the supported range. Scale mode remains the default. Dimensions round to whole pixels. The browser canvas encoder writes 96 dpi metadata where supported; the chosen PPI controls pixel dimensions only and does not replace that metadata. SVG exports are bounded to 50 MB including repeated embedded images. PNG output is bounded to 8192 pixels per side and 16 megapixels; choose a lower scale or PPI for a larger artboard. The same validated dimensions are passed to the PNG rasterizer, which scales the source SVG viewBox once to that output size.
 - Evaluation errors abort export rather than silently dropping visible artwork. Native saves stage beside the destination before replacing it; PNG uses a bounded binary save command. Cancel leaves the document unchanged. Repeated clicks during an export do not open competing saves.
 
+### Reusable export presets
+
+The toolbar's Export presets menu saves and reapplies settings already supported by the two export controls. SVG presets contain fixed or responsive sizing, units and geometry precision. PNG presets contain either a supported scale or a positive PPI value. The SVG and PNG lists are separate, and a preset with settings from the other format or unknown fields is rejected. Selecting a preset updates the existing toolbar settings used by export.
+
+Presets are saved in local editor preferences, separate from project JSON and Undo history. They do not store artwork, an output path or credentials. A new name adds a preset; saving with the same name and format updates it. The toolbar labels the action Update when a saved name is selected.
+
 ## Import and editing
 
 Import image adds a new composition with an Image generator and Image Output. PNG and ordinary baseline/progressive JPEG are supported. WebP, GIF, APNG and SVG image input are deliberately not included in this first bounded adapter. SVG still has its separate conservative vector import.
