@@ -4883,11 +4883,12 @@ export function exportSVG(doc, fonts = {}, options = {}) {
   return `<svg xmlns="http://www.w3.org/2000/svg" ${rootAttributes}>${elements.join('')}</svg>`;
 }
 export class History {
-  constructor(doc) {
+  constructor(doc, { retainHistory = true } = {}) {
     this.past = [];
     this.future = [];
     this.doc = doc;
     this.revision = 0;
+    this.retainHistory = retainHistory;
   }
   apply(fn) {
     let before = cloneDocument(this.doc);
@@ -4902,6 +4903,10 @@ export class History {
   }
   record(before) {
     this.revision++;
+    if (!this.retainHistory) {
+      this.future = [];
+      return;
+    }
     this.past.push(before);
     this.future = [];
     const retainedFontBytes = () => {
@@ -4979,11 +4984,14 @@ export class CommandSession {
   #prepared = null;
   #prepareSequence = 0;
   #nodeClipboard = null;
-  constructor(doc, { fonts = () => ({}), busy = () => false, onCommitted = () => {} } = {}) {
+  constructor(
+    doc,
+    { fonts = () => ({}), busy = () => false, onCommitted = () => {}, retainHistory = true } = {},
+  ) {
     validate(doc);
     if (Object.values(doc.fontAssets || {}).some((asset) => asset.kind === VARIABLE_KIND))
       assertVariableDocumentReady(doc, resolveFonts(doc, fonts()));
-    this.#history = new History(cloneDocument(doc));
+    this.#history = new History(cloneDocument(doc), { retainHistory });
     this.#fonts = fonts;
     this.#busy = busy;
     this.#onCommitted = onCommitted;
@@ -5013,6 +5021,9 @@ export class CommandSession {
     return [...this.#textDrafts.values()].some(
       (draft) => draft.composition && draft.revision === this.#history.revision,
     );
+  }
+  get hasTextDrafts() {
+    return this.#textDrafts.size > 0;
   }
   get hasGesture() {
     return this.#gesture !== null;
