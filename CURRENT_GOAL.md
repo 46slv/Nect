@@ -14,28 +14,27 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Classify residual DOM and fingerprint failures (2026-10-19)
+## ACTIVE CHECKPOINT - Composition lifecycle integration (2026-10-19)
 
-Goal: Determine whether the blank-artwork, rich-text schema, and vector-fingerprint failures indicate product defects; fix confirmed fixture defects without weakening the intended contracts.
+Goal: Connect command history, Save/Open, browser Open, recovery and public load to the multi-Composition Session without losing inactive Compositions, Layers or shared assets.
 
-Current phase: The two DOM failures are corrected in fixtures and their focused tests pass. The vector fingerprint assertion is a known stale baseline golden and remains unchanged. Local commit is pending.
+Current phase: The production main-module integration path and targeted owner/model regressions pass. A local commit is next.
 
 Proven:
 
-- Blank-artwork failure occurred on the Text iteration after New. REQ-210 specifies that a normal Text Tool click selects the variant and a primary Canvas press/release creates Text. The fixture selected Text but never made a valid primary canvas click; Happy DOM also provided a zero-sized stage. It now emits primary pointer events, supplies realistic stage bounds, and clicks the Canvas. `blank-artwork-dom.test.js`: **10/10 PASS**; `text-tool-dom.test.js`: **5/5 PASS**. This was not an active-Composition read/write defect.
-- The UI creates artwork through `session.dispatch`; the public `win.nect.document` getter calls the session snapshot, and `CompositionSessionOwner.snapshot()` delegates to the active CommandSession. The targeted model/owner tests pass **20/20**, including legacy JSON migration, multiple Composition roundtrip, active-only edits, cross-Composition Undo/Redo, and switching without a history step. The actual native/WebView Composition selector flow remains unverified.
-- The rich-text assertion assumed a new typography edit promotes every document to schema 5. The default `document()` schema moved to 24 in commit `8c5b075`, while `updateTextTypography` correctly uses `max(existing, 5)`. The fixture now explicitly loads schema 2, verifies it remains 2 on read, and verifies the edit promotes it to 5. `rich-text-dom.test.js`: **1/1 PASS**.
-- The pinned vector fingerprint mismatch is documented in `desktop/docs/dither-controls.md` as already failing against the unchanged baseline; the doc records the old golden as stale and leaves it intact. The current actual value remains `sha256:93ed6708de2add4813a461700e772d8b5a02c9de115ef84f9a51e1ac31624ff0`; its preceding area assertion passes at 256. Current default tone power and legacy Halftone mode are omitted from fingerprint additions. No production change or expected-hash update is justified here.
-- `git diff --check`: **PASS**. No full-suite run, network retry, or real browser/native runtime validation was performed.
+- Extended desktop/tests/blank-artwork-dom.test.js to import actual main.js, CompositionSessionOwner, DocumentLifecycle and RecoveryAutosave, replacing only native filesystem/recovery I/O with in-memory adapters. This exercises the real core factory through the UI Session.
+- The test uses two differently sized Compositions, shared embedded font/image assets and a non-active Layer. It verifies tab switching creates no history step; project-wide Undo/Redo; SVG dimensions and PNG sizing from the active Composition; Save As, native Open readback and Save through an existing binding; Recovery Copies restore as unsaved; browser Open through the toolbar and file input; public load; invalid JSON leaves current state intact; and legacy root-Document migration.
+- node --test desktop/tests/blank-artwork-dom.test.js desktop/tests/composition-project-model.test.js desktop/tests/composition-session-owner.test.js: 31/31 PASS. Prettier and git diff --check: PASS. No full suite, dependency install, network operation or push was run.
+- SVG output dimensions and the production PNG dimension calculation follow the active Composition. Real PNG raster pixels and native WebView/Tauri file operations have not been exercised here.
 
-Next task: Resume the Composition lifecycle acceptance for Open, Save, recovery, and public load when the app runtime is available. Keep the documented stale vector golden visible as a known test failure rather than rewriting it without a baseline correction decision.
+Next task: Commit the tested fixture and this checkpoint locally; then the next concrete runtime acceptance is native WebView file binding/reopen plus pixel-level PNG output when that permitted runtime is available.
 
-Approach: Preserve the schema-2 legacy fixture and primary Canvas Text Tool sequence. Continue with the current Composition owner as the sole session/history authority; validate inactive Compositions through project serialization and targeted owner tests.
+Approach: Keep the change test-focused: the existing main/session/storage integration passed the focused paths, so no production code modification is indicated by this acceptance.
 
-Done for next: Both fixture failures now exercise their accepted contracts and pass; the fingerprint assertion is classified as pre-existing stale golden and left unchanged; this local checkpoint is committed without pushing.
+Done for next: Local commit exists; the test records the behavior and exact remaining native-runtime acceptance boundary.
 
-State: Branch `codex/nect-regression-validation-v2`; base HEAD `e59d4a0e0a30f5bbb617174efac2ec53489a1caf`; this checkpoint changes two test fixtures plus this record. Selected Node tests ran with locally available dependencies. Native/real-browser runtime remains unverified. No network, push, or permission changes.
+State: Branch codex/nect-regression-validation-v2; starting HEAD db467691d7715b3afc5ea5c9f492aff63d775ae3; this checkpoint's test and record changes are pending a local commit. No remote update requested.
 
-Authority: User's follow-up authorizes classifying these assertions, localized test fixes, targeted verification, and a local commit; no full audit or repeated full suite.
+Authority: User explicitly authorized Nect implementation/tests and a development-branch local commit. Network/retry, push, restoration clones, backups and uploads are excluded. Existing access-denial boundaries remain in force.
 
 Handoff: CONTINUE_CURRENT_TASK
