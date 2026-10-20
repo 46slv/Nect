@@ -14,28 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - SVG preserveAspectRatio meet alignment (2026-10-19)
+## ACTIVE CHECKPOINT - Layer name drag ordering repair (2026-10-20)
 
-Goal: Extend the root `viewBox` Transform to preserve all nine `meet` alignment choices while retaining prior default and `none` mapping, physical viewport sizing, and the separate Import/Add SVG contracts.
+Goal: Fix the reported inability to reorder Layers in the delivered corrected aca9f590 Windows trial. Limit changes to Layer-list input, visual insertion mapping and the shared reorder command; preserve stable records, selection, scene/export order and one Undo per move.
 
-Current phase: The alignment matrix, focused tests, documentation, and production build are complete and synchronized to the development branch.
+Current phase: Source repair, focused regression and frontend build are complete. Implementation cae664a60ca827d90583d2e1bedad178bc9870a6 is pushed normally and matches the remote branch and open Draft PR #35. Native packaging remains a local environment blocker, not native acceptance.
 
-Proven:
+Proven: On base acca2616, synthetic DOM reproduction fails for Layer-name drags and reversed-list edge placement. The name button was excluded by the old pointerdown guard; target IDs were passed directly to the authored back-to-front array. The repair accepts name/padding drags, previews above/below slots, captures only after movement, and dispatches the existing reorder-layer command with an explicit null frontmost boundary. Production npm run build PASS (137 modules), scoped Prettier and diff checks PASS. 18/18 focused tests passed across layer-reorder-dom, artwork-ordering and artwork-ordering-dom; exact records, JSON reload, SVG paint order, one Undo/Redo, no-op Redo retention, plain click and interruption/stale/lock safety are covered. Actual browser/native input remains NOT_RUN.
 
-- The prior SVG viewport matrix, 96 CSS px/in physical root dimensions, paint grouping, and single-transform Add SVG path are present at branch base `62563a9deb5c4054278c61162a6f02ad483ab512`.
-- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS. Independent expected matrices cover all nine min/mid/max X/Y alignments with separate horizontal and vertical slack, non-zero origins, default/explicit mid alignment, and unchanged `none` behavior.
-- A physical 100 x 50 mm Add SVG fixture verifies `xMaxYMin meet`, exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
-- `slice`, `defer`, invalid alignment values, and clipping remain unsupported and fail closed. Production build, scoped formatting, and `git diff --check`: PASS. Full `npm test` and actual WebView2 import/export remain NOT_RUN.
-- Implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` was pushed normally and matched the origin branch SHA.
+Next task: On a provisioned Windows build host, run the existing supported frontend/Rust custom-protocol route from the exact candidate, hash the distinct artifact, then request checklist03 native retest. Do not silently replace the aca9f590 executable.
 
-Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this alignment checkpoint is complete.
+Approach: Keep input state in desktop/src/layer-reorder.js and commit through common Session. No HTML native drag/drop, OS clipboard or shell changes. Canvas and SVG already consume authored layer order; no renderer rewrite is needed.
 
-Approach: Normalize supported preserveAspectRatio tokens; compute X/Y meet offsets independently from Min/Mid/Max alignment while keeping uniform meet scale. Retain the paint-mode Transform so stroke and gradient behavior stays shared with the prior viewport mapping.
+Done for next: Reviewable source/test/docs change, focused checks and frontend build, coherent non-force remote checkpoint/Draft PR; exact Windows-artifact limitation and targeted human retest documented.
 
-Done for next: All nine meet alignment matrices match independent expected values; default and `none` remain unchanged; Add SVG applies one mapping and preserves destination size, serialization, Undo, and Redo; unsupported slice/clip behavior remains explicit; focused tests, formatting, build, commit, and remote evidence are recorded.
+State: codex/nect-layer-reorder-fix-20261020, product source cae664a60ca827d90583d2e1bedad178bc9870a6, base acca2616ab38c703bcf3e4b0ef465eeae7c62ffc. Draft https://github.com/46slv/Nect/pull/35 targets codex/nect-regression-validation-v2; closeout metadata does not change app inputs. Isolated D:/Documents/Nect-worktrees/codex-task5-layer-reorder-20261020; sole writer assigned by parent. C: was full, so dependencies/build/temp/cache use task-owned D: paths. Existing check-windows-toolchain reports cargo/rustup/rustc absent, SDK26100 false, MSVC unresolved, WebView2 present; no native build/launch attempted. No unrelated checkout or runtime modified.
 
-State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` is pushed and matched the remote SHA. The follow-up checkpoint closeout is committed and pushed on this branch; its terminal branch SHA was verified against origin. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+Authority: Current finite bug delegation and user's authorized Nect edit/test/commit/development push/Draft PR scope. Parent owns Notion and actual user delivery. No main merge, release, force/history rewrite, credentials/permissions/billing, denied server/browser retry, desktop focus or unrelated local Codex task operation.
 
-Authority: The user's follow-up authorizes this bounded meet-alignment implementation, focused tests/build/docs, commit, and normal development-branch push. Keep `slice`/clip unsupported. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
-
-Handoff: CONTINUE_CURRENT_TASK
+Handoff: LOCAL_WAIT for Windows artifact/native retest. Source fix is synchronized for review; parent owns delivery and next build-host routing. No additional unrelated implementation is authorized by this finite checkpoint. Broader Nect Mission and native acceptance remain open.

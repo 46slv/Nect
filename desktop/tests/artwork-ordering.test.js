@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
+  CommandSession,
   blankLayer,
   document as makeDoc,
   deserialize,
@@ -158,4 +159,27 @@ test('paint order changes in SVG and exact project reload without changing the s
   assert.equal(serialize(deserialize(serialize(doc))), serialize(doc));
   moveArtworkLayer(doc, target.id, 'backward');
   assert.equal(serialize(doc), before);
+});
+
+// Null is the frontmost boundary in the authored back-to-front layer array.
+test('reorder-layer frontmost insertion preserves records, codec and one History transaction', () => {
+  const original = orderingDocument(),
+    session = new CommandSession(original),
+    ids = original.layers.map((l) => l.id);
+  const send = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  const before = serialize(session.snapshot());
+  send('reorder-layer', { layerId: ids[0], beforeLayerId: null });
+  const expected = structuredClone(original);
+  expected.layers = [original.layers[1], original.layers[2], original.layers[0]];
+  const after = serialize(session.snapshot());
+  assert.equal(after, serialize(expected));
+  assert.equal(serialize(deserialize(after)), after);
+  assert.equal(session.historyView.past.length, 1);
+  send('undo');
+  assert.equal(serialize(session.snapshot()), before);
+  send('reorder-layer', { layerId: ids[2], beforeLayerId: null });
+  assert.equal(session.historyView.past.length, 0);
+  assert.equal(session.historyView.future.length, 1);
+  send('redo');
+  assert.equal(serialize(session.snapshot()), after);
 });
