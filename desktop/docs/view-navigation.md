@@ -29,6 +29,20 @@ These are adapted interaction patterns, not a compatibility claim or a broad red
 - Space, middle or Ctrl/Cmd+Shift drag pans. Plain wheel remains native two-axis scrolling. Ctrl/Cmd+wheel zooms about the pointer, normalizing pixel/line/page delta modes.
 - Existing edge-autopan, expandable right/bottom bounds, nonnegative positions and one-gesture undo remain unchanged. Extra scroll extent required for centering survives unrelated rerenders and card disclosure changes.
 
+### Autopan update acceptance
+
+- While dragging a node or wire, unchanged pointer/modifier input and unchanged actual scroll position must not cause repeated gesture-preview, graph-bounds or wire work on animation frames. This includes a nonzero edge velocity clamped at the top/left origin and the first frame with zero elapsed time. Edge checks continue so later motion can still scroll.
+- When the viewport actually scrolls, the same frame updates the node preview/snapping or wire preview against the current world pointer, even if the pointer is stationary at the edge. Pointer and modifier changes retain synchronous feedback.
+- Preview remains unauthored until commit. Ordinary node/group drag, snapping and bypass, connection/disconnection, cancellation and Undo/Redo keep their existing contracts; one completed changed gesture remains one Undo entry.
+
+`tests/graph-autopan-work-dom.test.js` supplies controlled frame/scroll geometry and
+checks these source-level update counts together with gesture/history behavior.
+The focused source test group passes 29/29; [call-count evidence and limits](graph-autopan-work.md)
+record the baseline comparison and the separate existing overview test failure.
+These tests do not measure live UI frame times or establish perceived speed on user
+documents. Installed Windows EXE behavior is unverified, and no EXE was built or
+distributed for this change. The update rule is automatic interaction behavior.
+
 ## Focus and editing safety
 
 Focus a viewport or its view controls for +/−, Ctrl/Cmd+1 actual size, Shift+1 fit, and Shift+2 graph Fit selection. Pointer-clicking a view control returns focus to its viewport; keyboard activation leaves the control focused. Space on a focused button keeps its native action. Viewports have a visible focus outline, concise gesture hints and grab/grabbing states.
