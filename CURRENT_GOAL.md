@@ -14,28 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - SVG preserveAspectRatio meet alignment (2026-10-19)
+## ACTIVE CHECKPOINT - Shared dither source mask input repair (2026-10-20)
 
-Goal: Extend the root `viewBox` Transform to preserve all nine `meet` alignment choices while retaining prior default and `none` mapping, physical viewport sizing, and the separate Import/Add SVG contracts.
+Goal: Repair the reported 256-point Luminance Mask failure for both dither nodes without removing computation/output safeguards or changing authored Text/path structure. Actual user file/build are unknown.
 
-Current phase: The alignment matrix, focused tests, documentation, and production build are complete and synchronized to the development branch.
+Current phase: Implementation and focused verification complete in the isolated dither branch; synchronize code and reviewable Draft PR. Native build remains the known environment wait and is not retried.
 
-Proven:
+Proven: Both Ordered Dither and Error Diffusion Dither reproduce the exact 256-point failure using bundled-font live Text at acca2616. Raising input limits exposed exact zero-length font cubics hitting subdivision depth; derived-mask-only skipping preserves source records and holes. Input preparation now has finite 10000 points/256 contours/32768 flattened vertices/131072 subdivision nodes. Existing depth24, precision, 2000000 pair-work,4096 grid,100000 generated/output and10000 output contour caps remain. New/mask16/16 PASS; shared consumers60/63 PASS, three matching baseline schema/fingerprint failures independently reproduced at acca2616. Tests retain deterministic output, native codec, SVG, history and atomic refusal. Details/log boundaries: desktop/docs/dither-input-budget.md and desktop/test-results/dither-input-budget/.
 
-- The prior SVG viewport matrix, 96 CSS px/in physical root dimensions, paint grouping, and single-transform Add SVG path are present at branch base `62563a9deb5c4054278c61162a6f02ad483ab512`.
-- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS. Independent expected matrices cover all nine min/mid/max X/Y alignments with separate horizontal and vertical slack, non-zero origins, default/explicit mid alignment, and unchanged `none` behavior.
-- A physical 100 x 50 mm Add SVG fixture verifies `xMaxYMin meet`, exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
-- `slice`, `defer`, invalid alignment values, and clipping remain unsupported and fail closed. Production build, scoped formatting, and `git diff --check`: PASS. Full `npm test` and actual WebView2 import/export remain NOT_RUN.
-- Implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` was pushed normally and matched the origin branch SHA.
+Next task: Commit/non-force push and create Draft PR against codex/nect-regression-validation-v2. Parent integrates reviewed fixes, selects a provisioned Windows build host and binds a distinct artifact/source/hash before human retest. No user UI/native acceptance is claimed here.
 
-Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this alignment checkpoint is complete.
+Approach: Modify only common mask preparation limits, exact redundant-segment handling and actionable budget errors. Keep source evaluation pure and all consumers on the same helper. No automatic Bake/coarsening, algorithm redesign, format, sampling, color-system or UI redesign.
 
-Approach: Normalize supported preserveAspectRatio tokens; compute X/Y meet offsets independently from Min/Mid/Max alignment while keeping uniform meet scale. Retain the paint-mode Transform so stroke and gradient behavior stays shared with the prior viewport mapping.
+Done for next: Focused checks/build/format coherent, code and evidence committed/pushed, Draft PR and remote SHA verified, exact native/artifact limitation reported. Three baseline failures remain visible and unrelated scopes untouched.
 
-Done for next: All nine meet alignment matrices match independent expected values; default and `none` remain unchanged; Add SVG applies one mapping and preserves destination size, serialization, Undo, and Redo; unsupported slice/clip behavior remains explicit; focused tests, formatting, build, commit, and remote evidence are recorded.
+State: codex/nect-dither-input-budget-20261020 at base acca2616ab38c703bcf3e4b0ef465eeae7c62ffc; isolated D:/Documents/Nect-worktrees/codex-task5-dither-budget-20261020. PR35 Layer reorder branch stays646f80b and is not included or modified. Sole source writer assigned by current parent delegation. C: full; task dependency/temp cache on D:. Native toolchain/SDK26100 unavailable and MSVC unresolved, known from preceding task; no repeated build/tool inventory or UI operations.
 
-State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` is pushed and matched the remote SHA. The follow-up checkpoint closeout is committed and pushed on this branch; its terminal branch SHA was verified against origin. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+Authority: Current user's finite dither bug request and authorized Nect code/test/docs/commit/development push/Draft PR scope. Parent owns Notion and user delivery. No protected-main merge, release, force/history rewrite, credentials/security changes, denied browser retry or interaction/status question to the separate local tester.
 
-Authority: The user's follow-up authorizes this bounded meet-alignment implementation, focused tests/build/docs, commit, and normal development-branch push. Keep `slice`/clip unsupported. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
-
-Handoff: CONTINUE_CURRENT_TASK
+Handoff: CONTINUE_CURRENT_TASK through source synchronization. Source repair and distributed EXE are separate; broader Mission remains open.

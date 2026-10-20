@@ -108,3 +108,5 @@ External-review gate: invoked for the saved-format/shape decision; consultation
 not-required because current implementation, baseline comparisons, exact geometry
 checks and production UI/export evidence settle the bounded choices. External
 sends: 0; the parent remains the only authorized external consultation sender.
+
+The shared source-mask input budget and exact zero-length font segment handling were repaired on 2026-10-20. See [dither-input-budget.md](dither-input-budget.md) for the finite preparation caps, unchanged clipping/output limits, evidence and native retest boundary.

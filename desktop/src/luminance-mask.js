@@ -7,10 +7,12 @@ const INTEGER_LIMIT = 2 ** 30;
 const FLATTEN_TOLERANCE = 0.1;
 
 export const LUMINANCE_MASK_LIMITS = Object.freeze({
-  contours: 32,
-  sourcePoints: 256,
-  flattenedVertices: 512,
-  subdivisionNodes: 4096,
+  // Preparation accepts ordinary multi-glyph outlines and owned 10000-point paths.
+  // Clipping work and generated/output caps below remain independent hard limits.
+  contours: 256,
+  sourcePoints: 10000,
+  flattenedVertices: 32768,
+  subdivisionNodes: 131072,
   subdivisionDepth: 24,
   generatedVertices: 100000,
   pairWork: 2000000,
@@ -97,7 +99,7 @@ export function prepareLuminanceMask(path) {
   check(
     path.contours.length <= LUMINANCE_MASK_LIMITS.contours,
     'LUMINANCE_MASK_LIMIT',
-    `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.contours}-contour budget`,
+    `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.contours}-contour input budget. Reduce source contours.`,
   );
   check(
     path.contours.every((contour) => isRecord(contour)),
@@ -128,7 +130,7 @@ export function prepareLuminanceMask(path) {
     check(
       sourceCount <= LUMINANCE_MASK_LIMITS.sourcePoints,
       'LUMINANCE_MASK_LIMIT',
-      `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.sourcePoints}-point input budget`,
+      `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.sourcePoints}-point input budget. Simplify the source path.`,
     );
     return contour.points.map((point) => {
       check(isRecord(point), 'LUMINANCE_MASK_GEOMETRY', 'Luminance Mask point is invalid');
@@ -186,6 +188,9 @@ export function prepareLuminanceMask(path) {
       const current = contour[i];
       const next = contour[(i + 1) % contour.length];
       const controls = [current.anchor, current.outgoing, next.incoming, next.anchor];
+      // Font outlines can contain repeated anchors with zero handles. They
+      // contribute no geometry and cannot satisfy a monotone cubic subdivision.
+      if (controls.every((point) => same(point, controls[0]))) continue;
       let flattened;
       try {
         flattened = flattenCubicCenterline(controls, {
@@ -197,7 +202,7 @@ export function prepareLuminanceMask(path) {
       } catch {
         fail(
           'LUMINANCE_MASK_LIMIT',
-          `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.flattenedVertices}-vertex or ${LUMINANCE_MASK_LIMITS.subdivisionNodes}-subdivision curve budget`,
+          `Luminance Mask exceeds the ${LUMINANCE_MASK_LIMITS.flattenedVertices}-vertex or ${LUMINANCE_MASK_LIMITS.subdivisionNodes}-subdivision curve budget. Simplify the source path.`,
         );
       }
       flattenedVertices += flattened.flattenedVertices;
@@ -217,6 +222,8 @@ export function prepareLuminanceMask(path) {
         if (!isClosingEndpoint) points.push(leaf[3]);
       }
     }
+    // A redundant closing authored anchor may leave the final endpoint twice.
+    if (points.length > 1 && same(points[0], points.at(-1))) points.pop();
     check(
       points.length >= 3,
       'LUMINANCE_MASK_GEOMETRY',
@@ -329,7 +336,7 @@ export function clipLuminanceMarks(mask, polygons, prefix) {
     check(
       generatedVertices <= LUMINANCE_MASK_LIMITS.generatedVertices,
       'LUMINANCE_MASK_LIMIT',
-      `Generated luminance marks exceed the ${LUMINANCE_MASK_LIMITS.generatedVertices}-vertex budget`,
+      `Generated luminance marks exceed the ${LUMINANCE_MASK_LIMITS.generatedVertices}-vertex budget. Increase Dot spacing or Cell pitch, or reduce dot detail.`,
     );
     const integer = polygon.map((point) => {
       check(
@@ -345,7 +352,7 @@ export function clipLuminanceMarks(mask, polygons, prefix) {
   check(
     preparedMask.vertices * generatedVertices <= LUMINANCE_MASK_LIMITS.pairWork,
     'LUMINANCE_MASK_LIMIT',
-    `Luminance Mask intersection exceeds the ${LUMINANCE_MASK_LIMITS.pairWork}-unit work budget`,
+    `Luminance Mask intersection exceeds the ${LUMINANCE_MASK_LIMITS.pairWork}-unit work budget. Increase Dot spacing or Cell pitch, or simplify the source path.`,
   );
   if (generated.length === 0) return { contours: [] };
 
@@ -358,7 +365,7 @@ export function clipLuminanceMarks(mask, polygons, prefix) {
   check(
     solution.length <= LUMINANCE_MASK_LIMITS.outputContours,
     'LUMINANCE_MASK_LIMIT',
-    `Clipped luminance marks exceed the ${LUMINANCE_MASK_LIMITS.outputContours}-contour output budget`,
+    `Clipped luminance marks exceed the ${LUMINANCE_MASK_LIMITS.outputContours}-contour output budget. Increase Dot spacing or Cell pitch, or simplify the source path.`,
   );
 
   let outputVertices = 0;
@@ -372,7 +379,7 @@ export function clipLuminanceMarks(mask, polygons, prefix) {
     check(
       outputVertices <= LUMINANCE_MASK_LIMITS.outputVertices,
       'LUMINANCE_MASK_LIMIT',
-      `Clipped luminance marks exceed the ${LUMINANCE_MASK_LIMITS.outputVertices}-point output budget`,
+      `Clipped luminance marks exceed the ${LUMINANCE_MASK_LIMITS.outputVertices}-point output budget. Increase Dot spacing or Cell pitch, or simplify the source path.`,
     );
     for (const point of contour)
       check(
