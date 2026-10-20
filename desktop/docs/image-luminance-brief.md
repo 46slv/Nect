@@ -79,3 +79,7 @@ Undo/Redo, cold JSON reopen, and absence of serialized pixel buffers. Core/expor
 browser SVG and CLI SVG. The [Image luminance playground](../examples/image-luminance-playground.json)
 compares the original image with all three effects. This slice does not claim arbitrary PNG support,
 native-package acceptance or print/RIP calibration.
+
+## Current output distinction / 2026-10-20
+
+The first-slice status above describes Image **input** support. Current Desktop also accepts Image input for Error Diffusion Dither, while both Dither algorithms still return PaintedPath marks. Generic Image Output forwards Image data; it is not an implemented raster-dither output. The user requires retaining both Image and Shape forms. The Image-dither route remains OPEN pending reconciliation of the prior contract; see [output retention acceptance](dither-controls.md). Neither output form is deprecated by the input-budget repair.

@@ -193,7 +193,7 @@ test('rejects authored, generated, and intersection-budget overflow before runni
   };
   assert.equal(
     mask.polygons.reduce((sum, ring) => sum + ring.length, 0),
-    LUMINANCE_MASK_LIMITS.flattenedVertices,
+    512, // This fixture is chosen to cross the unchanged 2000000 pair-work cap.
   );
   const tooManyGenerated = Array.from({ length: 25001 }, (_, index) =>
     box(index * 3, 1000, index * 3 + 1, 1001),
@@ -206,10 +206,10 @@ test('rejects authored, generated, and intersection-budget overflow before runni
 });
 
 test('enforces the flattened-vertex cap and rejects oversized kernel output without returning partial geometry', () => {
-  const count = 256;
+  const count = 1024;
   const radius = 10000;
   const tangentHandle = (angle) => {
-    const scale = (4 / 3) * Math.tan(Math.PI / (2 * count)) * radius;
+    const scale = radius; // Deliberately looping controls exceed the larger flattening budget.
     const clean = (value) => (Math.abs(value) < 1e-9 ? 0 : value);
     return [clean(-Math.sin(angle) * scale), clean(Math.cos(angle) * scale)];
   };
@@ -256,5 +256,25 @@ test('rejects unsafe local integer coordinates and non-finite generated points',
       ],
       'bad',
     ),
+  );
+});
+
+test('exact zero-length font segments preserve fill and holes without changing authored data', () => {
+  const outer = rectangle('outer', 0, 0, 100, 100),
+    hole = rectangle('hole', 20, 20, 80, 80, { reverse: true });
+  const plain = path(outer, hole),
+    repeated = structuredClone(plain);
+  for (const c of repeated.contours) {
+    c.points.splice(1, 0, structuredClone(c.points[0]));
+    c.points.push(structuredClone(c.points[0]));
+  }
+  const before = JSON.stringify(repeated),
+    prepared = prepareLuminanceMask(repeated);
+  assert.deepEqual(prepared.polygons, prepareLuminanceMask(plain).polygons);
+  assert.equal(JSON.stringify(repeated), before);
+  const marks = [box(-1, -1, 101, 101)];
+  assert.deepEqual(
+    clipLuminanceMarks(prepared, marks, 'same'),
+    clipLuminanceMarks(prepareLuminanceMask(plain), marks, 'same'),
   );
 });
