@@ -113,20 +113,20 @@ The shared source-mask input budget and exact zero-length font segment handling 
 
 ## Image and Shape output retention / 2026-10-20
 
-User requirement (Sentinel_7e0750ae5078819181a40f48dab8f5d1): retain the prior Image-output form and the current Shape-output form. Neither representation is retired or replaced by PR36.
+User requirement [REQ303](https://app.notion.com/p/3fdfd279a6f3815285a9fefa44391ab6): retain the Image-output form and the current Shape-output form. Neither representation is retired or replaced.
 
-| Axis        | Current Desktop source                                                                                                                                                                               |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Input       | Both dither nodes accept a filled vector source or supported Image input. Image input does not imply Image output.                                                                                   |
-| Calculation | Ordered Dither uses Bayer 8x8; Error Diffusion Dither uses Floyd-Steinberg. These are algorithms, not output-format names.                                                                           |
-| Output      | Both return black vector marks as PaintedPath (Shape), including for Image input. Generic Image / Image Output return Image, but neither dither has an Image output port or representation selector. |
+| Axis        | Current Desktop source                                                                                                                                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Input       | Existing Shape Dithers accept filled vector or supported Image input. New Ordered Dither Image and Error Diffusion Dither Image accept Image only.                                                                |
+| Calculation | Ordered Dither uses Bayer 8x8; Error Diffusion Dither uses Floyd-Steinberg. These are algorithms, not output-format names.                                                                                        |
+| Output      | Existing Dithers retain PaintedPath. The two new fixed Image types deliver derived dithered PNG data through Image Output and the shared Image consumer resolver. No output-type selector changes existing nodes. |
 
 Source evidence: core.js outputType, socketCompatibleFor and the shared mask/mark evaluation branch. A read-only connection probe accepts Image -> either Dither and refuses either Dither -> Image Output with "Cannot connect PaintedPath to Image". PNG export of a Shape document does not constitute an Image-typed dither result.
 
-Generic Image forwarding and Shape dithering are implemented in current Desktop. The required Image-output dither route is OPEN. Whether its prior contract is present in older code or only historical specifications awaits the separate legacy investigation; no global historical absence is asserted.
+The [Image-output contract](image-dither-output.md) records the exact user requirement separately from this slice's implementation choices: source pixel dimensions independent of placement, black marks on transparent support, preserved source-alpha sampling, finite raster/encoded/cache budgets, recipe invalidation and deterministic regeneration. Schema 41 saves the source and editable settings; derived pixels never enter authored imageAssets.
 
-Parent-supplied Luna read-only reconciliation identifies [the e4463e4 Image-input checkpoint](https://app.notion.com/p/3fcfd279a6f381febb22e292a04c0f00) as Image-typed inputs into Halftone / Ordered Dither / Line Screen, not an Image-output implementation. The [Cavalry Dithering Filter reference](https://app.notion.com/p/3dffd279a6f381449907c43f7d9c208a) is external research, not evidence of adopted Nect implementation. No prior Nect Image-producing dither implementation has been verified in this reconciliation; the Image-output requirement remains OPEN. No further broad historical search is required for this documentation follow-up.
+The earlier read-only reconciliation did not verify a historical Nect Image-producing Dither implementation. This addition makes no historical implementation claim. No further broad historical search is required.
 
-Acceptance is incomplete until both representations are available under the reconciled prior contract: the Image form must produce actual dithered Image data usable by an Image consumer; the Shape form must preserve current PaintedPath marks and vector consumers. Source/settings must remain saved and re-editable, and one form must not silently replace the other or destructively convert the original artwork. Verify input type, calculation method and output type separately. The user has not specified every algorithm/output combination or the node/selector UI; reconcile those details with the prior specification instead of inferring them here.
+Acceptance checks input type, calculation and output type independently. Source tests cover actual Image consumer pixels, preserved Shape fixtures, unchanged assets, deterministic reopen, Undo/Redo, bounded caches and atomic rejection. DOM integration covers add/connect/edit/output/history controls. Browser/native interaction remains a separate acceptance row until its actual run is recorded.
 
-Documentation only: PR36's mask repair is retained, main.js is untouched, and no Image-output implementation, new Windows EXE or native acceptance is claimed.
+PR36's mask repair and existing Shape nodes remain preserved. The fixed Image route is an additional implementation; its verification and candidate provenance are recorded in the Image-output contract and current checkpoint.

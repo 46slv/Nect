@@ -1458,6 +1458,8 @@ function numericLimits(n, key) {
       'Ordered Dither',
       'Line Screen',
       'Error Diffusion Dither',
+      'Ordered Dither Image',
+      'Error Diffusion Dither Image',
       'Luminance Instances',
       'Luminance to Points',
     ].includes(n.type) &&
@@ -1470,6 +1472,8 @@ function numericLimits(n, key) {
       'Ordered Dither',
       'Line Screen',
       'Error Diffusion Dither',
+      'Ordered Dither Image',
+      'Error Diffusion Dither Image',
       'Luminance Instances',
       'Luminance to Points',
     ].includes(n.type) &&
@@ -1836,11 +1840,13 @@ function field(n, key, q) {
             'Ordered Dither',
             'Line Screen',
             'Error Diffusion Dither',
+            'Ordered Dither Image',
+            'Error Diffusion Dither Image',
             'Luminance Instances',
             'Luminance to Points',
           ].includes(n.type)
         ? {
-            path: 'Source fill',
+            path: n.params.path.type === 'Image' ? 'Image' : 'Source fill',
             motif: 'Motif',
             minScale: 'Scale at white',
             maxScale: 'Scale at black',
