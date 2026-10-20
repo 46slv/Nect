@@ -1,0 +1,92 @@
+{
+  "baseCommit": "3922a425429d57ce5b8b4e6dba985554f657ff17",
+  "sourceCommit": "a195cd48d3e0b687ef964c14e4ba5fbe9bcc63c4",
+  "toolchain": "cargo/rustc stable 1.99.1 MSVC",
+  "command": "cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml",
+  "result": "PASS",
+  "artifact": {
+    "path": "C:\\Users\\shiro\\Documents\\Codex\\2026-10-21\\task-5\\candidate-image-dither\\nect-svg-desktop.exe",
+    "bytes": 9995776,
+    "sha256": "9c625fc2bc2a8592b2410921b642c1e45829aa728bf6899d079094f8a5943d3b"
+  },
+  "uiSmoke": "NOT_RUN_UI_OWNERSHIP_LOCKED",
+  "sourceInputs": [
+    {
+      "path": "src/core.js",
+      "sha256": "ccfd711e1030b4a0ee0012edd92e3dc6756d91618b2af18856cc50f703fc04da",
+      "gitBlob": "cb12861138b34f3028530322bd0b02a98bd987cf"
+    },
+    {
+      "path": "src/dither-controls.js",
+      "sha256": "b83863a9de2ee7ef01688658fd7ef200dd7b9f2d90802dfefab21ace7020753f",
+      "gitBlob": "97bcf24ec8997bcf1f3346ccfa1de79d8078be2c"
+    },
+    {
+      "path": "src/image-dither.js",
+      "sha256": "9d99ea46e6d3731efbeaa509d5e5118999a01a9998a969abdc690c49a306fac5",
+      "gitBlob": "4056d27096d5d7ef24ae58aec98198899ebf1a69"
+    },
+    {
+      "path": "src/image-keyer.js",
+      "sha256": "06f0242a1dba87326db2e99bfde1f7f28d9da152d4f24ad7cf4c62fb6a1a1e02",
+      "gitBlob": "9bedcd54fbfef7a9ded494b778855cadb5126fd9"
+    },
+    {
+      "path": "src/main.js",
+      "sha256": "0d0b2aff40b8250e9047a2bce58bd2c6031d52e58da035c1fb82f05b2b01538a",
+      "gitBlob": "ea5c9069fd42c5c2b24d818ae8573b74452f3484"
+    },
+    {
+      "path": "src/node-catalog.js",
+      "sha256": "7d94f0dc5d03a583c6e369868d90467dc0cd0cc0c75f14bf216f0d107cea5d6f",
+      "gitBlob": "93332f38a5f5c7bbb3242d10abcbf8f1aa678053"
+    },
+    {
+      "path": "src-tauri/Cargo.lock",
+      "sha256": "428864bbe986e2583c7dffd5fb3317d34798cf088c1f3b0557e7b53042c09fe6",
+      "gitBlob": "a239e898e7f87f4370ad62ea813d64c66c7ee6b8"
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "sha256": "f792f4d95342af15358fe36bed48faa0f2e1ce5e1eb8bbc1929094e416c2e576",
+      "gitBlob": "8eb58a27c551ed53f0409fd8cb5267fcb682cda5"
+    }
+  ],
+  "frontendDist": [
+    {
+      "path": "dist\\index.html",
+      "sha256": "ccd0e451b4b1c013a8c802f39f5bce80477d81dc902ef7c579ea33065d4b15c2"
+    },
+    {
+      "path": "dist\\assets\\index-BIzpxxvh.css",
+      "sha256": "1b22ac293dfac892b70d27b75413097177c4f0a059f00b86a3c89e0f15e505c7"
+    },
+    {
+      "path": "dist\\assets\\index-cd68mQTK.js",
+      "sha256": "583e87d2800561fddae9215394b21adfdc6f8d41d86a56940f57683c56870425"
+    },
+    {
+      "path": "dist\\assets\\worker-0NHAlq7v.js",
+      "sha256": "d900389d270b7b5343db9f89fe0ca16c3a1b847490aef64d36e10f85e7b2e5ef"
+    },
+    {
+      "path": "dist\\fonts\\DejaVuSans.ttf",
+      "sha256": "57f73e11f51999432bf7ab22ce55b6f945d5eca1bf824404cfa9ec2e3718c84e"
+    },
+    {
+      "path": "dist\\fonts\\LICENSE-DejaVu.txt",
+      "sha256": "63d3ba759d12804c5b31a9d5940d855c1820d1f5999e6b0872eb1c7ff045fbc9"
+    },
+    {
+      "path": "dist\\licenses\\clipper2-ts-BSL-1.0.txt",
+      "sha256": "ea056d2c64294936b226f7360c265e77c52adc4ba171ee61029357f101f439cf"
+    },
+    {
+      "path": "dist\\licenses\\pako.txt",
+      "sha256": "f23482881a2426925f0d960767b885c01542286a6edf8fbb04a6862c164db77f"
+    }
+  ],
+  "sourceInputsMatchCommit": true,
+  "nativeSourceUnchangedFromBase": true,
+  "focusedTests": "117/117 PASS; motif bypass 1/1 PASS"
+}
