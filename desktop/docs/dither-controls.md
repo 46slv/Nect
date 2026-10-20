@@ -110,3 +110,21 @@ checks and production UI/export evidence settle the bounded choices. External
 sends: 0; the parent remains the only authorized external consultation sender.
 
 The shared source-mask input budget and exact zero-length font segment handling were repaired on 2026-10-20. See [dither-input-budget.md](dither-input-budget.md) for the finite preparation caps, unchanged clipping/output limits, evidence and native retest boundary.
+
+## Image and Shape output retention / 2026-10-20
+
+User requirement (Sentinel_7e0750ae5078819181a40f48dab8f5d1): retain the prior Image-output form and the current Shape-output form. Neither representation is retired or replaced by PR36.
+
+| Axis        | Current Desktop source                                                                                                                                                                               |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Input       | Both dither nodes accept a filled vector source or supported Image input. Image input does not imply Image output.                                                                                   |
+| Calculation | Ordered Dither uses Bayer 8x8; Error Diffusion Dither uses Floyd-Steinberg. These are algorithms, not output-format names.                                                                           |
+| Output      | Both return black vector marks as PaintedPath (Shape), including for Image input. Generic Image / Image Output return Image, but neither dither has an Image output port or representation selector. |
+
+Source evidence: core.js outputType, socketCompatibleFor and the shared mask/mark evaluation branch. A read-only connection probe accepts Image -> either Dither and refuses either Dither -> Image Output with "Cannot connect PaintedPath to Image". PNG export of a Shape document does not constitute an Image-typed dither result.
+
+Generic Image forwarding and Shape dithering are implemented in current Desktop. The required Image-output dither route is OPEN. Whether its prior contract is present in older code or only historical specifications awaits the separate legacy investigation; no global historical absence is asserted.
+
+Acceptance is incomplete until both representations are available under the reconciled prior contract: the Image form must produce actual dithered Image data usable by an Image consumer; the Shape form must preserve current PaintedPath marks and vector consumers. Source/settings must remain saved and re-editable, and one form must not silently replace the other or destructively convert the original artwork. Verify input type, calculation method and output type separately. The user has not specified every algorithm/output combination or the node/selector UI; reconcile those details with the prior specification instead of inferring them here.
+
+Documentation only: PR36's mask repair is retained, main.js is untouched, and no Image-output implementation, new Windows EXE or native acceptance is claimed.
