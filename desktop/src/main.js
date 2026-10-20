@@ -8761,10 +8761,16 @@ function graphAutoPan(time) {
     graph.style.height =
       Math.max(graph.offsetHeight, (viewport.scrollTop + viewport.clientHeight + 160) / graphZoom) +
       'px';
+  const left = viewport.scrollLeft,
+    top = viewport.scrollTop;
   viewport.scrollLeft += vx * dt;
   viewport.scrollTop += vy * dt;
-  if (wiring) drawWires();
-  else moveGraphNodes();
+  // Pointer moves update synchronously; a frame needs another preview only after
+  // actual scrolling, including browsers clamping motion at the top/left edge.
+  if (viewport.scrollLeft !== left || viewport.scrollTop !== top) {
+    if (wiring) drawWires();
+    else moveGraphNodes();
+  }
   if (wiring || drag?.type === 'node') graphFrame = requestAnimationFrame(graphAutoPan);
 }
 function cancelInteraction() {
