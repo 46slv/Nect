@@ -14,28 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - SVG preserveAspectRatio meet alignment (2026-10-19)
+## ACTIVE CHECKPOINT - Combined development test candidate (2026-10-20)
 
-Goal: Extend the root `viewBox` Transform to preserve all nine `meet` alignment choices while retaining prior default and `none` mapping, physical viewport sizing, and the separate Import/Add SVG contracts.
+Goal: Integrate the completed PR35 Layer-ordering, PR36 dither-mask and PR37 graph-autopan repairs at exact baseline acca2616 in a new isolated development branch. Preserve original branches and prepare a reviewable source/build handoff; Windows artifact remains undistributed until actually built, measured and saved.
 
-Current phase: The alignment matrix, focused tests, documentation, and production build are complete and synchronized to the development branch.
+Current phase: All three source repairs and PR37 documentation follow-up are integrated on the new development branch; combined63/63 focused tests and production build137 modules PASS. Draft PR38 is open. Source-union checks preserve parent product files/functions exactly. Native artifact is NOT_BUILT / NOT_DISTRIBUTED.
 
-Proven:
+Proven: Source packets are PR35 product cae664a60ca827d90583d2e1bedad178bc9870a6 / terminal646f80b0b116f0a8bc52f1f9a10dc081e9ea3458 (Layer name dragging, visual insertion and shared Session history); PR36 product efb0160b03996891c97b5738133f7fb5f0732ea2 / terminalfb36fb8d2c395f7017447fe7cb76412559a038b3 (finite larger mask preparation and exact zero-length derived-segment handling, with both Image/Shape retention requirement); PR37 ec474b142296a67c23519389baa904c2aa156a79 (skip graph preview/wire work on frames with no actual scroll). Original evidence and residuals remain in desktop/docs/layer-panel-interaction.md, dither-input-budget.md, dither-controls.md and graph-autopan-work.md. Combined source tests63/63 PASS. Production build137 modules, main syntax, scoped format and diff checks PASS. Separate known-baseline probes retain three schema/fingerprint failures with matching acca2616 values and overview0vs6 reproduced on both base/integration. Full suite and UI/native/frame-time acceptance NOT_RUN. PR37 documentation ada9ac547a8d6d0e0a9e9fb4d667a443c5fe5309 is included exactly; no product inputs changed after tested28a5b9cdb872309e62e76d5032add974afbdf9d8.
 
-- The prior SVG viewport matrix, 96 CSS px/in physical root dimensions, paint grouping, and single-transform Add SVG path are present at branch base `62563a9deb5c4054278c61162a6f02ad483ab512`.
-- Focused Import SVG, Add SVG, and SVG export-unit suites: 26/26 PASS. Independent expected matrices cover all nine min/mid/max X/Y alignments with separate horizontal and vertical slack, non-zero origins, default/explicit mid alignment, and unchanged `none` behavior.
-- A physical 100 x 50 mm Add SVG fixture verifies `xMaxYMin meet`, exactly one viewport Transform, unchanged destination dimensions, serialization, one-step Undo, and Redo.
-- `slice`, `defer`, invalid alignment values, and clipping remain unsupported and fail closed. Production build, scoped formatting, and `git diff --check`: PASS. Full `npm test` and actual WebView2 import/export remain NOT_RUN.
-- Implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` was pushed normally and matched the origin branch SHA.
+Next task: Parent routes the pinned candidate source6c6c0a5427dbc3bc59ea206bffdb232a195d41f5 to an already provisioned Windows build host. Follow desktop/docs/integration-candidate-20261020.md, preserve original EXE, and bind actual generated artifact/source/hash before delivery and targeted human retest. No unchanged failed native build is retried here.
 
-Next task: The Mission Owner should select the next eligible Route obligation from current evidence; this alignment checkpoint is complete.
+Approach: Merge only these completed branch snapshots into this task-owned D: worktree. No new feature, Image-output implementation, UI/native operation, protected-main merge, original-branch update or history rewrite. Keep source and distributed executable identities separate.
 
-Approach: Normalize supported preserveAspectRatio tokens; compute X/Y meet offsets independently from Min/Mid/Max alignment while keeping uniform meet scale. Retain the paint-mode Transform so stroke and gradient behavior stays shared with the prior viewport mapping.
+Done for next: Three source repairs and their evidence preserved, focused integration and frontend build verified, development checkpoint synchronized/Draft PR reviewable, exact Windows artifact limitation and preparation/verification steps documented. A source build is not native acceptance or distribution.
 
-Done for next: All nine meet alignment matrices match independent expected values; default and `none` remain unchanged; Add SVG applies one mapping and preserves destination size, serialization, Undo, and Redo; unsupported slice/clip behavior remains explicit; focused tests, formatting, build, commit, and remote evidence are recorded.
+State: codex/nect-test-candidate-20261020, baseline acca2616ab38c703bcf3e4b0ef465eeae7c62ffc, D:/Documents/Nect-worktrees/codex-task5-integration-20261020. Sole integration writer assigned by parent. Source and graph documentation writers completed. All supplied terminal refs are ancestors; Draft https://github.com/46slv/Nect/pull/38 targets codex/nect-regression-validation-v2. Current source instructions/branch refs freshly read. Build/cache/temp use task-owned D: paths; no capacity cleanup/deletion or environment installation is authorized.
 
-State: Branch `codex/nect-regression-validation-v2`; implementation commit `1d130fbd61c2d7583b922ed57a48e33bc9b2df28` is pushed and matched the remote SHA. The follow-up checkpoint closeout is committed and pushed on this branch; its terminal branch SHA was verified against origin. Preserve the pre-existing untracked `desktop/native-artifact-4edbda9/` outputs untouched.
+Authority: Current user integration delegation plus existing Nect code/test/docs/commit/development push/Draft PR authorization. Parent owns Notion and actual delivery. Known Rust toolchain/SDK26100 absence and unresolved MSVC are retained from existing evidence; do not retry unchanged Windows build/inventory, install tools, alter auth, delete for space, or operate UI. No new EXE exists.
 
-Authority: The user's follow-up authorizes this bounded meet-alignment implementation, focused tests/build/docs, commit, and normal development-branch push. Keep `slice`/clip unsupported. Do not re-audit the Completion Route, force push, mainline merge, release, dependency/network retry, credentials/permission changes, or alter the preserved trial outputs.
-
-Handoff: CONTINUE_CURRENT_TASK
+Handoff: LOCAL_WAIT for provisioned Windows build/artifact measurement/native retest. Combined source is reviewable in Draft PR38; parent owns delivery/Notion. Broader Nect Mission and Image-output dither remain open.
