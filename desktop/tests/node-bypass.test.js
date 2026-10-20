@@ -126,7 +126,19 @@ for (const type of supported)
   });
 // Numbers are immutable and have no distinct clone identity.
 test('unsupported nodes and scalar-output Vector Math fail closed; operation changes preserve bypass state', () => {
-  for (const type of Object.keys(definitions).filter((t) => !supported.includes(t))) {
+  // These identities need Image/Mask or motif fixtures, covered in image-effects,
+  // image-dither and luminance-instances tests rather than this Path fixture.
+  const appearanceIdentities = [
+    'Keyer',
+    'Mask',
+    'Luminance Instances',
+    'Ordered Dither Image',
+    'Error Diffusion Dither Image',
+  ];
+  for (const type of appearanceIdentities) assert.equal(bypassContract(node(type)).supported, true);
+  for (const type of Object.keys(definitions).filter(
+    (t) => !supported.includes(t) && !appearanceIdentities.includes(t),
+  )) {
     const n = node(type),
       l = { nodes: [n] };
     assert.equal(bypassContract(n).supported, false, type);

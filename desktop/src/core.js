@@ -3,7 +3,14 @@ import { appendSVGPart } from './svg-part.js';
 import { svgRootAttributes } from './artboard-units.js';
 import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
 import { OPENTYPE_SCHEMA_VERSION, validateTextFeatures } from './opentype-features.js';
-import { imageAssetFor, keyedImage, keyerSettings, MAX_ACTIVE_KEYERS } from './image-keyer.js';
+import {
+  imageAssetFor,
+  keyedImage,
+  ditheredImage,
+  keyerSettings,
+  MAX_ACTIVE_KEYERS,
+} from './image-keyer.js';
+import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
 import { maskAppearance } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
 import {
@@ -29,6 +36,9 @@ import { validateCharacterArrangement } from './character-arrangement.js';
 import { validateTonePower } from './luminance-tone.js';
 import {
   DITHER_SCHEMA_VERSION,
+  IMAGE_DITHER_SCHEMA_VERSION,
+  imageDitherTypes,
+  isImageDither,
   isDither,
   hasDotControls,
   readDotSettings,
@@ -441,6 +451,10 @@ export const definitions = {
   'Text to Path': { path: p('Path', null) },
   'Imported Path': {},
 };
+for (const type of imageDitherTypes) {
+  const shapeType = type.replace(/ Image$/, '');
+  definitions[type] = { ...structuredClone(definitions[shapeType]), path: p('Image', null) };
+}
 export function closedOffsetSettings(read) {
   const amount = read('amount'),
     miterLimit = read('miterLimit');
@@ -710,7 +724,13 @@ export function outputType(n, port) {
   )
     return 'PaintedPath';
   if (n.type === 'Color') return 'Color';
-  if (n.type === 'Image' || n.type === 'Image Output' || n.type === 'Keyer') return 'Image';
+  if (
+    n.type === 'Image' ||
+    n.type === 'Image Output' ||
+    n.type === 'Keyer' ||
+    isImageDither(n.type)
+  )
+    return 'Image';
   if (n.type === 'Mask') return 'PaintedPath';
   return ['Value', 'Expression', 'Math'].includes(n.type)
     ? 'Scalar'
@@ -723,6 +743,8 @@ export function outputType(n, port) {
 // Deliberate identity contracts. Never guess the first socket of a new node type.
 const bypassInputs = Object.freeze({
   Keyer: 'path',
+  'Ordered Dither Image': 'path',
+  'Error Diffusion Dither Image': 'path',
   Mask: 'path',
   Boolean: 'a',
   'Join Geometry': 'a',
@@ -1090,11 +1112,11 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: preset.nodes.some(
-      (n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined,
-    )
-      ? BOOLEAN_INPUT_SCHEMA_VERSION
-      : NODE_PRESET_SCHEMA_VERSION,
+    schemaVersion: preset.nodes.some((n) => isImageDither(n.type))
+      ? IMAGE_DITHER_SCHEMA_VERSION
+      : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
+        ? BOOLEAN_INPUT_SCHEMA_VERSION
+        : NODE_PRESET_SCHEMA_VERSION,
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
@@ -1241,6 +1263,8 @@ export const operationOptions = {
   Halftone: ['subtract', 'square', 'circle', 'polygon', 'star'],
   'Ordered Dither': ['square', 'circle', 'polygon', 'star'],
   'Error Diffusion Dither': ['square', 'circle', 'polygon', 'star'],
+  'Ordered Dither Image': ['square', 'circle', 'polygon', 'star'],
+  'Error Diffusion Dither Image': ['square', 'circle', 'polygon', 'star'],
   Taper: ['horizontal', 'vertical'],
   'Bend Points': ['horizontal', 'vertical'],
   'Wave Points': ['vertical', 'horizontal'],
@@ -2641,6 +2665,20 @@ export function evaluate(
           read('softness'),
           imageAssets,
         );
+      } else if (isImageDither(n.type)) {
+        const { pitch, invert, gridOrigin, tonePower } = luminanceModifierSettings(read);
+        result = ditheredImage(
+          read('path'),
+          {
+            mode: n.type === 'Ordered Dither Image' ? 'dither' : 'error-diffusion',
+            pitch,
+            invert,
+            origin: { x: gridOrigin[0], y: gridOrigin[1] },
+            tonePower,
+            ...readDotSettings(n, read),
+          },
+          imageAssets,
+        );
       } else if (n.type === 'Mask') {
         const source = read('path'),
           shape = read('mask');
@@ -4024,6 +4062,8 @@ export function assertClosedOffsetChange(
     'Halftone',
     'Ordered Dither',
     'Error Diffusion Dither',
+    'Ordered Dither Image',
+    'Error Diffusion Dither Image',
     'Line Screen',
   ]);
   const boundedInputs = (n) =>
@@ -4220,6 +4260,7 @@ export function migratePaint(doc) {
 }
 export function validate(doc) {
   let activeKeyers = 0;
+  let activeImageDithers = 0;
   const idPattern = nodeIdPattern;
   const ids = new Set();
   function id(value) {
@@ -4258,6 +4299,7 @@ export function validate(doc) {
       27, 28, 29, 30, 31, 32, 33, 34, 35,
     ].includes(doc.schemaVersion) &&
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
+      doc.schemaVersion !== IMAGE_DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
@@ -4300,6 +4342,10 @@ export function validate(doc) {
         throw Error('Keyer and Mask require schemaVersion 35');
       if (n.type === 'Keyer' && !n.bypassed && ++activeKeyers > MAX_ACTIVE_KEYERS)
         throw Error('At most 8 active Keyers per document');
+      if (isImageDither(n.type) && sourceSchemaVersion < IMAGE_DITHER_SCHEMA_VERSION)
+        throw Error('Image Dither requires schemaVersion 41');
+      if (isImageDither(n.type) && !n.bypassed && ++activeImageDithers > MAX_ACTIVE_IMAGE_DITHERS)
+        throw Error('At most 8 active Image Dithers per document');
       validateReference(n);
       validateCompositionReference(n, sourceSchemaVersion);
       if (
@@ -4645,7 +4691,10 @@ export function validate(doc) {
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
-      if (['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type))
+      if (
+        isImageDither(n.type) ||
+        ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
+      )
         luminanceModifierSettings((key) => n.params[key].value);
       readDotSettings(n, (key) => n.params[key].value);
       if (['Luminance Instances', 'Luminance to Points'].includes(n.type)) {
@@ -7159,6 +7208,8 @@ export class CommandSession {
       item.name = payload.name.trim();
     } else if (type === 'create-node') {
       const created = node(payload.nodeType, ...(payload.position ?? [40, 40]));
+      if (isImageDither(created.type))
+        candidate.schemaVersion = Math.max(candidate.schemaVersion, IMAGE_DITHER_SCHEMA_VERSION);
       if (['Keyer', 'Mask'].includes(created.type))
         candidate.schemaVersion = Math.max(candidate.schemaVersion, 35);
       if (created.type === 'Composition Reference')

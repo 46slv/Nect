@@ -1,0 +1,563 @@
+{
+  "schemaVersion": 41,
+  "name": "Image and Shape Dither",
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "gridAnchor": "center",
+    "gridOpacity": 0.25,
+    "snap": false,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": true,
+    "snapArtwork": false
+  },
+  "width": 328,
+  "height": 328,
+  "layers": [
+    {
+      "id": "layer-dither-0-image",
+      "name": "Ordered Dither Image",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "source-dither-0-image",
+          "type": "Image",
+          "name": "Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [24, 24],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [128, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-dither-example"
+        },
+        {
+          "id": "effect-dither-0-image",
+          "type": "Ordered Dither Image",
+          "name": "Ordered Dither Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "source-dither-0-image"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "dotSize": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "dotSides": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dotRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "starInnerRatio": {
+              "type": "Scalar",
+              "value": 0.18,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "star",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "output-dither-0-image",
+          "type": "Image Output",
+          "name": "Image Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "effect-dither-0-image"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "output-dither-0-image"
+    },
+    {
+      "id": "layer-dither-0-shape",
+      "name": "Ordered Dither Shape",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "source-dither-0-shape",
+          "type": "Image",
+          "name": "Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [24, 176],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [128, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-dither-example"
+        },
+        {
+          "id": "effect-dither-0-shape",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "source-dither-0-shape"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "dotSize": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "dotSides": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dotRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "starInnerRatio": {
+              "type": "Scalar",
+              "value": 0.18,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "star",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "output-dither-0-shape",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "effect-dither-0-shape"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "output-dither-0-shape"
+    },
+    {
+      "id": "layer-dither-1-image",
+      "name": "Error Diffusion Dither Image",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "source-dither-1-image",
+          "type": "Image",
+          "name": "Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [176, 24],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [128, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-dither-example"
+        },
+        {
+          "id": "effect-dither-1-image",
+          "type": "Error Diffusion Dither Image",
+          "name": "Error Diffusion Dither Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "source-dither-1-image"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "dotSize": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "dotSides": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dotRotation": {
+              "type": "Scalar",
+              "value": 45,
+              "expression": "",
+              "locked": false
+            },
+            "starInnerRatio": {
+              "type": "Scalar",
+              "value": 0.18,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "square",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "output-dither-1-image",
+          "type": "Image Output",
+          "name": "Image Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "effect-dither-1-image"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "output-dither-1-image"
+    },
+    {
+      "id": "layer-dither-1-shape",
+      "name": "Error Diffusion Dither Shape",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "source-dither-1-shape",
+          "type": "Image",
+          "name": "Image",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [176, 176],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [128, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-dither-example"
+        },
+        {
+          "id": "effect-dither-1-shape",
+          "type": "Error Diffusion Dither",
+          "name": "Error Diffusion Dither",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "source-dither-1-shape"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "dotSize": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "dotSides": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dotRotation": {
+              "type": "Scalar",
+              "value": 45,
+              "expression": "",
+              "locked": false
+            },
+            "starInnerRatio": {
+              "type": "Scalar",
+              "value": 0.18,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "square",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "output-dither-1-shape",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "effect-dither-1-shape"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "output-dither-1-shape"
+    }
+  ],
+  "imageAssets": {
+    "image-dither-example": {
+      "name": "synthetic-alpha-gradient.png",
+      "mime": "image/png",
+      "width": 64,
+      "height": 64,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAC7UlEQVR4Ae3ZIdepURQE4AmCIAiCIAiCIgiCIAiCIAiCIAiCIAiCYK1ZgiAIgiAIgiAIgiAIgiAIiiAIgiAIgiDM3f7G/bZ/4Kzz7jPzbABAIBBAMBhEKBRCOBxGJBJBNBpFLBZDPB5HIpFAMplEKpVCOp1GJpNBNptFLpdDPp9HoVBAsVhEqVRCuVxGpVJBtVpFrVZDvV5Ho9FAs9lEq9VCu91Gp9NBt9tFr9dDv9/HYDDAcDjEaDTCeDzGZDLBdDrFbDbDfD7HYrHAcrnEarXCer3GZrPBdrvFbrfDfr/H4XDA8XjE6XTC+XzG5XLB9XrF7XbD/X7H4/HA8/nE6/XC+/3G5/PB9/uFpN/f9wPwG+CfgM8AH4L+Cvgz6DnAg5AnQY/C3gW8DHkb/It1mFaGaEGINgRpB0DzAJoH0DyA5gE0D6B5AM0DaB5A8wCaB9A8gOYBNA+geQDNA2geQPMAmgfQPIDmATQPoHkAzQNoHkDzAJoH0DyA5gE0D6B5AM0DaB5A8wCaB9A8gOYBNA+geQDNA2geQPMAmgfQPIDmATQPoHkAzQNoHkDzAJoH0DyA5gE0D6B5AM0DaB5A8wCaB9A8gD8O8APwG+CfgM8AH4L+Cvgz6DnAg5AnQY/C3gW8DHkb/IN1WIFAQMFgUKFQSOFwWJFIRNFoVLFYTPF4XIlEQslkUqlUSul0WplMRtlsVrlcTvl8XoVCQcViUaVSSeVyWZVKRdVqVbVaTfV6XY1GQ81mU61WS+12W51OR91uV71eT/1+X4PBQMPhUKPRSOPxWJPJRNPpVLPZTPP5XIvFQsvlUqvVSuv1WpvNRtvtVrvdTvv9XofDQcfjUafTSefzWZfLRdfrVbfbTff7XY/HQ8/nU6/XS+/3W5/PR9/vV7/fzwP8APwG+CfgM8CHoL8C/gx6DvAg5EnQo7B3AS9D3ga9DrsHOIi4CDmJuQk6iroKO4v7XsAXI74Z8tWY7wZ9Oerb4f98Pf4PJirh8Cx/EloAAAAASUVORK5CYII="
+    }
+  }
+}

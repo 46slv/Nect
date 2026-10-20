@@ -1,9 +1,11 @@
 import { Deflate } from 'pako/browser/deflate';
 import { crc32, encodeImage, MAX_IMAGE_BYTES, checkImageSize } from './images.js';
 import { copyImageRgba } from './image-luminance-field.js';
+import { imageDitherSettings, renderImageDither } from './image-dither.js';
 
 export const MAX_KEYER_PIXELS = 4_000_000;
 export const MAX_ACTIVE_KEYERS = 8;
+export const MAX_IMAGE_EFFECTS = 8;
 export function keyerSettings(keyColor, tolerance, softness) {
   if (
     !keyColor ||
@@ -93,14 +95,23 @@ export function encodeRgbaPng(width, height, rgba) {
 // Evaluated Images retain only recipes. One compressed derived asset survives;
 // graph caches never clone a PNG for every downstream node or revision.
 let cached = null;
+export function imageEffectCacheInfo() {
+  return {
+    entries: cached ? 1 : 0,
+    recipes: cached?.keys.length ?? 0,
+    base64Characters: cached?.output.data.length ?? 0,
+    encodedByteLimit: MAX_IMAGE_BYTES,
+  };
+}
 export function imageAssetFor(value, assets = {}) {
   const original = assets[value?.asset];
   if (!original) throw Error('Missing image asset');
   const effects = value.imageEffects;
   if (effects === undefined) return original;
-  if (!Array.isArray(effects) || effects.length > MAX_ACTIVE_KEYERS)
-    throw Error('Image effect chain exceeds 8 Keyers');
+  if (!Array.isArray(effects) || effects.length > MAX_IMAGE_EFFECTS)
+    throw Error('Image effect chain exceeds 8 effects (8 Keyers maximum)');
   const normalized = effects.map((e) => {
+      if (e?.type === 'dither') return imageDitherSettings(e);
       if (
         !e ||
         e.type !== 'keyer' ||
@@ -122,8 +133,11 @@ export function imageAssetFor(value, assets = {}) {
     output = cached.output;
   }
   for (let i = start; i < normalized.length; i++) {
-    const pixels = copyImageRgba(output),
-      rgba = keyRgba(pixels, normalized[i]),
+    const effect = normalized[i],
+      rgba =
+        effect.type === 'dither'
+          ? renderImageDither(output, effect)
+          : keyRgba(copyImageRgba(output), effect),
       png = encodeRgbaPng(original.width, original.height, rgba);
     output = Object.freeze({
       name: original.name,
@@ -142,6 +156,18 @@ export function keyedImage(source, keyColor, tolerance, softness, assets) {
     ...source,
     imageEffects: [...(source.imageEffects || []), keyerSettings(keyColor, tolerance, softness)],
   };
+  imageAssetFor(result, assets);
+  return result;
+}
+export function ditheredImage(source, settings, assets) {
+  if (source?.kind !== 'image') throw Error('Connect an Image to Image Dither');
+  const recipe = imageDitherSettings({
+    ...settings,
+    type: 'dither',
+    position: source.position,
+    size: source.size,
+  });
+  const result = { ...source, imageEffects: [...(source.imageEffects || []), recipe] };
   imageAssetFor(result, assets);
   return result;
 }

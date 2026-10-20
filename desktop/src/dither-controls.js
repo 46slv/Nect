@@ -1,5 +1,9 @@
 export const DITHER_SCHEMA_VERSION = 36;
-export const isDither = (type) => ['Ordered Dither', 'Error Diffusion Dither'].includes(type);
+export const IMAGE_DITHER_SCHEMA_VERSION = 41;
+export const imageDitherTypes = ['Ordered Dither Image', 'Error Diffusion Dither Image'];
+export const isImageDither = (type) => imageDitherTypes.includes(type);
+export const isDither = (type) =>
+  ['Ordered Dither', 'Error Diffusion Dither'].includes(type) || isImageDither(type);
 export const hasDotControls = (type) => type === 'Halftone' || isDither(type);
 
 export function ditherSettings(shape, dotSize, sides = 4, rotation = 0, innerRatio = 0.25) {

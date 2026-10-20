@@ -427,6 +427,22 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
   {
+    typeId: 'Ordered Dither Image',
+    categoryId: 'image',
+    labelJa: '規則ディザ Image',
+    aliases: ['規則ディザ', '画像', 'ラスター'],
+    description: '規則ディザ Image',
+    creationRoute: 'add',
+  },
+  {
+    typeId: 'Error Diffusion Dither Image',
+    categoryId: 'image',
+    labelJa: '誤差拡散ディザ Image',
+    aliases: ['誤差拡散ディザ', '画像', 'ラスター'],
+    description: '誤差拡散ディザ Image',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Line Screen',
     categoryId: 'image',
     labelJa: '線スクリーン',
