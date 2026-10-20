@@ -1,3 +1,4 @@
+import { installLayerReorder } from './layer-reorder.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
 import {
   ARTBOARD_UNITS,
@@ -915,8 +916,6 @@ let history = session.historyView,
   artworkSelection = new Set(),
   layerClipboard = null,
   selectedNodePreset = null,
-  layerDragId = null,
-  layerDragStart = null,
   tool = 'select',
   textTools = null,
   zoom = 1,
@@ -7506,43 +7505,29 @@ app.addEventListener('pointerdown', (e) => {
   if (e.target.closest('[data-style-text-range], [data-kern-text-cursor]')) e.preventDefault();
 });
 
-// Layer rows use an in-document clipboard and a single committed drag reorder.
-app.addEventListener('pointerdown', (e) => {
-  const row = e.target.closest('[data-layer]');
-  if (!row || e.target.closest('button, input, select, textarea') || deletionBusy()) return;
-  layerDragId = row.dataset.layer;
-  layerDragStart = [e.clientX, e.clientY];
-  row.setPointerCapture?.(e.pointerId);
-});
-app.addEventListener('pointerup', (e) => {
-  if (!layerDragId) return;
-  const sourceId = layerDragId;
-  layerDragId = null;
-  const start = layerDragStart;
-  layerDragStart = null;
-  if (!start || Math.hypot(e.clientX - start[0], e.clientY - start[1]) < 6) return;
-  const row = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-layer]');
-  if (!row || row.dataset.layer === sourceId) return;
-  try {
-    const beforeLayerId = row.dataset.layer;
-    const source = history.doc.layers.find((item) => item.id === sourceId);
-    if (!source || source.locked) return;
+// Pointer input only chooses a visual insertion slot; Session owns the edit.
+installLayerReorder({
+  app,
+  getState: () => ({
+    document: history.doc,
+    envelope: session.state,
+    busy: deletionBusy() || session.hasGesture,
+  }),
+  commit(payload, envelope) {
     const preview = structuredClone(history.doc);
-    const result = moveArtworkLayerBefore(preview, sourceId, beforeLayerId);
-    if (!result.moved) return;
+    if (!moveArtworkLayerBefore(preview, payload.layerId, payload.beforeLayerId).moved) return;
     const priorUI = selectionSnapshot(true);
-    session.dispatch({
-      ...session.state,
-      type: 'reorder-layer',
-      payload: { layerId: sourceId, beforeLayerId },
-    });
+    session.dispatch({ ...envelope, type: 'reorder-layer', payload });
     selectionHistory.set(history.past.at(-1), priorUI);
     selectionHistory.set(history.doc, selectionSnapshot(true));
+    lastNameClick = null;
     notify('Layer reordered');
     render();
-  } catch (error) {
-    notify(error.message, true);
-  }
+    document
+      .querySelector('.layers .layer[data-layer="' + payload.layerId + '"]')
+      ?.focus({ preventScroll: true });
+  },
+  onError: (error) => notify(error.message, true),
 });
 // A refused row action must not blur/commit an inline name or another live edit.
 app.addEventListener(
