@@ -43,10 +43,10 @@ export function moveArtworkLayer(doc, layerId, direction) {
 export function moveArtworkLayerBefore(doc, layerId, beforeLayerId) {
   const source = doc?.layers?.find((layer) => layer.id === layerId);
   const before = doc?.layers?.find((layer) => layer.id === beforeLayerId);
-  if (!source || !before || source === before) return { moved: false };
+  if (!source || (beforeLayerId !== null && !before) || source === before) return { moved: false };
   if (source.locked) throw Error('Unlock this layer before ordering it.');
   const from = doc.layers.indexOf(source);
-  let to = doc.layers.indexOf(before);
+  let to = beforeLayerId === null ? doc.layers.length : doc.layers.indexOf(before);
   doc.layers.splice(from, 1);
   if (from < to) to -= 1;
   doc.layers.splice(to, 0, source);
