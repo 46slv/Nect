@@ -1391,6 +1391,7 @@ function resetTransient() {
   gridOpacityDraft = null;
   closeNodeContextMenu();
   pointPanelViews.clear();
+  pointDeltaDraft = null;
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
   pointHover = null;
@@ -2062,6 +2063,87 @@ function field(n, key, q) {
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
 const POINT_PANEL_PAGE_SIZE = 24;
+let pointDeltaDraft = null;
+function pointDeltaMatches(nodeId, ids) {
+  if (
+    !pointDeltaDraft ||
+    pointDeltaDraft.nodeId !== nodeId ||
+    pointDeltaDraft.layerId !== current().id ||
+    pointDeltaDraft.pointIds.length !== ids.length
+  )
+    return false;
+  const captured = new Set(pointDeltaDraft.pointIds);
+  return ids.every((id) => captured.has(id));
+}
+function ownedPointDeltaFields(n) {
+  const ids = selectedPointIds(n);
+  if (!['Curve', 'Multi Path'].includes(n.type) || !ids.length) return '';
+  if (pointDeltaDraft && !pointDeltaMatches(n.id, ids)) pointDeltaDraft = null;
+  const points = new Map(n.points.map((p) => [p.id, p]));
+  const disabled =
+    current().locked ||
+    n.locked ||
+    n.bypassed ||
+    ids.some((id) => {
+      const q = points.get(id)?.position;
+      return !q || q.locked || q.source || q.expression;
+    });
+  const values = pointDeltaDraft?.nodeId === n.id ? pointDeltaDraft.values : ['0', '0'];
+  return `<div class="batch-edit" data-point-delta-panel="${n.id}" role="group" aria-label="Move selected points"><p>${ids.length} selected points · Node-local · document units</p><div class="field-controls">${values.map((value, axis) => `<label>Δ${axis ? 'Y' : 'X'}<input type="number" step="any" data-point-delta-axis="${axis}" data-node="${n.id}" aria-label="Selected points delta ${axis ? 'Y' : 'X'}" title="Node-local document units; Enter to apply both axes; Escape to cancel" value="${esc(value)}" ${disabled ? 'disabled' : ''}></label>`).join('')}</div><button class="mini" data-apply-point-delta="${n.id}" ${disabled ? 'disabled' : ''}>Move points</button><button class="mini" data-cancel-point-delta="${n.id}">Cancel</button></div>`;
+}
+function stagePointDelta(input) {
+  const nodeId = input.dataset.node,
+    ids = selectedPointIds(current().nodes.find((n) => n.id === nodeId));
+  if (!pointDeltaDraft)
+    pointDeltaDraft = {
+      nodeId,
+      layerId: current().id,
+      pointIds: ids,
+      envelope: session.state,
+      values: ['0', '0'],
+    };
+  if (pointDeltaDraft.nodeId !== nodeId) return;
+  pointDeltaDraft.values[Number(input.dataset.pointDeltaAxis)] = input.value;
+  for (const peer of document.querySelectorAll('[data-point-delta-axis]'))
+    if (
+      peer !== input &&
+      peer.dataset.node === nodeId &&
+      peer.dataset.pointDeltaAxis === input.dataset.pointDeltaAxis
+    )
+      peer.value = input.value;
+}
+function cancelPointDelta() {
+  pointDeltaDraft = null;
+  for (const input of document.querySelectorAll('[data-point-delta-axis]')) input.value = '0';
+}
+function applyPointDelta(nodeId) {
+  const draft = pointDeltaDraft;
+  if (!draft) return;
+  const ids = selectedPointIds(current().nodes.find((n) => n.id === nodeId));
+  if (!pointDeltaMatches(nodeId, ids)) {
+    cancelPointDelta();
+    notify('Point move cancelled: selection changed', true);
+    return;
+  }
+  const delta = draft.values.map((value) => (value.trim() ? Number(value) : NaN));
+  if (!delta.every(Number.isFinite)) {
+    notify('Point delta must contain two finite numbers', true);
+    return;
+  }
+  pointDeltaDraft = null;
+  commandChange(
+    'translate-points',
+    {
+      layerId: draft.layerId,
+      nodeId: draft.nodeId,
+      pointIds: draft.pointIds,
+      delta,
+    },
+    'Selected points moved',
+    false,
+    draft.envelope,
+  );
+}
 function pointPanelSource(n, input) {
   if (n.type === 'Path Remap' && !input && n.params.path.source) {
     try {
@@ -2147,7 +2229,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${ownedPointDeltaFields(n)}${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -4002,6 +4084,7 @@ function selectedPointIds(n) {
   return pointSelection.nodeId === n?.id ? [...pointSelection.ids] : [];
 }
 function selectPointTarget(n, target, event) {
+  cancelPointDelta();
   if (target.key !== 'position') {
     refreshPointPanels();
     return true;
@@ -5791,6 +5874,11 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.applyPointDelta || d.cancelPointDelta) {
+    if (d.cancelPointDelta) cancelPointDelta();
+    else if (!b.disabled) applyPointDelta(d.applyPointDelta);
+    return;
+  }
   if (d.activeComposition !== undefined) {
     activateCompositionTab(d.activeComposition);
     return;
@@ -7736,6 +7824,10 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.matches('[data-point-delta-axis]')) {
+    stagePointDelta(e.target);
+    return;
+  }
   if (e.target.id === 'svg-export-preset-name') {
     svgExportPresetName = e.target.value;
     if (e.target.value.trim() !== (selectedSvgExportPreset || ''))
@@ -7864,6 +7956,10 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.pointDeltaAxis !== undefined) {
+    stagePointDelta(el);
+    return;
+  }
   if (d.pointPanelUnit || d.pointPanelContour) {
     const id = d.pointPanelUnit || d.pointPanelContour;
     if (!current().nodes.some((n) => n.id === id)) return;
@@ -11548,9 +11644,22 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
-  const numericExpressionInput = e.target.matches?.(
-    'input[type="number"], input[data-numeric-expression]',
-  );
+  if (e.target.matches?.('[data-point-delta-axis]') && !e.isComposing && e.keyCode !== 229) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelPointDelta();
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      stagePointDelta(e.target);
+      applyPointDelta(e.target.dataset.node);
+      return;
+    }
+  }
+  const numericExpressionInput =
+    !e.target.matches?.('[data-point-delta-axis]') &&
+    e.target.matches?.('input[type="number"], input[data-numeric-expression]');
   if (
     numericExpressionInput &&
     !e.isComposing &&
