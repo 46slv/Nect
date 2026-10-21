@@ -9348,7 +9348,7 @@ function graphAutoPan(time) {
   }
   if (wiring || drag?.type === 'node') graphFrame = requestAnimationFrame(graphAutoPan);
 }
-function cancelInteraction() {
+function cancelInteraction(renderView = true) {
   if (drag?.type === 'pen') {
     let discarded;
     try {
@@ -9422,7 +9422,7 @@ function cancelInteraction() {
   pointerActive = false;
   snapMatches = [];
   wiring = null;
-  render();
+  if (renderView) render();
 }
 function zoomGraph(next, clientX, clientY) {
   const viewport = document.querySelector('.graph-scroll'),
@@ -12574,7 +12574,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'Escape') {
     characterEdit = null;
-    cancelInteraction();
+    // Node cancellation renders once below, after the common Escape cleanup.
+    cancelInteraction(drag?.type !== 'node');
     layoutDraft = null;
     layoutPreview = false;
     drag = null;
