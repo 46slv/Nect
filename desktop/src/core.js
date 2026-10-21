@@ -86,6 +86,9 @@ import {
   REPEATER_FILL_SCHEMA_VERSION,
   REPEATER_FILL_DEFAULT,
   hasRepeaterFillAuthorship,
+  REPEATER_STROKE_SCHEMA_VERSION,
+  REPEATER_STROKE_DEFAULT,
+  hasRepeaterStrokeAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
@@ -354,6 +357,8 @@ export const definitions = {
     alternateScale: p('Scalar', 100),
     alternateFill: p('Boolean', false),
     alternateColor: p('Color', { ...REPEATER_FILL_DEFAULT }),
+    alternateStroke: p('Boolean', false),
+    alternateStrokeColor: p('Color', { ...REPEATER_STROKE_DEFAULT }),
     rotation: p('Scalar', 0),
     startOpacity: p('Scalar', 100),
     endOpacity: p('Scalar', 100),
@@ -2412,6 +2417,7 @@ export function signature(path) {
       ...(c.group === undefined ? [] : [c.group]),
       ...(c.repeaterOpacity === undefined ? [] : [c.repeaterOpacity]),
       ...(c.repeaterFill === undefined ? [] : [c.repeaterFill]),
+      ...(c.repeaterStroke === undefined ? [] : [c.repeaterStroke]),
     ]),
   );
 }
@@ -3945,6 +3951,8 @@ export function evaluate(
               c.repeaterOpacity = result.contours[ci].repeaterOpacity;
             if (result.contours[ci].repeaterFill !== undefined)
               c.repeaterFill = clone(result.contours[ci].repeaterFill);
+            if (result.contours[ci].repeaterStroke !== undefined)
+              c.repeaterStroke = clone(result.contours[ci].repeaterStroke);
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
           transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
@@ -4470,6 +4478,7 @@ export function validate(doc) {
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_ALTERNATE_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_FILL_SCHEMA_VERSION &&
+      doc.schemaVersion !== REPEATER_STROKE_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
@@ -4670,6 +4679,15 @@ export function validate(doc) {
           if (hasRepeaterFillAuthorship(n))
             throw Error(
               `Repeater Alternate Fill requires schemaVersion ${REPEATER_FILL_SCHEMA_VERSION}`,
+            );
+        }
+        if (sourceSchemaVersion < REPEATER_STROKE_SCHEMA_VERSION) {
+          for (const key of ['alternateStroke', 'alternateStrokeColor'])
+            if (!Object.hasOwn(n.params, key))
+              n.params[key] = clone(definitions['Geometry Repeater'][key]);
+          if (hasRepeaterStrokeAuthorship(n))
+            throw Error(
+              `Repeater Alternate Stroke requires schemaVersion ${REPEATER_STROKE_SCHEMA_VERSION}`,
             );
         }
       }
@@ -5207,12 +5225,14 @@ export function renderElement(
           : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
+    if (stroke.kind !== undefined && stroke.kind !== 'solid')
+      throw Error('Only solid strokes are supported; gradient/pattern strokes are unsupported');
     assertValue('Color', { hex: stroke.hex, alpha: stroke.alpha });
     if (!Number.isFinite(stroke.width) || stroke.width < 0 || stroke.width > 100000)
       throw Error('Invalid stroke width');
   }
   if (!value.contours.some((c) => c.points.length)) return '';
-  function shape(path, attrs = '', solid = fill) {
+  function shape(path, attrs = '', solid = fill, pen = stroke) {
     if (path.contours.some((c) => c.group !== undefined))
       return `<g ${attrs} data-layer="${escape(l.name)}">${contourGroups(path)
         .map((contours) => {
@@ -5222,17 +5242,22 @@ export function renderElement(
           const copyFill =
             fill && !gradient && contours[0].repeaterFill ? contours[0].repeaterFill : solid;
           if (copyFill && !gradient) assertValue('Color', copyFill);
+          const replacementStroke = contours[0].repeaterStroke;
+          if (stroke && replacementStroke) assertValue('Color', replacementStroke);
+          const copyStroke =
+            stroke && replacementStroke ? { ...stroke, ...replacementStroke } : pen;
           const content = shape(
             { ...path, contours: contours.map(({ group, ...c }) => c) },
             '',
             copyFill,
+            copyStroke,
           );
           return opacity === undefined
             ? content
             : `<g opacity="${formatSvgNumber(opacity, precision)}">${content}</g>`;
         })
         .join('')}</g>`;
-    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : solid ? escape(solid.hex) : 'none'}"${solid && !gradient ? ` fill-opacity="${formatSvgNumber(solid.alpha, precision)}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${formatSvgNumber(stroke.alpha, precision)}" stroke-width="${formatSvgExtent(stroke.width, precision)}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${formatSvgNumber(stroke.miterLimit, precision)}" stroke-dasharray="${stroke.dash.length ? stroke.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(stroke.dashOffset, precision)}"` : ''}/>`;
+    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : solid ? escape(solid.hex) : 'none'}"${solid && !gradient ? ` fill-opacity="${formatSvgNumber(solid.alpha, precision)}"` : ''} fill-rule="nonzero"${pen ? ` stroke="${escape(pen.hex)}" stroke-opacity="${formatSvgNumber(pen.alpha, precision)}" stroke-width="${formatSvgExtent(pen.width, precision)}" stroke-linecap="${pen.cap}" stroke-linejoin="${pen.join}" stroke-miterlimit="${formatSvgNumber(pen.miterLimit, precision)}" stroke-dasharray="${pen.dash.length ? pen.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(pen.dashOffset, precision)}"` : ''}/>`;
   }
   return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
@@ -8185,6 +8210,12 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, REPEATER_FILL_SCHEMA_VERSION);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Geometry Repeater' && hasRepeaterStrokeAuthorship(n)),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, REPEATER_STROKE_SCHEMA_VERSION);
     validate(candidate);
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);

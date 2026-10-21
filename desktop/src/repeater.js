@@ -4,22 +4,28 @@ import { publicColor } from './color-operations.js';
 export const REPEATER_SCHEMA_VERSION = 37;
 export const REPEATER_ALTERNATE_SCHEMA_VERSION = 45;
 export const REPEATER_FILL_SCHEMA_VERSION = 46;
+export const REPEATER_STROKE_SCHEMA_VERSION = 47;
 export const REPEATER_FILL_DEFAULT = Object.freeze({ hex: '#36434e', alpha: 1 });
-export function hasRepeaterFillAuthorship(n) {
-  const flag = n.params.alternateFill,
-    color = n.params.alternateColor;
+export const REPEATER_STROKE_DEFAULT = Object.freeze({ hex: '#36434e', alpha: 1 });
+function hasPaintAuthorship(n, flagKey, colorKey, fallback) {
+  const flag = n.params[flagKey],
+    color = n.params[colorKey];
   return !!(
     flag &&
     color &&
     (flag.value !== false ||
       flag.source ||
       flag.expression ||
-      color.value?.hex !== REPEATER_FILL_DEFAULT.hex ||
-      color.value?.alpha !== 1 ||
+      color.value?.hex !== fallback.hex ||
+      color.value?.alpha !== fallback.alpha ||
       color.source ||
       color.expression)
   );
 }
+export const hasRepeaterFillAuthorship = (n) =>
+  hasPaintAuthorship(n, 'alternateFill', 'alternateColor', REPEATER_FILL_DEFAULT);
+export const hasRepeaterStrokeAuthorship = (n) =>
+  hasPaintAuthorship(n, 'alternateStroke', 'alternateStrokeColor', REPEATER_STROKE_DEFAULT);
 export const REPEATER_KEYS = [
   'offset',
   'anchor',
@@ -28,6 +34,8 @@ export const REPEATER_KEYS = [
   'alternateScale',
   'alternateFill',
   'alternateColor',
+  'alternateStroke',
+  'alternateStrokeColor',
   'rotation',
   'startOpacity',
   'endOpacity',
@@ -42,6 +50,12 @@ export function repeaterSettings(read) {
   if (typeof settings.alternateFill !== 'boolean')
     throw Error('2D Repeater Alternate Fill must be Boolean');
   settings.alternateColor = publicColor(settings.alternateColor);
+  if (settings.alternateStroke === undefined) settings.alternateStroke = false;
+  if (settings.alternateStrokeColor === undefined)
+    settings.alternateStrokeColor = REPEATER_STROKE_DEFAULT;
+  if (typeof settings.alternateStroke !== 'boolean')
+    throw Error('2D Repeater Alternate Stroke must be Boolean');
+  settings.alternateStrokeColor = publicColor(settings.alternateStrokeColor);
   const {
     count,
     offset,
@@ -217,6 +231,9 @@ export function repeatGeometry(source, options) {
         ...(settings.alternateFill && copy % 2
           ? { repeaterFill: { ...settings.alternateColor } }
           : {}),
+        ...(settings.alternateStroke && copy % 2
+          ? { repeaterStroke: { ...settings.alternateStrokeColor } }
+          : {}),
         closed: c.closed,
         points: c.points.map((pt, pi) => ({
           id: `${options.prefix}:copy${copy}:c${ci}:p${pi}`,
@@ -255,7 +272,7 @@ export function repeaterControls(node) {
   if (node.type !== 'Geometry Repeater') return '';
   const summary =
     node.operation === 'ae-2d'
-      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small> <small class="repeater-fill-limits">Alternate Fill: odd copies, existing solid fills only. None/gradients stay unchanged.</small>'
+      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small> <small class="repeater-fill-limits">Alternate Fill: odd copies, existing solid fills only. None/gradients stay unchanged.</small> <small class="repeater-stroke-limits">Alternate Stroke: odd copies, existing solid strokes only. None stays unchanged; gradient/pattern strokes unsupported.</small>'
       : '';
   return (
     summary +

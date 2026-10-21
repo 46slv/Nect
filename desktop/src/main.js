@@ -2009,6 +2009,8 @@ function field(n, key, q) {
         alternateScale: 'Alternate Scale (%)',
         alternateFill: 'Alternate Fill',
         alternateColor: 'Alternate Color',
+        alternateStroke: 'Alternate Stroke',
+        alternateStrokeColor: 'Alternate Stroke Color',
         rotation: 'Rotation (degrees)',
         startOpacity: 'Start Opacity (%)',
         endOpacity: 'End Opacity (%)',
