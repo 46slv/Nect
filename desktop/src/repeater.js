@@ -255,7 +255,7 @@ export function repeaterControls(node) {
   if (node.type !== 'Geometry Repeater') return '';
   const summary =
     node.operation === 'ae-2d'
-      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small><small class="repeater-fill-limits">Alternate Fill: odd copies, existing solid fills only. None/gradients stay unchanged.</small>'
+      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small> <small class="repeater-fill-limits">Alternate Fill: odd copies, existing solid fills only. None/gradients stay unchanged.</small>'
       : '';
   return (
     summary +
