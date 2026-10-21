@@ -83,6 +83,9 @@ import {
   REPEATER_KEYS,
   REPEATER_SCHEMA_VERSION,
   REPEATER_ALTERNATE_SCHEMA_VERSION,
+  REPEATER_FILL_SCHEMA_VERSION,
+  REPEATER_FILL_DEFAULT,
+  hasRepeaterFillAuthorship,
   assertRepeaterRoute,
 } from './repeater.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
@@ -349,6 +352,8 @@ export const definitions = {
     position: p('Vector2', [60, 0]),
     scale: p('Vector2', [100, 100]),
     alternateScale: p('Scalar', 100),
+    alternateFill: p('Boolean', false),
+    alternateColor: p('Color', { ...REPEATER_FILL_DEFAULT }),
     rotation: p('Scalar', 0),
     startOpacity: p('Scalar', 100),
     endOpacity: p('Scalar', 100),
@@ -2406,6 +2411,7 @@ export function signature(path) {
       c.points.map((p) => [p.position, p.handleA, p.handleB]),
       ...(c.group === undefined ? [] : [c.group]),
       ...(c.repeaterOpacity === undefined ? [] : [c.repeaterOpacity]),
+      ...(c.repeaterFill === undefined ? [] : [c.repeaterFill]),
     ]),
   );
 }
@@ -3937,6 +3943,8 @@ export function evaluate(
             if (result.contours[ci].group !== undefined) c.group = result.contours[ci].group;
             if (result.contours[ci].repeaterOpacity !== undefined)
               c.repeaterOpacity = result.contours[ci].repeaterOpacity;
+            if (result.contours[ci].repeaterFill !== undefined)
+              c.repeaterFill = clone(result.contours[ci].repeaterFill);
             c.points.forEach((p, pi) => (p.id = result.contours[ci].points[pi].id));
           });
           transformed.characterOccurrences = routeCharacters(result, n.id, state.matrix);
@@ -4461,6 +4469,7 @@ export function validate(doc) {
       doc.schemaVersion !== IMAGE_DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_ALTERNATE_SCHEMA_VERSION &&
+      doc.schemaVersion !== REPEATER_FILL_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
@@ -4652,6 +4661,15 @@ export function validate(doc) {
           if (q.value !== 100 || q.expression || q.source)
             throw Error(
               `Repeater Alternate Scale requires schemaVersion ${REPEATER_ALTERNATE_SCHEMA_VERSION}`,
+            );
+        }
+        if (sourceSchemaVersion < REPEATER_FILL_SCHEMA_VERSION) {
+          for (const key of ['alternateFill', 'alternateColor'])
+            if (!Object.hasOwn(n.params, key))
+              n.params[key] = clone(definitions['Geometry Repeater'][key]);
+          if (hasRepeaterFillAuthorship(n))
+            throw Error(
+              `Repeater Alternate Fill requires schemaVersion ${REPEATER_FILL_SCHEMA_VERSION}`,
             );
         }
       }
@@ -5194,18 +5212,27 @@ export function renderElement(
       throw Error('Invalid stroke width');
   }
   if (!value.contours.some((c) => c.points.length)) return '';
-  function shape(path, attrs = '') {
+  function shape(path, attrs = '', solid = fill) {
     if (path.contours.some((c) => c.group !== undefined))
       return `<g ${attrs} data-layer="${escape(l.name)}">${contourGroups(path)
         .map((contours) => {
           const opacity = contours[0].repeaterOpacity;
-          const content = shape({ ...path, contours: contours.map(({ group, ...c }) => c) });
+          // Per-copy appearance metadata already shares the opacity group. Only
+          // override a final solid fill; unpainted/gradient paths keep their paint.
+          const copyFill =
+            fill && !gradient && contours[0].repeaterFill ? contours[0].repeaterFill : solid;
+          if (copyFill && !gradient) assertValue('Color', copyFill);
+          const content = shape(
+            { ...path, contours: contours.map(({ group, ...c }) => c) },
+            '',
+            copyFill,
+          );
           return opacity === undefined
             ? content
             : `<g opacity="${formatSvgNumber(opacity, precision)}">${content}</g>`;
         })
         .join('')}</g>`;
-    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : fill ? escape(fill.hex) : 'none'}"${fill && !gradient ? ` fill-opacity="${formatSvgNumber(fill.alpha, precision)}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${formatSvgNumber(stroke.alpha, precision)}" stroke-width="${formatSvgExtent(stroke.width, precision)}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${formatSvgNumber(stroke.miterLimit, precision)}" stroke-dasharray="${stroke.dash.length ? stroke.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(stroke.dashOffset, precision)}"` : ''}/>`;
+    return `<path ${attrs} data-layer="${escape(l.name)}" d="${escape(pathData(path, precision))}" fill="${gradient ? gradient.paint : solid ? escape(solid.hex) : 'none'}"${solid && !gradient ? ` fill-opacity="${formatSvgNumber(solid.alpha, precision)}"` : ''} fill-rule="nonzero"${stroke ? ` stroke="${escape(stroke.hex)}" stroke-opacity="${formatSvgNumber(stroke.alpha, precision)}" stroke-width="${formatSvgExtent(stroke.width, precision)}" stroke-linecap="${stroke.cap}" stroke-linejoin="${stroke.join}" stroke-miterlimit="${formatSvgNumber(stroke.miterLimit, precision)}" stroke-dasharray="${stroke.dash.length ? stroke.dash.map((number) => formatSvgNumber(number, precision)).join(' ') : 'none'}" stroke-dashoffset="${formatSvgNumber(stroke.dashOffset, precision)}"` : ''}/>`;
   }
   return `${gradient ? `<defs>${gradient.definition}</defs>` : ''}${shape(value, attributes)}`;
 }
@@ -8152,6 +8179,12 @@ export class CommandSession {
         candidate.schemaVersion,
         REPEATER_ALTERNATE_SCHEMA_VERSION,
       );
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Geometry Repeater' && hasRepeaterFillAuthorship(n)),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, REPEATER_FILL_SCHEMA_VERSION);
     validate(candidate);
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);

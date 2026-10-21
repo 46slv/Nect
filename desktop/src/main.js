@@ -2007,6 +2007,8 @@ function field(n, key, q) {
         position: 'Position',
         scale: 'Scale (%)',
         alternateScale: 'Alternate Scale (%)',
+        alternateFill: 'Alternate Fill',
+        alternateColor: 'Alternate Color',
         rotation: 'Rotation (degrees)',
         startOpacity: 'Start Opacity (%)',
         endOpacity: 'End Opacity (%)',

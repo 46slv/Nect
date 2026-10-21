@@ -1,13 +1,33 @@
 // Bounded 2D Repeater. Integer powers retain the original affine contract;
 // fractional Offset uses an explicit bounded partial-step policy below.
+import { publicColor } from './color-operations.js';
 export const REPEATER_SCHEMA_VERSION = 37;
 export const REPEATER_ALTERNATE_SCHEMA_VERSION = 45;
+export const REPEATER_FILL_SCHEMA_VERSION = 46;
+export const REPEATER_FILL_DEFAULT = Object.freeze({ hex: '#36434e', alpha: 1 });
+export function hasRepeaterFillAuthorship(n) {
+  const flag = n.params.alternateFill,
+    color = n.params.alternateColor;
+  return !!(
+    flag &&
+    color &&
+    (flag.value !== false ||
+      flag.source ||
+      flag.expression ||
+      color.value?.hex !== REPEATER_FILL_DEFAULT.hex ||
+      color.value?.alpha !== 1 ||
+      color.source ||
+      color.expression)
+  );
+}
 export const REPEATER_KEYS = [
   'offset',
   'anchor',
   'position',
   'scale',
   'alternateScale',
+  'alternateFill',
+  'alternateColor',
   'rotation',
   'startOpacity',
   'endOpacity',
@@ -17,6 +37,11 @@ export const REPEATER_KEYS = [
 export function repeaterSettings(read) {
   const settings = Object.fromEntries(['count', ...REPEATER_KEYS].map((key) => [key, read(key)]));
   if (settings.alternateScale === undefined) settings.alternateScale = 100;
+  if (settings.alternateFill === undefined) settings.alternateFill = false;
+  if (settings.alternateColor === undefined) settings.alternateColor = REPEATER_FILL_DEFAULT;
+  if (typeof settings.alternateFill !== 'boolean')
+    throw Error('2D Repeater Alternate Fill must be Boolean');
+  settings.alternateColor = publicColor(settings.alternateColor);
   const {
     count,
     offset,
@@ -189,6 +214,9 @@ export function repeatGeometry(source, options) {
         id: `${options.prefix}:copy${copy}:c${ci}`,
         group: `${options.prefix}:copy${copy}:g${groups.get(c.group ?? '')}`,
         repeaterOpacity: opacity * tailAlpha,
+        ...(settings.alternateFill && copy % 2
+          ? { repeaterFill: { ...settings.alternateColor } }
+          : {}),
         closed: c.closed,
         points: c.points.map((pt, pi) => ({
           id: `${options.prefix}:copy${copy}:c${ci}:p${pi}`,
@@ -227,7 +255,7 @@ export function repeaterControls(node) {
   if (node.type !== 'Geometry Repeater') return '';
   const summary =
     node.operation === 'ae-2d'
-      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small>'
+      ? '<small class="repeater-limits">2D only. Fractional Copies / Offset use bounded partial-step rules. After this node use Transform, paint and Output only. Full limits in Help.</small><small class="repeater-fill-limits">Alternate Fill: odd copies, existing solid fills only. None/gradients stay unchanged.</small>'
       : '';
   return (
     summary +
