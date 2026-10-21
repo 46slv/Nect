@@ -128,8 +128,15 @@ test('Canvas wrap width owns one coalesced gesture without changing Text or sele
     alignment = 'start',
     referenceBounds = 'advance',
     crossAlignment = 'origin',
+    transformOptions = {},
   ) => {
-    fixture = textWrapCanvasFixture({ transformed, alignment, referenceBounds, crossAlignment });
+    fixture = textWrapCanvasFixture({
+      transformed,
+      alignment,
+      referenceBounds,
+      crossAlignment,
+      ...transformOptions,
+    });
     win.wrapTestLoad(serialize(fixture.doc));
     if ($('.alignment-panel')) $('.canvas-toolbar [data-action="align-panel"]').click();
     selectText();
@@ -493,6 +500,103 @@ test('Canvas wrap width owns one coalesced gesture without changing Text or sele
         if (ending === 'Escape') key('Escape');
         else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));
         else fire(document, 'pointercancel', ...p);
+        settle();
+        assert.deepEqual(state(), before);
+        assert.equal($('.artboard').innerHTML, shown);
+        assert.equal(win.wrapTestState().selection, identity);
+        assert.equal(win.wrapTestState().gesture, false);
+        scale = 1;
+        pan = [30, 40];
+      },
+    );
+  for (const [angle, alignment, cross, zoom, ending] of [
+    [90, 'center', 'center', 1, 'Escape'],
+    [-45, 'end', 'end', 2, 'pointercancel'],
+    [37, 'center', 'end', 1.25, 'blur'],
+  ])
+    await t.test(
+      `rotated ${angle} Text uses full inverse through zoom/pan, one Undo and ${ending}`,
+      async () => {
+        scale = zoom;
+        pan = [90, -20];
+        const factor = alignment === 'center' ? 2 : -1;
+        const prepare = () => {
+          load(true, alignment, 'visible', cross, {
+            rotation: angle,
+            transformAnchor: [70, 90],
+            transformPosition: [300, 180],
+          });
+          fire($('.shape[data-layer]'), 'pointerdown', 400, 300);
+          fire(document, 'pointerup', 400, 300);
+          settle();
+          resetCounts();
+        };
+        const screenDelta = (matrix, dx, dy) => [
+          (matrix[0] * dx + matrix[2] * dy) * scale,
+          (matrix[1] * dx + matrix[3] * dy) * scale,
+        ];
+        for (const width of [200, 640]) {
+          prepare();
+          const before = state(),
+            identity = win.wrapTestState().selection,
+            c = win.wrapTestContext(),
+            p = press();
+          const d = screenDelta(c.matrix, (width - 320) / factor, 23);
+          fire(document, 'pointermove', p[0] + d[0], p[1] + d[1]);
+          flush();
+          assert.deepEqual(state(), before);
+          assert.equal(win.wrapWork.render, 0);
+          assert.equal(win.wrapWork.wires, 0);
+          assert.match(handle().getAttribute('style'), new RegExp(c.cursor));
+          fire(document, 'pointerup', p[0] + d[0], p[1] + d[1]);
+          settle();
+          const committed = state(),
+            expected = JSON.parse(before[0]);
+          expected.layers[0].nodes[0].textWrap.width = width;
+          assert.deepEqual(win.nect.document, expected);
+          assert.equal(win.wrapTestState().selection, identity);
+          assert.equal(win.wrapTestState().past, 1);
+          $('[data-action="undo"]').click();
+          settle();
+          assert.equal(state()[0], before[0]);
+          assert.equal(state()[1], before[1]);
+          $('[data-action="redo"]').click();
+          settle();
+          assert.equal(state()[0], committed[0]);
+          assert.equal(state()[1], committed[1]);
+          $('[data-action="undo"]').click();
+          settle();
+          const input = $('[data-text-wrap-width]');
+          input.value = String(width);
+          input.dispatchEvent(new win.Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 10));
+          settle();
+          assert.equal(state()[0], committed[0]);
+          assert.equal(state()[1], committed[1]);
+        }
+        prepare();
+        let before = state(),
+          p = press(),
+          c = win.wrapTestContext(),
+          d = screenDelta(c.matrix, 0, 30);
+        fire(document, 'pointermove', p[0] + d[0], p[1] + d[1]);
+        flush();
+        fire(document, 'pointerup', p[0] + d[0], p[1] + d[1]);
+        settle();
+        assert.deepEqual(state(), before, 'orthogonal local motion creates no width edit/history');
+        prepare();
+        before = state();
+        const shown = $('.artboard').innerHTML,
+          identity = win.wrapTestState().selection;
+        p = press();
+        c = win.wrapTestContext();
+        d = screenDelta(c.matrix, (200 - 320) / factor, 23);
+        fire(document, 'pointermove', p[0] + d[0], p[1] + d[1]);
+        flush();
+        if (ending === 'Escape') key('Escape');
+        else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));
+        else fire(document, 'pointercancel', ...p);
+        fire(document, 'pointerup', p[0] + d[0], p[1] + d[1]);
         settle();
         assert.deepEqual(state(), before);
         assert.equal($('.artboard').innerHTML, shown);

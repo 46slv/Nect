@@ -9,9 +9,11 @@ import {
   exportSVG,
   setCharacterStyles,
   setCharacterOffsets,
+  parameter,
 } from '../src/core.js';
 import { textWrapResizeContext, resizedTextWrapWidth } from '../src/text-wrap-resize.js';
 import { textWrapCanvasFixture } from './fixtures/text-wrap-canvas.js';
+import { transformCharacterPoint } from '../src/character-geometry.js';
 const b = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
 const fonts = { default: parseFont(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)) };
 const context = (doc, sourceId = null) =>
@@ -113,7 +115,10 @@ test('visibility/lock/driven/reference/transform guards reject without mutation'
     (d) => (d.layers[0].nodes[0].alignment = 'unknown'),
     (d) => (d.layers[0].nodes[0].crossAlignment = 'unknown'),
     (d) => (d.layers[0].nodes[0].params.size.expression = 'value * 2'),
-    (d) => (d.layers[0].nodes[1].params.rotation.value = 20),
+    (d) => {
+      const n = d.layers[0].nodes[1];
+      n.params.skew = { ...parameter(n, 'skew'), value: 10 };
+    },
     (d) => (d.layers[0].nodes[1].params.scale.value = -1),
     (d) => (d.layers[0].nodes[1].params.scale.value = 0),
   ];
@@ -371,4 +376,148 @@ test('rich manual-leading frame does not chase post-layout character offsets or 
       assert.deepEqual(t.params.position.value, [140, 160]);
     }
   }
+});
+
+test('zero,90,negative and arbitrary rotation reuse the renderer affine and project only local X', () => {
+  for (const angle of [0, 90, -45, 37]) {
+    const alignment = angle < 0 ? 'end' : 'center',
+      crossAlignment = angle === 37 ? 'end' : 'center';
+    const f = textWrapCanvasFixture({
+      transformed: true,
+      alignment,
+      crossAlignment,
+      rotation: angle,
+      transformAnchor: [70, 90],
+      transformPosition: [300, 180],
+    });
+    const before = structuredClone(f.doc),
+      c = context(before),
+      local = context(before, f.textId);
+    const renderer = evaluate(before.layers[0], fonts, before.imageAssets, before).transformValues(
+      f.transformId,
+    );
+    assert.equal(c.supported, true);
+    assert.deepEqual(c.matrix, renderer.matrix);
+    assert.deepEqual(
+      c.corners,
+      local.corners.map((p) => transformCharacterPoint(renderer.matrix, p)),
+    );
+    assert.deepEqual(c.handle, transformCharacterPoint(renderer.matrix, local.handle));
+    assert.equal(
+      c.cursor,
+      angle === 90
+        ? 'ns-resize'
+        : angle === -45
+          ? 'nesw-resize'
+          : angle === 37
+            ? 'nwse-resize'
+            : 'ew-resize',
+    );
+    const [a, b, x, y] = c.matrix,
+      factor = alignment === 'center' ? 2 : -1;
+    assert.equal(
+      resizedTextWrapWidth(320, c.matrix, [x * 30, y * 30], alignment),
+      320,
+      'local Y is width neutral',
+    );
+    if (angle === 90) {
+      assert.equal(
+        resizedTextWrapWidth(320, c.matrix, [30, 0], alignment),
+        320,
+        'screen X is not local width at90',
+      );
+      assert.equal(
+        resizedTextWrapWidth(320, c.matrix, [0, 30], alignment),
+        360,
+        'vertical screen motion changes width at90',
+      );
+    }
+    assert.equal(
+      resizedTextWrapWidth(320, c.matrix, [(a * 1e8) / factor, (b * 1e8) / factor], alignment),
+      100000,
+    );
+    assert.equal(
+      resizedTextWrapWidth(320, c.matrix, [(-a * 1e8) / factor, (-b * 1e8) / factor], alignment),
+      0.01,
+    );
+    for (const width of [200, 640]) {
+      const dx = (width - 320) / factor,
+        dy = 23;
+      const mapped = resizedTextWrapWidth(
+        320,
+        c.matrix,
+        [a * dx + x * dy, b * dx + y * dy],
+        alignment,
+      );
+      assert.equal(mapped, width);
+      const session = new CommandSession(before, { fonts: () => fonts }),
+        numeric = new CommandSession(before, { fonts: () => fonts });
+      let token = session.dispatch({
+        ...session.state,
+        type: 'begin-gesture',
+        payload: {
+          target: { kind: 'text-values', layerId: f.layerId, nodeId: f.textId, textKind: 'wrap' },
+        },
+      });
+      token = session.dispatch({
+        ...session.state,
+        type: 'update-gesture',
+        payload: { ...token, update: { values: [mapped] } },
+      });
+      const preview = session.previewSnapshot(token.gestureId).document,
+        expected = structuredClone(before);
+      expected.layers[0].nodes[0].textWrap.width = width;
+      numeric.dispatch({
+        ...numeric.state,
+        type: 'set-text-settings',
+        payload: {
+          layerId: f.layerId,
+          nodeId: f.textId,
+          settings: { textWrap: { ...before.layers[0].nodes[0].textWrap, width } },
+        },
+      });
+      assert.deepEqual(preview, expected);
+      assert.deepEqual(preview, numeric.snapshot());
+      assert.equal(exportSVG(preview, fonts), exportSVG(numeric.snapshot(), fonts));
+      session.dispatch({ ...session.state, type: 'cancel-gesture', payload: token });
+      assert.deepEqual(session.snapshot(), before);
+      assert.equal(session.historyView.past.length, 0);
+    }
+  }
+});
+
+test('skew/reflection/collapsed and noninvertible rotations refuse without document writes', () => {
+  for (const mutate of [
+    (n) => (n.params.scale.value = 0),
+    (n) => (n.params.scale.value = 1e-8),
+    (n) => (n.params.scale.value = -1),
+    (n) => (n.params.skew = { ...parameter(n, 'skew'), value: 10 }),
+    (n) => {
+      n.params.uniformScale = { ...parameter(n, 'uniformScale'), value: false };
+      n.params.scaleWidth = { ...parameter(n, 'scaleWidth'), value: 0 };
+    },
+  ]) {
+    const f = textWrapCanvasFixture({ transformed: true, rotation: 37 });
+    mutate(f.doc.layers[0].nodes[1]);
+    const before = JSON.stringify(f.doc);
+    assert.equal(context(f.doc).supported, false);
+    assert.equal(JSON.stringify(f.doc), before);
+  }
+  const f = textWrapCanvasFixture({ transformed: true, rotation: 37 }),
+    result = evaluate(f.doc.layers[0], fonts, f.doc.imageAssets, f.doc),
+    saved = serialize(f.doc);
+  for (const matrix of [
+    [1, 0, 0, 0, 0, 0],
+    [1e-9, 0, 0, 1e-9, 0, 0],
+    [Infinity, 0, 0, 1, 0, 0],
+  ]) {
+    const invalid = {
+      ...result,
+      transformValues: () => ({ ...result.transformValues(f.transformId), matrix }),
+    };
+    assert.equal(textWrapResizeContext(f.doc.layers[0], invalid, fonts).supported, false);
+    assert.throws(() => resizedTextWrapWidth(320, matrix, [1, 1]));
+  }
+  assert.throws(() => resizedTextWrapWidth(320, context(f.doc).matrix, [NaN, 0]));
+  assert.equal(serialize(f.doc), saved);
 });
