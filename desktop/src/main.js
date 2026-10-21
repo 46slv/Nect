@@ -1393,6 +1393,7 @@ function resetTransient() {
   gridOpacityDraft = null;
   closeNodeContextMenu();
   pointPanelViews.clear();
+  pointScopeActions.clear();
   pointDeltaDraft = null;
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
@@ -2090,6 +2091,8 @@ function field(n, key, q) {
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
+const pointScopeActions = new Map();
+let pointScopeSerial = 0;
 const POINT_PANEL_PAGE_SIZE = 24;
 let pointDeltaDraft = null;
 function pointBoundsSummary(n) {
@@ -2214,6 +2217,7 @@ function pointPanelSource(n, input) {
             points: c.points.map((p) => p.id),
           })) || [],
     units: n.type === 'Multi Path' ? n.units : [],
+    fingerprint: input?.fingerprint || null,
   };
 }
 function scopedPointPanel(entries, source, view) {
@@ -2228,6 +2232,114 @@ function scopedPointPanel(entries, source, view) {
     contours,
     entries: ids ? ids.map((id) => byId.get(id)).filter(Boolean) : entries,
   };
+}
+function pointScopeIdentity(source, view) {
+  const unit = source.units.find((u) => u.id === view.unitId),
+    contours = source.contours.filter((c) => !unit || unit.contours.includes(c.id)),
+    contour = contours.find((c) => c.id === view.contourId);
+  if (
+    (view.unitId && !unit) ||
+    (view.contourId && !contour) ||
+    unit?.contours.some((id) => !source.contours.some((c) => c.id === id))
+  )
+    throw Error('Point selection scope changed');
+  const allIds = source.points.map((p) => p.id),
+    available = new Set(allIds),
+    ids = contour?.points || (unit ? contours.flatMap((c) => c.points) : allIds);
+  if (
+    available.size !== allIds.length ||
+    new Set(ids).size !== ids.length ||
+    ids.some((id) => typeof id !== 'string' || !available.has(id))
+  )
+    throw Error('Point selection target changed');
+  return {
+    unitId: unit?.id || '',
+    contourId: contour?.id || '',
+    ids,
+    fingerprint: source.fingerprint,
+    name: contour
+      ? `contour ${contour.index + 1}`
+      : unit
+        ? `unit ${source.units.indexOf(unit) + 1}`
+        : 'this path',
+  };
+}
+function samePointScope(a, b) {
+  return (
+    a.unitId === b.unitId &&
+    a.contourId === b.contourId &&
+    a.fingerprint === b.fingerprint &&
+    a.ids.length === b.ids.length &&
+    a.ids.every((id, i) => id === b.ids[i])
+  );
+}
+function pointScopeControls(n, source, view) {
+  let scope;
+  try {
+    scope = pointScopeIdentity(source, view);
+  } catch {
+    pointScopeActions.delete(n.id);
+    return '<p class="point-panel-summary">Point selection unavailable</p>';
+  }
+  const envelope = session.state;
+  let record = pointScopeActions.get(n.id);
+  if (
+    !record ||
+    record.layerId !== current().id ||
+    record.envelope.sessionId !== envelope.sessionId ||
+    record.envelope.expectedRevision !== envelope.expectedRevision ||
+    !samePointScope(record, scope)
+  ) {
+    record = { ...scope, layerId: current().id, envelope, token: String(++pointScopeSerial) };
+    pointScopeActions.set(n.id, record);
+  }
+  return `<div role="group" aria-label="Point selection in ${scope.name}"><p class="point-panel-summary">${scope.name} · ${scope.ids.length} anchors</p><div class="point-panel-pages">${[
+    ['all', 'Select all'],
+    ['invert', 'Invert'],
+  ]
+    .map(
+      ([action, label]) =>
+        `<button class="mini" data-point-scope-action="${action}" data-point-scope-node="${n.id}" data-point-scope-token="${record.token}" aria-label="${label} in ${scope.name}: ${scope.ids.length} anchors" ${scope.ids.length ? '' : 'disabled'}>${label} (${scope.ids.length})</button>`,
+    )
+    .join('')}</div></div>`;
+}
+function selectPointScope(nodeId, token, action) {
+  try {
+    const record = pointScopeActions.get(nodeId),
+      n = current().nodes.find((n) => n.id === nodeId),
+      envelope = session.state;
+    if (
+      !record ||
+      !n ||
+      record.token !== token ||
+      record.layerId !== current().id ||
+      record.envelope.sessionId !== envelope.sessionId ||
+      record.envelope.expectedRevision !== envelope.expectedRevision
+    )
+      throw Error('Point selection cancelled: scope or revision changed');
+    if (composing || session.hasGesture)
+      throw Error('Finish the current edit before selecting points');
+    const scope = pointScopeIdentity(pointPanelSource(n), pointPanelViews.get(n.id) || {});
+    if (!samePointScope(record, scope)) throw Error('Point selection cancelled: targets changed');
+    if (!['all', 'invert'].includes(action)) throw Error('Invalid point selection action');
+    if (!scope.ids.length) return;
+    const before = new Set(selectedPointIds(n)),
+      ids = action === 'all' ? scope.ids : scope.ids.filter((id) => !before.has(id));
+    cancelPointDelta();
+    selected = n.id;
+    selection = new Set([n.id]);
+    artworkTarget = null;
+    artworkSelection = new Set();
+    pointSelection = { nodeId: n.id, ids: new Set(ids) };
+    pointHover = null;
+    const active = ids.includes(pointFocus?.pointId) ? pointFocus.pointId : ids[0];
+    pointFocus = active ? { nodeId: n.id, pointId: active } : null;
+    if (active) followPointPanelTarget(n, active);
+    else pointPanelViews.set(n.id, { ...pointPanelViews.get(n.id), all: false, page: 0 });
+    render();
+  } catch (error) {
+    notify(error.message, true);
+  }
 }
 function followPointPanelTarget(n, pointId) {
   const source = pointPanelSource(n),
@@ -2268,6 +2380,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
   const candidates = view.all ? scoped.entries : chosen;
   const pages = Math.max(1, Math.ceil(candidates.length / POINT_PANEL_PAGE_SIZE));
   const page = Math.min(view.page, pages - 1);
+  pointPanelViews.set(n.id, { ...view, page });
   const rows = candidates.slice(page * POINT_PANEL_PAGE_SIZE, (page + 1) * POINT_PANEL_PAGE_SIZE);
   const scopeControls = source.contours.length
     ? `<div role="group" aria-label="Point list scope">${source.units.length ? `<div class="field"><label>List unit</label><select data-point-panel-unit="${n.id}" aria-label="Point list unit"><option value="">All units</option>${source.units.map((u, i) => `<option value="${esc(u.id)}" ${view.unitId === u.id ? 'selected' : ''}>Unit ${i + 1} · ${u.contours.length} contours · ${esc(u.id)}</option>`).join('')}</select></div>` : ''}<div class="field"><label>List contour</label><select data-point-panel-contour="${n.id}" aria-label="Point list contour"><option value="">All contours</option>${scoped.contours.map((c) => `<option value="${esc(c.id)}" ${view.contourId === c.id ? 'selected' : ''}>Contour ${c.index + 1} · ${c.closed ? 'closed' : 'open'} · ${c.points.length} points · ${esc(c.id)}</option>`).join('')}</select></div></div>`
@@ -2277,7 +2390,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${ownedPointDeltaFields(n)}${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -2307,7 +2420,7 @@ function ownedHandlePolarFields(n, pt, key, index) {
   return `<div class="field handle-polar"><label>${name}</label><div class="field-controls">${['angle', 'length'].map((component) => `<label>${component === 'angle' ? 'Angle°' : 'Length'}<input type="number" step="any" ${component === 'length' ? 'min="0"' : ''} data-handle-polar="${component}" data-node="${n.id}" data-point="${pt.id}" data-handle="${key}" aria-label="Point ${index + 1} ${name} ${component}" title="${component === 'angle' ? 'Degrees clockwise from +X; zero-length angle is 0 and unavailable' : 'Document units; growing a zero handle starts along +X'}" value="${Number(polar[component].toFixed(3))}" ${locked || (component === 'angle' && !polar.length) ? 'disabled' : ''}></label>`).join('')}</div></div>`;
 }
 function ownedPointFields(n) {
-  if (!n.points.length) return '';
+  if (!['Curve', 'Multi Path'].includes(n.type)) return '';
   return pointPanel(
     n,
     n.points.map((pt, index) => ({ pt, index })),
@@ -5926,6 +6039,13 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.pointScopeAction) {
+    if (!b.disabled) {
+      b.blur();
+      selectPointScope(d.pointScopeNode, d.pointScopeToken, d.pointScopeAction);
+    }
+    return;
+  }
   if (d.applyPointDelta || d.cancelPointDelta) {
     if (d.cancelPointDelta) cancelPointDelta();
     else if (!b.disabled) applyPointDelta(d.applyPointDelta);
