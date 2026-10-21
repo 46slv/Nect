@@ -4451,16 +4451,27 @@ function drawWires() {
     svg = document.querySelector('.wires');
   if (!graph) return;
   let rect = graph.getBoundingClientRect(),
-    html = '';
+    html = '',
+    fields;
   for (const n of current().nodes)
     for (const [key, q] of parameters(n)) {
       if (!q.source) continue;
+      // Reuse target discovery only within this draw. Structural/field changes
+      // are resolved afresh next time; duplicate addresses retain find-first.
+      if (!fields) {
+        fields = new Map();
+        for (const el of graph.querySelectorAll('.field')) {
+          const id = el.dataset.node,
+            key = el.dataset.key;
+          if (!fields.has(id)) fields.set(id, new Map());
+          const nodeFields = fields.get(id);
+          if (!nodeFields.has(key)) nodeFields.set(key, el);
+        }
+      }
       let from = graph.querySelector(
           `[data-source="${q.source}"]${q.sourcePort ? `[data-source-port="${q.sourcePort}"]` : ':not([data-source-port])'}`,
         ),
-        to = [...graph.querySelectorAll('.field')]
-          .find((el) => el.dataset.node === n.id && el.dataset.key === key)
-          ?.querySelector('.input');
+        to = fields.get(n.id)?.get(key)?.querySelector('.input');
       if (!from || !to) continue;
       let a = from.getBoundingClientRect(),
         b = to.getBoundingClientRect(),
