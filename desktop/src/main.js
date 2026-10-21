@@ -4100,6 +4100,7 @@ function wrapResizeFresh(d) {
     !n.locked &&
     !n.bypassed &&
     n.text === d.sourceText &&
+    (n.alignment || 'start') === d.wrapReference &&
     n.textWrap?.width === d.originalWidth
   );
 }
@@ -4142,6 +4143,7 @@ function queueWrapResize(event) {
     d.originalWidth,
     d.matrix,
     point.map((v, i) => v - d.start[i]),
+    d.wrapReference,
   );
   d.started = true;
   if (d.wrapFrame === null)
@@ -10470,6 +10472,7 @@ app.addEventListener('pointerdown', (e) => {
       originalWidth: context.width,
       lastWidth: context.width,
       matrix: context.matrix,
+      wrapReference: context.reference,
       start: canvasPoint(e),
       startClient: [e.clientX, e.clientY],
       epoch: sourceEpoch,
