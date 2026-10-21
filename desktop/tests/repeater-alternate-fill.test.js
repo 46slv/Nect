@@ -58,6 +58,19 @@ test('odd fill is appearance-only, stable with alternate scale/offset/order; alp
       paths(exportSVG(f.doc)).filter(([, , a]) => a.includes('fill-opacity="0"')).length,
       12,
     );
+    f.repeat.params.alternateColor.value.alpha = 0.35;
+    f.repeat.params.count.value = 1.5;
+    f.repeat.params.startOpacity.value = 20;
+    f.repeat.params.endOpacity.value = 80;
+    const partial = paths(exportSVG(f.doc));
+    assert.deepEqual(
+      partial.map(([, opacity]) => opacity),
+      ['0.4', '0.2'],
+    );
+    assert.ok(
+      partial[0][2].includes('fill-opacity="0.35"'),
+      'odd tail keeps Color alpha separate from copy alpha',
+    );
   }
 });
 
