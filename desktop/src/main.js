@@ -2009,8 +2009,21 @@ function field(n, key, q) {
       )
       .join('')}</select>`;
   else if (q.type === 'Color') {
-    const color = displayed || { hex: current().fill, alpha: 1 };
-    control = `<input type="color" data-color="hex" aria-label="${esc(n.name + ' ' + name)} color" value="${esc(color.hex)}" ${locked ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" data-scrub-step="0.01" data-color="alpha" aria-label="${esc(n.name + ' ' + name)} alpha" title="Alpha: 0 transparent, 1 opaque" min="0" max="1" step="0.01" value="${color.alpha}" ${locked ? 'disabled' : ''}>`}`;
+    const driven = !!(q.expression || q.source),
+      color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
+      disabled = current().locked || q.locked,
+      base = driven ? ' data-color-base' : '';
+    const inputs = `<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
+    if (driven) {
+      let result;
+      try {
+        const effective = renderEvaluation.parameterValue(n.id, key);
+        result = `${effective.hex}  alpha ${effective.alpha}`;
+      } catch {
+        result = 'Cannot evaluate';
+      }
+      control = `<div class="authored-control"><div class="base-inputs"><label class="base-component">Base${inputs}</label></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
+    } else control = inputs;
   } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
@@ -2044,7 +2057,7 @@ function field(n, key, q) {
           `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
-  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
+  return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
@@ -6530,11 +6543,13 @@ app.addEventListener('click', async (e) => {
       if (q.locked || current().locked) return;
       const dialog = document.createElement('dialog');
       dialog.innerHTML = `<h3>Expression · ${esc(nn.name)} · ${esc(f.dataset.key)}</h3><p>${q.type === 'Vector2' ? 'X; Y expressions: value reads Base X on the left, Base Y on the right.' : 'value reads this input’s authored base.'} Type a function, node name, or parameter prefix for suggestions. ↑/↓ select; Tab/Enter insert; Escape dismisses. Insert a parameter reference, then add arithmetic. Leave blank for direct values.</p><input aria-label="Parameter expression" autocomplete="off" spellcheck="false"><p><button data-insert-reference>Insert parameter reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
+      if (q.type === 'Color')
+        dialog.innerHTML = `<h3>Color expression</h3><input aria-label="Parameter expression" autocomplete="off" spellcheck="false" placeholder="value"><p><button data-insert-reference>Insert Color reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
       const input = dialog.querySelector('input');
       input.value = q.expression || '';
       const completion = attachExpressionCompletion(
         input,
-        () => expressionReferenceTargets(current(), nn.id),
+        () => expressionReferenceTargets(current(), nn.id, q.type),
         q.type,
       );
       dialog.querySelector('[data-insert-reference]').onclick = () => {
@@ -6544,7 +6559,7 @@ app.addEventListener('click', async (e) => {
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
-          items: expressionReferenceTargets(current(), nn.id).map((target) => ({
+          items: expressionReferenceTargets(current(), nn.id, q.type).map((target) => ({
             id: target.expression,
             label: target.label,
             detail: target.nodeId + ' · ' + target.expression,
@@ -6559,6 +6574,9 @@ app.addEventListener('click', async (e) => {
         });
       };
       dialog.querySelector('[data-cancel]').onclick = () => closeEditorDialog(dialog);
+      // Keep completion dismissal from moving dialog buttons between pointer down/up.
+      for (const button of dialog.querySelectorAll('[data-confirm], [data-cancel]'))
+        button.onmousedown = (event) => event.preventDefault();
       dialog.querySelector('[data-confirm]').onclick = () => {
         if (
           commandChange(
@@ -8424,7 +8442,7 @@ app.addEventListener('change', async (e) => {
           return;
         }
         commandChange(
-          d.base !== undefined
+          d.base !== undefined || d.colorBase !== undefined
             ? 'set-parameter-base'
             : isTransform(n)
               ? 'set-transform-control'
@@ -11545,7 +11563,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     return;
   }
-  if (e.target.matches?.('[data-base]') && !e.isComposing && e.keyCode !== 229) {
+  if (e.target.matches?.('[data-base], [data-color-base]') && !e.isComposing && e.keyCode !== 229) {
     if (e.key === 'Escape') {
       e.preventDefault();
       e.target.value = e.target.defaultValue;

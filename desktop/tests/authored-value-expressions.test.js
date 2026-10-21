@@ -150,10 +150,10 @@ test('legacy 24/25 files retain version; only bare value syntax promotes to 26 i
     assert.throws(() => deserialize(JSON.stringify(old)), /schemaVersion 26/);
   }
 });
-test('composition lock and nonnumeric base editing reject without changes', () => {
+test('composition lock and unsupported Boolean base editing reject without changes', () => {
   const doc = document(),
     l = doc.layers[0],
-    n = node('Color');
+    n = node('Toggle');
   l.nodes.push(n);
   const s = new CommandSession(doc),
     before = serialize(s.snapshot());
@@ -162,9 +162,9 @@ test('composition lock and nonnumeric base editing reject without changes', () =
       s.dispatch({
         ...s.state,
         type: 'set-parameter-base',
-        payload: { layerId: l.id, nodeId: n.id, key: 'value', value: { hex: '#ffffff', alpha: 1 } },
+        payload: { layerId: l.id, nodeId: n.id, key: 'value', value: true },
       }),
-    /numeric/,
+    /Scalar, Vector2 or Color/,
   );
   assert.equal(serialize(s.snapshot()), before);
   const f = fixture();

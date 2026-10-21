@@ -881,6 +881,7 @@ function parameterDependencies(entries) {
             source: ref.nodeId,
             parameterKey: ref.key,
             component: ref.component,
+            ...(q.type === 'Color' ? { parameterType: 'Color' } : {}),
           }))
         : [],
   );
@@ -1112,11 +1113,15 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: preset.nodes.some((n) => isImageDither(n.type))
-      ? IMAGE_DITHER_SCHEMA_VERSION
-      : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
-        ? BOOLEAN_INPUT_SCHEMA_VERSION
-        : NODE_PRESET_SCHEMA_VERSION,
+    schemaVersion: preset.nodes.some((n) =>
+      parameters(n).some(([, q]) => q.type === 'Color' && q.expression),
+    )
+      ? COLOR_EXPRESSION_SCHEMA_VERSION
+      : preset.nodes.some((n) => isImageDither(n.type))
+        ? IMAGE_DITHER_SCHEMA_VERSION
+        : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
+          ? BOOLEAN_INPUT_SCHEMA_VERSION
+          : NODE_PRESET_SCHEMA_VERSION,
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
@@ -1544,7 +1549,24 @@ export function expression(source, resolveReference, referencesOnly = false, bas
 function usesBaseValue(source) {
   return /\bvalue\b/.test(source.replace(/"[^"]*"/g, ''));
 }
-function parameterExpression(q, resolveReference) {
+export const COLOR_EXPRESSION_SCHEMA_VERSION = 42;
+function parameterBaseValue(layer, n, key, q) {
+  return n.type === 'Fill' && key === 'color' && q.value === null
+    ? { hex: layer.fill, alpha: 1 }
+    : q.value;
+}
+function parameterExpression(q, resolveReference, baseValue = q.value) {
+  if (q.type === 'Color') {
+    if (q.expression.length > 4096) throw Error('Expression exceeds 4096 characters');
+    const source = q.expression.trim();
+    let value;
+    if (source === 'value') value = baseValue;
+    else if (/^ref\s*\(\s*"[a-zA-Z0-9:_.-]+"\s*,\s*"[a-zA-Z0-9:_.-]+"\s*\)$/.test(source))
+      value = resolveReference(expressionReferences(q.expression)[0], 'Color');
+    else throw Error('Color expression requires value or ref("node-id", "color-key")');
+    assertValue('Color', value);
+    return clone(value);
+  }
   return q.type === 'Vector2'
     ? q.expression
         .split(';')
@@ -1572,17 +1594,22 @@ export function expressionReferences(source) {
     );
   return refs;
 }
-function referenceParameter(layer, ref) {
+function referenceParameter(layer, ref, type = 'Scalar') {
   const target = layer.nodes.find((n) => n.id === ref.nodeId);
   if (!target) throw Error(`Expression reference target is missing: ${ref.nodeId}`);
   const q = Object.hasOwn(target.params, ref.key)
     ? target.params[ref.key]
     : transformParameter(target, ref.key);
+  if (type === 'Color') {
+    if (!q || q.type !== 'Color' || ref.component !== undefined)
+      throw Error('Expression reference requires a Color parameter');
+    return target;
+  }
   if (!q || (ref.component === undefined ? q.type !== 'Scalar' : q.type !== 'Vector2'))
     throw Error('Expression reference requires a Scalar parameter or a Vector2 component');
   return target;
 }
-export function expressionReferenceTargets(layer, nodeId) {
+export function expressionReferenceTargets(layer, nodeId, type = 'Scalar') {
   const reaches = (id, seen = new Set()) => {
     if (id === nodeId) return true;
     if (seen.has(id)) return false;
@@ -1594,16 +1621,24 @@ export function expressionReferenceTargets(layer, nodeId) {
     .filter((n) => !reaches(n.id))
     .flatMap((n) =>
       Object.entries(n.params).flatMap(([key, q]) =>
-        (q.type === 'Scalar' ? [undefined] : q.type === 'Vector2' ? ['x', 'y'] : []).map(
-          (component) => ({
-            nodeId: n.id,
-            name: n.name,
-            key,
-            component,
-            label: `${n.name} · ${key}${component ? `.${component}` : ''}`,
-            expression: parameterReferenceExpression(n.id, key, component),
-          }),
-        ),
+        (type === 'Color'
+          ? q.type === 'Color'
+            ? [undefined]
+            : []
+          : q.type === 'Scalar'
+            ? [undefined]
+            : q.type === 'Vector2'
+              ? ['x', 'y']
+              : []
+        ).map((component) => ({
+          nodeId: n.id,
+          name: n.name,
+          key,
+          component,
+          type: type === 'Color' ? 'Color' : 'Scalar',
+          label: `${n.name} · ${key}${component ? `.${component}` : ''}`,
+          expression: parameterReferenceExpression(n.id, key, component),
+        })),
       ),
     );
 }
@@ -2426,8 +2461,8 @@ export function evaluate(
   const outputKey = (id, port) =>
     byId.get(id)?.type === 'Text' && port === 'position' ? `${id}\0position` : id;
   const readingParameters = new Set();
-  function resolveExpressionReference(ref) {
-    const target = referenceParameter(layer, ref),
+  function resolveExpressionReference(ref, type = 'Scalar') {
+    const target = referenceParameter(layer, ref, type),
       value = readParameter(target, ref.key);
     return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
   }
@@ -2447,11 +2482,10 @@ export function evaluate(
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
     let q = parameter(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
-    if (q.type === 'Color' && q.expression) throw Error('Color expressions are not supported');
     let value = q.source
       ? run(q.source, q.sourcePort)
       : q.expression
-        ? parameterExpression(q, resolveExpressionReference)
+        ? parameterExpression(q, resolveExpressionReference, parameterBaseValue(layer, n, key, q))
         : n.type === 'Fill' && key === 'color' && q.value === null
           ? { hex: layer.fill, alpha: 1 }
           : clone(q.value);
@@ -2487,11 +2521,14 @@ export function evaluate(
         if (dep.parameterKey)
           parameterVersions.set(
             dep,
-            resolveExpressionReference({
-              nodeId: dep.source,
-              key: dep.parameterKey,
-              component: dep.component,
-            }),
+            resolveExpressionReference(
+              {
+                nodeId: dep.source,
+                key: dep.parameterKey,
+                component: dep.component,
+              },
+              dep.parameterType,
+            ),
           );
         else run(dep.source, dep.sourcePort);
       }
@@ -4281,11 +4318,21 @@ export function validate(doc) {
       throw Error('Path fallback must be null');
     text(q.expression);
     if (
+      type !== 'Color' &&
       usesBaseValue(q.expression) &&
-      (doc.schemaVersion < 26 || !['Scalar', 'Vector2'].includes(type))
+      (doc.schemaVersion < 26 || !['Scalar', 'Vector2', 'Color'].includes(type))
     )
       throw Error('Authored value expressions require numeric parameters and schemaVersion 26');
-    if (type === 'Color' && q.expression) throw Error('Color expressions are not supported');
+    if (type === 'Color' && q.expression) {
+      if (doc.schemaVersion < COLOR_EXPRESSION_SCHEMA_VERSION)
+        throw Error('Color expressions require schemaVersion 42');
+      // Validate the typed grammar even when a connection pauses the expression.
+      parameterExpression(
+        q,
+        () => ({ hex: '#000000', alpha: 1 }),
+        q.value ?? { hex: '#000000', alpha: 1 },
+      );
+    }
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
       throw Error('Invalid source ID');
@@ -4303,7 +4350,8 @@ export function validate(doc) {
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
-      doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION)
+      doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4871,7 +4919,8 @@ export function validate(doc) {
           for (const ref of expressionReferences(q.expression)) {
             if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
               throw Error('Expression reference target must be in the same layer');
-            if (owners.has(ref.nodeId)) referenceParameter(l, ref);
+            if (owners.has(ref.nodeId))
+              referenceParameter(l, ref, q.type === 'Color' ? 'Color' : 'Scalar');
           }
         }
     assertAcyclic(l);
@@ -7877,9 +7926,17 @@ export class CommandSession {
       } else {
         if (q.locked) throw Error('Parameter is locked');
         if (type === 'set-parameter-expression') {
-          if (!['Scalar', 'Vector2'].includes(q.type) || typeof payload.expression !== 'string')
-            throw Error('Expected a numeric expression');
+          if (
+            !['Scalar', 'Vector2', 'Color'].includes(q.type) ||
+            typeof payload.expression !== 'string'
+          )
+            throw Error('Expected a Scalar, Vector2 or Color expression');
           q.expression = payload.expression;
+          if (q.type === 'Color' && q.expression)
+            candidate.schemaVersion = Math.max(
+              candidate.schemaVersion,
+              COLOR_EXPRESSION_SCHEMA_VERSION,
+            );
           if (usesBaseValue(q.expression))
             candidate.schemaVersion = Math.max(candidate.schemaVersion, 26);
           if (payload.expression) {
@@ -7890,17 +7947,21 @@ export class CommandSession {
               candidate.imageAssets,
               candidate,
             );
-            const resolve = (ref) => {
-              const referenced = referenceParameter(target, ref);
+            const resolve = (ref, type = 'Scalar') => {
+              const referenced = referenceParameter(target, ref, type);
               const value = evaluation.parameterValue(referenced.id, ref.key);
               return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
             };
-            const value = parameterExpression(q, resolve);
+            const value = parameterExpression(
+              q,
+              resolve,
+              parameterBaseValue(target, node, payload.key, q),
+            );
             assertValue(q.type, value);
           }
         } else {
-          if (type === 'set-parameter-base' && !['Scalar', 'Vector2'].includes(q.type))
-            throw Error('Authored base editing requires a numeric parameter');
+          if (type === 'set-parameter-base' && !['Scalar', 'Vector2', 'Color'].includes(q.type))
+            throw Error('Authored base editing requires a Scalar, Vector2 or Color parameter');
           if (type !== 'set-parameter-base' && (q.source || q.expression))
             throw Error(
               'Parameter is driven; disconnect input or clear expression before editing its fallback',

@@ -6,7 +6,7 @@ Numeric expressions now accept a bounded `ref` function:
 - Vector component: `ref("node-id", "center", "x") + 20`
 - Vector2 destination: `ref("node-id", "center", "x"); ref("node-id", "center", "y") + 40`
 
-The searchable expression picker inserts stable node IDs and numeric node-parameter keys. Labels remain human-readable. Renaming does not break references. X/Y are required for Vector2 sources; whole vectors, point/remap-point descriptors, colors and geometry are not expression operands in this slice. References stay within the current composition. Current/downstream nodes are omitted from the picker to avoid cycles.
+The searchable expression picker inserts stable node IDs and numeric node-parameter keys. Labels remain human-readable. Renaming does not break references. X/Y are required for Vector2 sources; whole vectors, point/remap-point descriptors and geometry are not numeric expression operands. Color inputs have a separate typed slice described in [Color value and references](color-value-expressions.md). References stay within the current composition. Current/downstream nodes are omitted from the picker to avoid cycles.
 
 References read effective values, including expressions and connected inputs. A destination's connected socket still takes precedence over its expression. Existing arithmetic, constants, functions, and semicolon-separated Vector2 expressions remain available. This is an extension of the existing parser, not JavaScript: arbitrary code, object/property access, and dynamic evaluation are not supported. The 4096-character expression limit, finite-value checks, graph-depth limits, locks, and history transactions remain enforced.
 
@@ -41,7 +41,7 @@ Focused checks: `node --test tests/expression-completion.test.js tests/expressio
 - Scalar: `value + 10`
 - XY: `ref("neighbor-id", "position", "x") + value; ref("neighbor-id", "position", "y") + value`
 
-XY remains two scalar expressions separated by `;`: the left `value` is Base X and the right `value` is Base Y. With neighbor `[100,200]` and base `[20,10]`, the result is `[120,210]`; changing Base X to 30 gives `[130,210]` without adding a node. IDs must come from a real numeric reference target. This is not whole-vector arithmetic: `ref("neighbor-id", "position") + value`, `value + 10` on XY, Color expressions, arbitrary JavaScript, `input`, and automatic broadcasting remain unsupported. Effective self-references via `ref` still reject as cycles.
+XY remains two scalar expressions separated by `;`: the left `value` is Base X and the right `value` is Base Y. With neighbor `[100,200]` and base `[20,10]`, the result is `[120,210]`; changing Base X to 30 gives `[130,210]` without adding a node. IDs must come from a real numeric reference target. This is not whole-vector arithmetic: `ref("neighbor-id", "position") + value`, `value + 10` on XY, Color arithmetic, arbitrary JavaScript, `input`, and automatic broadcasting remain unsupported. Effective self-references via `ref` still reject as cycles.
 
 Driven numeric fields show Base controls, a read-only Result, and collapsible saved Expression. Base edits and horizontal scrubs use the dedicated core `set-parameter-base` command (payload: `layerId`, `nodeId`, `key`, numeric `value`, optional XY `axis`). Enter applies typed Base, Escape restores the typed draft; dragging commits once and Escape cancels the gesture. Parameter/composition locks, finite/type/domain checks, revision protection and atomic history still apply. Ordinary effective/canvas control edits retain their driven guard. Transform scale Base is displayed in percent while `value` uses its stored multiplier (50% means `value = 0.5`).
 
@@ -51,6 +51,10 @@ The `va` completion offers `value` first and labels Scalar or the current X/Y co
 
 No new parameter field is stored. Applying a bare `value` expression promotes the document to schemaVersion 26, including a dormant expression under a connection. Existing schema 24/25 documents without the new syntax retain their version; quoted `"value"` parameter keys do not trigger promotion. Importing bare `value` under a pre-26 version rejects rather than silently changing old semantics. Earlier readers reject version 26 as unsupported. Clearing an expression does not automatically downgrade a document.
 
-This is the numeric/component slice, not all-input support. Whole-XY operands, Color/Boolean/text expressions, typed-reference chips, dependency navigation/repair and the full design mock remain later work. Synthetic DOM verification is not real-browser rendering or desktop acceptance.
+This is the numeric/component slice, not all-input support. Whole-XY operands, Boolean/text expressions, typed-reference chips, dependency navigation/repair and the full design mock remain later work. Synthetic DOM verification is not real-browser rendering or desktop acceptance.
 
 Focused checks: `node --test tests/authored-value-expressions.test.js tests/authored-value-dom.test.js tests/expression-completion.test.js tests/expression-completion-dom.test.js tests/parameter-reference-expressions.test.js tests/numeric-scrub-dom.test.js tests/command-session.test.js tests/gesture-session.test.js tests/transform-anchor-dom.test.js`.
+
+## Typed Color expressions (schema 42)
+
+Color inputs, including Linear/Radial Gradient stop colors, accept `value` and `ref("node-id", "color-key")`. Their existing saved `{hex, alpha}` base stays editable beside the expression and read-only result. Color references use the same composition-local stable IDs and reference picker, filtered to Color properties. Numeric operands cannot read Color values. There is no Color arithmetic or palette storage in this slice. See [the scoped contract and verification](color-value-expressions.md).
