@@ -1534,6 +1534,7 @@ function numericLimits(n, key) {
     if (key === 'count') return [n.operation === 'ae-2d' ? 0 : 1, 256];
     if (key === 'offset') return [-256, 256];
     if (key === 'scale') return [-1000, 1000];
+    if (key === 'alternateScale') return [0.01, 1000];
     if (['startOpacity', 'endOpacity'].includes(key)) return [0, 100];
   }
   if (['Polygon', 'Star'].includes(n.type)) {
@@ -2005,6 +2006,7 @@ function field(n, key, q) {
         anchor: 'Anchor',
         position: 'Position',
         scale: 'Scale (%)',
+        alternateScale: 'Alternate Scale (%)',
         rotation: 'Rotation (degrees)',
         startOpacity: 'Start Opacity (%)',
         endOpacity: 'End Opacity (%)',

@@ -1,11 +1,13 @@
 // Bounded 2D Repeater. Integer powers retain the original affine contract;
 // fractional Offset uses an explicit bounded partial-step policy below.
 export const REPEATER_SCHEMA_VERSION = 37;
+export const REPEATER_ALTERNATE_SCHEMA_VERSION = 45;
 export const REPEATER_KEYS = [
   'offset',
   'anchor',
   'position',
   'scale',
+  'alternateScale',
   'rotation',
   'startOpacity',
   'endOpacity',
@@ -14,12 +16,14 @@ export const REPEATER_KEYS = [
 
 export function repeaterSettings(read) {
   const settings = Object.fromEntries(['count', ...REPEATER_KEYS].map((key) => [key, read(key)]));
+  if (settings.alternateScale === undefined) settings.alternateScale = 100;
   const {
     count,
     offset,
     anchor,
     position,
     scale,
+    alternateScale,
     rotation,
     startOpacity,
     endOpacity,
@@ -38,6 +42,8 @@ export function repeaterSettings(read) {
     throw Error('2D Repeater requires finite Anchor, Position, Scale and Rotation');
   if (scale.some((v) => Math.abs(v) > 1000))
     throw Error('2D Repeater Scale must be from -1000 to 1000 percent');
+  if (!Number.isFinite(alternateScale) || alternateScale < 0.01 || alternateScale > 1000)
+    throw Error('2D Repeater Alternate Scale must be from 0.01 to 1000 percent');
   if (!Number.isInteger(offset) && scale.some((v) => v < 0))
     throw Error(
       '2D Repeater fractional Offset requires nonnegative Scale; use an integer Offset with negative Scale',
@@ -154,6 +160,20 @@ export function repeatGeometry(source, options) {
   let matrix = offsetMatrix(settings, step);
   const copies = [];
   for (let copy = 0; copy < copyCount; copy++) {
+    // Scale the source around its original anchor before placing this copy.
+    // Do not feed this per-copy variation back into the accumulated step.
+    const copyMatrix =
+      copy % 2 && settings.alternateScale !== 100
+        ? multiply(
+            matrix,
+            repeaterStep({
+              anchor: settings.anchor,
+              position: [0, 0],
+              scale: [settings.alternateScale, settings.alternateScale],
+              rotation: 0,
+            }),
+          )
+        : matrix;
     const opacity =
       (copyCount === 1
         ? startOpacity
@@ -161,8 +181,8 @@ export function repeatGeometry(source, options) {
     const tailAlpha = partialCopy > 0 && copy === fullCopies ? partialCopy : 1;
     const transform = (v, handle = false) =>
       checked([
-        matrix[0] * v[0] + matrix[2] * v[1] + (handle ? 0 : matrix[4]),
-        matrix[1] * v[0] + matrix[3] * v[1] + (handle ? 0 : matrix[5]),
+        copyMatrix[0] * v[0] + copyMatrix[2] * v[1] + (handle ? 0 : copyMatrix[4]),
+        copyMatrix[1] * v[0] + copyMatrix[3] * v[1] + (handle ? 0 : copyMatrix[5]),
       ]);
     copies.push(
       source.contours.map((c, ci) => ({
