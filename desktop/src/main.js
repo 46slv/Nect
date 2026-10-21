@@ -12307,6 +12307,11 @@ for (const type of ['keydown', 'keyup'])
     if (drag.started) moveGraphNodes();
   });
 document.addEventListener('keydown', (e) => {
+  if (drag?.type === 'guide' && e.key === 'Escape' && editingControl(e.target)) {
+    e.preventDefault();
+    cancelInteraction();
+    return;
+  }
   if (e.target.matches?.('[data-point-delta-axis]') && !e.isComposing && e.keyCode !== 229) {
     if (e.key === 'Escape') {
       e.preventDefault();

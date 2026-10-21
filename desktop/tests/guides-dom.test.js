@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { document as newDocument, guideDefaults, layer, node, connect } from '../src/core.js';
-test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and focused inputs', async () => {
+test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and focused inputs', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
+  t.after(() => win.happyDOM.abort());
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'requestAnimationFrame'])
     globalThis[key] = key === 'requestAnimationFrame' ? () => 0 : win[key];
@@ -41,6 +42,13 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
     el.value = String(value);
     el.dispatchEvent(new win.Event('change', { bubbles: true }));
   };
+  const openPanel = (action, control) => {
+    if (!$(control)) click(`[data-action="${action}"]`);
+    assert.ok($(control), `${action} exposes its own controls`);
+  };
+  const guides = () => openPanel('guides-panel', '[data-add-guide="x"]');
+  const layout = () => openPanel('layout-panel', '[data-layout-field="columns"]');
+  const grid = () => openPanel('grid-panel', '[data-grid-opacity]');
   const svg = win.nect.export();
   click('[data-action="guides-panel"]');
   click('[data-add-guide="x"]');
@@ -63,16 +71,41 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(get().editor.guides[0].position, 210.5);
   click('[data-action="redo"]');
   assert.equal(get().editor.guides[0].position, 240.5);
-  for (const cancel of ['pointercancel', 'Escape']) {
-    const before = JSON.stringify(get());
+  for (const cancel of ['pointercancel', 'Escape', 'focused-Escape']) {
+    guides();
+    const before = JSON.stringify(get()),
+      file = win.nect.fileState,
+      command = win.nect.commandState,
+      undoDisabled = $('[data-action="undo"]').disabled,
+      redoDisabled = $('[data-action="redo"]').disabled,
+      selected = [...document.querySelectorAll('.node.selected')].map((el) => el.dataset.id),
+      focused = $(`[data-guide-position="${id}"]`);
+    if (cancel === 'focused-Escape') focused.focus();
     pointer($(`[data-guide="${id}"]`), 'pointerdown', 240.5, 100);
     pointer(document, 'pointermove', 280, 100);
-    if (cancel === 'Escape') key(document.body, 'Escape');
+    assert.ok(win.nect.gestureState, 'guide preview owns a Session gesture');
+    if (cancel === 'focused-Escape') {
+      assert.equal(document.activeElement, focused);
+      assert.ok(focused.isConnected);
+      key(focused, 'Escape');
+    } else if (cancel === 'Escape') key(document.body, 'Escape');
     else pointer(document, cancel, 280, 100);
+    assert.equal(win.nect.gestureState, null, `${cancel} releases the guide before pointerup`);
+    assert.equal(JSON.stringify(get()), before);
     pointer(document, 'pointermove', 300, 100);
     pointer(document, 'pointerup', 300, 100);
     assert.equal(JSON.stringify(get()), before);
+    assert.deepEqual(win.nect.fileState, file);
+    assert.deepEqual(win.nect.commandState, command);
+    assert.equal($('[data-action="undo"]').disabled, undoDisabled);
+    assert.equal($('[data-action="redo"]').disabled, redoDisabled);
+    assert.deepEqual(
+      [...document.querySelectorAll('.node.selected')].map((el) => el.dataset.id),
+      selected,
+    );
+    if (cancel.includes('Escape')) assert.equal($('[data-add-guide="x"]'), null);
   }
+  guides();
   click(`[data-lock-guide="${id}"]`);
   assert.ok($(`[data-guide-position="${id}"]`).disabled);
   const before = JSON.stringify(get());
@@ -92,8 +125,13 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(JSON.stringify(get()), saved);
   assert.equal(win.nect.export(), svg);
   // Guide editing is independent of a locked composition; source geometry remains protected.
-  get().layers[0].locked = true;
-  click('[data-action="guides-panel"]');
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-layer-state',
+    payload: { layerId: get().layers[0].id, key: 'locked', value: true },
+  });
+  assert.equal(get().layers[0].locked, true);
+  guides();
   edit(`[data-guide-position="${id}"]`, 200);
   assert.equal(get().editor.guides[0].position, 200);
   // A grabbed shape snaps its actual edge, with one rigid translation and one undo.
@@ -183,15 +221,20 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.ok($('.guide-layer-shape'));
   click(`[data-layer-guide="${layerId}"]`);
   assert.equal(win.nect.export(), artwork);
+  guides();
   click('[data-add-guide="x"]');
-  const manualId = get().editor.guides[0].id,
-    initial = JSON.stringify(get());
-  click('[data-action="layout-panel"]');
+  const manualId = get().editor.guides[0].id;
   $('.guides-panel').scrollTop = 120;
   $('.guide-list').scrollTop = 20;
-  edit('[data-layout-field="columns"]', 4);
+  edit(`[data-guide-position="${manualId}"]`, get().editor.guides[0].position + 1);
   assert.equal($('.guides-panel').scrollTop, 120);
   assert.equal($('.guide-list').scrollTop, 20);
+  const initial = JSON.stringify(get());
+  layout();
+  assert.equal($('.guide-list'), null, 'Layout and Guides have independent surfaces');
+  $('.guides-panel').scrollTop = 120;
+  edit('[data-layout-field="columns"]', 4);
+  assert.equal($('.guides-panel').scrollTop, 120);
   edit('[data-layout-field="rows"]', 2);
   click('[data-layout-preview]');
   assert.equal(document.querySelectorAll('.layout-preview').length, 12);
@@ -206,9 +249,11 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(get().editor.guides.length, 13);
   assert.equal(get().editor.guides[0].id, manualId);
   click('[data-action="undo"]');
-  assert.equal(JSON.stringify(get()), initial);
+  // History restores all authored values; object member order is not JSON data.
+  assert.deepEqual(get(), JSON.parse(initial));
   click('[data-action="redo"]');
   assert.equal(get().editor.guides.length, 13);
+  layout();
   edit('[data-layout-field="columns"]', 2);
   click('[data-layout-apply]');
   assert.equal(get().editor.guides.length, 9);
@@ -220,10 +265,14 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(JSON.stringify(get()), valid);
   click('[data-layout-cancel]');
   const generatedId = get().editor.guides[1].id;
+  guides();
   click(`[data-lock-guide="${generatedId}"]`);
+  layout();
   assert.ok($('[data-layout-remove]').disabled);
   assert.ok($('[data-layout-apply]').disabled);
+  guides();
   click(`[data-lock-guide="${generatedId}"]`);
+  layout();
   click('[data-layout-remove]');
   assert.deepEqual(
     get().editor.guides.map((g) => g.id),
@@ -235,7 +284,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   win.nect.load(layoutSaved);
   assert.equal(JSON.stringify(get()), layoutSaved);
   assert.equal(win.nect.export(), artwork);
-  if (!$('[data-add-guide="x"]')) click('[data-action="guides-panel"]');
+  layout();
   click('[data-layout-preview]');
   click('[data-action="layout-panel"]');
   assert.equal(document.querySelectorAll('.layout-preview').length, 0);
@@ -313,6 +362,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   assert.equal(JSON.stringify(get()), legacySaved);
   click('[data-action="redo"]');
   const centered = JSON.stringify(get());
+  grid();
   let slider = $('[data-grid-opacity][type="range"]');
   slider.focus();
   for (const value of [30, 45, 70]) {
@@ -330,6 +380,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
   click('[data-action="redo"]');
   const opaque = JSON.stringify(get());
   for (const cancel of ['Escape', 'pointercancel']) {
+    grid();
     slider = $('[data-grid-opacity][type="range"]');
     slider.value = '10';
     slider.dispatchEvent(new win.Event('input', { bubbles: true }));
