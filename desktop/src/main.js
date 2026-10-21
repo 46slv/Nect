@@ -25,7 +25,7 @@ import { queryShapeSources, directGeometryUses } from './source-navigation.js';
 import { nodeCategories, nodePickerItems, searchNodeItems } from './node-catalog.js';
 import { createViewerState, mountViewers, updateViewers } from './node-viewers.js';
 import { createCompositionViewStateStore } from './composition-view-state.js';
-import { attachExpressionCompletion } from './expression-completion.js';
+import { attachExpressionCompletion, expressionReferenceType } from './expression-completion.js';
 import { matchingNamedInstance } from './variable-font/named-instances.js';
 import { collectCharacterSnapGeometry, characterGapGuidePath } from './character-snapping.js';
 import { transformCharacterPoint } from './character-geometry.js';
@@ -605,6 +605,7 @@ import {
   outputPorts,
   vectorReferenceTargets,
   expressionReferenceTargets,
+  previewColorExpression,
   referenceTarget,
   socketCompatibleFor,
   evaluate as evaluateCore,
@@ -1821,6 +1822,32 @@ function editorParameters(n) {
     'offset',
   ];
   return keys.map((key) => [key, parameter(n, key)]);
+}
+function colorDraftValidity(input, nodeId, key) {
+  let error = '';
+  try {
+    previewColorExpression(
+      current(),
+      nodeId,
+      key,
+      input.value,
+      resolveFonts(history.doc, activeFonts()),
+      history.doc.imageAssets,
+      history.doc,
+    );
+  } catch (e) {
+    error = e.message;
+  }
+  input.setCustomValidity(error);
+  input.setAttribute('aria-invalid', String(!!error));
+  input.title = error || 'Color expression';
+  return !error;
+}
+function editorExpressionTargets(nodeId, type) {
+  return [
+    ...expressionReferenceTargets(current(), nodeId, type),
+    ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
+  ];
 }
 function field(n, key, q) {
   let source = current().nodes.find((x) => x.id === q.source),
@@ -6717,7 +6744,7 @@ app.addEventListener('click', async (e) => {
     let f = b.closest('.field'),
       nn = current().nodes.find((x) => x.id === f.dataset.node),
       q = parameter(nn, f.dataset.key);
-    const payload = { nodeId: nn.id, key: f.dataset.key };
+    const payload = { layerId: current().id, nodeId: nn.id, key: f.dataset.key };
     if (d.lock !== undefined)
       commandChange('set-parameter-lock', { ...payload, locked: !q.locked }, 'Parameter updated');
     else {
@@ -6728,10 +6755,22 @@ app.addEventListener('click', async (e) => {
         dialog.innerHTML = `<h3>Color expression</h3><input aria-label="Parameter expression" autocomplete="off" spellcheck="false" placeholder="value"><p><button data-insert-reference>Insert Color reference…</button></p><p><button data-confirm>Apply</button> <button data-cancel>Cancel</button></p>`;
       const input = dialog.querySelector('input');
       input.value = q.expression || '';
+      if (q.type === 'Color')
+        dialog.querySelector('[data-insert-reference]').textContent = 'Insert reference…';
+      const expressionEnvelope = session.state;
+      if (q.type === 'Color') {
+        const check = (event) => {
+          if (!event?.isComposing) colorDraftValidity(input, nn.id, f.dataset.key);
+        };
+        input.addEventListener('input', check);
+        input.addEventListener('compositionend', check);
+        check();
+      }
       const completion = attachExpressionCompletion(
         input,
-        () => expressionReferenceTargets(current(), nn.id, q.type),
+        () => editorExpressionTargets(nn.id, q.type),
         q.type,
+        q.type === 'Color' ? () => colorDraftValidity(input, nn.id, f.dataset.key) : undefined,
       );
       dialog.querySelector('[data-insert-reference]').onclick = () => {
         completion.hide();
@@ -6740,7 +6779,11 @@ app.addEventListener('click', async (e) => {
         const panel = openSearchPanel({
           title: 'Parameter references',
           action: 'Insert',
-          items: expressionReferenceTargets(current(), nn.id, q.type).map((target) => ({
+          items: expressionReferenceTargets(
+            current(),
+            nn.id,
+            expressionReferenceType(input.value, start, q.type),
+          ).map((target) => ({
             id: target.expression,
             label: target.label,
             detail: target.nodeId + ' · ' + target.expression,
@@ -6751,6 +6794,7 @@ app.addEventListener('click', async (e) => {
             panel.close();
             input.focus();
             input.setSelectionRange(start + item.id.length, start + item.id.length);
+            if (q.type === 'Color') colorDraftValidity(input, nn.id, f.dataset.key);
           },
         });
       };
@@ -6759,11 +6803,17 @@ app.addEventListener('click', async (e) => {
       for (const button of dialog.querySelectorAll('[data-confirm], [data-cancel]'))
         button.onmousedown = (event) => event.preventDefault();
       dialog.querySelector('[data-confirm]').onclick = () => {
+        if (q.type === 'Color' && !colorDraftValidity(input, nn.id, f.dataset.key)) {
+          input.reportValidity();
+          return;
+        }
         if (
           commandChange(
             'set-parameter-expression',
             { ...payload, expression: input.value },
             'Parameter updated',
+            false,
+            q.type === 'Color' ? expressionEnvelope : session.state,
           )
         )
           closeEditorDialog(dialog);
@@ -7849,6 +7899,11 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.matches('[data-expression]') && !e.isComposing) {
+    const f = e.target.closest('.field');
+    if (f?.dataset.type === 'Color') colorDraftValidity(e.target, f.dataset.node, f.dataset.key);
+    return;
+  }
   if (e.target.matches('[data-point-delta-axis]')) {
     stagePointDelta(e.target);
     return;
@@ -8606,6 +8661,13 @@ app.addEventListener('change', async (e) => {
     const payload = { nodeId: n.id, key: field.dataset.key };
     try {
       if (d.expression !== undefined) {
+        if (
+          field.dataset.type === 'Color' &&
+          !colorDraftValidity(el, field.dataset.node, field.dataset.key)
+        ) {
+          el.reportValidity();
+          return;
+        }
         commandChange(
           'set-parameter-expression',
           { ...payload, expression: el.value },
