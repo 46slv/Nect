@@ -623,6 +623,7 @@ import {
   scrubNumericValues,
   guideDefaults,
   guideSettings,
+  gridAnchors,
   resolveGridOrigin,
   snapTranslation,
   collectSnapLayerBounds,
@@ -3552,7 +3553,7 @@ function gridPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>${a.gridAnchor === 'center' ? 'Origin: exact artboard center' : 'Origin: legacy top-left <button data-action="center-grid">Center grid</button>'}</p><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
+    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div><label>Origin <select data-guide-setting="gridAnchor" aria-label="Grid origin">${gridAnchors.map((anchor) => `<option value="${anchor}" ${a.gridAnchor === anchor ? 'selected' : ''}>${anchor[0].toUpperCase() + anchor.slice(1).replaceAll('-', ' ')}</option>`).join('')}</select></label></div><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
   const a = guideSettings(history.doc);
@@ -6724,9 +6725,6 @@ app.addEventListener('click', async (e) => {
         case 'snap':
           editGuides('set-guide-setting', { key: 'snap', value: !guideSettings(history.doc).snap });
           break;
-        case 'center-grid':
-          editGuides('set-guide-setting', { key: 'gridAnchor', value: 'center' });
-          break;
         case 'grid-panel':
           if (!gridOpen) closeTransientPanels('grid');
           gridOpen = !gridOpen;
@@ -8733,7 +8731,13 @@ app.addEventListener('change', async (e) => {
       editGuides('set-guide-setting', {
         key: d.guideSetting,
         value:
-          d.guideSetting === 'gridSize' ? (el.value.trim() ? Number(el.value) : NaN) : el.checked,
+          d.guideSetting === 'gridSize'
+            ? el.value.trim()
+              ? Number(el.value)
+              : NaN
+            : d.guideSetting === 'gridAnchor'
+              ? el.value
+              : el.checked,
       });
     else
       editGuides('set-guide', {

@@ -306,7 +306,7 @@ test('guide UI add/edit/drag/delete/locks/history/cancel preserves geometry and 
     gridSvg = win.nect.export();
   click('[data-action="grid-panel"]');
   assert.equal($('#editing-grid').getAttribute('patternTransform'), 'translate(0 0)');
-  click('[data-action="center-grid"]');
+  edit('[data-guide-setting="gridAnchor"]', 'center');
   assert.equal(get().schemaVersion, 27);
   assert.equal($('#editing-grid').getAttribute('patternTransform'), 'translate(480 270)');
   click('[data-action="undo"]');

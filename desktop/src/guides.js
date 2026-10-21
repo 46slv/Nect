@@ -14,9 +14,26 @@ export const guideDefaults = () => ({
   snapArtwork: false,
 });
 export const guideSettings = (doc) => ({ ...guideDefaults(), ...doc.editor });
+export const GRID_ORIGIN_SCHEMA_VERSION = 48;
+const gridOriginFactors = {
+  'top-left': [0, 0],
+  'top-center': [0.5, 0],
+  'top-right': [1, 0],
+  'middle-left': [0, 0.5],
+  center: [0.5, 0.5],
+  'middle-right': [1, 0.5],
+  'bottom-left': [0, 1],
+  'bottom-center': [0.5, 1],
+  'bottom-right': [1, 1],
+};
+export const gridAnchors = Object.freeze(Object.keys(gridOriginFactors));
 // Missing anchors retain the phase of previously saved documents.
-export const resolveGridOrigin = (doc, settings = guideSettings(doc)) =>
-  settings.gridAnchor === 'center' ? [doc.width / 2, doc.height / 2] : [0, 0];
+export function resolveGridOrigin(doc, settings = guideSettings(doc)) {
+  const factor = Object.hasOwn(gridOriginFactors, settings.gridAnchor)
+    ? gridOriginFactors[settings.gridAnchor]
+    : gridOriginFactors['top-left'];
+  return [doc.width * factor[0], doc.height * factor[1]];
+}
 export function validateGuides(editor, validateId) {
   if (editor === undefined) return;
   if (!editor || typeof editor !== 'object' || Array.isArray(editor))
@@ -35,7 +52,7 @@ export function validateGuides(editor, validateId) {
     throw Error('Invalid artwork snap setting');
   if (!Number.isFinite(editor.gridSize) || editor.gridSize < 1 || editor.gridSize > 10000)
     throw Error('Grid spacing must be between 1 and 10000');
-  if (editor.gridAnchor !== undefined && !['center', 'top-left'].includes(editor.gridAnchor))
+  if (editor.gridAnchor !== undefined && !gridAnchors.includes(editor.gridAnchor))
     throw Error('Invalid grid anchor');
   if (
     editor.gridOpacity !== undefined &&

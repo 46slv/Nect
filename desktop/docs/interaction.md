@@ -67,13 +67,13 @@ Snapping uses a six-screen-pixel threshold at every zoom. Visible guides and art
 
 Guides, visibility/lock settings, grid settings and snap toggles are saved in project JSON and participate in Undo/Redo. Older schema-v1 documents without editing-aid settings remain valid and start with snapping disabled and an 8-unit grid. Editing aids never appear in exported artwork SVG.
 
-### Centered grid
+### Grid origin
 
-Open **Grid** independently of **Guides** and **Layout Grid**. New blank documents use the exact artboard center as a grid intersection, including odd/fractional dimensions. Spacing is constant from that origin and follows artboard resize; drawing and snapping share the same origin. Existing documents without an anchor retain their top-left phase until **Center grid** is clicked. This is one Undo step and retains spacing.
+Open **Grid** independently of **Guides** and **Layout Grid**. **Origin** chooses any artboard corner, edge midpoint or center. New blank documents use the exact artboard center as a grid intersection, including odd/fractional dimensions. Spacing is constant from that origin and follows artboard resize; drawing and snapping share the same resolver. Existing documents without an anchor retain their top-left phase. Changing the origin is one Undo step and retains spacing, artwork and guide positions.
 
 Grid opacity is directly adjustable from 0–100% with a slider or number field. Slider input previews without replacing the focused control; committing creates one Undo step. Escape/pointer cancellation restores the saved opacity. Lines retain the fixed 0.5 CSS-unit non-scaling stroke. Opacity and visibility do not disable snapping. Grid settings never enter SVG export.
 
-Centered grids require schemaVersion 27 (new blank documents and explicit centering); older readers reject this version rather than silently changing snap phase. Old files without a center anchor keep their incoming schema and settings on open. Optional editor.gridOpacity is a finite number from 0 to 1, default 0.25; editor.gridAnchor is center or top-left, default top-left when missing.
+Centered grids require schemaVersion 27 (new blank documents and explicit centering); the seven additional anchors require schemaVersion 48. Old files retain their incoming schema and settings on open. Optional editor.gridOpacity is a finite number from 0 to 1, default 0.25; editor.gridAnchor is top-left, top-center, top-right, middle-left, center, middle-right, bottom-left, bottom-center or bottom-right, default top-left when missing. See [bounded scope and compatibility](grid-origin.md).
 
 ### Guide layers
 
