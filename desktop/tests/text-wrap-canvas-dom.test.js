@@ -123,8 +123,13 @@ test('Canvas wrap width owns one coalesced gesture without changing Text or sele
     fire(document, 'pointerup', 100, 100);
     settle();
   };
-  const load = (transformed = false, alignment = 'start', referenceBounds = 'advance') => {
-    fixture = textWrapCanvasFixture({ transformed, alignment, referenceBounds });
+  const load = (
+    transformed = false,
+    alignment = 'start',
+    referenceBounds = 'advance',
+    crossAlignment = 'origin',
+  ) => {
+    fixture = textWrapCanvasFixture({ transformed, alignment, referenceBounds, crossAlignment });
     win.wrapTestLoad(serialize(fixture.doc));
     if ($('.alignment-panel')) $('.canvas-toolbar [data-action="align-panel"]').click();
     selectText();
@@ -285,7 +290,10 @@ test('Canvas wrap width owns one coalesced gesture without changing Text or sele
       for (const change of [
         (d) => (d.layers[0].locked = true),
         (d) => (d.layers[0].nodes[0].textWrap = undefined),
-        (d) => (d.layers[0].nodes[0].crossAlignment = 'end'),
+        (d) => {
+          d.layers[0].nodes[0].writingMode = 'vertical-rl';
+          d.layers[0].nodes[0].textWrap = { height: 320, policy: 'japanese-basic-v1' };
+        },
       ]) {
         load();
         change(fixture.doc);
@@ -394,6 +402,102 @@ test('Canvas wrap width owns one coalesced gesture without changing Text or sele
           assert.equal(state()[0], before[0]);
           assert.equal(state()[1], before[1]);
         }
+        scale = 1;
+        pan = [30, 40];
+      },
+    );
+  for (const [alignment, cross, transformed, ending] of [
+    ['start', 'center', false, 'Escape'],
+    ['center', 'end', true, 'pointercancel'],
+    ['end', 'center', true, 'blur'],
+    ['end', 'end', false, 'Escape'],
+  ])
+    await t.test(
+      `${alignment}/${cross} Y reflow matches numeric width and restores lifecycle on ${ending}`,
+      async () => {
+        scale = transformed ? 2 : 1;
+        pan = transformed ? [90, -20] : [30, 40];
+        const fx = { start: 0, center: 0.5, end: 1 }[alignment],
+          fy = cross === 'center' ? 0.5 : 1;
+        const multiplier = { start: 1, center: 2, end: -1 }[alignment];
+        const prepare = () => {
+          load(transformed, alignment, transformed ? 'visible' : 'advance', cross);
+          if (transformed) {
+            fire($('.shape[data-layer]'), 'pointerdown', 400, 300);
+            fire(document, 'pointerup', 400, 300);
+            settle();
+          }
+          resetCounts();
+        };
+        const pin = (c) => [
+          c.corners[0][0] + (c.corners[1][0] - c.corners[0][0]) * fx,
+          c.corners[0][1] + (c.corners[3][1] - c.corners[0][1]) * fy,
+        ];
+        for (const width of [200, 640]) {
+          prepare();
+          const before = state(),
+            identity = win.wrapTestState().selection,
+            original = win.wrapTestContext(),
+            p = press();
+          const dx = ((width - 320) / multiplier) * scale * (transformed ? 1.5 : 1);
+          fire(document, 'pointermove', p[0] + dx, p[1]);
+          flush();
+          const frame = win.wrapTestContext();
+          assert.deepEqual(pin(frame), pin(original));
+          assert.notEqual(
+            frame.corners[3][1] - frame.corners[0][1],
+            original.corners[3][1] - original.corners[0][1],
+            'representative widths change auto height',
+          );
+          assert.deepEqual(state(), before);
+          assert.equal(win.wrapWork.render, 0);
+          assert.equal(win.wrapWork.wires, 0);
+          fire(document, 'pointerup', p[0] + dx, p[1]);
+          settle();
+          const committed = state(),
+            expected = JSON.parse(before[0]);
+          expected.layers[0].nodes[0].textWrap.width = width;
+          assert.deepEqual(win.nect.document, expected);
+          assert.equal(win.wrapTestState().selection, identity);
+          assert.equal(win.wrapTestState().past, 1);
+          $('[data-action="undo"]').click();
+          settle();
+          assert.equal(state()[0], before[0]);
+          assert.equal(state()[1], before[1]);
+          $('[data-action="redo"]').click();
+          settle();
+          assert.equal(state()[0], committed[0]);
+          assert.equal(state()[1], committed[1]);
+          $('[data-action="undo"]').click();
+          settle();
+          const input = $('[data-text-wrap-width]');
+          input.value = String(width);
+          input.dispatchEvent(new win.Event('change', { bubbles: true }));
+          await new Promise((r) => setTimeout(r, 10));
+          settle();
+          assert.equal(state()[0], committed[0]);
+          assert.equal(state()[1], committed[1]);
+        }
+        prepare();
+        const before = state(),
+          identity = win.wrapTestState().selection,
+          shown = $('.artboard').innerHTML,
+          p = press();
+        fire(
+          document,
+          'pointermove',
+          p[0] + ((200 - 320) / multiplier) * scale * (transformed ? 1.5 : 1),
+          p[1],
+        );
+        flush();
+        if (ending === 'Escape') key('Escape');
+        else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));
+        else fire(document, 'pointercancel', ...p);
+        settle();
+        assert.deepEqual(state(), before);
+        assert.equal($('.artboard').innerHTML, shown);
+        assert.equal(win.wrapTestState().selection, identity);
+        assert.equal(win.wrapTestState().gesture, false);
         scale = 1;
         pan = [30, 40];
       },

@@ -2,7 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { parseFont } from '../src/fonts.js';
-import { evaluate, CommandSession, serialize, exportSVG, setCharacterStyles } from '../src/core.js';
+import {
+  evaluate,
+  CommandSession,
+  serialize,
+  exportSVG,
+  setCharacterStyles,
+  setCharacterOffsets,
+} from '../src/core.js';
 import { textWrapResizeContext, resizedTextWrapWidth } from '../src/text-wrap-resize.js';
 import { textWrapCanvasFixture } from './fixtures/text-wrap-canvas.js';
 const b = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
@@ -104,7 +111,7 @@ test('visibility/lock/driven/reference/transform guards reject without mutation'
       d.layers[0].nodes[0].textWrap = { height: 320, policy: 'japanese-basic-v1' };
     },
     (d) => (d.layers[0].nodes[0].alignment = 'unknown'),
-    (d) => (d.layers[0].nodes[0].crossAlignment = 'end'),
+    (d) => (d.layers[0].nodes[0].crossAlignment = 'unknown'),
     (d) => (d.layers[0].nodes[0].params.size.expression = 'value * 2'),
     (d) => (d.layers[0].nodes[1].params.rotation.value = 20),
     (d) => (d.layers[0].nodes[1].params.scale.value = -1),
@@ -253,3 +260,115 @@ for (const alignment of ['center', 'end'])
       }
     });
   }
+
+test('all nine X/Y frame references retain Position across reflow and equal numeric width commands', () => {
+  const factor = { start: 0, center: 0.5, end: 1 };
+  for (const alignment of ['start', 'center', 'end'])
+    for (const crossAlignment of ['start', 'center', 'end']) {
+      const f = textWrapCanvasFixture({
+        transformed: true,
+        alignment,
+        crossAlignment,
+        referenceBounds: alignment === 'center' ? 'visible' : 'advance',
+      });
+      const before = structuredClone(f.doc),
+        first = context(before),
+        saved = serialize(f.doc);
+      const pin = (c) => [
+        c.corners[0][0] + (c.corners[1][0] - c.corners[0][0]) * factor[alignment],
+        c.corners[0][1] + (c.corners[3][1] - c.corners[0][1]) * factor[crossAlignment],
+      ];
+      assert.equal(first.supported, true);
+      assert.equal(first.crossReference, crossAlignment);
+      assert.deepEqual(pin(first), [230, 270]);
+      for (const width of [200, 640]) {
+        const session = new CommandSession(before, { fonts: () => fonts }),
+          numeric = new CommandSession(before, { fonts: () => fonts });
+        let token = session.dispatch({
+          ...session.state,
+          type: 'begin-gesture',
+          payload: {
+            target: { kind: 'text-values', layerId: f.layerId, nodeId: f.textId, textKind: 'wrap' },
+          },
+        });
+        token = session.dispatch({
+          ...session.state,
+          type: 'update-gesture',
+          payload: { ...token, update: { values: [width] } },
+        });
+        const preview = session.previewSnapshot(token.gestureId).document,
+          frame = context(preview);
+        numeric.dispatch({
+          ...numeric.state,
+          type: 'set-text-settings',
+          payload: {
+            layerId: f.layerId,
+            nodeId: f.textId,
+            settings: { textWrap: { ...before.layers[0].nodes[0].textWrap, width } },
+          },
+        });
+        assert.deepEqual(preview, numeric.snapshot());
+        assert.equal(exportSVG(preview, fonts), exportSVG(numeric.snapshot(), fonts));
+        assert.deepEqual(pin(frame), pin(first));
+        const heightChange =
+          frame.corners[3][1] - frame.corners[0][1] - (first.corners[3][1] - first.corners[0][1]);
+        assert.ok(
+          Math.abs(
+            frame.corners[0][1] - first.corners[0][1] + heightChange * factor[crossAlignment],
+          ) < 1e-9,
+        );
+        assert.equal(frame.handle[0], frame.corners[alignment === 'end' ? 0 : 1][0]);
+        assert.equal(frame.handle[1], (frame.corners[0][1] + frame.corners[3][1]) / 2);
+        // Actual glyphs are already anchored by layout; do not shift their baselines again.
+        const glyphs = evaluate(preview.layers[0], fonts, preview.imageAssets, preview)
+          .textLayout(f.textId)
+          .characters.filter((g) => !g.whitespace);
+        const min = Math.min(...glyphs.map((g) => g.bounds[1])),
+          max = Math.max(...glyphs.map((g) => g.bounds[3]));
+        assert.ok(Math.abs(min + (max - min) * factor[crossAlignment] - 160) < 1e-9);
+        session.dispatch({ ...session.state, type: 'cancel-gesture', payload: token });
+        assert.deepEqual(session.snapshot(), before);
+        assert.equal(session.historyView.past.length, 0);
+      }
+      assert.equal(serialize(f.doc), saved, 'frame inspection is document neutral');
+    }
+});
+
+test('rich manual-leading frame does not chase post-layout character offsets or double-apply Y anchoring', () => {
+  for (const crossAlignment of ['center', 'end']) {
+    const f = textWrapCanvasFixture({ alignment: 'end', crossAlignment });
+    const n = f.doc.layers[0].nodes[0];
+    n.leading = { mode: 'manual', value: 64 };
+    n.characterPositions = setCharacterStyles(n.text, n.characterPositions, {
+      [n.characterPositions.units[7].id]: { size: 50, baselineShift: 12 },
+    });
+    for (const width of [200, 640]) {
+      n.textWrap.width = width;
+      const frame = context(f.doc),
+        adjusted = structuredClone(f.doc),
+        t = adjusted.layers[0].nodes[0];
+      t.characterPositions = setCharacterOffsets(
+        t.text,
+        t.characterPositions,
+        Object.fromEntries(t.characterPositions.units.map((u) => [u.id, [0, 70]])),
+      );
+      assert.deepEqual(
+        context(adjusted).corners,
+        frame.corners,
+        'logical frame ignores later character translations',
+      );
+      const factor = crossAlignment === 'center' ? 0.5 : 1;
+      assert.equal(frame.corners[0][1] + (frame.corners[3][1] - frame.corners[0][1]) * factor, 160);
+      const glyphs = evaluate(adjusted.layers[0], fonts, adjusted.imageAssets, adjusted)
+        .textLayout(f.textId)
+        .characters.filter((g) => !g.whitespace);
+      const min = Math.min(...glyphs.map((g) => g.bounds[1])),
+        max = Math.max(...glyphs.map((g) => g.bounds[3]));
+      assert.ok(
+        Math.abs(min + (max - min) * factor - 230) < 1e-9,
+        'visible ink contains the later offset while Position remains fixed',
+      );
+      assert.deepEqual(t.params.position.value, [140, 160]);
+    }
+  }
+});

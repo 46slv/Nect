@@ -5,6 +5,7 @@ export function textWrapCanvasFixture({
   transformed = false,
   alignment = 'start',
   referenceBounds = 'advance',
+  crossAlignment = 'origin',
 } = {}) {
   const doc = blankDocument(),
     layer = doc.layers[0];
@@ -25,6 +26,7 @@ export function textWrapCanvasFixture({
   text.textWrap = basicTextWrap('horizontal-tb', 320);
   text.alignment = alignment;
   text.referenceBounds = referenceBounds;
+  text.crossAlignment = crossAlignment;
   let source = text;
   const nodes = [text];
   if (transformed) {
