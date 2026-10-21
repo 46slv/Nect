@@ -1,5 +1,6 @@
 import { installLayerReorder } from './layer-reorder.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
+import { textWrapResizeContext, resizedTextWrapWidth } from './text-wrap-resize.js';
 import {
   ARTBOARD_UNITS,
   displayLengthToDocumentUnits,
@@ -4049,6 +4050,106 @@ function selectOverlappingCharacters(hits, additive) {
   showEditorDialog(dialog);
 }
 
+function wrapResizeSelection() {
+  return JSON.stringify([
+    activeLayer,
+    selected,
+    artworkTarget,
+    [...selection].sort(),
+    [...artworkSelection].sort(),
+  ]);
+}
+function wrapResizeContext(result = renderEvaluation) {
+  if (
+    tool !== 'select' ||
+    penDraft ||
+    characterEdit ||
+    canvasTextEdit ||
+    nameEdit ||
+    layoutDraft ||
+    gridOpacityDraft
+  )
+    return null;
+  const layer = displayLayer(),
+    whole = artworkTarget === layer.id && artworkSelection.size === 1;
+  const source =
+    !artworkTarget && selection.size === 1 && selection.has(selected) ? selected : null;
+  if (!whole && !source) return null;
+  const context = textWrapResizeContext(layer, result, fonts, source);
+  return context.supported ? context : null;
+}
+function textWrapResizeOverlay(result) {
+  const context = wrapResizeContext(result);
+  if (!context) return '';
+  return `<g class="text-wrap-resize-overlay"><polygon class="guide" pointer-events="none" points="${context.corners.map((p) => p.join(',')).join(' ')}"/><g class="object-resize-control" data-text-wrap-resize="${esc(context.nodeId)}" data-wrap-layer="${esc(context.layerId)}" aria-label="Resize Text wrap width" transform="translate(${context.handle.join(' ')})"><title>Wrap width</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/></g></g></g>`;
+}
+function wrapResizeFresh(d) {
+  const state = session.state,
+    n = current().nodes.find((n) => n.id === d.nodeId);
+  return (
+    drag === d &&
+    d.capture.isConnected &&
+    d.epoch === sourceEpoch &&
+    state.sessionId === d.envelope.sessionId &&
+    state.expectedRevision === d.envelope.expectedRevision &&
+    current().id === d.layerId &&
+    layerShown(current()) &&
+    !current().locked &&
+    wrapResizeSelection() === d.selectionIdentity &&
+    n?.type === 'Text' &&
+    !n.locked &&
+    !n.bypassed &&
+    n.text === d.sourceText &&
+    n.textWrap?.width === d.originalWidth
+  );
+}
+function flushWrapResize(d) {
+  if (d.wrapFrame !== null) window.cancelAnimationFrame(d.wrapFrame);
+  d.wrapFrame = null;
+  if (!wrapResizeFresh(d)) {
+    if (drag === d) cancelInteraction();
+    return false;
+  }
+  const width = d.pendingWidth;
+  d.pendingWidth = null;
+  if (width === null || width === d.lastWidth) return true;
+  if (
+    !updateCanvasGesture(
+      { kind: 'text-values', layerId: d.layerId, nodeId: d.nodeId, textKind: 'wrap' },
+      { values: [width] },
+    )
+  )
+    return false;
+  d.lastWidth = width;
+  for (const input of app.querySelectorAll('[data-text-wrap-width]'))
+    if (input.dataset.textWrapWidth === d.nodeId) input.value = String(width);
+  updateCanvas(true);
+  return true;
+}
+function queueWrapResize(event) {
+  const d = drag;
+  if (!wrapResizeFresh(d)) {
+    cancelInteraction();
+    return;
+  }
+  if (
+    !d.started &&
+    Math.hypot(event.clientX - d.startClient[0], event.clientY - d.startClient[1]) < 3
+  )
+    return;
+  const point = canvasPoint(event);
+  d.pendingWidth = resizedTextWrapWidth(
+    d.originalWidth,
+    d.matrix,
+    point.map((v, i) => v - d.start[i]),
+  );
+  d.started = true;
+  if (d.wrapFrame === null)
+    d.wrapFrame = requestAnimationFrame(() => {
+      if (drag === d) flushWrapResize(d);
+    });
+  event.preventDefault();
+}
 function objectResizeContext(n, result) {
   if (!n || n.pathAttachment || selection.size !== 1 || !selection.has(n.id)) return [];
   try {
@@ -4131,21 +4232,23 @@ function canvasOverlay(n, result) {
   if (canvasTextEdit) return canvasTextOverlay(result);
   if (characterEdit) return characterOverlay(result);
   if (artworkTarget) {
-    return [...artworkSelection]
-      .map((id) => {
-        const l = history.doc.layers.find((l) => l.id === id);
-        if (!l || !layerShown(l)) return '';
-        const r = id === activeLayer ? result : evaluate(l, fonts, history.doc.imageAssets);
-        if (
-          !r.path ||
-          r.error ||
-          (r.path.kind !== 'image' && !r.path.contours.some((c) => c.points.length))
-        )
-          return '';
-        const b = pathBounds(r.path);
-        return `<rect class="guide artwork-selection" data-artwork-selection="${esc(id)}" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
-      })
-      .join('');
+    return (
+      [...artworkSelection]
+        .map((id) => {
+          const l = history.doc.layers.find((l) => l.id === id);
+          if (!l || !layerShown(l)) return '';
+          const r = id === activeLayer ? result : evaluate(l, fonts, history.doc.imageAssets);
+          if (
+            !r.path ||
+            r.error ||
+            (r.path.kind !== 'image' && !r.path.contours.some((c) => c.points.length))
+          )
+            return '';
+          const b = pathBounds(r.path);
+          return `<rect class="guide artwork-selection" data-artwork-selection="${esc(id)}" x="${b[0][0]}" y="${b[1][0]}" width="${b[0][2] - b[0][0]}" height="${b[1][2] - b[1][0]}" stroke-dasharray="5 4"/>`;
+        })
+        .join('') + textWrapResizeOverlay(result)
+    );
   }
   if (!n || !layerShown(current()) || n.bypassed) return '';
   let path;
@@ -4230,6 +4333,7 @@ function canvasOverlay(n, result) {
   }
   if (n.type === 'Transform') out += transformOverlay(n, result);
   out += objectResizeOverlay(n, result);
+  out += textWrapResizeOverlay(result);
   return out;
 }
 function nodeStageMoveMarker(n, path) {
@@ -9391,6 +9495,8 @@ function cancelInteraction(renderView = true) {
   }
   const old = drag;
   const wire = wiring;
+  if (old?.type === 'text-wrap-resize' && old.wrapFrame !== null)
+    window.cancelAnimationFrame(old.wrapFrame);
   drag = null;
   wiring = null;
   releaseWirePointer(wire);
@@ -10074,7 +10180,7 @@ app.addEventListener('pointerdown', (e) => {
     return;
   }
   const dedicated = e.target.closest(
-    '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-path-unit-move],[data-node-stage-move]',
+    '[data-text-wrap-resize],[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-path-unit-move],[data-node-stage-move]',
   );
   if (tool === 'select' && !dedicated) {
     if (document.querySelector('dialog[open]')) return;
@@ -10339,6 +10445,41 @@ app.addEventListener('pointerdown', (e) => {
     };
     captureArtworkPointer(e, stage);
     e.preventDefault();
+    return;
+  }
+  const wrapHandle = e.target.closest('[data-text-wrap-resize]');
+  if (wrapHandle) {
+    e.preventDefault();
+    stage.focus({ preventScroll: true });
+    const context = wrapResizeContext(),
+      capture = document.querySelector('.canvas-stage');
+    if (
+      !context ||
+      context.nodeId !== wrapHandle.dataset.textWrapResize ||
+      context.layerId !== wrapHandle.dataset.wrapLayer ||
+      document.querySelector('dialog[open]') ||
+      session.hasGesture
+    )
+      return;
+    const source = current().nodes.find((n) => n.id === context.nodeId);
+    drag = {
+      type: 'text-wrap-resize',
+      nodeId: source.id,
+      layerId: context.layerId,
+      sourceText: source.text,
+      originalWidth: context.width,
+      lastWidth: context.width,
+      matrix: context.matrix,
+      start: canvasPoint(e),
+      startClient: [e.clientX, e.clientY],
+      epoch: sourceEpoch,
+      envelope: session.state,
+      selectionIdentity: wrapResizeSelection(),
+      pendingWidth: null,
+      wrapFrame: null,
+      started: false,
+    };
+    captureArtworkPointer(e, capture);
     return;
   }
   const resizeHandle = e.target.closest('[data-object-resize]');
@@ -10719,6 +10860,10 @@ function movePointer(e) {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'text-wrap-resize') {
+    queueWrapResize(e);
+    return;
+  }
   if (drag.type === 'path-insert') {
     if (Math.hypot(e.clientX - drag.startClient[0], e.clientY - drag.startClient[1]) >= 4) {
       drag.cancelled = true;
@@ -11263,6 +11408,7 @@ document.addEventListener('pointercancel', (e) => {
 });
 document.addEventListener('pointerup', (e) => {
   if (drag?.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
+  if (drag?.type === 'text-wrap-resize' && !flushWrapResize(drag)) return;
   if (drag?.type === 'numeric' && drag.started) {
     const n = current().nodes.find((n) => n.id === drag.nodeId),
       q = !drag.textKind && n && parameter(n, drag.key);
@@ -12246,6 +12392,11 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (drag?.type === 'path-insert' && e.key === 'Escape') {
+    e.preventDefault();
+    cancelInteraction();
+    return;
+  }
+  if (drag?.type === 'text-wrap-resize' && e.key === 'Escape') {
     e.preventDefault();
     cancelInteraction();
     return;
