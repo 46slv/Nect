@@ -104,6 +104,7 @@ try {
     await page.mouse.wheel(...config.pan);
     await settle();
     // Drag the existing guide close to a visible grid line in source coordinates.
+    const dragY = doc.height / 2;
     const targetX = origin[0] + Math.round((200 - origin[0]) / 40) * 40;
     const screenScale = await $('.artboard').evaluate((el) => el.getScreenCTM().a);
     const expectedSnap = snapTranslation(
@@ -115,9 +116,14 @@ try {
       'grid-test-guide',
     );
     assert.equal(expectedSnap.matches[0].position, targetX);
-    await page.mouse.move(...(await point(120, 85)));
+    const hit = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-guide]')?.dataset.guide,
+      await point(120, dragY),
+    );
+    assert.equal(hit, 'grid-test-guide', 'native pointer must hit the guide in the visible canvas');
+    await page.mouse.move(...(await point(120, dragY)));
     await page.mouse.down();
-    await page.mouse.move(...(await point(targetX - 2, 85)), { steps: 3 });
+    await page.mouse.move(...(await point(targetX - 2, dragY)), { steps: 3 });
     await page.mouse.up();
     await settle();
     const snapped = await state();
@@ -127,9 +133,9 @@ try {
     await $('[data-action="undo"]').click();
     assert.deepEqual((await state()).doc, changed.doc);
     // A cancelled guide gesture does not author an origin or geometry change.
-    await page.mouse.move(...(await point(120, 85)));
+    await page.mouse.move(...(await point(120, dragY)));
     await page.mouse.down();
-    await page.mouse.move(...(await point(targetX - 2, 85)));
+    await page.mouse.move(...(await point(targetX - 2, dragY)));
     await page.keyboard.press('Escape');
     await page.mouse.up();
     await settle();
