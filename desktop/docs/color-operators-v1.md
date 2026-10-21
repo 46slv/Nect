@@ -37,3 +37,51 @@ dependency cache/update, one-Undo base/expression edits, JSON roundtrip and lega
 Color/Scalar/Vector2 regressions. Exercise existing Linear/Radial Color controls
 in the native WebView2 candidate. Report unavailable physical/OS-dialog/cold
 reopen coverage separately.
+
+## Receipt
+
+Product source `c9ea67669d9e9a7a0f8a63dfc517d561685d39c4` implements the shared
+linear-float module, typed Scalar/Color dependency traversal, Desktop schema43,
+pure Color draft validation, context-aware completion/reference types and a
+captured revision for Color dialog Apply. No packages, palette, new panel,
+input/compose, point editing or Image/Shape dither behavior changed. Existing
+schema monotonicity is retained: removing a new operation does not downgrade a
+document; Undo to the earlier snapshot restores its previous version.
+
+- **PASS:** 85/85 focused checks across new Color operator math/DOM/completion,
+  existing Color value/ref, authored base, Scalar/Vector2 math and stable
+  parameter/reference suites. Includes all numerical oracles, #161616 versus
+  #171717, transparent mix black normalization versus hidden base RGB,
+  alpha replacement, finite/range/type/cycle/missing/stale rejection, neutral
+  preview/Cancel/no-op, one-Undo base/formula edits, dependency cache reuse,
+  rename/reorder/duplicate/preset references and JSON roundtrip.
+- **PASS:** the exact PR43 reader preserves a schema42 value document
+  byte-for-byte and rejects schema43 with `Unsupported project version`.
+  A first probe needed bare package imports resolved to file URLs; this was a
+  Node probe setup correction, not an import-format product repair.
+- **PASS:** actual native Tauri/WebView2 Linear and Radial Gradient flows:
+  value/ref/mix/alpha entered in existing Color fields; typed completion;
+  alpha replacement with transparent red Base retained; Color-source alpha
+  and Scalar weight edits update dependent results; nested #161616;
+  one-Undo/Redo, no-op and invalid/Cancel neutrality; disk JSON read/write plus
+  renderer reload. Canvas stop colors, SVG and Result use identical public
+  hex values (#161616 and #8900e1). Zero page errors; both screenshots inspected.
+- **PASS:** production frontend (140 modules), offline Windows native release
+  with custom protocol, native config, scoped formatting and diff checks.
+  The existing bundle-size warning remains.
+- Native EXE: 9,997,824 bytes; SHA256
+  `d8d325786f0d20b6630261125271d495b480f021cdf036c5a2b4b17682fbcd22`.
+  Embedded `index-C4pt1KUx.js` SHA256
+  `cc182e55c77b9b9f662d9cdda0c1b852160e8926719fc1e298e4eaacecf6fd53`.
+  Owned PID141756, isolated `nect-svg-acceptance-color-ops-r1` profile.
+- **NOT RUN:** unrelated full audits, separate browser rerun, native OS
+  Save/Open dialogs, cold-process file reopen and physical keyboard/IME.
+  Native inputs were synthetic Playwright CDP. Disabled native CUA and
+  unavailable Windows node_repl routes were not bypassed.
+
+Ignored evidence under `desktop/test-results/color-operators/`: final 85-check
+log, legacy-reader probe, frontend/native build logs, native interaction log,
+`native/receipt.json`, Linear/Radial screenshots and JSON fixtures. Earlier
+local logs include two corrected test expectations: alpha is now supported,
+and a Scalar reference named value is a valid completion in a weight slot.
+These are distinct from the final passing run.
