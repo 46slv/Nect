@@ -1,6 +1,30 @@
 // Editor-only suggestions for the bounded grammar in core.expression. Never evaluates code.
 const functions = ['sin', 'cos', 'tan', 'abs', 'sqrt', 'min', 'max', 'round'];
 const word = /[\p{L}\p{N}_.-]/u;
+function colorScalarArgument(value, end) {
+  const stack = [];
+  let quoted = false;
+  for (let i = 0; i < end; i++) {
+    const char = value[i];
+    if (char === '"') quoted = !quoted;
+    if (quoted) continue;
+    if (char === '(')
+      stack.push({
+        name: value
+          .slice(0, i)
+          .match(/[a-zA-Z]+\s*$/)?.[0]
+          .trim(),
+        argument: 0,
+      });
+    else if (char === ')') stack.pop();
+    else if (char === ',' && stack.length) stack.at(-1).argument++;
+  }
+  const color = stack.findLast((frame) => ['mix', 'alpha'].includes(frame.name));
+  return color && color.argument === (color.name === 'mix' ? 2 : 1);
+}
+export function expressionReferenceType(value, end, type) {
+  return type === 'Color' && colorScalarArgument(value, end) ? 'Scalar' : type;
+}
 
 export function expressionCompletionContext(value, start, end = start) {
   if (start !== end) return null;
@@ -32,19 +56,45 @@ export function expressionCompletionContext(value, start, end = start) {
 export function expressionCompletions(value, start, end, targets = [], parameterType = 'Scalar') {
   const context = expressionCompletionContext(value, start, end);
   if (!context) return [];
+  const weight = parameterType === 'Color' && colorScalarArgument(value, start);
+  const color = parameterType === 'Color' && !weight;
   const axis = value.slice(0, start).split(';').length === 1 ? 'X' : 'Y';
   const candidates = [
-    {
-      id: 'value',
-      label: 'value',
-      text: 'value',
-      terms: ['value'],
-      detail:
-        parameterType === 'Vector2'
-          ? `Authored base ${axis} component → Scalar`
-          : `Authored base → ${parameterType === 'Color' ? 'Color' : 'Scalar'}`,
-    },
-    ...(parameterType === 'Color' ? [] : functions).map((name) => ({
+    ...(!weight
+      ? [
+          {
+            id: 'value',
+            label: 'value',
+            text: 'value',
+            terms: ['value'],
+            detail:
+              parameterType === 'Vector2'
+                ? `Authored base ${axis} component → Scalar`
+                : `Authored base → ${parameterType === 'Color' ? 'Color' : 'Scalar'}`,
+          },
+        ]
+      : []),
+    ...(color
+      ? [
+          {
+            id: 'mix',
+            label: 'mix(Color, Color, Scalar)',
+            detail: 'Linear-light blend → Color',
+            text: 'mix()',
+            cursorOffset: 4,
+            terms: ['mix'],
+          },
+          {
+            id: 'alpha',
+            label: 'alpha(Color, Scalar)',
+            detail: 'Replace alpha → Color',
+            text: 'alpha()',
+            cursorOffset: 6,
+            terms: ['alpha'],
+          },
+        ]
+      : []),
+    ...(color ? [] : functions).map((name) => ({
       id: name,
       label: `${name}(…)`,
       detail: 'Function → Scalar',
@@ -52,7 +102,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       cursorOffset: name.length + 1,
       terms: [name],
     })),
-    ...(parameterType === 'Color' ? [] : ['pi', 'e']).map((name) => ({
+    ...(color ? [] : ['pi', 'e']).map((name) => ({
       id: name,
       label: name,
       detail: 'Constant · Scalar',
@@ -60,9 +110,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       terms: [name],
     })),
     ...targets
-      .filter((target) =>
-        parameterType === 'Color' ? target.type === 'Color' : target.type !== 'Color',
-      )
+      .filter((target) => (color ? target.type === 'Color' : target.type !== 'Color'))
       .map((target) => ({
         id: target.expression,
         label: target.label,
@@ -86,7 +134,7 @@ export function expressionCompletions(value, start, end, targets = [], parameter
 }
 
 let nextId = 0;
-export function attachExpressionCompletion(input, getTargets, parameterType = 'Scalar') {
+export function attachExpressionCompletion(input, getTargets, parameterType = 'Scalar', onAccept) {
   const doc = input.ownerDocument;
   const list = doc.createElement('div');
   list.className = 'expression-completions';
@@ -165,6 +213,7 @@ export function attachExpressionCompletion(input, getTargets, parameterType = 'S
     input.setSelectionRange(caret, caret);
     input.focus();
     hide();
+    onAccept?.();
     return true;
   };
   input.addEventListener('input', refresh);

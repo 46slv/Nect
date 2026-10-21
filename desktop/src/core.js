@@ -33,6 +33,12 @@ import {
 } from './variable-font/document-bridge.js';
 import { canonicalAxes, requireThat as variableCheck } from './variable-font/contract.js';
 import { validateCharacterArrangement } from './character-arrangement.js';
+import {
+  colorExpression,
+  usesColorOperations,
+  COLOR_OPERATIONS_SCHEMA_VERSION,
+  COLOR_OPERATIONS_VERSION,
+} from './color-operations.js';
 import { validateTonePower } from './luminance-tone.js';
 import {
   DITHER_SCHEMA_VERSION,
@@ -877,11 +883,11 @@ function parameterDependencies(entries) {
     q.source
       ? [q]
       : q.expression
-        ? expressionReferences(q.expression).map((ref) => ({
+        ? parameterExpressionUses(q).map((ref) => ({
             source: ref.nodeId,
             parameterKey: ref.key,
             component: ref.component,
-            ...(q.type === 'Color' ? { parameterType: 'Color' } : {}),
+            ...(q.type === 'Color' ? { parameterType: ref.type } : {}),
           }))
         : [],
   );
@@ -1116,7 +1122,13 @@ function validateNodePreset(doc, preset) {
     schemaVersion: preset.nodes.some((n) =>
       parameters(n).some(([, q]) => q.type === 'Color' && q.expression),
     )
-      ? COLOR_EXPRESSION_SCHEMA_VERSION
+      ? Math.max(
+          ...preset.nodes.flatMap((n) =>
+            parameters(n)
+              .filter(([, q]) => q.type === 'Color' && q.expression)
+              .map(([, q]) => colorExpressionSchemaVersion(q.expression)),
+          ),
+        )
       : preset.nodes.some((n) => isImageDither(n.type))
         ? IMAGE_DITHER_SCHEMA_VERSION
         : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
@@ -1550,6 +1562,61 @@ function usesBaseValue(source) {
   return /\bvalue\b/.test(source.replace(/"[^"]*"/g, ''));
 }
 export const COLOR_EXPRESSION_SCHEMA_VERSION = 42;
+function colorExpressionSchemaVersion(source) {
+  return usesColorOperations(source)
+    ? COLOR_OPERATIONS_SCHEMA_VERSION
+    : COLOR_EXPRESSION_SCHEMA_VERSION;
+}
+function colorReference(source, resolveReference) {
+  return expression(
+    source,
+    (ref) => {
+      if (ref.component !== undefined)
+        throw Error('Expression reference requires a Color parameter');
+      return resolveReference(ref, 'Color');
+    },
+    true,
+  );
+}
+function parameterExpressionUses(q) {
+  if (q.type !== 'Color')
+    return expressionReferences(q.expression).map((ref) => ({ ...ref, type: 'Scalar' }));
+  const refs = [],
+    dummy = { hex: '#000000', alpha: 1 };
+  if (!usesColorOperations(q.expression)) {
+    parameterExpression(
+      q,
+      (ref, type) => {
+        refs.push({ ...ref, type });
+        return dummy;
+      },
+      dummy,
+    );
+    return refs;
+  }
+  colorExpression(q.expression, dummy, {
+    reference: (source) =>
+      colorReference(source, (ref, type) => {
+        refs.push({ ...ref, type });
+        return dummy;
+      }),
+    scalar: (source) => {
+      if (usesBaseValue(source)) throw Error('Color value cannot be used as a Scalar');
+      const before = refs.length;
+      expression(
+        source,
+        (ref) => {
+          refs.push({ ...ref, type: 'Scalar' });
+          return 0;
+        },
+        true,
+      );
+      // References are typed below; their actual range is checked at evaluation/Apply.
+      return refs.length === before ? expression(source) : 0.5;
+    },
+  });
+  return refs;
+}
 function parameterBaseValue(layer, n, key, q) {
   return n.type === 'Fill' && key === 'color' && q.value === null
     ? { hex: layer.fill, alpha: 1 }
@@ -1563,7 +1630,13 @@ function parameterExpression(q, resolveReference, baseValue = q.value) {
     if (source === 'value') value = baseValue;
     else if (/^ref\s*\(\s*"[a-zA-Z0-9:_.-]+"\s*,\s*"[a-zA-Z0-9:_.-]+"\s*\)$/.test(source))
       value = resolveReference(expressionReferences(q.expression)[0], 'Color');
-    else throw Error('Color expression requires value or ref("node-id", "color-key")');
+    else if (usesColorOperations(source))
+      value = colorExpression(source, baseValue, {
+        reference: (text) => colorReference(text, resolveReference),
+        scalar: (text) =>
+          expression(text, (ref) => resolveReference(ref, 'Scalar'), false, baseValue),
+      });
+    else throw Error('Color expression requires value, ref, mix or alpha');
     assertValue('Color', value);
     return clone(value);
   }
@@ -1572,6 +1645,32 @@ function parameterExpression(q, resolveReference, baseValue = q.value) {
         .split(';')
         .map((part, axis) => expression(part, resolveReference, false, q.value[axis]))
     : expression(q.expression, resolveReference, false, q.value);
+}
+export function previewColorExpression(
+  layer,
+  nodeId,
+  key,
+  source,
+  fonts = {},
+  imageAssets = {},
+  documentContext = null,
+) {
+  const draft = clone(layer),
+    n = draft.nodes.find((n) => n.id === nodeId),
+    q = n && parameter(n, key);
+  if (!q || q.type !== 'Color' || typeof source !== 'string')
+    throw Error('Select a Color parameter');
+  q.expression = source;
+  assertAcyclic(draft);
+  const evaluation = evaluate(draft, fonts, imageAssets, documentContext);
+  const resolve = (ref, type = 'Scalar') => {
+    const target = referenceParameter(draft, ref, type),
+      value = evaluation.parameterValue(target.id, ref.key);
+    return ref.component === undefined ? value : value[ref.component === 'x' ? 0 : 1];
+  };
+  return source
+    ? parameterExpression(q, resolve, parameterBaseValue(draft, n, key, q))
+    : clone(parameterBaseValue(draft, n, key, q));
 }
 // IDs are deliberately restricted: no JavaScript, object access, or string evaluation.
 export function parameterReferenceExpression(nodeId, key, component) {
@@ -1582,6 +1681,10 @@ export function parameterReferenceExpression(nodeId, key, component) {
 export function expressionReferences(source) {
   // Existing dormant literal expressions keep their prior import semantics.
   if (!/\bref\b/.test(source)) return [];
+  if (usesColorOperations(source))
+    return parameterExpressionUses({ type: 'Color', expression: source }).map(
+      ({ type, ...ref }) => ref,
+    );
   const refs = [];
   for (const part of source.split(';'))
     expression(
@@ -2563,6 +2666,9 @@ export function evaluate(
                 n.paintMode,
                 external?.outputRevision,
                 inputs,
+                inputs.some(([, q]) => q.type === 'Color' && usesColorOperations(q.expression))
+                  ? COLOR_OPERATIONS_VERSION
+                  : null,
                 n.type === 'Fill' ? layer.fill : null,
                 n.type === 'Output' ? [layer.output, layer.allowEmptyOutput] : null,
                 n.points,
@@ -4324,14 +4430,11 @@ export function validate(doc) {
     )
       throw Error('Authored value expressions require numeric parameters and schemaVersion 26');
     if (type === 'Color' && q.expression) {
-      if (doc.schemaVersion < COLOR_EXPRESSION_SCHEMA_VERSION)
-        throw Error('Color expressions require schemaVersion 42');
+      const required = colorExpressionSchemaVersion(q.expression);
+      if (doc.schemaVersion < required)
+        throw Error(`Color expressions require schemaVersion ${required}`);
       // Validate the typed grammar even when a connection pauses the expression.
-      parameterExpression(
-        q,
-        () => ({ hex: '#000000', alpha: 1 }),
-        q.value ?? { hex: '#000000', alpha: 1 },
-      );
+      parameterExpressionUses(q);
     }
     if (typeof q.locked !== 'boolean') throw Error('Invalid lock state');
     if (q.source !== undefined && (typeof q.source !== 'string' || !idPattern.test(q.source)))
@@ -4351,7 +4454,8 @@ export function validate(doc) {
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
-      doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION)
+      doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4916,11 +5020,10 @@ export function validate(doc) {
     for (const n of l.nodes)
       for (const [, q] of parameters(n))
         if (q.expression) {
-          for (const ref of expressionReferences(q.expression)) {
+          for (const ref of parameterExpressionUses(q)) {
             if (owners.has(ref.nodeId) && owners.get(ref.nodeId) !== l.id)
               throw Error('Expression reference target must be in the same layer');
-            if (owners.has(ref.nodeId))
-              referenceParameter(l, ref, q.type === 'Color' ? 'Color' : 'Scalar');
+            if (owners.has(ref.nodeId)) referenceParameter(l, ref, ref.type);
           }
         }
     assertAcyclic(l);
@@ -7935,7 +8038,7 @@ export class CommandSession {
           if (q.type === 'Color' && q.expression)
             candidate.schemaVersion = Math.max(
               candidate.schemaVersion,
-              COLOR_EXPRESSION_SCHEMA_VERSION,
+              colorExpressionSchemaVersion(q.expression),
             );
           if (usesBaseValue(q.expression))
             candidate.schemaVersion = Math.max(candidate.schemaVersion, 26);

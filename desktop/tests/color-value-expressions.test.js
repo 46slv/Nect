@@ -141,7 +141,7 @@ test('errors, stale requests, invalid base, type mismatch and cycles reject atom
   for (const expression of [
     '1',
     'value + 1',
-    'alpha(value, 0.5)',
+    'alpha(1, 0.5)',
     'value; value',
     'value.hex',
     'v a l u e',
