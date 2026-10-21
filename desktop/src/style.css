@@ -324,9 +324,13 @@ header {
   flex: 1;
   position: relative;
 }
-.graph {
+.graph-space {
   position: relative;
-  margin: 16px;
+  overflow: hidden;
+}
+.graph {
+  position: absolute;
+  transform-origin: 0 0;
   width: 2400px;
   height: 1600px;
   background-image: radial-gradient(#c8d0d7 0.65px, transparent 0.65px);

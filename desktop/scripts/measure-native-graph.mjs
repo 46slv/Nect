@@ -9,6 +9,16 @@ import { graphPerformanceFixture } from '../tests/fixtures/graph-performance.js'
 const output = resolve(
   process.env.NECT_PERF_OUTPUT || 'test-results/native-graph-performance/before',
 );
+const sizes = process.env.NECT_PERF_SIZES
+  ? process.env.NECT_PERF_SIZES.split(',').map(Number)
+  : [16, 160];
+const kinds = process.env.NECT_PERF_ONLY_IDLE
+  ? ['idle']
+  : process.env.NECT_PERF_OPERATIONS?.split(',') || ['idle', 'pan', 'zoom', 'node-drag'];
+const traceKind = process.env.NECT_PERF_TRACE_OPERATION || 'node-drag';
+assert.ok(sizes.length && sizes.every((n) => [16, 160].includes(n)));
+assert.ok(kinds.length && kinds.every((k) => ['idle', 'pan', 'zoom', 'node-drag'].includes(k)));
+assert.ok(['zoom', 'node-drag'].includes(traceKind));
 await fs.mkdir(output, { recursive: true });
 const b = await chromium.connectOverCDP(process.env.NECT_PERF_CDP_URL || 'http://127.0.0.1:9454');
 const summary = {
@@ -176,9 +186,11 @@ try {
   async function phase(count, kind, f) {
     await prepare();
     latencies.length = 0;
-    const graphViewport = await page
-      .locator('.graph-scroll')
-      .evaluate((el) => ({ width: el.clientWidth, height: el.clientHeight }));
+    const graphViewport = await page.evaluate(() => {
+      const el = document.querySelector('.graph-scroll');
+      return { width: el.clientWidth, height: el.clientHeight };
+    });
+    assert.ok(graphViewport.width > 0 && graphViewport.height > 0, 'current live Graph viewport');
     const beforeDoc = await page.evaluate(() => JSON.stringify(window.nect.document));
     const c0 = await cpu(),
       m0 = await metrics();
@@ -190,6 +202,14 @@ try {
     const observation = await observeStop(),
       m1 = await metrics(),
       c1 = await cpu();
+    if (kind === 'zoom') {
+      assert.equal(observation.appWrites, 0, 'zoom must not overlap a startup/root rerender');
+      assert.equal(
+        observation.wireWrites,
+        12,
+        'observe the same live wire SVG for all zoom clicks',
+      );
+    }
     assert.equal(
       await page.evaluate(() => JSON.stringify(window.nect.document)),
       beforeDoc,
@@ -253,7 +273,7 @@ try {
     console.log(JSON.stringify(r));
     await fs.writeFile(resolve(output, 'summary.json'), JSON.stringify(summary, null, 2));
   }
-  for (const count of [16, 160]) {
+  for (const count of sizes) {
     const f = graphPerformanceFixture(count);
     await fs.writeFile(resolve(output, `scene-${count}.json`), serialize(f.doc));
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
@@ -261,14 +281,12 @@ try {
       await page.locator('.canvas-toolbar [data-action="align-panel"]').click();
     await pause(500);
     assert.equal(await page.locator('.graph .node').count(), count);
-    for (const kind of process.env.NECT_PERF_ONLY_IDLE
-      ? ['idle']
-      : ['idle', 'pan', 'zoom', 'node-drag'])
-      await phase(count, kind, f);
+    for (const kind of kinds) await phase(count, kind, f);
   }
-  // One short diagnostic trace/profile of the largest scene, separate from timing phases.
-  if (!process.env.NECT_PERF_ONLY_IDLE) {
-    const f = graphPerformanceFixture(160);
+  // One short diagnostic trace/profile of the last scene, separate from timing phases.
+  if (!process.env.NECT_PERF_ONLY_IDLE && !process.env.NECT_PERF_SKIP_TRACE) {
+    const f = graphPerformanceFixture(sizes.at(-1)),
+      traceName = traceKind === 'zoom' ? 'medium-zoom' : 'medium-drag';
     await prepare();
     await cdp.send('Profiler.enable');
     await cdp.send('Profiler.setSamplingInterval', { interval: 1000 });
@@ -277,9 +295,9 @@ try {
       categories: 'devtools.timeline,v8',
       transferMode: 'ReturnAsStream',
     });
-    await operation('node-drag', f);
+    await operation(traceKind, f);
     const profile = await cdp.send('Profiler.stop');
-    await fs.writeFile(resolve(output, 'medium-drag.cpuprofile'), JSON.stringify(profile.profile));
+    await fs.writeFile(resolve(output, `${traceName}.cpuprofile`), JSON.stringify(profile.profile));
     const completion = new Promise((r) => root.once('Tracing.tracingComplete', r));
     await root.send('Tracing.end');
     const { stream } = await completion;
@@ -290,7 +308,7 @@ try {
       if (chunk.eof) break;
     }
     await root.send('IO.close', { handle: stream });
-    await fs.writeFile(resolve(output, 'medium-drag.trace.json'), trace);
+    await fs.writeFile(resolve(output, `${traceName}.trace.json`), trace);
     const parsed = JSON.parse(trace),
       events = parsed.traceEvents.filter((e) => e.ph === 'X');
     summary.traceSummary = Object.fromEntries(
