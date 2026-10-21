@@ -130,13 +130,13 @@ test('invalid names, missing/cross-layer/duplicate IDs and implicit moves reject
     f,
     'add-to-node-group',
     { groupId: a, nodeIds: [f.fill.id, f.rectangle.id] },
-    /Move selected/,
+    /Move into group/,
   );
   reject(
     f,
     'create-node-group',
     { name: 'C', groupId: b, nodeIds: [f.rectangle.id] },
-    /Move selected/,
+    /Move into group/,
   );
   for (const type of [
     'rename-node-group',

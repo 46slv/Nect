@@ -2155,7 +2155,7 @@ function ownedPointDeltaFields(n) {
       return !q || q.locked || q.source || q.expression;
     });
   const values = pointDeltaDraft?.nodeId === n.id ? pointDeltaDraft.values : ['0', '0'];
-  return `<div class="batch-edit" data-point-delta-panel="${n.id}" role="group" aria-label="Move selected points"><p>${ids.length} selected points · Node-local · document units</p><div class="field-controls">${values.map((value, axis) => `<label>Δ${axis ? 'Y' : 'X'}<input type="number" step="any" data-point-delta-axis="${axis}" data-node="${n.id}" aria-label="Selected points delta ${axis ? 'Y' : 'X'}" title="Node-local document units; Enter to apply both axes; Escape to cancel" value="${esc(value)}" ${disabled ? 'disabled' : ''}></label>`).join('')}</div><button class="mini" data-apply-point-delta="${n.id}" ${disabled ? 'disabled' : ''}>Move points</button><button class="mini" data-cancel-point-delta="${n.id}">Cancel</button></div>`;
+  return `<div class="batch-edit" data-point-delta-panel="${n.id}" role="group" aria-label="Move into group points"><p>${ids.length} selected points · Node-local · document units</p><div class="field-controls">${values.map((value, axis) => `<label>Δ${axis ? 'Y' : 'X'}<input type="number" step="any" data-point-delta-axis="${axis}" data-node="${n.id}" aria-label="Selected points delta ${axis ? 'Y' : 'X'}" title="Node-local document units; Enter to apply both axes; Escape to cancel" value="${esc(value)}" ${disabled ? 'disabled' : ''}></label>`).join('')}</div><button class="mini" data-apply-point-delta="${n.id}" ${disabled ? 'disabled' : ''}>Move points</button><button class="mini" data-cancel-point-delta="${n.id}">Cancel</button></div>`;
 }
 function stagePointDelta(input) {
   const nodeId = input.dataset.node,
@@ -2530,7 +2530,7 @@ function remapFields(n, result, panelOnly = false) {
   if (panelOnly) return panel;
   return (
     panel +
-    `<div class="batch-edit"><p>${batch.selected.size} batch checked · Δ position</p>${batch.selected.size ? `<div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move selected points</button><button class="mini" data-clear-batch="${n.id}">Clear batch selection</button>` : '<p class="point-panel-hint">Check points in the list for batch Δ editing.</p>'}</div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
+    `<div class="batch-edit"><p>${batch.selected.size} batch checked · Δ position</p>${batch.selected.size ? `<div class="field-controls">${batch.delta.map((v, axis) => `<input type="number" step="any" data-batch-axis="${axis}" data-node="${n.id}" aria-label="Batch delta ${axis ? 'Y' : 'X'}" value="${v}">`).join('')}</div><button class="mini" data-apply-batch="${n.id}">Move into group points</button><button class="mini" data-clear-batch="${n.id}">Clear batch selection</button>` : '<p class="point-panel-hint">Check points in the list for batch Δ editing.</p>'}</div><button class="mini" data-clear-edits="${n.id}">Clear vertex edits</button>`
   );
 }
 // A name edit belongs to stable document IDs, never the currently selected row.
@@ -3917,7 +3917,7 @@ function typographyControls(context) {
       .map(([key, label, min, max, factor]) => {
         const vals = context.typographySelected.map((g) => g[key] * factor),
           isMixed = vals.some((v) => v !== vals[0]);
-        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled || (key === 'tracking' && maintainedAxis(context.n) !== null) ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${(key === 'tracking' && maintainedAxis(context.n) !== null) || disabled ? 'disabled' : ''} title="Remove selected ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
+        return `<div class="typography-field"><label>${label}<input type="number" step="any" min="${min}" max="${max}" data-scrub-step="1" title="Drag horizontally to adjust; click to type" data-character-style="${key}" aria-label="Selected character ${key}" placeholder="${isMixed ? 'Mixed' : ''}" value="${isMixed ? '' : (vals[0] ?? '')}" ${disabled || (key === 'tracking' && maintainedAxis(context.n) !== null) ? 'disabled' : ''}></label><button data-character-style-inherit="${key}" ${(key === 'tracking' && maintainedAxis(context.n) !== null) || disabled ? 'disabled' : ''} title="Remove from group ${label} overrides" aria-label="Inherit selected ${key}">Inherit</button></div>`;
       })
       .join(
         '',
@@ -4255,7 +4255,7 @@ function nodeStageMoveMarker(n, path) {
     x = b[0][1],
     y = b[1][0] - 24 / canvasScale();
   if (![x, y].every(Number.isFinite)) return '';
-  return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move selected node before downstream nodes"><title>Move selected node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
+  return `<g class="node-stage-move" data-node-stage-move="${n.id}" data-node-stage-layer="${current().id}" transform="translate(${x} ${y}) scale(${1 / canvasScale()})" aria-label="Move into group node before downstream nodes"><title>Move into group node before downstream nodes</title><rect x="-10" y="-10" width="20" height="20" rx="3"/><path d="M-6 0H6 M0-6V6"/><text x="14" y="4">Move node stage</text></g>`;
 }
 let penSegmentHover = null;
 let pointFocus = null,
@@ -11369,7 +11369,7 @@ function nodeGroupControls() {
   };
   const button = (action, label, disabled) =>
     `<button class="mini" data-node-group-action="${action}" data-node-group-token="${token}" ${blocked || disabled ? 'disabled' : ''}>${label}</button>`;
-  return `<details class="node-group-controls" data-node-groups ${nodeGroupView.open ? 'open' : ''}><summary>Groups (${groups.length})</summary><div class="node-group-fields"><select data-node-group-select aria-label="Node group"><option value="">Choose group</option>${groups.map((g) => `<option value="${g.id}" ${g === group ? 'selected' : ''}>${esc(g.name)} (${g.nodeIds.length})</option>`).join('')}</select><input data-node-group-name aria-label="Group name" placeholder="Group name" maxlength="100" value="${esc(group?.name || '')}" ${blocked ? 'disabled' : ''}><output>${ids.length} selected</output></div><div class="node-group-actions">${button('create', 'Create group', !ids.length || ids.some((id) => renderNodeGroups.has(id)))}${button('rename', 'Rename', !group)}${button('add', 'Add selected', !group || !ids.length || assignedElsewhere)}${button('move', 'Move selected', !group || !ids.length)}${button('remove', 'Remove selected', !hasMembers)}${button('ungroup', 'Ungroup', !group)}${button('cancel', 'Cancel name', false)}</div></details>`;
+  return `<details class="node-group-controls" data-node-groups ${nodeGroupView.open ? 'open' : ''}><summary>Groups (${groups.length})</summary><div class="node-group-fields"><select data-node-group-select aria-label="Node group"><option value="">Choose group</option>${groups.map((g) => `<option value="${g.id}" ${g === group ? 'selected' : ''}>${esc(g.name)} (${g.nodeIds.length})</option>`).join('')}</select><input data-node-group-name aria-label="Group name" placeholder="Group name" maxlength="100" value="${esc(group?.name || '')}" ${blocked ? 'disabled' : ''}><output>${ids.length} selected</output></div><div class="node-group-actions">${button('create', 'Create group', !ids.length || ids.some((id) => renderNodeGroups.has(id)))}${button('rename', 'Rename', !group)}${button('add', 'Add selected', !group || !ids.length || assignedElsewhere)}${button('move', 'Move into group', !group || !ids.length)}${button('remove', 'Remove from group', !hasMembers)}${button('ungroup', 'Ungroup', !group)}${button('cancel', 'Cancel name', false)}</div></details>`;
 }
 function nodeGroupAction(button) {
   const scope = nodeGroupView.scope,

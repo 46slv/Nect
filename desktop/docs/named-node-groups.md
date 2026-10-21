@@ -13,7 +13,7 @@ and member node IDs. Groups are flat; a node belongs to at most one. Empty group
 are retained explicitly, including after member deletion, and can be renamed,
 refilled or ungrouped. Undo of node deletion restores the original membership.
 Create requires a nonempty, distinct, current, ungrouped node selection. Add
-rejects nodes belonging to another group; Move selected explicitly transfers the
+rejects nodes belonging to another group; Move into group explicitly transfers the
 entire selected set into the chosen group in one atomic Undo. Remove affects only
 selected members of that group. Ungroup removes the record, never the nodes.
 Missing/stale IDs, malformed names, duplicate membership and locked compositions
@@ -28,7 +28,7 @@ composition duplication preserves groups with fresh group/member IDs.
 
 UI contract: the existing Graph is the working surface. A compact collapsible
 Groups strip contains group/name selection, Create from selection, Rename,
-Add selected, Move selected, Remove selected and Ungroup. Names/counts and a
+Add selected, Move into group, Remove from group and Ungroup. Names/counts and a
 small per-node group label show membership. Inline names remain drafts until an
 explicit commit; Cancel/Escape is neutral. Capture layer/session/revision and
 selection IDs for actions so stale controls cannot affect another document.

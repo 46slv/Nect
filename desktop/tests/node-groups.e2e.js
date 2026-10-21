@@ -128,6 +128,7 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), emptyAfterDeletion);
   await page.locator('[data-action="undo"]').click();
+  await pick(circle.id);
   await open();
   await choose(first);
   await act('remove');

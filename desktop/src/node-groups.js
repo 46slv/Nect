@@ -63,7 +63,7 @@ export function applyNodeGroupCommand(doc, layer, type, payload, freshId) {
       ['create-node-group', 'add-to-node-group'].includes(type) &&
       other.some((g) => g.nodeIds.some((id) => selected.has(id)))
     )
-      throw Error('Selected nodes already belong to another group; use Move selected');
+      throw Error('Selected nodes already belong to another group; use Move into group');
     if (type === 'create-node-group') {
       const created = { id: freshId(), name: groupName(payload.name), nodeIds: [...ids] };
       layer.nodeGroups = [...groups, created];
