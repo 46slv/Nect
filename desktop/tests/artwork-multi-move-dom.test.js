@@ -733,9 +733,10 @@ test('Multiple independent artworks select and move as one transaction', async (
       assert.equal(saved(), before);
       assert.equal(ui().past, 0);
       fire($('.artboard'), 'pointerdown', [20, 20]);
-      assert.deepEqual(selectedIds(), []);
       key(stage(), 'ArrowRight');
       assert.equal(saved(), before);
+      fire(document, 'pointerup', [20, 20]);
+      assert.deepEqual(selectedIds(), []);
       load(f.doc);
       assert.deepEqual(selectedIds(), []);
     },
