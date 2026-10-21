@@ -2062,18 +2062,92 @@ function field(n, key, q) {
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
 const POINT_PANEL_PAGE_SIZE = 24;
+function pointPanelSource(n, input) {
+  if (n.type === 'Path Remap' && !input && n.params.path.source) {
+    try {
+      input = evaluate(
+        current(),
+        resolveFonts(history.doc, activeFonts()),
+        history.doc.imageAssets,
+      ).run(n.params.path.source);
+    } catch {}
+  }
+  return {
+    points: n.type === 'Path Remap' ? input?.contours.flatMap((c) => c.points) || [] : n.points,
+    contours:
+      n.type === 'Multi Path'
+        ? n.contours.map((c, index) => ({ ...c, index }))
+        : input?.contours.map((c, index) => ({
+            id: c.id,
+            index,
+            closed: c.closed,
+            points: c.points.map((p) => p.id),
+          })) || [],
+    units: n.type === 'Multi Path' ? n.units : [],
+  };
+}
+function scopedPointPanel(entries, source, view) {
+  const unit = source.units.find((u) => u.id === view.unitId),
+    unitContours = unit ? new Set(unit.contours) : null,
+    contours = source.contours.filter((c) => !unitContours || unitContours.has(c.id)),
+    contour = contours.find((c) => c.id === view.contourId),
+    ids = contour?.points || (unit ? contours.flatMap((c) => c.points) : null),
+    byId = new Map(entries.map((entry) => [entry.pt.id, entry]));
+  return {
+    view: { ...view, unitId: unit?.id || '', contourId: contour?.id || '' },
+    contours,
+    entries: ids ? ids.map((id) => byId.get(id)).filter(Boolean) : entries,
+  };
+}
+function followPointPanelTarget(n, pointId) {
+  const source = pointPanelSource(n),
+    entries = source.points.map((pt) => ({ pt }));
+  let scoped = scopedPointPanel(entries, source, pointPanelViews.get(n.id) || {}),
+    view = scoped.view;
+  if ((view.unitId || view.contourId) && !scoped.entries.some(({ pt }) => pt.id === pointId)) {
+    const contour = source.contours.find((c) => c.points.includes(pointId));
+    view = {
+      ...view,
+      contourId: contour?.id || '',
+      unitId: source.units.find((u) => u.contours.includes(contour?.id))?.id || '',
+    };
+    scoped = scopedPointPanel(entries, source, view);
+  }
+  const index = scoped.entries
+    .filter(({ pt }) => pointSelection.ids.has(pt.id))
+    .findIndex(({ pt }) => pt.id === pointId);
+  pointPanelViews.set(n.id, {
+    ...view,
+    all: false,
+    page: Math.max(0, Math.floor(index / POINT_PANEL_PAGE_SIZE)),
+  });
+}
 function pointRowClass(n, id) {
   return `${selectedPointIds(n).includes(id) ? 'point-selected' : ''} ${pointFocus?.nodeId === n.id && pointFocus.pointId === id ? 'point-active' : ''}`;
 }
-function pointPanel(n, entries, renderRows) {
+function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
   const selectedIds = new Set(selectedPointIds(n));
-  const chosen = entries.filter(({ pt }) => selectedIds.has(pt.id));
-  const view = pointPanelViews.get(n.id) || { all: false, page: 0 };
-  const candidates = view.all ? entries : chosen;
+  const scoped = scopedPointPanel(
+    entries,
+    source,
+    pointPanelViews.get(n.id) || { all: false, page: 0 },
+  );
+  const view = scoped.view,
+    chosen = scoped.entries.filter(({ pt }) => selectedIds.has(pt.id));
+  const chosenTotal = entries.filter(({ pt }) => selectedIds.has(pt.id)).length;
+  const candidates = view.all ? scoped.entries : chosen;
   const pages = Math.max(1, Math.ceil(candidates.length / POINT_PANEL_PAGE_SIZE));
   const page = Math.min(view.page, pages - 1);
   const rows = candidates.slice(page * POINT_PANEL_PAGE_SIZE, (page + 1) * POINT_PANEL_PAGE_SIZE);
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${entries.length} points · ${chosen.length} Canvas selected</p>${!chosen.length && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : 'Browse all points'}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  const scopeControls = source.contours.length
+    ? `<div role="group" aria-label="Point list scope">${source.units.length ? `<div class="field"><label>List unit</label><select data-point-panel-unit="${n.id}" aria-label="Point list unit"><option value="">All units</option>${source.units.map((u, i) => `<option value="${esc(u.id)}" ${view.unitId === u.id ? 'selected' : ''}>Unit ${i + 1} · ${u.contours.length} contours · ${esc(u.id)}</option>`).join('')}</select></div>` : ''}<div class="field"><label>List contour</label><select data-point-panel-contour="${n.id}" aria-label="Point list contour"><option value="">All contours</option>${scoped.contours.map((c) => `<option value="${esc(c.id)}" ${view.contourId === c.id ? 'selected' : ''}>Contour ${c.index + 1} · ${c.closed ? 'closed' : 'open'} · ${c.points.length} points · ${esc(c.id)}</option>`).join('')}</select></div></div>`
+    : '';
+  const browseLabel = view.contourId
+    ? 'Browse contour points'
+    : view.unitId
+      ? 'Browse unit points'
+      : 'Browse all points';
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -2140,7 +2214,11 @@ function refreshPointPanels() {
   for (const panel of document.querySelectorAll(
     '.graph [data-point-panel], .inspector [data-point-panel]',
   )) {
-    if (panel.contains(document.activeElement)) continue;
+    if (
+      panel.contains(document.activeElement) &&
+      !document.activeElement.matches('[data-point-panel-unit], [data-point-panel-contour]')
+    )
+      continue;
     const n = current().nodes.find((node) => node.id === panel.dataset.pointPanel);
     if (!n) continue;
     panel.outerHTML = n.type === 'Path Remap' ? remapFields(n, result, true) : ownedPointFields(n);
@@ -2163,25 +2241,29 @@ function remapFields(n, result, panelOnly = false) {
   if (!input) return '<p class="muted">Connect a path to edit its vertices.</p>';
   const batch = remapBatch(n.id);
   const entries = input.contours.flatMap((c, ci) => c.points.map((pt, pi) => ({ pt, ci, pi })));
-  const panel = pointPanel(n, entries, (rows) =>
-    rows
-      .map(
-        ({ pt, ci, pi }) =>
-          `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="remap-${pt.id}" open><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> <button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Contour ${ci + 1} · Point ${pi + 1}</button></summary>${[
-            'position',
-            'handleA',
-            'handleB',
-          ]
-            .map((k) => {
-              let edit = n.edits.find((e) => e.pointId === pt.id);
-              if (edit?.params) return field(n, `remap.${pt.id}.${k}`, edit.params[k]);
-              return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
-            })
-            .join(
-              '',
-            )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
-      )
-      .join(''),
+  const panel = pointPanel(
+    n,
+    entries,
+    (rows) =>
+      rows
+        .map(
+          ({ pt, ci, pi }) =>
+            `<details data-point-row="${pt.id}" class="${pointRowClass(n, pt.id)}" data-detail="remap-${pt.id}" open><summary><input type="checkbox" data-batch-point="${pt.id}" data-node="${n.id}" aria-label="Select contour ${ci + 1} point ${pi + 1} for batch edit" ${batch.selected.has(pt.id) ? 'checked' : ''}> <button class="mini" data-select-panel-point="${pt.id}" data-node="${n.id}" aria-pressed="${selectedPointIds(n).includes(pt.id)}">Contour ${ci + 1} · Point ${pi + 1}</button></summary>${[
+              'position',
+              'handleA',
+              'handleB',
+            ]
+              .map((k) => {
+                let edit = n.edits.find((e) => e.pointId === pt.id);
+                if (edit?.params) return field(n, `remap.${pt.id}.${k}`, edit.params[k]);
+                return `<div class="field"><label>Δ ${k}</label>${[0, 1].map((axis) => `<input aria-label="Remap ${pi + 1} ${k} ${axis ? 'Y' : 'X'}" type="number" step="any" data-remap="${pt.id}" data-component="${k}" data-axis="${axis}" data-node="${n.id}" value="${edit?.[k]?.[axis] || 0}">`).join('')}</div>`;
+              })
+              .join(
+                '',
+              )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
+        )
+        .join(''),
+    pointPanelSource(n, input),
   );
   if (panelOnly) return panel;
   return (
@@ -3928,28 +4010,14 @@ function selectPointTarget(n, target, event) {
   if (event.shiftKey && pointSelection.ids.has(target.pointId)) {
     pointSelection.ids.delete(target.pointId);
     pointFocus = null;
-    pointPanelViews.delete(n.id);
+    pointPanelViews.set(n.id, { ...pointPanelViews.get(n.id), all: false, page: 0 });
     refreshPointPanels();
     updateCanvas(true);
     return false;
   }
   if (!event.shiftKey && !pointSelection.ids.has(target.pointId)) pointSelection.ids.clear();
   pointSelection.ids.add(target.pointId);
-  pointPanelViews.delete(n.id);
-  // Keep the active point visible even when a large selection spans pages.
-  const ordered =
-    n.type === 'Path Remap'
-      ? evaluate(current(), resolveFonts(history.doc, activeFonts()), history.doc.imageAssets)
-          .run(n.params.path.source)
-          .contours.flatMap((c) => c.points)
-      : n.points;
-  const index = ordered
-    .filter((p) => pointSelection.ids.has(p.id))
-    .findIndex((p) => p.id === target.pointId);
-  pointPanelViews.set(n.id, {
-    all: false,
-    page: Math.max(0, Math.floor(index / POINT_PANEL_PAGE_SIZE)),
-  });
+  followPointPanelTarget(n, target.pointId);
   refreshPointPanels();
   updateCanvas(true);
   return true;
@@ -5737,7 +5805,7 @@ app.addEventListener('click', async (e) => {
     pointPanelViews.set(
       id,
       d.pointPanelMode
-        ? { all: !view.all, page: 0 }
+        ? { ...view, all: !view.all, page: 0 }
         : { ...view, page: Math.max(0, Number(d.page)) },
     );
     b.blur();
@@ -7796,6 +7864,23 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.pointPanelUnit || d.pointPanelContour) {
+    const id = d.pointPanelUnit || d.pointPanelContour;
+    if (!current().nodes.some((n) => n.id === id)) return;
+    const view = pointPanelViews.get(id) || {},
+      region = el.closest('.graph') ? '.graph' : '.inspector',
+      attribute = d.pointPanelUnit ? 'data-point-panel-unit' : 'data-point-panel-contour';
+    pointPanelViews.set(id, {
+      ...view,
+      all: true,
+      page: 0,
+      ...(d.pointPanelUnit ? { unitId: el.value, contourId: '' } : { contourId: el.value }),
+    });
+    el.blur();
+    refreshPointPanels();
+    document.querySelector(`${region} [${attribute}="${id}"]`)?.focus({ preventScroll: true });
+    return;
+  }
   if (el.id === 'svg-export-preset' || el.id === 'png-export-preset') {
     const format = el.id === 'svg-export-preset' ? 'svg' : 'png';
     if (!el.value) {
