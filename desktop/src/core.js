@@ -82,6 +82,7 @@ import {
   repeaterSettings,
   REPEATER_KEYS,
   REPEATER_SCHEMA_VERSION,
+  REPEATER_ALTERNATE_SCHEMA_VERSION,
   assertRepeaterRoute,
 } from './repeater.js';
 import { reversePathGeometry } from './reverse-path-geometry.js';
@@ -347,6 +348,7 @@ export const definitions = {
     anchor: p('Vector2', [0, 0]),
     position: p('Vector2', [60, 0]),
     scale: p('Vector2', [100, 100]),
+    alternateScale: p('Scalar', 100),
     rotation: p('Scalar', 0),
     startOpacity: p('Scalar', 100),
     endOpacity: p('Scalar', 100),
@@ -4458,6 +4460,7 @@ export function validate(doc) {
       doc.schemaVersion !== DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== IMAGE_DITHER_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_SCHEMA_VERSION &&
+      doc.schemaVersion !== REPEATER_ALTERNATE_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
@@ -4642,6 +4645,15 @@ export function validate(doc) {
           for (const key of REPEATER_KEYS)
             if (!Object.hasOwn(n.params, key))
               n.params[key] = clone(definitions['Geometry Repeater'][key]);
+        if (sourceSchemaVersion < REPEATER_ALTERNATE_SCHEMA_VERSION) {
+          if (!Object.hasOwn(n.params, 'alternateScale'))
+            n.params.alternateScale = clone(definitions['Geometry Repeater'].alternateScale);
+          const q = n.params.alternateScale;
+          if (q.value !== 100 || q.expression || q.source)
+            throw Error(
+              `Repeater Alternate Scale requires schemaVersion ${REPEATER_ALTERNATE_SCHEMA_VERSION}`,
+            );
+        }
       }
       if (n.type === 'Resample Path' && sourceSchemaVersion < 12) {
         if (n.operation === 'spacing') throw Error('Resample spacing requires schemaVersion 12');
@@ -8128,6 +8140,18 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, BOOLEAN_INPUT_SCHEMA_VERSION);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => {
+          const q = n.type === 'Geometry Repeater' && n.params.alternateScale;
+          return q && (q.value !== 100 || q.expression || q.source);
+        }),
+      )
+    )
+      candidate.schemaVersion = Math.max(
+        candidate.schemaVersion,
+        REPEATER_ALTERNATE_SCHEMA_VERSION,
+      );
     validate(candidate);
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);

@@ -4,6 +4,13 @@
 **radial-step** modes and their prior appearance. Select **ae-2d** to expose
 Copies (`count`), Offset, Anchor, Position, Scale (XY %), Rotation (degrees),
 Start/End Opacity (%) and Copies Above (later copies in front; unchecked behind).
+Alternate Scale (%) defaults to100 and scales only odd zero-based copies1,3,5…
+in `ae-2d`, independent of Offset and paint order. Its finite range is0.01–1000%.
+It scales the source around Anchor before the existing copy transform, preserving
+the transformed Anchor placement. Positions and Bezier handles scale together;
+the step, radius/placement, opacity and stable derived IDs are retained. Linear
+and radial affine configurations use the same rule. Nondefault/bound Alternate
+Scale requires schema45; old documents backfill100 without advancing their version.
 Existing documents receive identity defaults for the new controls when loaded.
 Save editable JSON to retain the procedural graph. The new mode uses schema 37;
 older applications reject that project version.
