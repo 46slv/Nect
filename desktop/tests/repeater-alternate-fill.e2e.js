@@ -4,13 +4,26 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { serialize, node } from '../src/core.js';
 import { fillFixture } from './fixtures/repeater-alternate-fill.js';
+import { strokeFixture } from './fixtures/repeater-alternate-stroke.js';
 import { formatSvgNumber } from '../src/svg-number-format.js';
+const strokeMode = process.env.NECT_REPEATER_APPEARANCE === 'stroke';
+const targetFlag = strokeMode ? 'alternateStroke' : 'alternateFill';
+const targetColor = strokeMode ? 'alternateStrokeColor' : 'alternateColor';
+const targetMeta = strokeMode ? 'repeaterStroke' : 'repeaterFill';
+const initialAlpha = strokeMode ? 0.5 : 0.35;
+const fixture = strokeMode ? strokeFixture : fillFixture;
 const output = path.resolve(
-  process.env.NECT_REPEATER_FILL_OUTPUT || 'test-results/repeater-alternate-fill/native',
+  process.env.NECT_REPEATER_COLOR_OUTPUT ||
+    process.env.NECT_REPEATER_FILL_OUTPUT ||
+    (strokeMode
+      ? 'test-results/repeater-alternate-stroke/native'
+      : 'test-results/repeater-alternate-fill/native'),
 );
 await fs.mkdir(output, { recursive: true });
 const browser = await chromium.connectOverCDP(
-  process.env.NECT_REPEATER_FILL_CDP || 'http://127.0.0.1:9467',
+  process.env.NECT_REPEATER_COLOR_CDP ||
+    process.env.NECT_REPEATER_FILL_CDP ||
+    (strokeMode ? 'http://127.0.0.1:9469' : 'http://127.0.0.1:9467'),
 );
 const results = [],
   errors = [];
@@ -40,7 +53,9 @@ try {
       selected: [...document.querySelectorAll('.node.selected')].map((e) => e.dataset.id),
     }));
   for (const kind of ['linear', 'radial']) {
-    const f = fillFixture(kind);
+    const f = fixture(kind);
+    const lineOnly = strokeMode && kind === 'linear';
+    if (lineOnly) f.stroke.params.path.source = f.repeat.id;
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
     await $('[data-action="graph-reset"]').click();
     await $(`.graph .node[data-id="${f.repeat.id}"] .type-tag`).click();
@@ -48,12 +63,14 @@ try {
     await settle();
     const field = (key) =>
       $(`.inspector-body .field[data-node="${f.repeat.id}"][data-key="${key}"]`);
-    const toggle = () => field('alternateFill').locator('input[type="checkbox"]');
-    const alpha = () => field('alternateColor').locator('[data-color="alpha"]');
+    const toggle = () => field(targetFlag).locator('input[type="checkbox"]');
+    const alpha = () => field(targetColor).locator('[data-color="alpha"]');
     assert.equal(await toggle().isChecked(), false);
     assert.match(
-      await $('.inspector-body .repeater-fill-limits').textContent(),
-      /existing solid fills only.*None\/gradients/,
+      await $(`.inspector-body .repeater-${strokeMode ? 'stroke' : 'fill'}-limits`).textContent(),
+      strokeMode
+        ? /existing solid strokes only.*None.*gradient\/pattern/
+        : /existing solid fills only.*None\/gradients/,
     );
     const before = await state(),
       baseline = await page.evaluate(() => window.nect.evaluate().path.contours);
@@ -61,11 +78,15 @@ try {
     await settle();
     const on = await state(),
       expected = JSON.parse(before.doc);
-    expected.layers[0].nodes.find((n) => n.id === f.repeat.id).params.alternateFill.value = true;
+    expected.layers[0].nodes.find((n) => n.id === f.repeat.id).params[targetFlag].value = true;
     assert.deepEqual(JSON.parse(on.doc), expected);
     const contours = await page.evaluate(() => window.nect.evaluate().path.contours);
     assert.deepEqual(
-      contours.map(({ repeaterFill, ...c }) => c),
+      contours.map((c) => {
+        const result = { ...c };
+        delete result[targetMeta];
+        return result;
+      }),
       baseline,
     );
     assert.deepEqual(on.selected, before.selected);
@@ -76,6 +97,12 @@ try {
         alpha: p.getAttribute('fill-opacity'),
         stroke: p.getAttribute('stroke'),
         strokeAlpha: p.getAttribute('stroke-opacity'),
+        width: p.getAttribute('stroke-width'),
+        cap: p.getAttribute('stroke-linecap'),
+        join: p.getAttribute('stroke-linejoin'),
+        miter: p.getAttribute('stroke-miterlimit'),
+        dash: p.getAttribute('stroke-dasharray'),
+        dashOffset: p.getAttribute('stroke-dashoffset'),
         opacity: p.parentElement.getAttribute('opacity'),
         opacityAncestors: [
           ...(function* (e) {
@@ -87,10 +114,16 @@ try {
     assert.equal(paints.length, 24);
     paints.forEach((p, i) =>
       assert.deepEqual(p, {
-        fill: i % 2 ? '#c43d27' : '#285d8f',
-        alpha: i % 2 ? '0.35' : '0.6',
-        stroke: '#17232d',
-        strokeAlpha: '0.4',
+        fill: lineOnly ? 'none' : i % 2 ? '#c43d27' : '#285d8f',
+        alpha: lineOnly ? null : i % 2 ? '0.35' : '0.6',
+        stroke: strokeMode && i % 2 ? '#7828a3' : '#17232d',
+        strokeAlpha: strokeMode && i % 2 ? '0.5' : '0.4',
+        width: strokeMode ? '3' : '2',
+        cap: strokeMode ? 'round' : 'butt',
+        join: strokeMode ? 'bevel' : 'miter',
+        miter: strokeMode ? '7' : '4',
+        dash: strokeMode ? '4 2' : 'none',
+        dashOffset: strokeMode ? '1.5' : '0',
         opacity: formatSvgNumber(baseline[i].repeaterOpacity),
         opacityAncestors: 1,
       }),
@@ -106,17 +139,16 @@ try {
     assert.equal((await state()).svg, on.svg);
     results.push({
       kind,
-      case: '24-copy odd/even solid colors, unchanged combined scale/geometry/IDs/source/stroke/order, one opacity wrapper, one Undo/Redo',
+      case: '24-copy odd/even solid colors, preserved geometry/IDs/source/untouched paint/stroke style/order, one opacity wrapper and Undo/Redo',
     });
     await alpha().fill('0.25');
     await alpha().press('Tab');
     await settle();
     assert.equal(
       await page.evaluate(
-        (id) =>
-          window.nect.document.layers[0].nodes.find((n) => n.id === id).params.alternateColor.value
-            .alpha,
-        f.repeat.id,
+        ({ id, key }) =>
+          window.nect.document.layers[0].nodes.find((n) => n.id === id).params[key].value.alpha,
+        { id: f.repeat.id, key: targetColor },
       ),
       0.25,
     );
@@ -125,14 +157,14 @@ try {
     assert.equal((await state()).doc, on.doc);
     // Synthetic color-control change, not the OS color picker. Uses the same
     // native-renderer event handler/Session command as the existing Color field.
-    await field('alternateColor')
+    await field(targetColor)
       .locator('[data-color="hex"]')
       .evaluate((el) => {
-        el.value = '#7828a3';
+        el.value = '#0055aa';
         el.dispatchEvent(new Event('change', { bubbles: true }));
       });
     await settle();
-    assert.ok((await state()).svg.includes('fill="#7828a3"'));
+    assert.ok((await state()).svg.includes(`${strokeMode ? 'stroke' : 'fill'}="#0055aa"`));
     await $('[data-action="undo"]').click();
     await settle();
     assert.equal((await state()).doc, on.doc);
@@ -153,7 +185,7 @@ try {
     await page.mouse.down();
     await page.mouse.move(x + 44, y, { steps: 4 });
     await settle();
-    assert.notEqual(await alpha().inputValue(), '0.35');
+    assert.notEqual(await alpha().inputValue(), String(initialAlpha));
     await page.keyboard.press('Escape');
     await page.mouse.up();
     await settle();
@@ -217,7 +249,7 @@ try {
     });
   }
   // One representative final gradient route is explicitly unaffected when ON.
-  const f = fillFixture('radial'),
+  const f = fixture('radial'),
     gradient = node('Linear Gradient Fill');
   gradient.id = f.fill.id;
   gradient.params.path.source = f.repeat.id;
@@ -226,21 +258,51 @@ try {
   await settle();
   const before = await state();
   await page.evaluate(
-    ({ layerId, nodeId }) =>
+    ({ layerId, nodeId, key }) =>
       window.nect.dispatch({
         ...window.nect.commandState,
         type: 'set-parameter',
-        payload: { layerId, nodeId, key: 'alternateFill', value: true },
+        payload: { layerId, nodeId, key, value: true },
       }),
-    { layerId: f.layer.id, nodeId: f.repeat.id },
+    { layerId: f.layer.id, nodeId: f.repeat.id, key: targetFlag },
   );
   await settle();
-  assert.equal((await state()).svg, before.svg);
+  if (strokeMode) {
+    const after = (await state()).svg;
+    assert.notEqual(after, before.svg);
+    const fillAttributes = (svg) => [...svg.matchAll(/ fill="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(fillAttributes(after), fillAttributes(before.svg));
+    assert.equal((after.match(/stroke="#7828a3"/g) || []).length, 12);
+  } else assert.equal((await state()).svg, before.svg);
   results.push({
-    case: 'native final gradient remains byte-identical when Alternate Fill is enabled',
+    case: strokeMode
+      ? 'native gradient fill stays unchanged while solid stroke colors alternate'
+      : 'native final gradient remains byte-identical when Alternate Fill is enabled',
   });
+  if (strokeMode) {
+    f.out.params.path.source = f.fill.id;
+    await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
+    await settle();
+    const none = (await state()).svg;
+    await page.evaluate(
+      ({ layerId, nodeId }) =>
+        window.nect.dispatch({
+          ...window.nect.commandState,
+          type: 'set-parameter',
+          payload: { layerId, nodeId, key: 'alternateStroke', value: true },
+        }),
+      { layerId: f.layer.id, nodeId: f.repeat.id },
+    );
+    await settle();
+    assert.equal((await state()).svg, none);
+    assert.ok(!none.includes(' stroke="'));
+    results.push({
+      case: 'native stroke:none remains byte-identical when Alternate Stroke is enabled',
+    });
+  }
   assert.deepEqual(errors, []);
   const receipt = {
+    appearance: strokeMode ? 'stroke' : 'fill',
     input:
       'Native Tauri/WebView2 CDP synthetic mouse/keyboard and color-control DOM change; no OS picker',
     viewport: await page.evaluate(() => [innerWidth, innerHeight, devicePixelRatio]),
