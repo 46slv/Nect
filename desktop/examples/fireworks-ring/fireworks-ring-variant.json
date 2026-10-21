@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 47,
+  "name": "花火の輪 — Alternate",
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "gridAnchor": "center",
+    "gridOpacity": 0.25,
+    "snap": false,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": true,
+    "snapArtwork": false
+  },
+  "width": 600,
+  "height": 600,
+  "layers": [
+    {
+      "id": "fireworks-layer",
+      "name": "花火の輪",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "allowEmptyOutput": false,
+      "nodes": [
+        {
+          "id": "fireworks-diamond",
+          "type": "Curve",
+          "name": "Diamond 12 × 28",
+          "position": [
+            40,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "closed": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [
+            {
+              "id": "fireworks-vertex-0",
+              "position": {
+                "type": "Vector2",
+                "value": [
+                  300,
+                  166
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "fireworks-vertex-1",
+              "position": {
+                "type": "Vector2",
+                "value": [
+                  306,
+                  180
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "fireworks-vertex-2",
+              "position": {
+                "type": "Vector2",
+                "value": [
+                  300,
+                  194
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "fireworks-vertex-3",
+              "position": {
+                "type": "Vector2",
+                "value": [
+                  294,
+                  180
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [
+                  0,
+                  0
+                ],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            }
+          ],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "fireworks-repeater",
+          "type": "Geometry Repeater",
+          "name": "24 copies · 15° · radius 120",
+          "position": [
+            350,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "fireworks-diamond"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            },
+            "step": {
+              "type": "Vector2",
+              "value": [
+                60,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [
+                480,
+                270
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "startAngle": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "angle": {
+              "type": "Scalar",
+              "value": 360,
+              "expression": "",
+              "locked": false
+            },
+            "offset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "anchor": {
+              "type": "Vector2",
+              "value": [
+                300,
+                180
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "position": {
+              "type": "Vector2",
+              "value": [
+                31.05828541230249,
+                4.0889008453118025
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Vector2",
+              "value": [
+                100,
+                100
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "alternateScale": {
+              "type": "Scalar",
+              "value": 125,
+              "expression": "",
+              "locked": false
+            },
+            "alternateFill": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            },
+            "alternateColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#E85D3F",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "alternateStroke": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            },
+            "alternateStrokeColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#18324A",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "rotation": {
+              "type": "Scalar",
+              "value": 15,
+              "expression": "",
+              "locked": false
+            },
+            "startOpacity": {
+              "type": "Scalar",
+              "value": 100,
+              "expression": "",
+              "locked": false
+            },
+            "endOpacity": {
+              "type": "Scalar",
+              "value": 100,
+              "expression": "",
+              "locked": false
+            },
+            "copiesAbove": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "ae-2d",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "fireworks-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            660,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "fireworks-repeater"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#F5D76E",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "fireworks-stroke",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [
+            970,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "fireworks-fill"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#39234A",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 1.5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "fireworks-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            1280,
+            60
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "fireworks-stroke"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "fireworks-output"
+    }
+  ]
+}
