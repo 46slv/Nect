@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Color value and stable property references
+## ACTIVE CHECKPOINT — Contour-scoped point navigation
 
-Goal: Extend existing Color and gradient-stop fields with saved pre-expression RGBA value, typed Color-property refs, visible Base/Expression/Result and atomic one-Undo base editing. See desktop/docs/color-value-expressions.md for adopted scope and source evidence.
+Goal: Make outlined Text and compound points browsable by actual unit/contour membership inside the existing paged point panel, preserving stable Canvas/row selection and authored data. Scope and source evidence: desktop/docs/contour-point-navigation.md.
 
-Current phase: Implementation, focused source/DOM, production browser and isolated Windows WebView2 verification complete. Exact results and limitations are in desktop/docs/color-value-expressions.md. Preserve the existing Pen continuation and Image/Shape Dither behavior.
+Current phase: Implementation, 64/64 focused model/DOM checks and actual native WebView2 verification complete on owned compound, generated Remap and owned outlined Text routes. Sole feature writer; no replacement scope or second writer.
 
-Proven: Remote-backed independent clone of https://github.com/46slv/Nect.git at PR39 feature head c3703654b1e6354067e72cc7651656d27c8b7477; branch codex/color-value-expressions. Existing Pen de2b5893 is an ancestor; no duplicate implementation. No checkout .agents/skills directory. Focused regression 104/104 passed, including existing numeric/Color/gradient/Image and Shape Dither/preset coverage. Three additional legacy tests fail identically on isolated base c3703654; no new failure. Production build (138 modules), native configuration, and custom-protocol release native build passed. Browser Color Apply layout movement was repaired and its original pointer path passed.
+Proven: Verified PR40 final feature head 77603a353da69c64cc119ee3e2c92089678d5ed6; branch codex/contour-point-navigation. No equivalent contour filter existed in the base point panel. Added view-only Unit/Contour selectors and stable-ID active-point following. Dedicated DOM cases cover 1,237-point bounded paging, hole/closure/group identity, selection/history neutrality, separate unit movement and point edits, outlined Text and generated Remap batch independence. Color artifact was copied and hash-verified into ../color-artifact-5c4cd2a; handoff ../color-artifact-handoff.md. No Color suites rerun.
 
-Next task: Draft PR40 https://github.com/46slv/Nect/pull/40 is open against codex/image-dither-output at c3703654. Product/source 5c4cd2a856b2f8049ae9f873483efe85070feb98 is pushed. Finish checkpoint readback; next eligible follow-up is native Save/Open OS-dialog verification when a Windows controller becomes callable. Native renderer checks passed for both gradient types; the candidate processes are closed. No main merge or release.
+Next task: Commit/push this bounded source and receipt, create a draft PR against verified codex/color-value-expressions at 77603a3, and verify remote HEAD. Next unmet OUTLINE-EDIT-UI capability is common delta controls for selected owned points; no automatic implementation of that separate scope is assumed.
 
-Approach: Reuse the common Session's typed validation, stable node ID/parameter key reference mechanism and property editor. Only value/ref Color identity expressions; schema 42 gates the new syntax. No palette store exists, so palette token refs and color math remain later scoped work.
+Approach: Filter existing point records by saved unit/contour IDs; retain 24-row pages and source contour traversal order. Units without provenance are not invented for generated Remap. Existing Unit selection/movement and Remap batch controls remain separate. No core/schema/bake/rebind rewrite.
 
-Done for next: Source/DOM/CSP/native renderer tests and file-based JSON roundtrip evidence recorded; development commit/remote and draft PR verified. Missing Windows node_repl controller is a LOCAL_WAIT for native Save/Open OS dialog interaction only; no physical-input acceptance claim.
+Done for next: Verified source, tests, exact candidate, remote commit and draft PR recorded with limitations and next unmet OUTLINE-EDIT-UI goal. OS dialogs/physical input remain explicitly outside demonstrated native renderer coverage.
 
-State: Sole feature writer in C:/Users/shiro/Documents/Codex/2026-10-21/task-13/Nect-pen-baseline. All product changes are in this isolated clone. Candidate uses disposable task-owned acceptance profiles and local CDP; installed applications and other writers are untouched.
+State: Isolated remote-backed checkout C:/Users/shiro/Documents/Codex/2026-10-21/task-13/Nect-pen-baseline. Color PR40 and accepted product remain preserved on their feature branch and immutable local artifact. New candidate builds may reuse this task's native-target only.
 
-Authority: Current parent delegation and trusted user priority instruction permit this source/test/docs work, isolated native verification, local commit, development branch push and draft PR. No protected main merge, release, force push/history rewrite, auth/security/billing changes or unrelated feature work.
+Authority: Current delegated serial feature contract authorizes main.js/focused tests/docs, isolated native renderer checks, development branch push and draft PR. No protected-main merge, release, force push/history rewrite, auth changes, denied paths or disabled native APIs.
 
-Handoff: Source scope complete; return to parent. Native OS dialogs remain LOCAL_WAIT for missing Windows node_repl controller. No replacement feature scope is assumed.
+Handoff: CONTINUE_CURRENT_TASK
