@@ -40,7 +40,7 @@ const load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(
   view = () =>
     page.evaluate(() => ({
       canvas: document.querySelector('.artboard').getAttribute('style'),
-      graph: document.querySelector('.graph').style.zoom,
+      graph: document.querySelector('.graph').style.transform,
       scroll: [
         document.querySelector('.graph-scroll').scrollLeft,
         document.querySelector('.graph-scroll').scrollTop,

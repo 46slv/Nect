@@ -152,9 +152,9 @@ try {
   // Wheel over a numeric field must not pan/zoom the graph.
   const graphInput = input(id, 'center', 0, '.graph');
   await graphInput.hover();
-  const zoom = await page.locator('.graph').evaluate((el) => el.style.zoom);
+  const zoom = await page.locator('.graph').evaluate((el) => el.style.transform);
   await page.mouse.wheel(0, 30);
-  assert.equal(await page.locator('.graph').evaluate((el) => el.style.zoom), zoom);
+  assert.equal(await page.locator('.graph').evaluate((el) => el.style.transform), zoom);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/workflow-numeric-scrub-editor.png', fullPage: true });
   assert.deepEqual(errors, []);

@@ -230,7 +230,7 @@ try {
     });
     const view = await page.evaluate(() => ({
       canvas: document.querySelector('.artboard').getAttribute('style'),
-      graph: document.querySelector('.graph').style.zoom,
+      graph: document.querySelector('.graph').style.transform,
       scroll: [
         document.querySelector('.graph-scroll').scrollLeft,
         document.querySelector('.graph-scroll').scrollTop,
@@ -244,7 +244,7 @@ try {
     assert.deepEqual(
       await page.evaluate(() => ({
         canvas: document.querySelector('.artboard').getAttribute('style'),
-        graph: document.querySelector('.graph').style.zoom,
+        graph: document.querySelector('.graph').style.transform,
         scroll: [
           document.querySelector('.graph-scroll').scrollLeft,
           document.querySelector('.graph-scroll').scrollTop,

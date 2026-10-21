@@ -14,7 +14,8 @@ const stage = page.locator('.canvas-stage'),
   graph = page.locator('.graph-scroll');
 const click = (action) => page.locator(`[data-action="${action}"]`).click();
 const scale = () => page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
-const graphScale = () => page.locator('.graph').evaluate((el) => Number(el.style.zoom));
+const graphScale = () =>
+  page.locator('.graph').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
 const saved = () =>
   page.evaluate(() => [
     JSON.stringify(window.nect.document),
@@ -35,7 +36,7 @@ const artPoint = (p) =>
 const graphPoint = (p) =>
   page.locator('.graph').evaluate((el, p) => {
     const r = el.getBoundingClientRect(),
-      z = Number(el.style.zoom);
+      z = new DOMMatrix(getComputedStyle(el).transform).a;
     return [(p[0] - r.left) / z, (p[1] - r.top) / z];
   }, p);
 const near = (a, b, epsilon = 1) =>
@@ -340,7 +341,7 @@ try {
       artboard: document.querySelector('.artboard')?.getBoundingClientRect().toJSON(),
       scale: document.querySelector('.artboard')?.getScreenCTM().a,
       canvasLabel: document.querySelector('[data-zoom="canvas"]')?.textContent,
-      graphZoom: document.querySelector('.graph')?.style.zoom,
+      graphZoom: document.querySelector('.graph')?.style.transform,
       graphScroll: [
         document.querySelector('.graph-scroll')?.scrollLeft,
         document.querySelector('.graph-scroll')?.scrollTop,

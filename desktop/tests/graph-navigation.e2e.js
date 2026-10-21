@@ -99,7 +99,9 @@ try {
   await page.mouse.wheel(0, 350);
   await page.keyboard.up('Control');
   await page.waitForTimeout(100);
-  const zoom = await page.locator('.graph').evaluate((el) => Number(el.style.zoom));
+  const zoom = await page
+    .locator('.graph')
+    .evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
   assert.ok(zoom < 1 && zoom >= 0.25);
   const beforeZoomDrag = await position(),
     p = await grab();

@@ -147,7 +147,7 @@ test('graph overview navigation is view-only, measured, guarded and cancellable'
   assert.equal(viewport.scrollLeft, first, 'other pointer cannot move view');
   click('graph-zoom-in');
   click('graph-overview');
-  assert.equal($('.graph').style.zoom, '1');
+  assert.equal($('.graph').style.transform, 'scale(1)');
   assert.equal($('.graph-overview').hidden, false, 'toggle blocked during drag');
   fire(document, 'pointermove', 200, 90);
   assert.ok(viewport.scrollLeft < first);
