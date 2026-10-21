@@ -16,7 +16,8 @@ but the gesture still owned preview480. Pointerup committed480/revision1; the
 next drag then previewed500. Exact base main/test sources, trace and derived
 `root-cause.json` are retained, not a repeated full baseline audit.
 
-All original assertions remain. Numeric cancellation now explicitly requires
+Existing contract checks are retained or replaced with explicit checks of the
+adopted schema/vertical contract; none are removed merely to pass. Numeric cancellation now explicitly requires
 gesture release before pointerup and exact JSON/file/command neutrality after
 late pointerup. Active operator keys cannot turn the number into an expression
 draft. Ordinary typed12+3 still commits15 and one Undo restores100; typed Escape
