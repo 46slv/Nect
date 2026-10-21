@@ -125,12 +125,18 @@ import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
 import { prepareCompositionImport } from './project-composition-import.js';
-import { validateGuides, guideDefaults, setLayoutGrid } from './guides.js';
+import {
+  GRID_ORIGIN_SCHEMA_VERSION,
+  validateGuides,
+  guideDefaults,
+  setLayoutGrid,
+} from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
 export {
   guideDefaults,
   guideSettings,
+  gridAnchors,
   resolveGridOrigin,
   snapTranslation,
   collectSnapLayerBounds,
@@ -4479,6 +4485,7 @@ export function validate(doc) {
       doc.schemaVersion !== REPEATER_ALTERNATE_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_FILL_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_STROKE_SCHEMA_VERSION &&
+      doc.schemaVersion !== GRID_ORIGIN_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
@@ -4499,6 +4506,12 @@ export function validate(doc) {
   validateGuides(doc.editor, id);
   if (doc.editor?.gridAnchor === 'center' && doc.schemaVersion < 27)
     throw Error('Centered grid requires schemaVersion 27');
+  if (
+    doc.editor?.gridAnchor !== undefined &&
+    !['top-left', 'center'].includes(doc.editor.gridAnchor) &&
+    doc.schemaVersion < GRID_ORIGIN_SCHEMA_VERSION
+  )
+    throw Error(`Nine-point grid origin requires schemaVersion ${GRID_ORIGIN_SCHEMA_VERSION}`);
   if (!Array.isArray(doc.layers) || doc.layers.length < 1 || doc.layers.length > 100)
     throw Error('Invalid layers');
   for (const key of ['width', 'height'])
@@ -7256,6 +7269,8 @@ export class CommandSession {
           aids[payload.key] = clone(payload.value);
           if (payload.key === 'gridAnchor' && payload.value === 'center')
             candidate.schemaVersion = Math.max(candidate.schemaVersion, 27);
+          else if (payload.key === 'gridAnchor' && payload.value !== 'top-left')
+            candidate.schemaVersion = Math.max(candidate.schemaVersion, GRID_ORIGIN_SCHEMA_VERSION);
         } else if (type === 'set-layout-grid')
           setLayoutGrid(candidate, clone(payload.config), () => uid('guide'));
         else {
