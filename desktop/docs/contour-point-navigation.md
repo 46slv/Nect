@@ -108,26 +108,22 @@ semantics and one Undo. The full hierarchy/isolation/virtualization design and
 physical/OS-dialog acceptance also remain broader work. This slice is complete
 without claiming the entire outlined-text editing goal complete.
 
-## Local source checkpoint and publication blocker
+## Published development checkpoint
 
 Product/source commit: `e59b2f61a661d021af479e47af42173f726428cf` on
 `codex/contour-point-navigation`, parent `77603a353da69c64cc119ee3e2c92089678d5ed6`.
-The tested native source is unchanged by the later documentation checkpoint.
-
-The remote verification/push command was rejected before process creation by
-automatic approval review. No push or draft PR was performed. Exact target:
-`46slv/Nect`, remote `https://github.com/46slv/Nect.git`, development ref
-`refs/heads/codex/contour-point-navigation`; intended draft base
-`codex/color-value-expressions`. No alternative publication route was attempted.
-
-Review reason: "Pushing a new remote development branch is an external repository
-commitment, but the trusted authorization is limited to the Pen continuation
-scope and does not clearly authorize publishing this later contour-navigation
-feature." The current delegated task explicitly requested the branch push and
-draft PR, but the review did not accept that as sufficient trusted scope.
-Fresh relevant authorization is needed before retrying the denied operation.
+[Draft PR41](https://github.com/46slv/Nect/pull/41) targets
+`codex/color-value-expressions`. The earlier publication denial was resolved
+with additional trusted user authorization. Remote reconciliation found no
+existing contour branch/PR; the permitted retry pushed the local result and
+created this draft. No alternative publication route or history rewrite was used.
+Later checkpoint commits change documentation only; the tested product source
+and candidate remain unchanged. Completed tests were not rerun for publication.
 
 Preserved candidate/evidence directory:
 `C:/Users/shiro/Documents/Codex/2026-10-21/task-13/contour-artifact-e59b2f6`.
-This is independent of subsequent native-target rebuilds. The local source is
-fully reviewable; publication is the remaining blocked action.
+This sealed artifact, including its historical local receipt, was not edited
+when publication resumed. Color's separate delivery handoff is also unchanged.
+The feature implementation is complete within the bounded scope; the next
+capability will be separately scoped. Existing native OS/physical limitations
+above remain explicit.
