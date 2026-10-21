@@ -273,9 +273,10 @@ test('Artwork creation and placement use independent layers and explicit, safe e
       load(d);
       click(`[data-select-layer="${ids.layerId}"]`);
       const before = saved();
+      stage().getBoundingClientRect = () => ({ left: 0, top: 0, right: 2200, bottom: 1300 });
       fire($('.artboard'), 'pointerdown', [900, 500]);
       fire(document, 'pointermove', [920, 520]);
-      fire(document, 'pointerup');
+      fire(document, 'pointerup', [920, 520]);
       assert.equal(ui().artworkTarget, null);
       assert.equal(ui().selected, null);
       key(stage(), 'ArrowRight');

@@ -42,6 +42,7 @@ import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import { selectedPointBounds } from './selected-point-bounds.js';
 import './style.css';
+import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -3312,7 +3313,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -8979,6 +8980,131 @@ function canvasPoint(event) {
   let r = pt.matrixTransform(svg.getScreenCTM().inverse());
   return [r.x, r.y];
 }
+function canvasMarqueeCurrent(d) {
+  const now = session.state;
+  return (
+    d.canvas.isConnected &&
+    d.guides.isConnected &&
+    d.overlay.isConnected &&
+    d.canvas === document.querySelector('.artboard') &&
+    d.envelope.sessionId === now.sessionId &&
+    d.envelope.expectedRevision === now.expectedRevision &&
+    d.compositionId === session.activeCompositionId
+  );
+}
+function clearCanvasMarquee(d) {
+  d.overlay?.remove();
+  d.guides?.remove();
+}
+function beginCanvasMarquee(e, capture) {
+  const canvas = document.querySelector('.artboard'),
+    targets = [],
+    rendered = new Set(
+      [...canvas.querySelectorAll('.shape[data-layer]')].map((el) => el.dataset.layer),
+    );
+  for (const layer of history.doc.layers) {
+    if (!rendered.has(layer.id) || !layerShown(layer)) continue;
+    const result = evaluate(layer, fonts, history.doc.imageAssets);
+    if (
+      result.error ||
+      !result.path ||
+      (result.path.kind !== 'image' && !result.path.contours?.some((c) => c.points.length))
+    )
+      continue;
+    const bounds = pathBounds(result.path);
+    if (bounds.flat().every(Number.isFinite)) targets.push({ id: layer.id, bounds });
+  }
+  const overlay = document.createElement('div');
+  overlay.className = 'canvas-marquee';
+  overlay.hidden = true;
+  const label = document.createElement('span');
+  overlay.append(label);
+  const guides = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  guides.setAttribute('aria-hidden', 'true');
+  guides.classList.add('canvas-marquee-guides');
+  for (const target of targets) {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect'),
+      b = target.bounds;
+    rect.setAttribute('x', b[0][0]);
+    rect.setAttribute('y', b[1][0]);
+    rect.setAttribute('width', b[0][2] - b[0][0]);
+    rect.setAttribute('height', b[1][2] - b[1][0]);
+    rect.classList.add('guide');
+    rect.style.display = 'none';
+    rect.dataset.marqueeCandidate = target.id;
+    guides.append(rect);
+    target.preview = rect;
+  }
+  capture.append(overlay);
+  canvas.append(guides);
+  drag = {
+    type: 'canvas-marquee',
+    capture,
+    canvas,
+    overlay,
+    guides,
+    label,
+    targets,
+    start: [e.clientX, e.clientY],
+    startWorld: canvasPoint(e),
+    beforeUI: selectionSnapshot(true),
+    beforeHover: pointHover ? { ...pointHover } : null,
+    additive: e.shiftKey,
+    envelope: session.state,
+    compositionId: session.activeCompositionId,
+    pointerId: e.pointerId,
+    viewport: capture.getBoundingClientRect(),
+    started: false,
+    ids: [],
+  };
+  capture.setPointerCapture?.(e.pointerId);
+}
+function moveCanvasMarquee(e, d = drag) {
+  if (!canvasMarqueeCurrent(d)) return false;
+  if (!d.started && Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) < 4) return true;
+  d.started = true;
+  const r = d.viewport,
+    x = Math.max(r.left, Math.min(r.right, e.clientX)),
+    y = Math.max(r.top, Math.min(r.bottom, e.clientY)),
+    end = canvasPoint({ clientX: x, clientY: y });
+  const base = d.additive ? [...d.beforeUI.artworkSelection] : [];
+  d.ids = artworkMarqueeIds(d.targets, d.startWorld, end, base);
+  const hits = new Set(artworkMarqueeIds(d.targets, d.startWorld, end));
+  for (const target of d.targets) target.preview.style.display = hits.has(target.id) ? '' : 'none';
+  d.overlay.hidden = false;
+  Object.assign(d.overlay.style, {
+    left: Math.min(d.start[0], x) - r.left + 'px',
+    top: Math.min(d.start[1], y) - r.top + 'px',
+    width: Math.abs(x - d.start[0]) + 'px',
+    height: Math.abs(y - d.start[1]) + 'px',
+  });
+  d.label.textContent = `Bounds overlap · ${d.ids.length} artwork${d.ids.length === 1 ? '' : 's'}`;
+  return true;
+}
+function finishCanvasMarquee(d, e) {
+  const fresh = moveCanvasMarquee(e, d);
+  clearCanvasMarquee(d);
+  if (!fresh) return;
+  // A threshold click retains the established blank-click clear, including Shift.
+  const ids = d.started ? d.ids : [];
+  if (ids.length) {
+    const active = ids.includes(d.beforeUI.artworkTarget) ? d.beforeUI.artworkTarget : ids.at(-1);
+    selectArtwork(active);
+    artworkSelection = new Set(ids);
+    artworkTarget = activeLayer = active;
+  } else {
+    artworkTarget = null;
+    artworkSelection = new Set();
+    selected = null;
+    selection = new Set();
+    characterEdit = null;
+    selectedGuide = null;
+    pointSelection = { nodeId: null, ids: new Set() };
+    pointFocus = pointHover = null;
+  }
+  render();
+  document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+}
 let space = false;
 const editingControl = (target) =>
   target.closest?.('input,textarea,select,[contenteditable]:not([contenteditable="false"])');
@@ -9251,6 +9377,13 @@ function cancelInteraction() {
   drag = null;
   wiring = null;
   releaseWirePointer(wire);
+  if (old?.type === 'canvas-marquee') {
+    if (canvasMarqueeCurrent(old)) {
+      restoreMarqueeSelection(old.beforeUI);
+      pointHover = old.beforeHover;
+    }
+    clearCanvasMarquee(old);
+  }
   if (old?.type === 'graph-marquee') restoreMarqueeSelection(old.beforeUI);
   if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
   graphFrame = null;
@@ -9925,7 +10058,6 @@ app.addEventListener('pointerdown', (e) => {
     updateCanvas();
     return;
   }
-  selectedGuide = null;
   const dedicated = e.target.closest(
     '[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-path-unit-move],[data-node-stage-move]',
   );
@@ -9934,14 +10066,12 @@ app.addEventListener('pointerdown', (e) => {
     const layerId = e.target.closest('[data-layer]')?.dataset.layer;
     stage.focus({ preventScroll: true });
     if (!layerId) {
-      artworkTarget = null;
-      artworkSelection = new Set();
-      selected = null;
-      selection = new Set();
-      render();
-      document.querySelector('.canvas-stage').focus({ preventScroll: true });
+      if (control || navigationBusy() || penDraft || session.hasGesture) return;
+      beginCanvasMarquee(e, document.querySelector('.canvas-stage'));
+      e.preventDefault();
       return;
     }
+    selectedGuide = null;
     const toggleOnClick = e.shiftKey && artworkTarget && artworkSelection.has(layerId);
     selectArtwork(layerId, { toggle: e.shiftKey && !toggleOnClick, preserve: true });
     const resolved = artworkMove();
@@ -9985,6 +10115,7 @@ app.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     return;
   }
+  selectedGuide = null;
   let penAltAnchor = false;
   if (tool === 'pen' && !penDraft && selectedNode() && !artworkTarget) {
     const n = selectedNode();
@@ -10582,6 +10713,10 @@ function movePointer(e) {
   }
   if (drag.type === 'graph-marquee') {
     moveGraphMarquee(e);
+    return;
+  }
+  if (drag.type === 'canvas-marquee') {
+    if (!moveCanvasMarquee(e)) cancelInteraction();
     return;
   }
   if (directionDrag())
@@ -11186,6 +11321,10 @@ document.addEventListener('pointerup', (e) => {
     if (graphFrame !== null) window.cancelAnimationFrame(graphFrame);
     graphFrame = null;
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
+    if (d.type === 'canvas-marquee') {
+      finishCanvasMarquee(d, e);
+      return;
+    }
     if (d.type === 'path-insert') {
       if (
         !d.cancelled &&
@@ -12119,7 +12258,9 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (
-    ['pan', 'graph-pan', 'graph-marquee', 'graph-overview'].includes(drag?.type) &&
+    ['pan', 'graph-pan', 'graph-marquee', 'canvas-marquee', 'graph-overview'].includes(
+      drag?.type,
+    ) &&
     e.key === 'Escape'
   ) {
     // Navigation is view-only: stop at the current offset without undo or selection changes.
