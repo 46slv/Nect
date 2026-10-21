@@ -67,6 +67,10 @@ try {
 
   const button = (id, kind) => panel(id).locator(`[data-point-scope-action="${kind}"]`);
   const act = (id, kind) => button(id, kind).click();
+  const canvasIds = () =>
+    page
+      .locator('.artboard .vertex.point-marker.active[data-point]')
+      .evaluateAll((els) => els.map((el) => el.dataset.point));
   const count = async (id) =>
     Number(
       (await panel(id).locator('.point-panel-summary').first().innerText()).match(
@@ -92,6 +96,7 @@ try {
   assert.match(await button(id, 'all').getAttribute('aria-label'), /contour 1: 40 anchors/);
   await act(id, 'all');
   assert.equal(await count(id), 40);
+  assert.deepEqual(new Set(await canvasIds()), new Set(f.path.contours[0].points));
   assert.equal(await panel(id).locator('.point-active').getAttribute('data-point-row'), active);
   assert.deepEqual(await rows(id), f.path.contours[0].points.slice(24));
   assert.equal(await panel(id).locator('.point-selected').count(), 16);
@@ -100,6 +105,7 @@ try {
   assert.equal(await panel(id).locator('.point-selected').count(), 24);
   await act(id, 'invert');
   assert.equal(await count(id), 0);
+  assert.deepEqual(await canvasIds(), []);
   assert.deepEqual(await rows(id), []);
   assert.match(await button(id, 'invert').innerText(), /40/);
   await act(id, 'invert');
@@ -116,6 +122,10 @@ try {
   await select(id, 'unit', 'scope-unit-a');
   await act(id, 'all');
   assert.equal(await count(id), 50);
+  assert.deepEqual(
+    new Set(await canvasIds()),
+    new Set(f.path.contours.slice(0, 2).flatMap((c) => c.points)),
+  );
   assert.match(await button(id, 'all').getAttribute('aria-label'), /unit 1: 50 anchors/);
   await panel(id).getByRole('button', { name: 'Next', exact: true }).click();
   await panel(id).getByRole('button', { name: 'Next', exact: true }).click();
@@ -170,6 +180,7 @@ try {
   const generatedBefore = await checkpoint();
   await act(remap.id, 'all');
   assert.equal(await count(remap.id), last.points.length);
+  assert.deepEqual(new Set(await canvasIds()), new Set(last.points.map((p) => p.id)));
   assert.deepEqual(
     await rows(remap.id),
     last.points.slice(0, 24).map((p) => p.id),

@@ -309,6 +309,8 @@ test('scoped point selection is view-only, complete and stable across paging', a
       l.output = out.id;
       win.nect.load(serialize(d));
       inspect(remap.id);
+      assert.equal(document.querySelectorAll(`.graph [data-point-panel="${remap.id}"]`).length, 1);
+      assert.equal(document.querySelectorAll(`.graph [data-point-panel="${text.id}"]`).length, 0);
       const source = win.nect.evaluate().run(convert.id),
         c = source.contours.at(-1),
         id = remap.id;

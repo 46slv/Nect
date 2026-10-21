@@ -2420,6 +2420,7 @@ function ownedHandlePolarFields(n, pt, key, index) {
   return `<div class="field handle-polar"><label>${name}</label><div class="field-controls">${['angle', 'length'].map((component) => `<label>${component === 'angle' ? 'Angle°' : 'Length'}<input type="number" step="any" ${component === 'length' ? 'min="0"' : ''} data-handle-polar="${component}" data-node="${n.id}" data-point="${pt.id}" data-handle="${key}" aria-label="Point ${index + 1} ${name} ${component}" title="${component === 'angle' ? 'Degrees clockwise from +X; zero-length angle is 0 and unavailable' : 'Document units; growing a zero handle starts along +X'}" value="${Number(polar[component].toFixed(3))}" ${locked || (component === 'angle' && !polar.length) ? 'disabled' : ''}></label>`).join('')}</div></div>`;
 }
 function ownedPointFields(n) {
+  if (!['Curve', 'Multi Path'].includes(n.type)) return '';
   return pointPanel(
     n,
     n.points.map((pt, index) => ({ pt, index })),
