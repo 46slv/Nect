@@ -23,6 +23,22 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.waitForFunction(() => window.nect && window.__TAURI_INTERNALS__);
   await page.waitForTimeout(2000);
+  await page.evaluate(() => {
+    for (const type of ['pointerdown', 'pointermove'])
+      if (window.wrapPointerReader)
+        document.removeEventListener(type, window.wrapPointerReader, true);
+    window.wrapPointerReader = (e) => {
+      const m = document.querySelector('.artboard').getScreenCTM();
+      const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(m.inverse());
+      window.wrapInputTrace?.push({
+        type: e.type,
+        client: [e.clientX, e.clientY],
+        world: [p.x, p.y],
+      });
+    };
+    for (const type of ['pointerdown', 'pointermove'])
+      document.addEventListener(type, window.wrapPointerReader, true);
+  });
   const settle = () => page.waitForTimeout(160);
   const $ = (s) => page.locator(s);
   const handle = () => $('[data-text-wrap-resize]');
@@ -66,6 +82,7 @@ try {
       hy = h.y + h.height / 2;
     const dx = stage.x + stage.width / 2 - hx,
       dy = stage.y + stage.height / 2 - hy;
+    await $('.canvas-stage').focus();
     await page.keyboard.down('Space');
     await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
     await page.mouse.down();
@@ -82,6 +99,7 @@ try {
       y = h.y + h.height / 2;
     const scale = await page.evaluate(() => document.querySelector('.artboard').getScreenCTM().a);
     await page.mouse.move(x, y);
+    await page.evaluate(() => (window.wrapInputTrace = []));
     await page.mouse.down();
     await page.evaluate(() => {
       window.wrapGraph = document.querySelector('.graph');
@@ -136,7 +154,15 @@ try {
     const committed = await checkpoint(),
       expected = JSON.parse(before.json);
     const width = JSON.parse(committed.json).layers[0].nodes[0].textWrap.width;
-    assert.ok(Math.abs(width - 220) < 1e-7, String(width));
+    const input = await page.evaluate(() => [
+      window.wrapInputTrace[0],
+      window.wrapInputTrace.at(-1),
+    ]);
+    const inputWidth = 320 + (input[1].world[0] - input[0].world[0]) / (transformed ? 1.5 : 1);
+    assert.ok(Math.abs(width - inputWidth) < 1e-9, 'exact inverse of received pointer coordinates');
+    // Native/CDP client coordinates have subpixel quantization. Keep that input
+    // difference separate from the exact source-coordinate conversion above.
+    assert.ok(Math.abs(width - 220) * scale * (transformed ? 1.5 : 1) < 1 / 1024);
     expected.layers[0].nodes[0].textWrap.width = width;
     assert.deepEqual(JSON.parse(committed.json), expected, 'width is the sole authored delta');
     assert.notEqual(committed.svg, before.svg);
@@ -170,6 +196,8 @@ try {
       target: transformed ? 'whole artwork static scale 1.5' : 'Text source',
       canvasScale: scale,
       width,
+      inputWidth,
+      input,
       fixedLeftTop: origin,
       widthOnlyDelta: true,
       graphPreviewMutations: 0,
