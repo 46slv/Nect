@@ -215,6 +215,46 @@ test('Session promotion, one edit/Undo/Redo, JSON and locked or invalid literal/
   assert.equal(serialize(session.snapshot()), locked);
 });
 
+test('a first numeric gesture promotes only on commit, cancels cleanly and has one Undo', () => {
+  const { doc, layer, repeat } = alternateRepeaterFixture();
+  const session = new CommandSession(doc),
+    before = serialize(session.snapshot());
+  const begin = () =>
+    session.dispatch({
+      ...session.state,
+      type: 'begin-gesture',
+      payload: {
+        target: { kind: 'parameter', layerId: layer.id, nodeId: repeat.id, key: 'alternateScale' },
+      },
+    });
+  let gesture = begin();
+  gesture = session.dispatch({
+    ...session.state,
+    type: 'update-gesture',
+    payload: { ...gesture, update: { value: 60 } },
+  });
+  assert.equal(session.previewSnapshot(gesture.gestureId).document.schemaVersion, 45);
+  assert.equal(serialize(session.snapshot()), before);
+  session.dispatch({ ...session.state, type: 'cancel-gesture', payload: gesture });
+  assert.equal(serialize(session.snapshot()), before);
+  assert.equal(session.historyView.past.length, 0);
+  gesture = begin();
+  for (const value of [80, 70, 60])
+    gesture = session.dispatch({
+      ...session.state,
+      type: 'update-gesture',
+      payload: { ...gesture, update: { value } },
+    });
+  session.dispatch({ ...session.state, type: 'commit-gesture', payload: gesture });
+  assert.equal(session.snapshot().schemaVersion, 45);
+  assert.equal(session.historyView.past.length, 1);
+  const changed = serialize(session.snapshot());
+  send(session, layer, repeat, 'undo');
+  assert.equal(serialize(session.snapshot()), before);
+  send(session, layer, repeat, 'redo');
+  assert.equal(serialize(session.snapshot()), changed);
+});
+
 test('schema37 backfills identity without promotion; schema45 requires the control and older retags reject authored variation', () => {
   const { doc, layer, repeat } = alternateRepeaterFixture();
   const svg = exportSVG(doc);
