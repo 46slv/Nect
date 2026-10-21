@@ -4081,7 +4081,7 @@ function wrapResizeContext(result = renderEvaluation) {
 function textWrapResizeOverlay(result) {
   const context = wrapResizeContext(result);
   if (!context) return '';
-  return `<g class="text-wrap-resize-overlay"><polygon class="guide" pointer-events="none" points="${context.corners.map((p) => p.join(',')).join(' ')}"/><g class="object-resize-control" data-text-wrap-resize="${esc(context.nodeId)}" data-wrap-layer="${esc(context.layerId)}" aria-label="Resize Text wrap width" transform="translate(${context.handle.join(' ')})"><title>Wrap width</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/></g></g></g>`;
+  return `<g class="text-wrap-resize-overlay"><polygon class="guide" pointer-events="none" points="${context.corners.map((p) => p.join(',')).join(' ')}"/><g class="object-resize-control" data-text-wrap-resize="${esc(context.nodeId)}" data-wrap-layer="${esc(context.layerId)}" aria-label="Resize Text wrap width" style="cursor:${context.cursor}" transform="translate(${context.handle.join(' ')})"><title>Wrap width</title><g transform="scale(${1 / canvasScale()})"><rect x="-6" y="-6" width="12" height="12"/></g></g></g>`;
 }
 function wrapResizeFresh(d) {
   const state = session.state,

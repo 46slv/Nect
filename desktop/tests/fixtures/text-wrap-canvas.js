@@ -1,4 +1,10 @@
-import { blankDocument, node, connect, createCharacterPositions } from '../../src/core.js';
+import {
+  blankDocument,
+  node,
+  connect,
+  createCharacterPositions,
+  parameter,
+} from '../../src/core.js';
 import { basicTextWrap } from '../../src/text-wrap.js';
 
 export function textWrapCanvasFixture({
@@ -6,6 +12,10 @@ export function textWrapCanvasFixture({
   alignment = 'start',
   referenceBounds = 'advance',
   crossAlignment = 'origin',
+  rotation = 0,
+  transformAnchor,
+  transformPosition,
+  skew = 0,
 } = {}) {
   const doc = blankDocument(),
     layer = doc.layers[0];
@@ -34,6 +44,15 @@ export function textWrapCanvasFixture({
     transform.id = 'wrap-canvas-transform';
     transform.params.scale.value = 1.5;
     transform.params.offset.value = [20, 30];
+    transform.params.rotation.value = rotation;
+    if (transformAnchor)
+      transform.params.anchor = { ...parameter(transform, 'anchor'), value: [...transformAnchor] };
+    if (transformPosition)
+      transform.params.position = {
+        ...parameter(transform, 'position'),
+        value: [...transformPosition],
+      };
+    if (skew) transform.params.skew = { ...parameter(transform, 'skew'), value: skew };
     nodes.push(transform);
     source = transform;
   }

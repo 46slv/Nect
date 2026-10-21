@@ -4,6 +4,7 @@ import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { serialize } from '../src/core.js';
 import { textWrapCanvasFixture } from './fixtures/text-wrap-canvas.js';
+import { inverseAffineDelta, inverseAffinePoint } from '../src/character-geometry.js';
 
 // Task-owned Tauri/WebView2 renderer. CDP input is synthetic, not physical input.
 const output = path.resolve(
@@ -22,6 +23,8 @@ assert.ok(
       (c) =>
         ['start', 'center', 'end'].includes(c.alignment) &&
         ['origin', 'start', 'center', 'end'].includes(c.crossAlignment) &&
+        (c.rotation === undefined || Number.isFinite(c.rotation)) &&
+        (c.zoom === undefined || [100, 120].includes(c.zoom)) &&
         typeof c.transformed === 'boolean',
     ),
 );
@@ -85,7 +88,8 @@ try {
     $('.text-wrap-resize-overlay polygon')
       .getAttribute('points')
       .then((s) => {
-        const points = s.split(' ').map((p) => p.split(',').map(Number));
+        const worldPoints = s.split(' ').map((p) => p.split(',').map(Number));
+        const points = worldPoints.map((p) => inverseAffinePoint(artworkMatrix, p));
         return {
           x:
             points[0][0] +
@@ -97,6 +101,7 @@ try {
             (points[3][1] - points[0][1]) *
               { origin: 0, start: 0, center: 0.5, end: 1 }[crossReference],
           points,
+          worldPoints,
         };
       });
   const checkReference = async (before) => {
@@ -111,7 +116,9 @@ try {
   };
   let fixture,
     reference = 'start',
-    crossReference = 'origin';
+    crossReference = 'origin',
+    activeCase = {},
+    artworkMatrix = [1, 0, 0, 1, 0, 0];
   const deltaFactor = () => ({ start: 1, center: 2, end: -1 })[reference];
   const load = async (transformed, zoomIn = false) => {
     fixture = textWrapCanvasFixture({
@@ -119,6 +126,9 @@ try {
       alignment: reference,
       referenceBounds: transformed ? 'visible' : 'advance',
       crossAlignment: crossReference,
+      rotation: activeCase.rotation || 0,
+      transformAnchor: activeCase.transformAnchor,
+      transformPosition: activeCase.transformPosition,
     });
     await page.evaluate((s) => window.nect.load(s), serialize(fixture.doc));
     if (await $('.alignment-panel').count())
@@ -126,6 +136,12 @@ try {
     await $('[data-action="graph-reset"]').click();
     await $(`.node[data-id="${fixture.textId}"] .type-tag`).click();
     if (transformed) await $(`[data-select-layer="${fixture.layerId}"]`).click();
+    artworkMatrix = transformed
+      ? await page.evaluate(
+          (id) => window.nect.evaluate().transformValues(id).matrix,
+          fixture.transformId,
+        )
+      : [1, 0, 0, 1, 0, 0];
     await $('[data-action="actual-size"]').click();
     if (zoomIn) await $('[data-action="zoom-in"]').click();
     await settle();
@@ -157,6 +173,12 @@ try {
       return [m.a, m.b, m.c, m.d, m.e, m.f];
     });
     const scale = ctm[0];
+    const worldAxis = [artworkMatrix[0], artworkMatrix[1]];
+    const screenAxis = [
+      ctm[0] * worldAxis[0] + ctm[2] * worldAxis[1],
+      ctm[1] * worldAxis[0] + ctm[3] * worldAxis[1],
+    ];
+    const screenAxisLength = Math.hypot(...screenAxis);
     await page.mouse.move(x, y);
     await page.evaluate(() => (window.wrapInputTrace = []));
     await page.mouse.down();
@@ -173,14 +195,14 @@ try {
       });
     });
     await page.mouse.move(
-      x + (widthDelta / deltaFactor()) * scale * (fixture.transformId ? 1.5 : 1),
-      y,
+      x + (widthDelta / deltaFactor()) * screenAxis[0],
+      y + (widthDelta / deltaFactor()) * screenAxis[1],
       {
         steps: 6,
       },
     );
     await settle();
-    return { scale, x, y, ctm };
+    return { scale, x, y, ctm, screenAxisLength };
   };
   const graphUntouched = async () => {
     assert.deepEqual(
@@ -195,16 +217,19 @@ try {
   };
 
   for (const fixtureCase of cases) {
+    activeCase = fixtureCase;
     reference = fixtureCase.alignment;
     crossReference = fixtureCase.crossAlignment;
     const transformed = fixtureCase.transformed;
+    const zoomIn = (fixtureCase.zoom ?? (transformed ? 120 : 100)) === 120,
+      zoomLabel = zoomIn ? 120 : 100;
     for (const widthDelta of widthDeltas) {
-      await load(transformed, transformed);
+      await load(transformed, zoomIn);
       const before = await checkpoint(),
         identity = await selection(),
         origin = await frameReference();
       const canvas = await $('.artboard').innerHTML();
-      const { scale, ctm } = await begin(widthDelta);
+      const { scale, ctm, screenAxisLength } = await begin(widthDelta);
       assert.deepEqual(
         await checkpoint(),
         before,
@@ -216,7 +241,7 @@ try {
       await page.screenshot({
         path: path.join(
           output,
-          `preview-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.png`,
+          `preview-${reference}-${crossReference}-${zoomLabel}-${widthDelta < 0 ? 'shrink' : 'grow'}.png`,
         ),
       });
       await page.mouse.up();
@@ -228,8 +253,11 @@ try {
         window.wrapInputTrace[0],
         window.wrapInputTrace.at(-1),
       ]);
-      const inputWidth =
-        320 + ((input[1].world[0] - input[0].world[0]) / (transformed ? 1.5 : 1)) * deltaFactor();
+      const localDelta = inverseAffineDelta(
+        artworkMatrix,
+        input[1].world.map((v, i) => v - input[0].world[i]),
+      );
+      const inputWidth = 320 + localDelta[0] * deltaFactor();
       assert.ok(
         Math.abs(width - inputWidth) < 1e-9,
         'exact inverse of received pointer coordinates',
@@ -237,9 +265,7 @@ try {
       // Native/CDP client coordinates have subpixel quantization. Keep that input
       // difference separate from the exact source-coordinate conversion above.
       assert.ok(
-        (Math.abs(width - (320 + widthDelta)) / Math.abs(deltaFactor())) *
-          scale *
-          (transformed ? 1.5 : 1) <
+        (Math.abs(width - (320 + widthDelta)) / Math.abs(deltaFactor())) * screenAxisLength <
           1 / 1024,
       );
       expected.layers[0].nodes[0].textWrap.width = width;
@@ -265,14 +291,14 @@ try {
       await fs.writeFile(
         path.join(
           output,
-          `committed-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.json`,
+          `committed-${reference}-${crossReference}-${zoomLabel}-${widthDelta < 0 ? 'shrink' : 'grow'}.json`,
         ),
         committed.json,
       );
       await fs.writeFile(
         path.join(
           output,
-          `committed-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.svg`,
+          `committed-${reference}-${crossReference}-${zoomLabel}-${widthDelta < 0 ? 'shrink' : 'grow'}.svg`,
         ),
         committed.svg,
       );
@@ -299,7 +325,10 @@ try {
         reference,
         crossReference,
         referenceBounds: transformed ? 'visible' : 'advance',
-        zoom: transformed ? 120 : 100,
+        zoom: zoomLabel,
+        rotation: activeCase.rotation || 0,
+        artworkMatrix: [...artworkMatrix],
+        screenAxisLength,
         widthDelta,
         target: transformed ? 'whole artwork static scale 1.5' : 'Text source',
         canvasScale: scale,
@@ -307,14 +336,14 @@ try {
         width,
         inputWidth,
         input,
-        fixedFrameReference: { x: origin.x, y: origin.y },
+        fixedFrameReference: { x: origin.x, y: origin.y, space: 'node-local' },
         frameStart: { top: origin.top, height: origin.height },
         widthOnlyDelta: true,
         graphPreviewMutations: 0,
       });
     }
     for (const route of ['Escape', 'pointercancel', 'blur']) {
-      await load(transformed, transformed);
+      await load(transformed, zoomIn);
       const start = await checkpoint(),
         selected = await selection(),
         shown = await $('.artboard').innerHTML();
@@ -336,12 +365,12 @@ try {
         case: route + ' restores exact committed/visible state',
         reference,
         crossReference,
-        zoom: transformed ? 120 : 100,
+        zoom: zoomLabel,
         target: transformed ? 'whole artwork' : 'Text source',
       });
     }
-    if (transformed) {
-      await load(true, true);
+    if (transformed && fixtureCase.clamp !== false) {
+      await load(true, zoomIn);
       const before = await checkpoint(),
         origin = await frameReference();
       await begin(-330);
@@ -354,10 +383,11 @@ try {
         'clamp stays a detached preview',
       );
       // The active handle stays on the original side of the fixed reference.
-      const handleX = await handle().evaluate((e) =>
-        Number(e.getAttribute('transform').match(/^translate\(([^ ]+) /)[1]),
+      const handleWorld = await handle().evaluate((e) =>
+        e.getAttribute('transform').slice(10, -1).split(' ').map(Number),
       );
-      assert.equal(handleX, frame.points[reference === 'end' ? 0 : 1][0]);
+      const handleX = inverseAffinePoint(artworkMatrix, handleWorld)[0];
+      assert.ok(Math.abs(handleX - frame.points[reference === 'end' ? 0 : 1][0]) < 1e-9);
       assert.ok(h.width > 0);
       await page.mouse.up();
       await settle();
@@ -378,7 +408,7 @@ try {
         case: 'crossing Position clamps at minimum without flip; overflow/Undo',
         reference,
         crossReference,
-        zoom: 120,
+        zoom: zoomLabel,
       });
     }
   }
@@ -400,18 +430,19 @@ try {
   assert.ok((await page.evaluate(() => window.nect.export())).includes('<path'));
   results.push({ case: 'numeric coexistence; overflow warning and outlined SVG retained' });
   await page.screenshot({ path: path.join(output, 'overflow.png') });
-  // Whole artwork with unsupported rotation has no width handle.
+  // Skew remains outside the rotated Text width capsule.
   fixture = textWrapCanvasFixture({
     transformed: true,
     alignment: reference,
     crossAlignment: crossReference,
+    rotation: activeCase.rotation || 0,
+    skew: 10,
   });
-  fixture.doc.layers[0].nodes[1].params.rotation.value = 25;
   await page.evaluate((s) => window.nect.load(s), serialize(fixture.doc));
   await $(`[data-select-layer="${fixture.layerId}"]`).click();
   await settle();
   assert.equal(await handle().count(), 0);
-  results.push({ case: 'rotated whole artwork hides width handle without mutation' });
+  results.push({ case: 'skewed Text whole artwork hides width handle without mutation' });
   assert.deepEqual(errors, []);
   const receipt = {
     input: 'CDP synthetic mouse/keyboard and renderer cancel events in native Tauri/WebView2',

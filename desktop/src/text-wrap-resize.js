@@ -32,7 +32,10 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       if (n?.type === 'Transform') {
         route.push(n);
         if (driven(n)) return reject('Driven Transform');
-        matrix.splice(0, 6, ...result.transformValues(n.id).matrix);
+        const transform = result.transformValues(n.id);
+        if (transform.skew !== 0 || transform.scale < 1e-6 || transform.scaleWidth < 1e-6)
+          return reject('Use positive scale without skew');
+        matrix.splice(0, 6, ...transform.matrix);
         n = find(n.params?.path?.source);
       }
       route.push(n);
@@ -51,16 +54,7 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       !['origin', 'start', 'center', 'end'].includes(n.crossAlignment || 'origin')
     )
       return reject('Unsupported Text wrap reference');
-    const [a, b, c, d] = matrix,
-      norm = Math.max(1, Math.abs(a), Math.abs(d));
-    if (
-      !matrix.every(Number.isFinite) ||
-      a < 1e-6 ||
-      d < 1e-6 ||
-      Math.abs(b) > 1e-12 * norm ||
-      Math.abs(c) > 1e-12 * norm
-    )
-      return reject('Use an axis-aligned positive Transform');
+    if (!matrix.every(Number.isFinite)) return reject('Invalid Transform');
     inverseAffineDelta(matrix, [0, 0]);
     const layout = result.textLayout(n.id);
     if (layout?.reason || layout?.suspended || !layout?.lines?.length)
@@ -104,6 +98,11 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       [right, top + height],
       [left, top + height],
     ].map((p) => transformCharacterPoint(matrix, p));
+    const handle = transformCharacterPoint(matrix, [
+      reference === 'end' ? left : right,
+      top + height / 2,
+    ]);
+    if (![...corners.flat(), ...handle].every(Number.isFinite)) return reject('Invalid wrap frame');
     return {
       supported: true,
       layerId: layer.id,
@@ -114,10 +113,10 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       matrix,
       routeIds: route.map((n) => n.id),
       corners,
-      handle: transformCharacterPoint(matrix, [
-        reference === 'end' ? left : right,
-        top + height / 2,
-      ]),
+      handle,
+      cursor: ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'][
+        ((Math.round(Math.atan2(matrix[1], matrix[0]) / (Math.PI / 4)) % 4) + 4) % 4
+      ],
     };
   } catch (error) {
     return reject(error.message);
