@@ -145,7 +145,10 @@ try {
   await pick(f.ids[0]);
   assert.equal((await values()).width, 0);
   assert.equal((await values()).height, 0);
-  await pick(f.ids[0], true);
+  // Short handles overlap the selected anchor's hit target; use its supported stable-ID row.
+  await page
+    .locator(`.inspector-body [data-select-panel-point="${f.ids[0]}"]`)
+    .click({ modifiers: ['Shift'] });
   assert.equal(await bounds().getAttribute('data-state'), 'empty');
   results.push({
     case: 'selection and edits',
@@ -173,6 +176,7 @@ try {
     results.push({ case: property, clearStateWithoutPartialNumbers: true });
   }
   await bounds().scrollIntoViewIfNeeded();
+  await bounds().locator('.point-panel-summary').first().click();
   await page.screenshot({ path: resolve(output, 'unavailable-bounds.png') });
   assert.deepEqual(errors, []);
   await writeFile(
