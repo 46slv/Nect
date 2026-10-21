@@ -22,7 +22,7 @@ Current phase: Implementation, focused source/DOM, production browser and isolat
 
 Proven: Remote-backed independent clone of https://github.com/46slv/Nect.git at PR39 feature head c3703654b1e6354067e72cc7651656d27c8b7477; branch codex/color-value-expressions. Existing Pen de2b5893 is an ancestor; no duplicate implementation. No checkout .agents/skills directory. Focused regression 104/104 passed, including existing numeric/Color/gradient/Image and Shape Dither/preset coverage. Three additional legacy tests fail identically on isolated base c3703654; no new failure. Production build (138 modules), native configuration, and custom-protocol release native build passed. Browser Color Apply layout movement was repaired and its original pointer path passed.
 
-Next task: Commit/non-force push this development branch and create a draft PR against verified codex/image-dither-output at c3703654. Verify remote readback. Native renderer checks passed for both gradient types; the candidate processes are closed. No main merge or release.
+Next task: Draft PR40 https://github.com/46slv/Nect/pull/40 is open against codex/image-dither-output at c3703654. Product/source 5c4cd2a856b2f8049ae9f873483efe85070feb98 is pushed. Finish checkpoint readback; next eligible follow-up is native Save/Open OS-dialog verification when a Windows controller becomes callable. Native renderer checks passed for both gradient types; the candidate processes are closed. No main merge or release.
 
 Approach: Reuse the common Session's typed validation, stable node ID/parameter key reference mechanism and property editor. Only value/ref Color identity expressions; schema 42 gates the new syntax. No palette store exists, so palette token refs and color math remain later scoped work.
 
@@ -32,4 +32,4 @@ State: Sole feature writer in C:/Users/shiro/Documents/Codex/2026-10-21/task-13/
 
 Authority: Current parent delegation and trusted user priority instruction permit this source/test/docs work, isolated native verification, local commit, development branch push and draft PR. No protected main merge, release, force push/history rewrite, auth/security/billing changes or unrelated feature work.
 
-Handoff: CONTINUE_CURRENT_TASK
+Handoff: Source scope complete; return to parent. Native OS dialogs remain LOCAL_WAIT for missing Windows node_repl controller. No replacement feature scope is assumed.

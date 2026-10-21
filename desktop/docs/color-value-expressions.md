@@ -103,3 +103,13 @@ Local evidence: ignored `desktop/test-results/color-value/focused.log`,
 JSON fixtures, `native-build.log`; independent base log at
 `C:/Users/shiro/Documents/Codex/2026-10-21/task-13/Nect-color-base/base-results/legacy-probe.log`.
 No binary, generated dependency cache or test output is committed.
+
+## Development checkpoint
+
+Product/source commit `5c4cd2a856b2f8049ae9f873483efe85070feb98` is pushed on
+`codex/color-value-expressions`. [Draft PR40](https://github.com/46slv/Nect/pull/40)
+targets verified `codex/image-dither-output` at
+`c3703654b1e6354067e72cc7651656d27c8b7477`. The checkpoint commit after the product
+commit changes documentation only; the tested native source remains identical.
+The isolated checkout and candidate/evidence paths above are available for the
+remaining controller-dependent native file-dialog checks. No main merge or release.
