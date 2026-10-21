@@ -103,7 +103,7 @@ test('visibility/lock/driven/reference/transform guards reject without mutation'
       d.layers[0].nodes[0].writingMode = 'vertical-rl';
       d.layers[0].nodes[0].textWrap = { height: 320, policy: 'japanese-basic-v1' };
     },
-    (d) => (d.layers[0].nodes[0].alignment = 'center'),
+    (d) => (d.layers[0].nodes[0].alignment = 'unknown'),
     (d) => (d.layers[0].nodes[0].crossAlignment = 'end'),
     (d) => (d.layers[0].nodes[0].params.size.expression = 'value * 2'),
     (d) => (d.layers[0].nodes[1].params.rotation.value = 20),
@@ -163,3 +163,93 @@ test('legacy width-only Text keeps its schema and wrap representation after resi
   assert.deepEqual(session.snapshot(), before);
   assert.equal(context(session.snapshot()).corners[0][1], 160);
 });
+
+for (const alignment of ['center', 'end'])
+  for (const referenceBounds of ['advance', 'visible']) {
+    test(`${alignment}/${referenceBounds} frame fixes Position and matches numeric reflow at smaller/larger widths`, () => {
+      const f = textWrapCanvasFixture({ transformed: true, alignment, referenceBounds });
+      const original = structuredClone(f.doc),
+        c = context(original);
+      const anchor = alignment === 'center' ? 0.5 : 1;
+      const deltaFactor = alignment === 'center' ? 2 : -1;
+      assert.equal(c.reference, alignment);
+      assert.equal(c.handle[0], c.corners[alignment === 'end' ? 0 : 1][0]);
+      const fixedX = c.corners[0][0] + (c.corners[1][0] - c.corners[0][0]) * anchor;
+      assert.equal(fixedX, 140 * 1.5 + 20);
+      const underflow = resizedTextWrapWidth(
+        320,
+        c.matrix,
+        [(-330 * 1.5) / deltaFactor, 0],
+        alignment,
+      );
+      assert.equal(underflow, 0.01, 'crossing the Position clamps without a reference flip');
+      assert.equal(
+        resizedTextWrapWidth(320, c.matrix, [(200000 * 1.5) / deltaFactor, 0], alignment),
+        100000,
+      );
+      assert.throws(() => resizedTextWrapWidth(320, c.matrix, [1, 0], 'unknown'));
+      for (const width of [220, 420]) {
+        const mapped = resizedTextWrapWidth(
+          320,
+          c.matrix,
+          [((width - 320) * 1.5) / deltaFactor, 0],
+          alignment,
+        );
+        assert.equal(mapped, width);
+        const session = new CommandSession(original, { fonts: () => fonts });
+        const numeric = new CommandSession(original, { fonts: () => fonts });
+        const target = {
+          kind: 'text-values',
+          layerId: f.layerId,
+          nodeId: f.textId,
+          textKind: 'wrap',
+        };
+        const preview = () => {
+          let token = session.dispatch({
+            ...session.state,
+            type: 'begin-gesture',
+            payload: { target },
+          });
+          return session.dispatch({
+            ...session.state,
+            type: 'update-gesture',
+            payload: { ...token, update: { values: [mapped] } },
+          });
+        };
+        let token = preview();
+        const displayed = session.previewSnapshot(token.gestureId).document;
+        const frame = context(displayed);
+        assert.equal(
+          frame.corners[0][0] + (frame.corners[1][0] - frame.corners[0][0]) * anchor,
+          fixedX,
+        );
+        assert.equal(frame.corners[0][1], c.corners[0][1]);
+        assert.deepEqual(session.snapshot(), original);
+        session.dispatch({ ...session.state, type: 'cancel-gesture', payload: token });
+        assert.deepEqual(session.snapshot(), original);
+        assert.equal(session.historyView.past.length, 0);
+        token = preview();
+        session.dispatch({ ...session.state, type: 'commit-gesture', payload: token });
+        numeric.dispatch({
+          ...numeric.state,
+          type: 'set-text-settings',
+          payload: {
+            layerId: f.layerId,
+            nodeId: f.textId,
+            settings: { textWrap: { ...original.layers[0].nodes[0].textWrap, width } },
+          },
+        });
+        const committed = session.snapshot(),
+          expected = structuredClone(original);
+        expected.layers[0].nodes[0].textWrap.width = width;
+        assert.deepEqual(committed, expected);
+        assert.deepEqual(committed, numeric.snapshot());
+        assert.equal(exportSVG(committed, fonts), exportSVG(numeric.snapshot(), fonts));
+        assert.equal(session.historyView.past.length, 1);
+        session.dispatch({ ...session.state, type: 'undo' });
+        assert.deepEqual(session.snapshot(), original);
+        session.dispatch({ ...session.state, type: 'redo' });
+        assert.deepEqual(session.snapshot(), committed);
+      }
+    });
+  }

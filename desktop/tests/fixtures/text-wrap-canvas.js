@@ -1,7 +1,11 @@
 import { blankDocument, node, connect, createCharacterPositions } from '../../src/core.js';
 import { basicTextWrap } from '../../src/text-wrap.js';
 
-export function textWrapCanvasFixture({ transformed = false } = {}) {
+export function textWrapCanvasFixture({
+  transformed = false,
+  alignment = 'start',
+  referenceBounds = 'advance',
+} = {}) {
   const doc = blankDocument(),
     layer = doc.layers[0];
   doc.name = 'Canvas Text wrap width';
@@ -19,6 +23,8 @@ export function textWrapCanvasFixture({ transformed = false } = {}) {
   text.params.position.value = [140, 160];
   text.params.size.value = 32;
   text.textWrap = basicTextWrap('horizontal-tb', 320);
+  text.alignment = alignment;
+  text.referenceBounds = referenceBounds;
   let source = text;
   const nodes = [text];
   if (transformed) {

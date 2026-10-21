@@ -47,7 +47,7 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       (n.writingMode || 'horizontal-tb') !== 'horizontal-tb' ||
       !n.textWrap ||
       !Object.hasOwn(n.textWrap, 'width') ||
-      (n.alignment || 'start') !== 'start' ||
+      !['start', 'center', 'end'].includes(n.alignment || 'start') ||
       !['origin', 'start'].includes(n.crossAlignment || 'origin')
     )
       return reject('Unsupported Text wrap reference');
@@ -80,6 +80,10 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       descent = Math.max(descent, (-font.descender / font.unitsPerEm) * size * height - shift);
     }
     const width = n.textWrap.width,
+      reference = n.alignment || 'start',
+      referenceFactor = { start: 0, center: 0.5, end: 1 }[reference],
+      left = position[0] - width * referenceFactor,
+      right = left + width,
       top = (n.crossAlignment || 'origin') === 'start' ? position[1] : position[1] - ascent;
     const height = Math.max(values.size, ascent + descent + Math.max(0, ...layout.lineOffsets));
     if (
@@ -89,29 +93,35 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
     )
       return reject('Invalid wrap frame');
     const corners = [
-      [position[0], top],
-      [position[0] + width, top],
-      [position[0] + width, top + height],
-      [position[0], top + height],
+      [left, top],
+      [right, top],
+      [right, top + height],
+      [left, top + height],
     ].map((p) => transformCharacterPoint(matrix, p));
     return {
       supported: true,
       layerId: layer.id,
       nodeId: n.id,
       width,
+      reference,
       matrix,
       routeIds: route.map((n) => n.id),
       corners,
-      handle: transformCharacterPoint(matrix, [position[0] + width, top + height / 2]),
+      handle: transformCharacterPoint(matrix, [
+        reference === 'end' ? left : right,
+        top + height / 2,
+      ]),
     };
   } catch (error) {
     return reject(error.message);
   }
 }
 
-export function resizedTextWrapWidth(width, matrix, delta) {
+export function resizedTextWrapWidth(width, matrix, delta, reference = 'start') {
+  const factor = { start: 1, center: 2, end: -1 }[reference];
   if (
     !Number.isFinite(width) ||
+    !Number.isFinite(factor) ||
     !Array.isArray(delta) ||
     delta.length !== 2 ||
     !delta.every(Number.isFinite)
@@ -119,5 +129,8 @@ export function resizedTextWrapWidth(width, matrix, delta) {
     throw Error('Invalid wrap resize');
   const local = inverseAffineDelta(matrix, delta);
   if (Math.abs(local[0]) < 1e-10) return width;
-  return Math.max(TEXT_WRAP_WIDTH_LIMITS[0], Math.min(TEXT_WRAP_WIDTH_LIMITS[1], width + local[0]));
+  return Math.max(
+    TEXT_WRAP_WIDTH_LIMITS[0],
+    Math.min(TEXT_WRAP_WIDTH_LIMITS[1], width + local[0] * factor),
+  );
 }
