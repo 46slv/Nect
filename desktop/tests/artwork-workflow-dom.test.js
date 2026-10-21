@@ -145,7 +145,7 @@ test('Artwork creation and placement use independent layers and explicit, safe e
     ].value;
   };
   await t.test(
-    'toolbar appends five independent artworks from locked/hidden context with one Undo and restored selection',
+    'toolbar shapes and Canvas Text append five independent artworks with one Undo and restored selection',
     () => {
       const d = makeDoc();
       d.layers[0].locked = true;
@@ -157,6 +157,25 @@ test('Artwork creation and placement use independent layers and explicit, safe e
         const before = JSON.parse(old),
           prior = ui();
         click(`[data-tool="${type}"]`);
+        if (type === 'Text') {
+          // REQ-210: selecting the Tool is neutral; Canvas release creates Text.
+          assert.equal(saved(), old);
+          assert.equal(ui().past, prior.past);
+          const center = [d.width / 2, d.height / 2];
+          const [left, top] = xy([0, 0]),
+            [right, bottom] = xy([d.width, d.height]);
+          stage().getBoundingClientRect = () => ({
+            left,
+            top,
+            right,
+            bottom,
+            width: right - left,
+            height: bottom - top,
+          });
+          fire($('.artboard'), 'pointerdown', center, { isPrimary: true });
+          assert.equal(saved(), old, 'Text press remains an unauthored pending click');
+          fire(document, 'pointerup', center, { isPrimary: true });
+        }
         assert.deepEqual(win.nect.document.layers.slice(0, -1), before.layers);
         const added = win.nect.document.layers.at(-1),
           id = added.id;

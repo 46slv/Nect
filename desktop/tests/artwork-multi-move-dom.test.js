@@ -79,13 +79,31 @@ test('Multiple independent artworks select and move as one transaction', async (
     stage = () => $('.canvas-stage');
   const saved = () => serialize(win.nect.document),
     ui = () => win.artworkUI();
+  let alignScenario = false;
+  const openAlign = () => {
+    if (!alignScenario || $('.alignment-panel')) return;
+    const before = saved(),
+      past = ui().past,
+      active = ui().activeLayer,
+      selected = [...ui().artworkSelection];
+    $('[data-action="align-panel"]').click();
+    flush();
+    assert.ok($('.alignment-panel'), 'open Align through the current Canvas control');
+    assert.equal(saved(), before);
+    assert.equal(ui().past, past);
+    assert.equal(ui().activeLayer, active);
+    assert.deepEqual(ui().artworkSelection, selected);
+  };
   const load = (d) => {
     win.nect.load(serialize(d));
     flush();
+    openAlign();
   };
   const click = (s) => {
+    openAlign();
     $(s).click();
     flush();
+    openAlign();
   };
   const xy = ([x, y]) => [x * 2 + 80, y * 2 + 40];
   const fire = (el, type, p = [0, 0], extra = {}) => {
@@ -124,6 +142,7 @@ test('Multiple independent artworks select and move as one transaction', async (
       new win.MouseEvent('click', { bubbles: true, shiftKey: shift }),
     );
     flush();
+    openAlign();
   };
   const selectedIds = () => [...ui().artworkSelection].sort();
   const setup = (edit = () => {}) => {
@@ -353,7 +372,8 @@ test('Multiple independent artworks select and move as one transaction', async (
       assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [3, 0]));
       fire(document, 'pointermove', [190, 185], { altKey: true, shiftKey: true });
       assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
-      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [20, 0]));
+      // Current H/V/45 constraint projects [20,15] onto its nearest diagonal.
+      assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [17.5, 17.5]));
       fire(document, 'pointermove', [190, 185], { altKey: true, shiftKey: false });
       assert.deepEqual(win.nect.document, before, 'committed document stays unchanged');
       assert.deepEqual(win.canvasPreview(), shifted(before, f.ids, [20, 15]));
@@ -365,6 +385,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'center distribution preserves selection, active graph and views with one Undo and no-op Redo retention',
     () => {
+      alignScenario = true;
       for (const action of ['center-x', 'center-y']) {
         const f = setup(),
           before = saved(),
@@ -408,6 +429,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'distribution re-resolves forced clicks and rejects insufficient/stale selections, busy states and invalid members',
     () => {
+      alignScenario = true;
       const force = () => {
         const b = $('[data-distribute-artwork="center-x"]');
         b.disabled = false;
@@ -480,6 +502,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'six alignment controls preserve the set, active graph and views with one Undo and no repeated history',
     () => {
+      alignScenario = true;
       for (const action of ['left', 'center-x', 'right', 'top', 'center-y', 'bottom']) {
         const f = setup(),
           before = saved(),
@@ -523,6 +546,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'gap controls are distinct from centers and retain active selection, view, Undo and no-op Redo',
     () => {
+      alignScenario = true;
       for (const action of ['gap-x', 'gap-y']) {
         const f = gapArtworkFixture();
         load(f.doc);
@@ -576,6 +600,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'gap commands reject stale/unsupported selections and interrupted edits before any history change',
     () => {
+      alignScenario = true;
       const force = (action = 'gap-x') => {
         const b = $(`[data-distribute-gap="${action}"]`);
         b.disabled = false;
@@ -648,6 +673,7 @@ test('Multiple independent artworks select and move as one transaction', async (
   await t.test(
     'alignment rejects unsupported or newly locked members and forced clicks during IME, modal, Pen and gestures',
     () => {
+      alignScenario = true;
       const force = () => {
         const b = $('[data-align-artwork="left"]');
         b.disabled = false;

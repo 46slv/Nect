@@ -116,6 +116,9 @@ test('graph overview navigation is view-only, measured, guarded and cancellable'
     n.position = [i * 1200, i * 800];
   });
   win.nect.load(serialize(doc));
+  // Outside Graph clicks dismiss Canvas popovers and replace their layout.
+  // Close the unrelated Align panel before installing per-element geometry mocks.
+  if ($('.alignment-panel')) click('align-panel');
   setup();
   assert.equal($('.graph-overview').hidden, true);
   click('graph-overview');
