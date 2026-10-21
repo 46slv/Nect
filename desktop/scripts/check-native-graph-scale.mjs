@@ -204,10 +204,10 @@ try {
           .evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON()));
       for (const b of boxes)
         assert.ok(
-          b.left >= r.left - 1 &&
-            b.top >= r.top - 1 &&
-            b.right <= r.right - 14 &&
-            b.bottom <= r.bottom - 14,
+          b.left >= r.x - 1 &&
+            b.top >= r.y - 1 &&
+            b.right <= r.x + r.width - 14 &&
+            b.bottom <= r.y + r.height - 14,
           JSON.stringify({ b, r }),
         );
     }

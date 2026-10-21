@@ -202,6 +202,14 @@ try {
     const observation = await observeStop(),
       m1 = await metrics(),
       c1 = await cpu();
+    if (kind === 'zoom') {
+      assert.equal(observation.appWrites, 0, 'zoom must not overlap a startup/root rerender');
+      assert.equal(
+        observation.wireWrites,
+        12,
+        'observe the same live wire SVG for all zoom clicks',
+      );
+    }
     assert.equal(
       await page.evaluate(() => JSON.stringify(window.nect.document)),
       beforeDoc,
