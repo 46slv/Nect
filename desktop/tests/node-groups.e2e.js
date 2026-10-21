@@ -13,6 +13,12 @@ let page;
 const errors = [],
   results = [];
 try {
+  // CDP can be ready before the first WebView target has navigated on cold start.
+  const context = browser.contexts()[0];
+  if (!context.pages().length) await context.waitForEvent('page', { timeout: 30000 });
+  await Promise.any(
+    context.pages().map((p) => p.waitForURL(/tauri\.localhost/, { timeout: 30000 })),
+  );
   const pages = browser
     .contexts()
     .flatMap((c) => c.pages())
