@@ -40,6 +40,7 @@ import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
+import { selectedPointBounds } from './selected-point-bounds.js';
 import './style.css';
 import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
@@ -2064,6 +2065,26 @@ function field(n, key, q) {
 const pointPanelViews = new Map();
 const POINT_PANEL_PAGE_SIZE = 24;
 let pointDeltaDraft = null;
+function pointBoundsSummary(n) {
+  const bounds = selectedPointBounds(n, selectedPointIds(n), current().locked);
+  return `<section class="point-bounds" data-point-bounds="${n.id}" data-state="${bounds.state}" aria-label="Selected point bounds"><p class="point-panel-summary">${bounds.count} ${bounds.count === 1 ? 'anchor' : 'anchors'} · Node-local · document units</p>${
+    bounds.state === 'ready'
+      ? `<dl>${[
+          ['minX', 'Min X'],
+          ['maxX', 'Max X'],
+          ['width', 'Width'],
+          ['minY', 'Min Y'],
+          ['maxY', 'Max Y'],
+          ['height', 'Height'],
+        ]
+          .map(
+            ([key, label]) =>
+              `<div><dt>${label}</dt><dd><output data-point-bound="${key}" title="${bounds.values[key]}" aria-label="Selected anchor ${label}">${Number(bounds.values[key].toPrecision(6))}</output></dd></div>`,
+          )
+          .join('')}</dl>`
+      : `<p class="point-panel-summary" data-point-bounds-status>${esc(bounds.reason)}</p>`
+  }</section>`;
+}
 function pointDeltaMatches(nodeId, ids) {
   if (
     !pointDeltaDraft ||
@@ -2229,7 +2250,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${ownedPointDeltaFields(n)}${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${ownedPointDeltaFields(n)}${scopeControls}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -2296,13 +2317,17 @@ function refreshPointPanels() {
   for (const panel of document.querySelectorAll(
     '.graph [data-point-panel], .inspector [data-point-panel]',
   )) {
+    const n = current().nodes.find((node) => node.id === panel.dataset.pointPanel);
+    if (!n) continue;
     if (
       panel.contains(document.activeElement) &&
       !document.activeElement.matches('[data-point-panel-unit], [data-point-panel-contour]')
-    )
+    ) {
+      // Read-only selection geometry must follow Canvas selection even while a field keeps focus.
+      const bounds = panel.querySelector('[data-point-bounds]');
+      if (bounds) bounds.outerHTML = pointBoundsSummary(n);
       continue;
-    const n = current().nodes.find((node) => node.id === panel.dataset.pointPanel);
-    if (!n) continue;
+    }
     panel.outerHTML = n.type === 'Path Remap' ? remapFields(n, result, true) : ownedPointFields(n);
   }
   for (const panel of document.querySelectorAll(

@@ -1871,6 +1871,21 @@ input[data-scrub-step].scrubbing {
 }
 
 /* Point editing is selection-first; explicit browsing stays bounded. */
+.point-bounds dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 4px 0 8px;
+  font-size: 11px;
+}
+.point-bounds dt {
+  color: var(--muted);
+}
+.point-bounds dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
 .point-panel-summary {
   font-size: 12px;
   overflow-wrap: anywhere;
