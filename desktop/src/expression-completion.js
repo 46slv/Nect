@@ -42,9 +42,9 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       detail:
         parameterType === 'Vector2'
           ? `Authored base ${axis} component → Scalar`
-          : 'Authored base → Scalar',
+          : `Authored base → ${parameterType === 'Color' ? 'Color' : 'Scalar'}`,
     },
-    ...functions.map((name) => ({
+    ...(parameterType === 'Color' ? [] : functions).map((name) => ({
       id: name,
       label: `${name}(…)`,
       detail: 'Function → Scalar',
@@ -52,26 +52,30 @@ export function expressionCompletions(value, start, end, targets = [], parameter
       cursorOffset: name.length + 1,
       terms: [name],
     })),
-    ...['pi', 'e'].map((name) => ({
+    ...(parameterType === 'Color' ? [] : ['pi', 'e']).map((name) => ({
       id: name,
       label: name,
       detail: 'Constant · Scalar',
       text: name,
       terms: [name],
     })),
-    ...targets.map((target) => ({
-      id: target.expression,
-      label: target.label,
-      detail: `${target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
-      text: target.expression,
-      terms: [
-        target.name,
-        target.key,
-        `${target.key}.${target.component || ''}`,
-        'ref',
-        ...target.name.split(/\s+/),
-      ],
-    })),
+    ...targets
+      .filter((target) =>
+        parameterType === 'Color' ? target.type === 'Color' : target.type !== 'Color',
+      )
+      .map((target) => ({
+        id: target.expression,
+        label: target.label,
+        detail: `${target.type === 'Color' ? 'Color' : target.component ? `Vector2.${target.component.toUpperCase()} → Scalar` : 'Scalar'} · ${target.nodeId}`,
+        text: target.expression,
+        terms: [
+          target.name,
+          target.key,
+          `${target.key}.${target.component || ''}`,
+          'ref',
+          ...target.name.split(/\s+/),
+        ],
+      })),
   ];
   return candidates
     .filter((candidate) =>
