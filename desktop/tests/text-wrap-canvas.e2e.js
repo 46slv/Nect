@@ -122,7 +122,11 @@ try {
     const h = await handle().boundingBox();
     const x = h.x + h.width / 2,
       y = h.y + h.height / 2;
-    const scale = await page.evaluate(() => document.querySelector('.artboard').getScreenCTM().a);
+    const ctm = await page.evaluate(() => {
+      const m = document.querySelector('.artboard').getScreenCTM();
+      return [m.a, m.b, m.c, m.d, m.e, m.f];
+    });
+    const scale = ctm[0];
     await page.mouse.move(x, y);
     await page.evaluate(() => (window.wrapInputTrace = []));
     await page.mouse.down();
@@ -146,7 +150,7 @@ try {
       },
     );
     await settle();
-    return { scale, x, y };
+    return { scale, x, y, ctm };
   };
   const graphUntouched = async () => {
     assert.deepEqual(
@@ -169,7 +173,7 @@ try {
           identity = await selection(),
           origin = await frameReference();
         const canvas = await $('.artboard').innerHTML();
-        const { scale } = await begin(widthDelta);
+        const { scale, ctm } = await begin(widthDelta);
         assert.deepEqual(
           await checkpoint(),
           before,
@@ -263,9 +267,11 @@ try {
           case: 'commit/Undo/Redo/export/JSON reload/numeric equivalence',
           reference,
           referenceBounds: transformed ? 'visible' : 'advance',
+          zoom: transformed ? 120 : 100,
           widthDelta,
           target: transformed ? 'whole artwork static scale 1.5' : 'Text source',
           canvasScale: scale,
+          canvasCTM: ctm,
           width,
           inputWidth,
           input,
