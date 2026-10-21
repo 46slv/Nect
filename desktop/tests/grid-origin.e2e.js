@@ -60,6 +60,7 @@ try {
     };
     doc.editor.guides.push({ id: 'grid-test-guide', axis: 'x', position: 120, locked: false });
     await page.evaluate((s) => window.nect.load(s), serialize(doc));
+    if (await $('[data-guide-setting="gridAnchor"]').count()) await page.keyboard.press('Escape');
     await $('[data-action="actual-size"]').click();
     if (config.zoomIn) await $('[data-action="zoom-in"]').click();
     const stage = await $('.canvas-stage').boundingBox();
@@ -96,6 +97,12 @@ try {
     await page.evaluate((s) => window.nect.load(s), JSON.stringify(changed.doc));
     assert.deepEqual((await state()).doc, changed.doc);
     assert.equal((await state()).svg, before.svg);
+    // Debug JSON load deliberately resets the view to Fit; restore this case's view.
+    await $('[data-action="actual-size"]').click();
+    if (config.zoomIn) await $('[data-action="zoom-in"]').click();
+    await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
+    await page.mouse.wheel(...config.pan);
+    await settle();
     // Drag the existing guide close to a visible grid line in source coordinates.
     const targetX = origin[0] + Math.round((200 - origin[0]) / 40) * 40;
     const screenScale = await $('.artboard').evaluate((el) => el.getScreenCTM().a);
@@ -134,7 +141,10 @@ try {
       const m = el.getScreenCTM();
       return { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e, f: m.f };
     });
-    assert.equal(ctm.a, config.zoomIn ? 1.2 : 1);
+    const expectedZoom = config.zoomIn ? 1.2 : 1;
+    assert.equal(await $('[data-zoom="canvas"]').textContent(), `${expectedZoom * 100}%`);
+    // WebView2 quantizes the SVG's CSS width to 1/64 px; bound that layout error.
+    assert.ok(Math.abs(ctm.a - expectedZoom) * doc.width <= 1 / 64);
     await page.screenshot({ path: path.join(output, `${config.anchor}-renderer.png`) });
     await fs.writeFile(
       path.join(output, `${config.anchor}.json`),
