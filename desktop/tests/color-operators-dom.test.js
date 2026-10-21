@@ -66,6 +66,7 @@ test('Color operation drafts validate before commit, remain neutral on Cancel/er
   };
   const initial = saved(),
     originalState = win.nect.commandState;
+  const originalFileState = win.nect.fileState;
   let input = popup();
   type(input, 'mi');
   assert.match(
@@ -79,6 +80,11 @@ test('Color operation drafts validate before commit, remain neutral on Cancel/er
   assert.match(input.validationMessage, /0 to 1/);
   assert.equal(saved(), initial);
   assert.deepEqual(win.nect.commandState, originalState);
+  assert.deepEqual(
+    win.nect.fileState,
+    originalFileState,
+    'invalid draft does not dirty or advance file state',
+  );
   document.querySelector('dialog [data-confirm]').click();
   assert.equal(saved(), initial);
   document.querySelector('dialog [data-cancel]').click();
@@ -115,11 +121,13 @@ test('Color operation drafts validate before commit, remain neutral on Cancel/er
   assert.match(field().querySelector('output').textContent, /#161616/);
   const nested = saved(),
     nestedState = win.nect.commandState;
+  const nestedFileState = win.nect.fileState;
   input = popup();
   document.querySelector('dialog [data-confirm]').click();
   await tick();
   assert.equal(saved(), nested);
   assert.deepEqual(win.nect.commandState, nestedState);
+  assert.deepEqual(win.nect.fileState, nestedFileState, 'unchanged Apply preserves file state');
   input = popup();
   type(input, `mix(value,#000000,${ref(weight.id, 'value')})`);
   win.nect.dispatch({
@@ -129,11 +137,13 @@ test('Color operation drafts validate before commit, remain neutral on Cancel/er
   });
   const changed = saved(),
     changedState = win.nect.commandState;
+  const changedFileState = win.nect.fileState;
   assert.ok(document.querySelector('dialog'), 'the stable dialog survives external updates');
   document.querySelector('dialog [data-confirm]').click();
   await tick();
   assert.equal(saved(), changed);
   assert.deepEqual(win.nect.commandState, changedState);
+  assert.deepEqual(win.nect.fileState, changedFileState, 'stale Apply preserves file state');
   assert.match(document.body.textContent, /STALE|revision/i);
   document.querySelector('dialog [data-cancel]').click();
   await win.happyDOM.abort();
