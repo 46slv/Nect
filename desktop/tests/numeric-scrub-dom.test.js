@@ -113,19 +113,66 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
   pointer(document, 'pointerup', 100);
   undoEmpty();
   for (const ending of ['pointercancel', 'escape', 'blur', 'lostpointercapture']) {
+    const before = JSON.stringify(win.nect.document),
+      file = win.nect.fileState,
+      command = win.nect.commandState;
     el = input(id, 'center');
     pointer(el, 'pointerdown', 100);
     pointer(document, 'pointermove', 124);
     assert.equal(Number(el.value), original[0] + 20);
     assert.deepEqual(val(id, 'center'), original, 'scrub preview must not change committed state');
+    assert.ok(win.nect.gestureState, 'preview owns an active gesture');
+    // Keyboard expression shortcuts must not steal an active scrub's input.
+    el.dispatchEvent(
+      new win.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true }),
+    );
+    assert.equal(el.type, 'number');
+    assert.equal(Number(el.value), original[0] + 20);
     if (ending === 'escape')
       el.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else if (ending === 'blur') win.dispatchEvent(new win.Event('blur'));
     else pointer(ending === 'lostpointercapture' ? el : document, ending, 124);
+    assert.equal(win.nect.gestureState, null, `${ending} releases the gesture before pointerup`);
     assert.deepEqual(val(id, 'center'), original);
     undoEmpty();
     pointer(document, 'pointerup', 124);
+    assert.equal(
+      JSON.stringify(win.nect.document),
+      before,
+      'late pointerup cannot commit a cancelled preview',
+    );
+    assert.deepEqual(win.nect.fileState, file);
+    assert.deepEqual(win.nect.commandState, command);
   }
+  // The same expression shortcuts still work as ordinary uncommitted typing.
+  id = load('Value');
+  el = input(id, 'value');
+  el.value = '12';
+  el.dispatchEvent(new win.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true }));
+  assert.equal(el.type, 'text');
+  assert.equal(el.value, '12+');
+  el.value += '3';
+  el.dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+  );
+  assert.equal(val(id, 'value'), 15);
+  await tick();
+  assert.equal(document.querySelector('[data-action="undo"]').disabled, false);
+  undo();
+  assert.equal(val(id, 'value'), 100);
+  undoEmpty();
+  el = input(id, 'value');
+  el.value = '4';
+  el.dispatchEvent(new win.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true }));
+  el.value += '9';
+  el.dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  );
+  assert.equal(el.type, 'number');
+  assert.equal(el.value, '100');
+  assert.equal(val(id, 'value'), 100);
+  undoEmpty();
+  id = load();
   await change(input(id, 'center'), '123.5');
   assert.equal(val(id, 'center')[0], 123.5);
   undo();
@@ -251,7 +298,16 @@ test('Numeric scrubbing preserves transactions, bounds and protected inputs', as
     layer.locked = true;
   });
   const lockedDocument = JSON.stringify(win.nect.document);
+  const alignmentToggle = document.querySelector('.canvas-toolbar [data-action="align-panel"]');
+  if (alignmentToggle.getAttribute('aria-pressed') !== 'true') alignmentToggle.click();
+  assert.equal(
+    document
+      .querySelector('.canvas-toolbar [data-action="align-panel"]')
+      .getAttribute('aria-pressed'),
+    'true',
+  );
   el = document.querySelector('[data-align-spacing]');
+  assert.ok(el, 'open the existing panel before exercising its local preference');
   await change(el, '12');
   el = document.querySelector('[data-align-spacing]');
   scrub(el, 24);

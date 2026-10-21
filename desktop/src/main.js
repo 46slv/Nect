@@ -12309,6 +12309,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   const numericExpressionInput =
+    !(drag?.type === 'numeric' && drag.started) &&
     !e.target.matches?.('[data-point-delta-axis]') &&
     e.target.matches?.('input[type="number"], input[data-numeric-expression]');
   if (

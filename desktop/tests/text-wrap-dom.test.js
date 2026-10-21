@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
-import { document as newDocument, node, point, serialize } from '../src/core.js';
+import { document as newDocument, node, point, serialize, deserialize } from '../src/core.js';
 const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -76,10 +76,34 @@ test('Wrap width controls preserve source, range IDs, IME, history and atomic re
     },
     undo = () => document.querySelector('[data-action="undo"]').click(),
     redo = () => document.querySelector('[data-action="redo"]').click();
+  // Old width-only documents promote only to v8; current documents never downgrade.
+  const legacy = structuredClone(doc);
+  legacy.schemaVersion = 7;
+  win.nect.load(serialize(legacy));
+  assert.equal(win.nect.document.schemaVersion, 7);
+  const legacyBefore = saved();
+  await change('text-wrap', 'width');
+  assert.equal(win.nect.document.schemaVersion, 8);
+  assert.deepEqual(text().textWrap, { width: 320 });
+  const migrated = saved();
+  assert.equal(deserialize(migrated).schemaVersion, 8);
+  const incorrectlyTagged = JSON.parse(migrated);
+  incorrectlyTagged.schemaVersion = 7;
+  assert.throws(
+    () => deserialize(JSON.stringify(incorrectlyTagged)),
+    /Wrap width requires schemaVersion 8/,
+  );
+  undo();
+  assert.equal(saved(), legacyBefore);
+  redo();
+  assert.equal(saved(), migrated);
+  win.nect.load(migrated);
+  assert.equal(saved(), migrated);
+  win.nect.load(serialize(doc));
   const before = saved(),
     initialSVG = win.nect.export();
   await change('text-wrap', 'width');
-  assert.equal(win.nect.document.schemaVersion, 8);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 8));
   assert.deepEqual(text().textWrap, { width: 320 });
   assert.equal(text().text, 'Alpha beta gamma');
   undo();
@@ -104,8 +128,18 @@ test('Wrap width controls preserve source, range IDs, IME, history and atomic re
     assert.equal(saved(), narrow);
   }
   await change('writing-mode', 'vertical-rl');
-  assert.equal(saved(), narrow);
-  assert.match(document.querySelector('.status .message').textContent, /horizontal/);
+  assert.equal(text().writingMode, 'vertical-rl');
+  assert.deepEqual(text().textWrap, { height: 120, policy: 'japanese-basic-v1' });
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 34));
+  const basicWithOldTag = JSON.parse(saved());
+  basicWithOldTag.schemaVersion = 33;
+  assert.throws(
+    () => deserialize(JSON.stringify(basicWithOldTag)),
+    /basic wrapping requires schemaVersion 34/,
+  );
+  assert.equal(text().text, 'Alpha beta gamma');
+  undo();
+  assert.equal(saved(), narrow, 'Undo restores the pre-basic schema, mode and width exactly');
   await change('text-path', JSON.stringify([c.id, c.id]));
   assert.equal(saved(), narrow);
   assert.match(document.querySelector('.status .message').textContent, /TEXT_WRAP_PATH/);
