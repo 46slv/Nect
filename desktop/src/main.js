@@ -4101,6 +4101,7 @@ function wrapResizeFresh(d) {
     !n.bypassed &&
     n.text === d.sourceText &&
     (n.alignment || 'start') === d.wrapReference &&
+    (n.crossAlignment || 'origin') === d.wrapCrossReference &&
     n.textWrap?.width === d.originalWidth
   );
 }
@@ -10473,6 +10474,7 @@ app.addEventListener('pointerdown', (e) => {
       lastWidth: context.width,
       matrix: context.matrix,
       wrapReference: context.reference,
+      wrapCrossReference: context.crossReference,
       start: canvasPoint(e),
       startClient: [e.clientX, e.clientY],
       epoch: sourceEpoch,

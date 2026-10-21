@@ -11,6 +11,25 @@ const output = path.resolve(
 );
 const references = (process.env.NECT_TEXT_WRAP_REFERENCES || 'start,center,end').split(',');
 assert.ok(references.length && references.every((r) => ['start', 'center', 'end'].includes(r)));
+const cases = process.env.NECT_TEXT_WRAP_CASES
+  ? JSON.parse(process.env.NECT_TEXT_WRAP_CASES)
+  : references.flatMap((alignment) =>
+      [false, true].map((transformed) => ({ alignment, crossAlignment: 'origin', transformed })),
+    );
+assert.ok(
+  cases.length &&
+    cases.every(
+      (c) =>
+        ['start', 'center', 'end'].includes(c.alignment) &&
+        ['origin', 'start', 'center', 'end'].includes(c.crossAlignment) &&
+        typeof c.transformed === 'boolean',
+    ),
+);
+const widthDeltas = JSON.parse(process.env.NECT_TEXT_WRAP_WIDTH_DELTAS || '[-100,100]');
+assert.ok(
+  widthDeltas.length &&
+    widthDeltas.every((d) => Number.isFinite(d) && 320 + d > 0 && 320 + d <= 100000),
+);
 await fs.mkdir(output, { recursive: true });
 const browser = await chromium.connectOverCDP(
   process.env.NECT_TEXT_WRAP_CDP_URL || 'http://127.0.0.1:9460',
@@ -72,23 +91,34 @@ try {
             points[0][0] +
             (points[1][0] - points[0][0]) * { start: 0, center: 0.5, end: 1 }[reference],
           top: points[0][1],
+          height: points[3][1] - points[0][1],
+          y:
+            points[0][1] +
+            (points[3][1] - points[0][1]) *
+              { origin: 0, start: 0, center: 0.5, end: 1 }[crossReference],
           points,
         };
       });
   const checkReference = async (before) => {
     const now = await frameReference();
     assert.ok(Math.abs(now.x - before.x) < 1e-9, 'frame reference fixed at unchanged Position');
-    assert.equal(now.top, before.top);
+    assert.ok(Math.abs(now.y - before.y) < 1e-9, 'Y frame reference fixed at unchanged Position');
+    const fy = { origin: 0, start: 0, center: 0.5, end: 1 }[crossReference];
+    assert.ok(Math.abs(now.top - before.top + (now.height - before.height) * fy) < 1e-9);
+    if (['center', 'end'].includes(crossReference))
+      assert.notEqual(now.height, before.height, 'representative reflow changes auto height');
     assert.ok(now.points[0][0] < now.points[1][0], 'frame must not flip');
   };
   let fixture,
-    reference = 'start';
+    reference = 'start',
+    crossReference = 'origin';
   const deltaFactor = () => ({ start: 1, center: 2, end: -1 })[reference];
   const load = async (transformed, zoomIn = false) => {
     fixture = textWrapCanvasFixture({
       transformed,
       alignment: reference,
       referenceBounds: transformed ? 'visible' : 'advance',
+      crossAlignment: crossReference,
     });
     await page.evaluate((s) => window.nect.load(s), serialize(fixture.doc));
     if (await $('.alignment-panel').count())
@@ -164,188 +194,192 @@ try {
     await page.evaluate(() => window.wrapObserver.disconnect());
   };
 
-  for (const alignment of references) {
-    reference = alignment;
-    for (const transformed of [false, true]) {
-      for (const widthDelta of [-100, 100]) {
-        await load(transformed, transformed);
-        const before = await checkpoint(),
-          identity = await selection(),
-          origin = await frameReference();
-        const canvas = await $('.artboard').innerHTML();
-        const { scale, ctm } = await begin(widthDelta);
-        assert.deepEqual(
-          await checkpoint(),
-          before,
-          'preview preserves committed JSON/SVG/history/file state',
+  for (const fixtureCase of cases) {
+    reference = fixtureCase.alignment;
+    crossReference = fixtureCase.crossAlignment;
+    const transformed = fixtureCase.transformed;
+    for (const widthDelta of widthDeltas) {
+      await load(transformed, transformed);
+      const before = await checkpoint(),
+        identity = await selection(),
+        origin = await frameReference();
+      const canvas = await $('.artboard').innerHTML();
+      const { scale, ctm } = await begin(widthDelta);
+      assert.deepEqual(
+        await checkpoint(),
+        before,
+        'preview preserves committed JSON/SVG/history/file state',
+      );
+      assert.notEqual(await $('.artboard').innerHTML(), canvas);
+      await checkReference(origin);
+      await graphUntouched();
+      await page.screenshot({
+        path: path.join(
+          output,
+          `preview-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.png`,
+        ),
+      });
+      await page.mouse.up();
+      await settle();
+      const committed = await checkpoint(),
+        expected = JSON.parse(before.json);
+      const width = JSON.parse(committed.json).layers[0].nodes[0].textWrap.width;
+      const input = await page.evaluate(() => [
+        window.wrapInputTrace[0],
+        window.wrapInputTrace.at(-1),
+      ]);
+      const inputWidth =
+        320 + ((input[1].world[0] - input[0].world[0]) / (transformed ? 1.5 : 1)) * deltaFactor();
+      assert.ok(
+        Math.abs(width - inputWidth) < 1e-9,
+        'exact inverse of received pointer coordinates',
+      );
+      // Native/CDP client coordinates have subpixel quantization. Keep that input
+      // difference separate from the exact source-coordinate conversion above.
+      assert.ok(
+        (Math.abs(width - (320 + widthDelta)) / Math.abs(deltaFactor())) *
+          scale *
+          (transformed ? 1.5 : 1) <
+          1 / 1024,
+      );
+      expected.layers[0].nodes[0].textWrap.width = width;
+      assert.deepEqual(JSON.parse(committed.json), expected, 'width is the sole authored delta');
+      assert.notEqual(committed.svg, before.svg);
+      assert.deepEqual(await selection(), identity);
+      assert.equal(committed.undoDisabled, false);
+      await $('[data-action="undo"]').click();
+      await settle();
+      let restored = await checkpoint();
+      assert.equal(restored.json, before.json);
+      assert.equal(restored.svg, before.svg);
+      assert.equal(restored.undoDisabled, true, 'one drag is one Undo');
+      await $('[data-action="redo"]').click();
+      await settle();
+      restored = await checkpoint();
+      assert.equal(restored.json, committed.json);
+      assert.equal(restored.svg, committed.svg);
+      // Save JSON/reload through the supported document API; no OS dialog/cold-reopen claim.
+      await page.evaluate((s) => window.nect.load(s), committed.json);
+      await settle();
+      assert.equal((await checkpoint()).svg, committed.svg);
+      await fs.writeFile(
+        path.join(
+          output,
+          `committed-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.json`,
+        ),
+        committed.json,
+      );
+      await fs.writeFile(
+        path.join(
+          output,
+          `committed-${reference}-${crossReference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.svg`,
+        ),
+        committed.svg,
+      );
+      await page.evaluate((s) => window.nect.load(s), before.json);
+      await $(`.node[data-id="${fixture.textId}"] .type-tag`).click();
+      await settle();
+      const numeric = $('.inspector-body [data-text-wrap-width]');
+      await numeric.fill(String(width));
+      await numeric.press('Tab');
+      await settle();
+      const numericState = await checkpoint();
+      assert.equal(
+        numericState.json,
+        committed.json,
+        'native numeric edit matches Canvas document exactly',
+      );
+      assert.equal(
+        numericState.svg,
+        committed.svg,
+        'native numeric edit matches Canvas export exactly',
+      );
+      results.push({
+        case: 'commit/Undo/Redo/export/JSON reload/numeric equivalence',
+        reference,
+        crossReference,
+        referenceBounds: transformed ? 'visible' : 'advance',
+        zoom: transformed ? 120 : 100,
+        widthDelta,
+        target: transformed ? 'whole artwork static scale 1.5' : 'Text source',
+        canvasScale: scale,
+        canvasCTM: ctm,
+        width,
+        inputWidth,
+        input,
+        fixedFrameReference: { x: origin.x, y: origin.y },
+        frameStart: { top: origin.top, height: origin.height },
+        widthOnlyDelta: true,
+        graphPreviewMutations: 0,
+      });
+    }
+    for (const route of ['Escape', 'pointercancel', 'blur']) {
+      await load(transformed, transformed);
+      const start = await checkpoint(),
+        selected = await selection(),
+        shown = await $('.artboard').innerHTML();
+      await begin(-120);
+      assert.notEqual(await $('.artboard').innerHTML(), shown);
+      if (route === 'Escape') await page.keyboard.press('Escape');
+      else if (route === 'pointercancel')
+        await $('.canvas-stage').evaluate((e) =>
+          e.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 })),
         );
-        assert.notEqual(await $('.artboard').innerHTML(), canvas);
-        await checkReference(origin);
-        await graphUntouched();
-        await page.screenshot({
-          path: path.join(
-            output,
-            `preview-${reference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.png`,
-          ),
-        });
-        await page.mouse.up();
-        await settle();
-        const committed = await checkpoint(),
-          expected = JSON.parse(before.json);
-        const width = JSON.parse(committed.json).layers[0].nodes[0].textWrap.width;
-        const input = await page.evaluate(() => [
-          window.wrapInputTrace[0],
-          window.wrapInputTrace.at(-1),
-        ]);
-        const inputWidth =
-          320 + ((input[1].world[0] - input[0].world[0]) / (transformed ? 1.5 : 1)) * deltaFactor();
-        assert.ok(
-          Math.abs(width - inputWidth) < 1e-9,
-          'exact inverse of received pointer coordinates',
-        );
-        // Native/CDP client coordinates have subpixel quantization. Keep that input
-        // difference separate from the exact source-coordinate conversion above.
-        assert.ok(
-          (Math.abs(width - (320 + widthDelta)) / Math.abs(deltaFactor())) *
-            scale *
-            (transformed ? 1.5 : 1) <
-            1 / 1024,
-        );
-        expected.layers[0].nodes[0].textWrap.width = width;
-        assert.deepEqual(JSON.parse(committed.json), expected, 'width is the sole authored delta');
-        assert.notEqual(committed.svg, before.svg);
-        assert.deepEqual(await selection(), identity);
-        assert.equal(committed.undoDisabled, false);
-        await $('[data-action="undo"]').click();
-        await settle();
-        let restored = await checkpoint();
-        assert.equal(restored.json, before.json);
-        assert.equal(restored.svg, before.svg);
-        assert.equal(restored.undoDisabled, true, 'one drag is one Undo');
-        await $('[data-action="redo"]').click();
-        await settle();
-        restored = await checkpoint();
-        assert.equal(restored.json, committed.json);
-        assert.equal(restored.svg, committed.svg);
-        // Save JSON/reload through the supported document API; no OS dialog/cold-reopen claim.
-        await page.evaluate((s) => window.nect.load(s), committed.json);
-        await settle();
-        assert.equal((await checkpoint()).svg, committed.svg);
-        await fs.writeFile(
-          path.join(
-            output,
-            `committed-${reference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.json`,
-          ),
-          committed.json,
-        );
-        await fs.writeFile(
-          path.join(
-            output,
-            `committed-${reference}-${transformed ? '120' : '100'}-${widthDelta < 0 ? 'shrink' : 'grow'}.svg`,
-          ),
-          committed.svg,
-        );
-        await page.evaluate((s) => window.nect.load(s), before.json);
-        await $(`.node[data-id="${fixture.textId}"] .type-tag`).click();
-        await settle();
-        const numeric = $('.inspector-body [data-text-wrap-width]');
-        await numeric.fill(String(width));
-        await numeric.press('Tab');
-        await settle();
-        const numericState = await checkpoint();
-        assert.equal(
-          numericState.json,
-          committed.json,
-          'native numeric edit matches Canvas document exactly',
-        );
-        assert.equal(
-          numericState.svg,
-          committed.svg,
-          'native numeric edit matches Canvas export exactly',
-        );
-        results.push({
-          case: 'commit/Undo/Redo/export/JSON reload/numeric equivalence',
-          reference,
-          referenceBounds: transformed ? 'visible' : 'advance',
-          zoom: transformed ? 120 : 100,
-          widthDelta,
-          target: transformed ? 'whole artwork static scale 1.5' : 'Text source',
-          canvasScale: scale,
-          canvasCTM: ctm,
-          width,
-          inputWidth,
-          input,
-          fixedFrameReference: { x: origin.x, top: origin.top },
-          widthOnlyDelta: true,
-          graphPreviewMutations: 0,
-        });
-      }
-      for (const route of ['Escape', 'pointercancel', 'blur']) {
-        await load(transformed, transformed);
-        const start = await checkpoint(),
-          selected = await selection(),
-          shown = await $('.artboard').innerHTML();
-        await begin(-120);
-        assert.notEqual(await $('.artboard').innerHTML(), shown);
-        if (route === 'Escape') await page.keyboard.press('Escape');
-        else if (route === 'pointercancel')
-          await $('.canvas-stage').evaluate((e) =>
-            e.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 1 })),
-          );
-        else await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-        await page.mouse.up();
-        await settle();
-        assert.deepEqual(await checkpoint(), start);
-        assert.deepEqual(await selection(), selected);
-        assert.equal(await $('.artboard').innerHTML(), shown);
-        assert.equal(await page.evaluate(() => window.nect.gestureState), null);
-        results.push({
-          case: route + ' restores exact committed/visible state',
-          reference,
-          zoom: transformed ? 120 : 100,
-          target: transformed ? 'whole artwork' : 'Text source',
-        });
-      }
-      if (transformed) {
-        await load(true, true);
-        const before = await checkpoint(),
-          origin = await frameReference();
-        await begin(-330);
-        await checkReference(origin);
-        const frame = await frameReference(),
-          h = await handle().boundingBox();
-        assert.equal(
-          await page.evaluate(() => window.nect.document.layers[0].nodes[0].textWrap.width),
-          320,
-          'clamp stays a detached preview',
-        );
-        // The active handle stays on the original side of the fixed reference.
-        const handleX = await handle().evaluate((e) =>
-          Number(e.getAttribute('transform').match(/^translate\(([^ ]+) /)[1]),
-        );
-        assert.equal(handleX, frame.points[reference === 'end' ? 0 : 1][0]);
-        assert.ok(h.width > 0);
-        await page.mouse.up();
-        await settle();
-        assert.equal(
-          await page.evaluate(() => window.nect.document.layers[0].nodes[0].textWrap.width),
-          0.01,
-        );
-        assert.ok(
-          (await page.evaluate(() => window.nect.evaluate().warnings)).some((w) =>
-            /Wrap overflow/.test(w),
-          ),
-        );
-        await $('[data-action="undo"]').click();
-        await settle();
-        assert.equal((await checkpoint()).json, before.json);
-        assert.equal((await checkpoint()).svg, before.svg);
-        results.push({
-          case: 'crossing Position clamps at minimum without flip; overflow/Undo',
-          reference,
-          zoom: 120,
-        });
-      }
+      else await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      await page.mouse.up();
+      await settle();
+      assert.deepEqual(await checkpoint(), start);
+      assert.deepEqual(await selection(), selected);
+      assert.equal(await $('.artboard').innerHTML(), shown);
+      assert.equal(await page.evaluate(() => window.nect.gestureState), null);
+      results.push({
+        case: route + ' restores exact committed/visible state',
+        reference,
+        crossReference,
+        zoom: transformed ? 120 : 100,
+        target: transformed ? 'whole artwork' : 'Text source',
+      });
+    }
+    if (transformed) {
+      await load(true, true);
+      const before = await checkpoint(),
+        origin = await frameReference();
+      await begin(-330);
+      await checkReference(origin);
+      const frame = await frameReference(),
+        h = await handle().boundingBox();
+      assert.equal(
+        await page.evaluate(() => window.nect.document.layers[0].nodes[0].textWrap.width),
+        320,
+        'clamp stays a detached preview',
+      );
+      // The active handle stays on the original side of the fixed reference.
+      const handleX = await handle().evaluate((e) =>
+        Number(e.getAttribute('transform').match(/^translate\(([^ ]+) /)[1]),
+      );
+      assert.equal(handleX, frame.points[reference === 'end' ? 0 : 1][0]);
+      assert.ok(h.width > 0);
+      await page.mouse.up();
+      await settle();
+      assert.equal(
+        await page.evaluate(() => window.nect.document.layers[0].nodes[0].textWrap.width),
+        0.01,
+      );
+      assert.ok(
+        (await page.evaluate(() => window.nect.evaluate().warnings)).some((w) =>
+          /Wrap overflow/.test(w),
+        ),
+      );
+      await $('[data-action="undo"]').click();
+      await settle();
+      assert.equal((await checkpoint()).json, before.json);
+      assert.equal((await checkpoint()).svg, before.svg);
+      results.push({
+        case: 'crossing Position clamps at minimum without flip; overflow/Undo',
+        reference,
+        crossReference,
+        zoom: 120,
+      });
     }
   }
   // Existing numeric width and overflow route coexist with the new Canvas handle.
@@ -367,7 +401,11 @@ try {
   results.push({ case: 'numeric coexistence; overflow warning and outlined SVG retained' });
   await page.screenshot({ path: path.join(output, 'overflow.png') });
   // Whole artwork with unsupported rotation has no width handle.
-  fixture = textWrapCanvasFixture({ transformed: true, alignment: reference });
+  fixture = textWrapCanvasFixture({
+    transformed: true,
+    alignment: reference,
+    crossAlignment: crossReference,
+  });
   fixture.doc.layers[0].nodes[1].params.rotation.value = 25;
   await page.evaluate((s) => window.nect.load(s), serialize(fixture.doc));
   await $(`[data-select-layer="${fixture.layerId}"]`).click();

@@ -48,7 +48,7 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       !n.textWrap ||
       !Object.hasOwn(n.textWrap, 'width') ||
       !['start', 'center', 'end'].includes(n.alignment || 'start') ||
-      !['origin', 'start'].includes(n.crossAlignment || 'origin')
+      !['origin', 'start', 'center', 'end'].includes(n.crossAlignment || 'origin')
     )
       return reject('Unsupported Text wrap reference');
     const [a, b, c, d] = matrix,
@@ -84,8 +84,14 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       referenceFactor = { start: 0, center: 0.5, end: 1 }[reference],
       left = position[0] - width * referenceFactor,
       right = left + width,
-      top = (n.crossAlignment || 'origin') === 'start' ? position[1] : position[1] - ascent;
-    const height = Math.max(values.size, ascent + descent + Math.max(0, ...layout.lineOffsets));
+      crossReference = n.crossAlignment || 'origin';
+    const height = Math.max(values.size, ascent + descent + Math.max(0, ...layout.lineOffsets)),
+      // Layout already anchors the glyphs. Only position this logical metric frame.
+      top =
+        position[1] -
+        (crossReference === 'origin'
+          ? ascent
+          : height * { start: 0, center: 0.5, end: 1 }[crossReference]);
     if (
       ![...position, width, top, height].every(Number.isFinite) ||
       width <= 0 ||
@@ -104,6 +110,7 @@ export function textWrapResizeContext(layer, result, fonts, sourceId = null) {
       nodeId: n.id,
       width,
       reference,
+      crossReference,
       matrix,
       routeIds: route.map((n) => n.id),
       corners,
