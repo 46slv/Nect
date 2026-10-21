@@ -94,6 +94,7 @@ function occupiedArtworkIds(doc) {
   for (const guide of doc.editor?.guides || []) occupied.add(guide.id);
   for (const l of doc.layers) {
     occupied.add(l.id);
+    for (const group of l.nodeGroups || []) occupied.add(group.id);
     for (const n of l.nodes) {
       occupied.add(n.id);
       for (const pt of n.points) occupied.add(pt.id);
@@ -130,6 +131,12 @@ function copyArtwork(source, occupied) {
     }
   }
   layer.output = ids.get(source.output);
+  if (layer.nodeGroups)
+    layer.nodeGroups = layer.nodeGroups.map((g) => ({
+      id: fresh(g.id, 'node-group'),
+      name: g.name,
+      nodeIds: g.nodeIds.map((id) => ids.get(id)),
+    }));
   layer.name = `${source.name} copy`;
   const nodeIds = new Set(source.nodes.map((n) => n.id));
   function remapSources(value) {
@@ -257,6 +264,9 @@ export function duplicateLayerGeneric(doc, layerId) {
     }
   };
   remap(layer);
+  layer.nodeGroups?.forEach((g, i) => {
+    g.name = source.nodeGroups[i].name;
+  });
   layer.name = `${source.name} copy`;
   const index = doc.layers.indexOf(source) + 1;
   const candidate = candidateDocument(doc);

@@ -1392,6 +1392,12 @@ function resetTransient() {
   osTextDrafts.clear();
   gridOpacityDraft = null;
   closeNodeContextMenu();
+  nodeGroupView.layerId = null;
+  nodeGroupView.groupId = '';
+  nodeGroupView.scope = null;
+  nodeGroupView.open = false;
+  nodeGroupView.composing = false;
+  renderNodeGroups.clear();
   pointPanelViews.clear();
   pointScopeActions.clear();
   pointDeltaDraft = null;
@@ -2091,6 +2097,15 @@ function field(n, key, q) {
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
 const pointPanelViews = new Map();
+const nodeGroupView = {
+  layerId: null,
+  groupId: '',
+  scope: null,
+  serial: 0,
+  open: false,
+  composing: false,
+};
+let renderNodeGroups = new Map();
 const pointScopeActions = new Map();
 let pointScopeSerial = 0;
 const POINT_PANEL_PAGE_SIZE = 24;
@@ -3035,7 +3050,7 @@ function nodeHTML(n, result) {
   const body = n.collapsed
     ? `<div class="node-body compact-body">${compactFields(n)}${referenceControls(n, result, true)}</div><div hidden><button data-duplicate="${n.id}">Duplicate</button>${!['Output', 'Image Output'].includes(n.type) ? `<button data-delete="${n.id}">Delete</button>` : ''}</div>`
     : expandedNodeBody(n, result);
-  return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
+  return `<section class="node ${n.bypassed ? 'bypassed' : ''} ${selection.has(n.id) ? 'selected' : ''} ${n.collapsed ? 'collapsed' : ''}" data-id="${n.id}" style="left:${n.position[0]}px;top:${n.position[1]}px;width:${n.width || 264}px">${renderNodeGroups.has(n.id) ? `<div class="node-group-label" data-node-group-id="${renderNodeGroups.get(n.id).id}" title="${esc(renderNodeGroups.get(n.id).name)}">Group · ${esc(renderNodeGroups.get(n.id).name)}</div>` : ''}${nodeHeader(n)}${body}<div class="node-resize" title="Drag to resize node" aria-hidden="true"></div></section>`;
 }
 function updateArtboardUnitDisplay() {
   for (const input of app.querySelectorAll('[data-dimension]')) {
@@ -3245,6 +3260,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     aids = guideSettings(doc),
     l = current();
   activeLayer = l.id;
+  renderNodeGroups = new Map((l.nodeGroups || []).flatMap((g) => g.nodeIds.map((id) => [id, g])));
   const n = selectedNode();
   if (
     characterEdit &&
@@ -3308,7 +3324,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .map((x) => `<option value="${x}">${nodeTypeLabel(x)}</option>`)
     .join(
       '',
-    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
+    )}</select><button data-action="find-node" title="Search existing nodes in this composition">Find node</button><button data-action="graph-zoom-out" aria-label="Node graph zoom out" title="Zoom out (−)">−</button><output data-zoom="graph" aria-label="Node graph zoom"></output><button data-action="graph-zoom-in" aria-label="Node graph zoom in" title="Zoom in (+)">+</button><button data-action="graph-fit" title="Fit all nodes (Shift+1)">Fit all</button><button data-action="graph-fit-selection" title="Fit selected nodes (Shift+2)">Fit selection</button><button data-action="graph-reset" title="Reset graph to 100% and origin">Reset view</button><button data-action="graph-overview" aria-label="Toggle node graph overview" aria-controls="graph-overview" aria-expanded="${graphOverviewOpen}" title="Show or hide graph overview">Overview</button></div>${nodePresetControls()}${nodeGroupControls()}<div class="graph-body"><div id="graph-overview" class="graph-overview" ${graphOverviewOpen ? '' : 'hidden'}><svg class="graph-overview-map" tabindex="0" role="img" aria-label="Node graph overview. Click or drag to navigate; arrow keys pan; Escape closes." preserveAspectRatio="none"></svg></div><div class="graph-scroll" tabindex="0" aria-label="Node graph viewport" aria-describedby="graph-navigation-hint" title="Space, middle or Ctrl/Cmd+Shift drag: pan · Alt or Ctrl/Cmd+wheel: zoom · Ctrl/Cmd+1: actual size"><div class="graph"><svg class="wires"></svg><svg class="graph-snap-guides" aria-hidden="true"></svg>${penDraft ? '<div inert class="pen-graph-preview">' : ''}${l.nodes.map((x) => nodeHTML(x, result)).join('')}${penDraft ? '</div>' : ''}</div></div></div><div class="visually-hidden" id="graph-navigation-hint">Space drag: pan · Alt or Ctrl/Cmd wheel: zoom · Shift+1: fit all · Shift+2: fit selection · Node drag: align edges/centers; Shift locks horizontal, vertical or 45°; Ctrl/Cmd bypasses snapping</div></section></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong><span class="spacer"></span><button class="mini" data-action="add-blank-layer" aria-label="Add blank composition" title="Add a blank composition with an empty vector Output">+ Blank</button></div><div class="layer-solo-status" role="status">${hasLayerSolo(doc) ? `Solo ${doc.layers.filter((l) => l.solo === true).length} · SVG/PNG <button class="mini" data-action="clear-layer-solo" aria-label="Clear all layer Solo">Clear</button>` : 'All visible layers · SVG/PNG'}<small>Hidden layers stay hidden</small></div>${[
     ...doc.layers,
   ]
     .reverse()
@@ -6039,6 +6055,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.nodeGroupAction) {
+    if (!b.disabled) nodeGroupAction(b);
+    return;
+  }
   if (d.pointScopeAction) {
     if (!b.disabled) {
       b.blur();
@@ -11324,6 +11344,127 @@ function duplicateGraphNodes(nodeId) {
     revealNode(selected);
   }
 }
+function nodeGroupControls() {
+  const layer = current(),
+    groups = layer.nodeGroups || [];
+  if (nodeGroupView.layerId !== layer.id) {
+    nodeGroupView.layerId = layer.id;
+    nodeGroupView.groupId = '';
+  }
+  const group = groups.find((g) => g.id === nodeGroupView.groupId);
+  if (!group) nodeGroupView.groupId = '';
+  const ids = [...selection],
+    blocked = layer.locked || deletionBusy() || variableAction || osTextDrafts.size,
+    assignedElsewhere = ids.some(
+      (id) => renderNodeGroups.has(id) && renderNodeGroups.get(id) !== group,
+    ),
+    hasMembers = group?.nodeIds.some((id) => selection.has(id));
+  const token = String(++nodeGroupView.serial);
+  nodeGroupView.scope = {
+    token,
+    layerId: layer.id,
+    groupId: group?.id,
+    nodeIds: ids,
+    envelope: session.state,
+  };
+  const button = (action, label, disabled) =>
+    `<button class="mini" data-node-group-action="${action}" data-node-group-token="${token}" ${blocked || disabled ? 'disabled' : ''}>${label}</button>`;
+  return `<details class="node-group-controls" data-node-groups ${nodeGroupView.open ? 'open' : ''}><summary>Groups (${groups.length})</summary><div class="node-group-fields"><select data-node-group-select aria-label="Node group"><option value="">Choose group</option>${groups.map((g) => `<option value="${g.id}" ${g === group ? 'selected' : ''}>${esc(g.name)} (${g.nodeIds.length})</option>`).join('')}</select><input data-node-group-name aria-label="Group name" placeholder="Group name" maxlength="100" value="${esc(group?.name || '')}" ${blocked ? 'disabled' : ''}><output>${ids.length} selected</output></div><div class="node-group-actions">${button('create', 'Create group', !ids.length || ids.some((id) => renderNodeGroups.has(id)))}${button('rename', 'Rename', !group)}${button('add', 'Add selected', !group || !ids.length || assignedElsewhere)}${button('move', 'Move selected', !group || !ids.length)}${button('remove', 'Remove selected', !hasMembers)}${button('ungroup', 'Ungroup', !group)}${button('cancel', 'Cancel name', false)}</div></details>`;
+}
+function nodeGroupAction(button) {
+  const scope = nodeGroupView.scope,
+    action = button.dataset.nodeGroupAction;
+  try {
+    const now = session.state;
+    if (
+      !scope ||
+      button.dataset.nodeGroupToken !== scope.token ||
+      scope.layerId !== current().id ||
+      scope.envelope.sessionId !== now.sessionId ||
+      scope.envelope.expectedRevision !== now.expectedRevision ||
+      scope.nodeIds.length !== selection.size ||
+      scope.nodeIds.some((id) => !selection.has(id))
+    )
+      throw Error('Group action cancelled: selection or document changed');
+    if (
+      nodeGroupView.composing ||
+      composing ||
+      deletionBusy() ||
+      variableAction ||
+      osTextDrafts.size
+    )
+      throw Error('Finish the current edit before changing groups');
+    const input = document.querySelector('[data-node-group-name]');
+    if (action === 'cancel') {
+      input.value = current().nodeGroups?.find((g) => g.id === scope.groupId)?.name || '';
+      input.blur();
+      return;
+    }
+    const type = {
+      create: 'create-node-group',
+      rename: 'rename-node-group',
+      add: 'add-to-node-group',
+      move: 'move-to-node-group',
+      remove: 'remove-from-node-group',
+      ungroup: 'ungroup-nodes',
+    }[action];
+    if (!type) throw Error('Invalid group action');
+    const result = commandChange(
+      type,
+      {
+        layerId: scope.layerId,
+        groupId: scope.groupId,
+        nodeIds: scope.nodeIds,
+        name: input.value,
+      },
+      'Groups updated',
+      true,
+      scope.envelope,
+    );
+    if (result) nodeGroupView.groupId = action === 'ungroup' ? '' : result.groupId;
+    render();
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+document.addEventListener(
+  'toggle',
+  (event) => {
+    if (event.target.matches?.('[data-node-groups]') && event.target.isConnected)
+      nodeGroupView.open = event.target.open;
+  },
+  true,
+);
+document.addEventListener('change', (event) => {
+  if (!event.target.matches?.('[data-node-group-select]')) return;
+  nodeGroupView.groupId = event.target.value;
+  nodeGroupView.open = true;
+  render();
+});
+for (const type of ['compositionstart', 'compositionend'])
+  document.addEventListener(type, (event) => {
+    if (event.target.matches?.('[data-node-group-name]'))
+      nodeGroupView.composing = type === 'compositionstart';
+  });
+document.addEventListener(
+  'keydown',
+  (event) => {
+    if (
+      !event.target.matches?.('[data-node-group-name]') ||
+      event.isComposing ||
+      nodeGroupView.composing
+    )
+      return;
+    if (!['Enter', 'Escape'].includes(event.key)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.repeat) return;
+    const action = event.key === 'Escape' ? 'cancel' : nodeGroupView.groupId ? 'rename' : 'create';
+    const button = document.querySelector(`[data-node-group-action="${action}"]`);
+    if (button && !button.disabled) nodeGroupAction(button);
+  },
+  true,
+);
 function nodePresetControls() {
   const presets = history.doc.nodePresets || [];
   const chosen = presets.find((p) => p.id === selectedNodePreset);

@@ -2207,6 +2207,37 @@ input[data-scrub-step].scrubbing {
   width: 140px;
   min-width: 80px;
 }
+.node-group-controls {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.node-group-controls > summary {
+  cursor: pointer;
+}
+.node-group-fields,
+.node-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.node-group-fields input,
+.node-group-fields select {
+  width: 160px;
+  max-width: 100%;
+}
+.node-group-label {
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 #export-presets {
   position: relative;

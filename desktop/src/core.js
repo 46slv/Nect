@@ -1,4 +1,11 @@
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
+import {
+  NODE_GROUP_SCHEMA_VERSION,
+  nodeGroupCommands,
+  validateNodeGroups,
+  applyNodeGroupCommand,
+  removeDeletedGroupMembers,
+} from './node-groups.js';
 import { appendSVGPart } from './svg-part.js';
 import { svgRootAttributes } from './artboard-units.js';
 import { formatSvgExtent, formatSvgNumber, validateSvgPrecision } from './svg-number-format.js';
@@ -4455,7 +4462,8 @@ export function validate(doc) {
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION &&
-      doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION)
+      doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION &&
+      doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4488,6 +4496,7 @@ export function validate(doc) {
     )
       throw Error('Invalid layer state');
     if (!Array.isArray(l.nodes) || l.nodes.length > 2000) throw Error('Invalid composition');
+    validateNodeGroups(l, sourceSchemaVersion, id);
     for (const n of l.nodes) {
       id(n.id);
       if (['Keyer', 'Mask'].includes(n.type) && sourceSchemaVersion < 35)
@@ -6529,6 +6538,17 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false) {
+    if (nodeGroupCommands.has(type)) {
+      const candidate = cloneDocument(before),
+        layer = candidate.layers.find((l) => l.id === payload.layerId);
+      if (!layer) throw Error('Missing composition');
+      if (layer.locked) throw Error('Composition is locked');
+      const result = applyNodeGroupCommand(candidate, layer, type, payload, () =>
+        uid('node-group'),
+      );
+      validate(candidate);
+      return { candidate, result };
+    }
     if (type === 'create-point-handles') {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId);
@@ -7477,6 +7497,7 @@ export class CommandSession {
       };
       for (const id of protectedIds) selected.delete(id);
       target.nodes = target.nodes.filter((node) => !selected.has(node.id));
+      removeDeletedGroupMembers(target, selected);
       for (const node of target.nodes)
         for (const [, q] of parameters(node))
           if (selected.has(q.source)) {
