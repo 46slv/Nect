@@ -41,7 +41,8 @@ test('wire target lookup retains first-field identity with bounded DOM scans', a
     );
   source +=
     '\nwindow.wireTestDraw=drawWires;window.wireTestPreview=(source)=>{wiring={source,pointer:[300,150]};drawWires();wiring=null;};window.wireTestPast=()=>history.past.length;';
-  source += '\nwhile(!bundledFont)await new Promise(r=>setTimeout(r,10));';
+  source +=
+    '\nconst fontDeadline=Date.now()+5000;while(!bundledFont){if(Date.now()>=fontDeadline)throw Error("Bundled test font did not load");await new Promise(r=>setTimeout(r,10));}';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   t.after(() => win.happyDOM.abort());
   const $ = (s) => document.querySelector(s),

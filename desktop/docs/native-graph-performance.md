@@ -80,3 +80,54 @@ scan bound, then passes after the change. It preserves exact wire paths,
 first-duplicate semantics, next-draw refresh, disconnect/Undo, unwired/preview
 behavior and authored state. Six focused test files pass 22 entries, including
 existing autopan, snapping, overview, groups and Canvas marquee contracts.
+
+## Native result
+
+Runtime source `5a91b2503db22e18be8026dd7989bdd27d9eb17a`. Release EXE
+SHA256 `4ad1296fd3351c3c2d0e680ad6182db32029875089c1205affca6355fe824310`
+(10,001,408 bytes). Same WS, fixtures, viewport/DPR and finite operation counts.
+One before/after run; these are observations, not broad statistical guarantees.
+
+| Nodes/edges | Operation  | WebView CPU seconds before → after | rAF p95 ms before → after | CDP await p95 ms before → after | Wire DOM writes before/after |
+| ----------- | ---------- | ---------------------------------- | ------------------------- | ------------------------------- | ---------------------------- |
+| 16/14       | quiet idle | 0.0155 → 0.0170                    | —                         | —                               | 0/0                          |
+| 16/14       | pan        | 0.5389 → 0.4944                    | 18.8 → 18.7               | 20.6 → 19.8                     | 0/0                          |
+| 16/14       | zoom       | 0.9951 → 0.8650                    | 18.8 → 18.8               | 73.2 → 64.3                     | 12/12                        |
+| 16/14       | node drag  | 0.8141 → 0.7437                    | 18.8 → 18.8               | 22.7 → 24.5                     | 39/39                        |
+| 160/158     | quiet idle | 0.0195 → 0.0177                    | —                         | —                               | 0/0                          |
+| 160/158     | pan        | 0.7269 → 0.7826                    | 19.1 → 19.0               | 20.4 → 19.7                     | 0/0                          |
+| 160/158     | zoom       | 2.7125 → 2.3533                    | 126.6 → 108.5             | 198.7 → 175.2                   | 12/12                        |
+| 160/158     | node drag  | 2.6187 → 2.0744                    | 37.1 → 18.8               | 63.0 → 42.6                     | 39/39                        |
+
+For medium drag, operation wall time is 3.389 → 2.532 seconds, CPU work falls
+20.8%, and script duration 1.615 → 0.856 seconds. Average one-core-equivalent
+CPU utilization rises 77.3 → 81.9% because the operation completes sooner; do
+not describe that as a utilization reduction. Medium zoom CPU work falls 13.2%,
+one-core utilization 101.5 → 95.1%, script duration 0.317 → 0.106 seconds.
+Quiet idle stays around 1% of one core with no wire/Canvas DOM writes. Pan has
+zero wire draws and no consistent CPU benefit; this change does not target it.
+Separate Tauri host CPU deltas over the timing/trace batch are 0.03125 → 0.015625
+seconds, excluding startup and additional functional checks.
+
+`drawWires` including descendants across all call sites accounts for 590/2551
+profile samples before and 79/2024 after; self samples 310 → 28. Total sample
+counts include idle. Trace drag EventDispatch inclusive duration 1793 → 987ms;
+layout 109.6 → 103.6ms, style 85.9 → 82.8ms, paint 127.2 → 112.7ms. SVG wire
+replacement counts remain unchanged: the fix removes lookup work, not draws.
+
+Native functional checks pass: node preview stays unauthored, release changes
+only one node position, one Undo/Redo restores/reapplies it, export is identical,
+and disconnect/Undo rebuilds exactly the same 14 wire paths. All eight timing
+phases preserve authored JSON, both native runs have zero page errors, and both
+owned processes exit through `finish_close` without forced termination.
+Frontend/native release builds and native config check pass; only the existing
+bundle-size warning remains. PR40–47 sealed EXEs and PR48 receipts are preserved.
+
+Raw summaries, process counters/ancestry, fixtures, profiles, traces, screenshots
+and focused/build logs live in the sealed `graph-performance-artifact-5a91b25`
+output beside the task checkout. This report deliberately does not claim whole
+host CPU, physical mouse/keyboard, user production document, image/dither-heavy
+graphs, OS dialogs/cold reopen, other DPI/occlusion conditions or long stress.
+The residual medium zoom 108.5ms p95/12 long tasks and node-drag startup long
+task remain. The next useful performance scope is trace-backed graph bounds/
+style/layout or gesture-validation work under a separately bounded change.
