@@ -4,3 +4,5 @@ test-results/
 src-tauri/target/
 src-tauri/gen/
 source-107a154.tar
+
+dist-recovery-acceptance-test/
