@@ -26,7 +26,8 @@ Product commit: `2e3de3a1fec6bffe0d41ca37a670f15a535d2579`.
   The first fully D source/cache/target build recompiled dependencies with2 jobs
   and completed in10m45s. EXE10,025,472 bytes; SHA-256
   `04678c6585fad8994a463529540b71051722e81693d9357731a2e82597cea7ac`.
-  It was compiled, not launched. No installer was built.
+  At product freeze it was compiled, not launched. No installer was built.
+  The bounded native follow-up below now verifies this same EXE.
 
 C initially had0 bytes free. The old checkout was not moved or edited; this task
 uses a new remote-backed checkout at
@@ -45,6 +46,14 @@ See [the contract and baseline references](mask-luminance.md) and
 This is the G8 R09 initial8-bit sRGB profile for Image/Keyer mask material. Path
 geometry stays on its existing route. DEC-53 Proposed/REQ-241 Candidate do not
 extend scope. Linear/ICC/AE equivalence is not claimed. Luminance-specific native
-WebView interaction, physical/OS input, normal OS Open/Save/PNG and cold reopen
-remain unverified. JSON/project roundtrip is not OS save/reopen acceptance.
+WebView acceptance is now complete in the bounded follow-up below. Physical/OS
+input, normal OS Open/Save/PNG and cold reopen remain unverified. JSON/project
+roundtrip is not OS save/reopen acceptance.
 No normal production document/Recovery, main merge, release or Library upload.
+
+## Native follow-up, 2026-10-22
+
+The same sealed EXE passed six Luminance-specific native WebView states via CDP
+synthetic controls. No product change or rebuild was needed. This did not rerun
+the51 focused tests,9 headless documents or prior native acceptance. See
+[the native receipt and D-checkout handoff](mask-luminance-native-verification.md).
