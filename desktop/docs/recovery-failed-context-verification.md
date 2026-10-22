@@ -34,8 +34,8 @@ production-CSP UI fixture passed again. The native build-config check passed.
 
 Frontend build and native release build use D-local source, dependencies,
 TEMP/TMP, Cargo home/registry cache and target. Existing artifacts are preserved.
-Native build result, EXE hash and final remote identity are appended below after
-completion. No installer, full audit or unrelated test suite is requested.
+Native build receipt and candidate identity are recorded below. Final remote
+identity is returned with the draft PR and sealed candidate metadata. No installer, full audit or unrelated test suite is requested.
 
 Working evidence: sibling recovery-failed-retry-20261022/evidence, diagnostic,
 browser-baseline and browser-final. All data is synthetic. Failure injection is
@@ -47,3 +47,20 @@ Product limits remain: outstanding failed contents are only held in the running
 window until a successful disk write. Exit/crash before success can lose those
 changes; no persistence-format, retention, restore or close-guard semantics were
 changed. No main merge, release or Library upload.
+
+## Completed D build
+
+Product commit: 68021a7f7cd42401c0455896a4d29fbbb23534c5.
+Offline locked release/custom-protocol build passed with2 jobs in142.5 seconds.
+EXE10,025,984 bytes, SHA-256
+`38e7abe872ea5f2f9d942fe8c7156e8a560e0d5dc9c922ffafadf4138bad3272`.
+The EXE was compiled, not launched; no installer was generated. Native Rust
+storage was unchanged. No real native I/O failure or OS input claim.
+
+The dedicated sealed output is
+`D:\Nect-codex-output-20261022-task13-f336c94f2b714cd5bc73d6ca646c8f2e\recovery-failed-retry-artifact-68021a7`.
+It contains the EXE, matching frontend bundle, final browser screenshots/receipts,
+baseline failure receipt, focused/build logs, source delta and hash manifest.
+Profiles, TEMP, caches and normal Recovery data are excluded. Prior candidates
+are preserved. No new native process or dialog remains from this task; the
+headless browser/server runs exited normally via their existing finally paths.
