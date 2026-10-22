@@ -83,11 +83,13 @@ try {
       });
   for (const c of [
     { remapped: false, zoom: 100, pan: [18, -12], action: 'center-x', axis: 0 },
-    { remapped: true, zoom: 120, pan: [-20, 16], action: 'center-y', axis: 1 },
+    { remapped: true, zoom: 120, pan: [-20, -70], action: 'center-y', axis: 1 },
   ]) {
     const f = alignmentFixture(c.remapped);
     f.doc.name = `NECT_ANCHOR_ALIGNMENT_${c.zoom}`;
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
+    if (await $('section[aria-label="Layout Grid"]').count())
+      await $('[data-action="layout-panel"]').click();
     await $('[data-tool="direct"]').click();
     await $('[data-action="actual-size"]').click();
     if (c.zoom === 120) await $('[data-action="zoom-in"]').click();
@@ -99,7 +101,13 @@ try {
       if (i) await page.keyboard.down('Shift');
       const point = (await positions())[id];
       assert.ok(point, id);
-      await page.mouse.click(...(await xy(point)));
+      const client = await xy(point);
+      const under = await page.evaluate(
+        ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-point]')?.dataset.point,
+        client,
+      );
+      assert.equal(under, id, `Anchor ${id} must be visible and unobscured`);
+      await page.mouse.click(...client);
       if (i) await page.keyboard.up('Shift');
       await settle();
     }
@@ -226,6 +234,7 @@ try {
   console.log(JSON.stringify({ results, pageErrors: errors, ownFixturePreserved: true }, null, 2));
 } catch (error) {
   if (page) {
+    await page.keyboard.up('Shift').catch(() => {});
     await page.screenshot({ path: path.join(output, 'failure-renderer.png') }).catch(() => {});
     const own = await page.evaluate(() => window.nect?.document).catch(() => null);
     if (own?.name?.startsWith('NECT_ANCHOR_ALIGNMENT_'))

@@ -1,6 +1,7 @@
 import { node, parameter, connect } from '../../src/core.js';
 import { directMarqueeFixture } from './direct-anchor-marquee.js';
 import { compoundFixture } from './contour-navigation.js';
+import { guideSettings } from '../../src/guides.js';
 
 export function alignmentFixture(remapped = false) {
   if (!remapped) {
@@ -21,7 +22,7 @@ export function alignmentFixture(remapped = false) {
   f.doc.width = 600;
   f.doc.height = 500;
   f.doc.schemaVersion = 49;
-  f.doc.editor.snap = false;
+  f.doc.editor = { ...guideSettings(f.doc), snap: false };
   Object.assign(transform.params, {
     uniformScale: { ...parameter(transform, 'uniformScale'), value: false },
     scaleWidth: { ...parameter(transform, 'scaleWidth'), value: 1.5 },
