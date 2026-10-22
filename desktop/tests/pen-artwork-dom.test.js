@@ -64,7 +64,7 @@ test('Pen draft creation is independent, atomic and interruptible', async (rawT)
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { documents.saved = serialize(history.doc); };';
+    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => documents.replace({ saved: true });';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
@@ -122,8 +122,11 @@ test('Pen draft creation is independent, atomic and interruptible', async (rawT)
   };
   const start = (p = [100, 100]) => {
     click('[data-tool="pen"]');
+    // Activation may intentionally select a direct source before drafting starts.
+    const prior = ui();
     fire($('.artboard'), 'pointerdown', p);
     fire(document, 'pointerup', p);
+    return prior;
   };
   const add = (p = [250, 200], handles) => {
     fire($('.artboard'), 'pointerdown', p);
@@ -138,8 +141,7 @@ test('Pen draft creation is independent, atomic and interruptible', async (rawT)
       for (const finish of ['Enter', 'Escape', 'button', 'tool']) {
         load(seed());
         const before = saved(),
-          prior = ui();
-        start();
+          prior = start();
         assert.equal(saved(), before);
         assert.equal(ui().past, 0);
         assert.ok($('[data-pen-draft]'));
@@ -167,9 +169,8 @@ test('Pen draft creation is independent, atomic and interruptible', async (rawT)
         d.layers[0].nodes.find((n) => n.id === d.layers[0].output).params.path.locked = true;
         load(d);
         const before = saved(),
-          prior = ui(),
-          oldSVG = win.nect.export();
-        start();
+          oldSVG = win.nect.export(),
+          prior = start();
         add([250, 180], [280, 210]);
         add([180, 260]);
         const preview = structuredClone(curve());
@@ -355,9 +356,12 @@ test('Pen draft creation is independent, atomic and interruptible', async (rawT)
   );
   await t.test(
     'draft has no move marker and participates in the existing unsaved-close warning',
-    () => {
+    async () => {
       load(seed());
-      win.markPenSaved();
+      // Mark the whole composition project clean through its lifecycle API.
+      await win.markPenSaved();
+      assert.equal(win.nect.fileState.dirty, false);
+      assert.equal(win.nect.fileState.savedRevision, win.nect.fileState.revision);
       const clean = new win.Event('beforeunload', { cancelable: true });
       win.dispatchEvent(clean);
       assert.equal(clean.defaultPrevented, false);

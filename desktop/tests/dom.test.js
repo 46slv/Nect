@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
-import '../src/core.js';
+import { document as makeDoc, layer as makeLayer } from '../src/core.js';
 test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo and reload', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
@@ -74,6 +74,10 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
+  assert.equal(document.querySelectorAll('.node').length, 1);
+  assert.equal(document.querySelector('.shape'), null);
+  // Graph editing needs explicit artwork, not an implicit startup demo.
+  win.nect.load(JSON.stringify(makeDoc()));
   let doc = win.nect.document,
     circle = doc.layers[0].nodes[0];
   assert.equal(document.querySelectorAll('.node').length, 6);
@@ -116,9 +120,17 @@ test('synthetic editor DOM: sockets, pen, handles, multi-selection, locks, undo 
   assert.equal(win.nect.export(), old);
   assert.throws(() => win.nect.load('{"schemaVersion":99}'));
   assert.equal(win.nect.export(), old);
-  document.querySelector('[data-action="add-layer"]').click();
+  document.querySelector('[data-action="add-blank-layer"]').click();
   assert.equal(win.nect.document.layers.length, 2);
   assert.equal(document.querySelectorAll('.layer').length, 2);
+  assert.deepEqual(
+    win.nect.document.layers[1].nodes.map((n) => n.type),
+    ['Output'],
+  );
+  // The later multi-node drag needs a populated second graph. Keep + Blank blank.
+  const multiSelectionFixture = win.nect.document;
+  multiSelectionFixture.layers[1] = makeLayer('Second graph fixture');
+  win.nect.load(JSON.stringify(multiSelectionFixture));
   const pointer = (target, type, x = 0, y = 0, extra = {}) =>
     target.dispatchEvent(
       new win.PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, ...extra }),

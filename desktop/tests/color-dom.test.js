@@ -74,6 +74,12 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
+  assert.equal(document.querySelectorAll('.node').length, 1);
+  assert.equal(document.querySelector('.shape'), null);
+  // Color connections need a painted path; startup deliberately supplies none.
+  win.nect.load(
+    await fs.readFile(new URL('../examples/boolean-remap.json', import.meta.url), 'utf8'),
+  );
   const tick = () => new Promise((r) => setTimeout(r, 10));
   const change = async (el, value) => {
     el.value = value;
@@ -96,8 +102,27 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   field(outputId, 'color').dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true }));
   await tick();
   assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#ff8000', alpha: 0.5 });
-  assert.equal(field(outputId, 'color').querySelector('[data-color="hex"]').value, '#ff8000');
-  assert.equal(field(outputId, 'color').querySelector('[data-color="alpha"]').disabled, true);
+  const connectedResult = () => field(outputId, 'color').querySelector('.parameter-result');
+  assert.match(connectedResult().textContent, /Connected result #ff8000\s+alpha 0\.5/);
+  assert.equal(
+    field(outputId, 'color').querySelector('[data-color-base][data-color="hex"]').value,
+    '#2040ff',
+  );
+  assert.equal(
+    field(outputId, 'color').querySelector('[data-color-base][data-color="alpha"]').disabled,
+    false,
+  );
+  // A connected input still edits its authored Base without changing the result.
+  await change(field(outputId, 'color').querySelector('[data-color="alpha"]'), '0.75');
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === outputId).params.color.value.alpha,
+    0.75,
+  );
+  assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#ff8000', alpha: 0.5 });
+  assert.match(connectedResult().textContent, /Connected result #ff8000\s+alpha 0\.5/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(field(outputId, 'color').querySelector('[data-color="alpha"]').value, '0.25');
+  assert.deepEqual(win.nect.evaluate().path.fill, { hex: '#ff8000', alpha: 0.5 });
   field(outputId, 'color')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
