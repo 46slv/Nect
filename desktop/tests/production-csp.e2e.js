@@ -63,13 +63,20 @@ try {
   });
   const response = await page.goto(`http://127.0.0.1:${server.address().port}`);
   assert.equal(response.headers()['content-security-policy'], csp);
-  await page.waitForFunction(() => window.nect && document.querySelector('.shape'), null, {
+  await page.waitForFunction(() => window.nect, null, {
     timeout: 10000,
   });
   assert.ok((await page.locator('#app > *').count()) > 0);
-  assert.ok((await page.locator('.graph .node').count()) > 0);
+  assert.equal(await page.locator('.graph .node').count(), 1);
+  assert.equal(await page.locator('.artboard .shape').count(), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(await page.evaluate(() => window.cspViolations), []);
+
+  // Startup is intentionally blank. Load explicit artwork before testing paint.
+  const paintSample = await readFile('examples/boolean-remap.json', 'utf8');
+  await page.evaluate((sample) => window.nect.load(sample), paintSample);
+  await page.waitForFunction(() => document.querySelector('.artboard .shape'));
+  assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
 
   // Exercise the new typed Color path in the actual production bundle too.
   await page.locator('#add-node').selectOption('Color');
@@ -133,7 +140,7 @@ try {
     JSON.stringify(
       {
         csp,
-        startup: 'rendered',
+        startup: 'blank editor rendered; explicit artwork fixture loaded',
         closedOffset: 'miter, bevel, round and erosion sample rendered/exported',
         color: 'typed source with alpha rendered and exported',
         radialGradient: 'two concentric radial ramps plus linear paint rendered/exported',
