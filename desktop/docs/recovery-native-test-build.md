@@ -28,3 +28,21 @@ profiles/stores are inspected; no old Recovery, normal document or OS dialog.
 Normal/test EXEs are separately named and hashed. The test build adds a guard,
 marker, wrapper and automatic fixture, so it is not claimed byte/performance
 identical to normal. The production writer/Session/renderer are unchanged.
+
+Build the test frontend with `npx vite build --mode recovery-acceptance-test`,
+then compile Cargo with `--release --locked --offline --features
+custom-protocol,recovery-acceptance-test` and build-time `TAURI_CONFIG` selecting
+`{"build":{"frontendDist":"../dist-recovery-acceptance-test"}}`. Normal builds
+use the normal Vite output and `custom-protocol` only. Keep their EXEs separately
+named. The test executable requires a new direct-child `nect-svg-acceptance-*`
+profile under the existing `NECT_SVG_ACCEPTANCE_ROOT` guard; never point it at an
+ordinary profile. That existing root opt-in does not enable injection in a normal
+build. There is no general runtime failure selector.
+
+For a fresh owned launch recorded by the acceptance launcher, run
+`scripts/verify-recovery-native-test.mjs <absolute-stage> normal|test`; do not
+repeat against an existing stage. After identity-specific PID/browser/port exit
+proof, `scripts/verify-recovery-native-store.mjs <absolute-test-stage>` checks only
+that run's exact current A, previous A and current B records. It writes a new
+readback receipt and refuses to overwrite one. Full command receipts and the
+successful result are in [native verification](recovery-native-test-build-verification.md).

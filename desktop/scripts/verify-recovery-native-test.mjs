@@ -75,6 +75,31 @@ try {
     receipt.NormalInjectionAbsent = flags;
   } else {
     await page.waitForFunction(
+      () => !!Object.getOwnPropertyDescriptor(window, '__NECT_RECOVERY_ACCEPTANCE_RESULT__'),
+      null,
+      { timeout: 15000 },
+    );
+    receipt.TestSurface = await page.evaluate(() => {
+      const marker = Object.getOwnPropertyDescriptor(window, '__NECT_RECOVERY_TEST_INSTANCE__'),
+        result = Object.getOwnPropertyDescriptor(window, '__NECT_RECOVERY_ACCEPTANCE_RESULT__');
+      return {
+        Marker: marker?.value,
+        MarkerWritable: marker?.writable,
+        MarkerConfigurable: marker?.configurable,
+        ResultGetter: typeof result?.get,
+        ResultSetter: typeof result?.set,
+        ResultConfigurable: result?.configurable,
+        CallableRunner: typeof window.runRecoveryAcceptance,
+      };
+    });
+    assert.equal(receipt.TestSurface.Marker, true);
+    assert.equal(receipt.TestSurface.MarkerWritable, false);
+    assert.equal(receipt.TestSurface.MarkerConfigurable, false);
+    assert.equal(receipt.TestSurface.ResultGetter, 'function');
+    assert.equal(receipt.TestSurface.ResultSetter, 'undefined');
+    assert.equal(receipt.TestSurface.ResultConfigurable, false);
+    assert.equal(receipt.TestSurface.CallableRunner, 'undefined');
+    await page.waitForFunction(
       () =>
         ['failure-visible', 'passed', 'failed'].includes(
           window.__NECT_RECOVERY_ACCEPTANCE_RESULT__?.Phase,

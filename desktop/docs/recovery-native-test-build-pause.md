@@ -15,3 +15,11 @@ Already dispatched build pipeline (exec session46584) may still be running norma
 Resume only after parent instruction: reconcile existing builds, verify normal/test hashes and normal exclusion; use evidence/launch-native.ps1 (normal port9495, test9497) once each with fresh runtime directories. Immediately run desktop/scripts/verify-recovery-native-test.mjs <stage> normal|test. The script backs up fixtures by CLI and calls finish_close once only after readable backup and test writer-restored result. Then verify own PID/browser/port absence and read only the new test runtime's exact A/B records, compare latest A/B and previous A0. Keep simulated failure distinct from disk failure/OS input.
 
 Outstanding: native cases and ordinary-runtime exclusion proof, final receipt/seal, development push/draft PR targeting codex/recovery-failed-document-retry. Existing candidates/PR74 preserved. No main/release/Library upload.
+
+## Resumed and completed
+
+The parent resumed this scope after usage recovered. Native acceptance and safe
+exit are complete; this file is a historical checkpoint, not a pending launch.
+See [the final verification](recovery-native-test-build-verification.md) for the
+actual normal/test hashes, preserved first harness failure, test-only correction,
+native A/B results, exact store readback, shutdown and remaining OS limits.
