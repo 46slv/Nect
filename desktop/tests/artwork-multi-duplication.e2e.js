@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -15,7 +16,7 @@ page.on('pageerror', (error) => errors.push(error.message));
 page.on('dialog', (dialog) => dialog.accept());
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
   load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
-  click = (action) => page.locator(`[data-action="${action}"]`).click(),
+  click = (action) => activateCommand(page, action),
   duplicate = () => page.locator('[data-duplicate-artwork]'),
   selection = () =>
     page.locator('.layer.selected').evaluateAll((els) => els.map((el) => el.dataset.layer).sort()),
@@ -36,7 +37,7 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Open JSON', exact: true }).count(), 1);
   for (const [width, height] of [
@@ -130,7 +131,7 @@ try {
     assert.equal((svg.toString().match(/<image /g) || []).length, 2);
     // Open the downloaded file through the actual file input after a cold reload.
     await page.reload();
-    await page.waitForSelector('.shape');
+    await page.waitForFunction(() => window.nect);
     await page
       .locator('#open-file')
       .setInputFiles({ name: `batch-${width}.json`, mimeType: 'application/json', buffer: saved });

@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const ids = await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
     const d = document(),
@@ -94,7 +95,7 @@ try {
   await page.locator('[data-character-mode]').click();
   await hit().click();
   for (const action of ['zoom-in', 'zoom-in', 'zoom-out']) {
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     const a = await floating.boundingBox(),
       b = await page.locator('.canvas-stage').boundingBox();
     assert.ok(
@@ -159,7 +160,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const pending = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await pending).saveAs(`test-results/workflow-character-position.${ext}`);
   }
   const file = await fs.readFile('test-results/workflow-character-position.json', 'utf8');

@@ -80,7 +80,7 @@ async function redo() {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.locator('.artboard .shape').waitFor();
+  await page.waitForFunction(() => window.nect);
   await setup();
   const before = await snapshot(),
     beforeDrawing = await drawing();

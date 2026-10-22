@@ -1,3 +1,4 @@
+import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -30,6 +31,7 @@ const edit = async (label, value) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.waitForTimeout(300);
   const originalSVG = await page.evaluate(() => window.nect.export());

@@ -1,3 +1,5 @@
+import { activateCommand } from './command-menu-actions.js';
+import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -28,6 +30,7 @@ async function chooseFont(file) {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
   await page.locator('.artboard').click();
@@ -69,7 +72,7 @@ try {
   await commit('[aria-label="Text lineSpacing"]', 1.6);
   assert.notEqual(await page.evaluate(() => window.nect.export()), vertical);
   const saveEvent = page.waitForEvent('download');
-  await page.locator('[data-action="save"]').click();
+  await activateCommand(page, 'save');
   await fs.mkdir('test-results', { recursive: true });
   const download = await saveEvent;
   await download.saveAs('test-results/japanese-vertical-project.json');
@@ -77,10 +80,11 @@ try {
   const svg = await page.evaluate(() => window.nect.export());
   assert.equal(exportSVG(deserialize(json)), svg);
   await page.reload();
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   // Reload via the real file chooser, with an empty in-memory font cache.
   const opening = page.waitForEvent('filechooser');
-  await page.locator('[data-action="open"]').click();
+  await activateCommand(page, 'open');
   await page.locator('dialog button[value="discard"]').click();
   await (await opening).setFiles('test-results/japanese-vertical-project.json');
   await page.waitForTimeout(150);

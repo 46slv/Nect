@@ -1,3 +1,5 @@
+import { activateCommand } from './command-menu-actions.js';
+import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -51,8 +53,9 @@ const load = async () => {
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
-  await page.locator('[data-action="open"]').click();
+  await activateCommand(page, 'open');
   await page.locator('dialog button[value="discard"]').click();
   await page.locator('#open-file').setInputFiles(sample);
   await page.waitForFunction(() => window.nect.document.name === 'Artwork center distribution');
@@ -183,7 +186,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const download = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await download).saveAs(`test-results/workflow-artwork-distribution.${ext}`);
   }
   const exported = await page.evaluate(() => window.nect.export());

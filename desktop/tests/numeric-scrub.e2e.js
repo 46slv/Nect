@@ -11,7 +11,7 @@ const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const load = async (type = 'Rectangle') =>
     page.evaluate(async (type) => {
       const { document: makeDoc, node } = await import('/src/core.js');

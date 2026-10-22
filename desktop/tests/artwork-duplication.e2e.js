@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -16,7 +17,7 @@ page.on('dialog', (d) => d.accept());
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
   load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
-  click = (action) => page.locator(`[data-action="${action}"]`).click(),
+  click = (action) => activateCommand(page, action),
   duplicate = () => page.locator('[data-duplicate-artwork]'),
   stage = () => page.locator('.canvas-stage'),
   pixels = (data, mime = 'image/svg+xml') =>
@@ -76,7 +77,7 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   for (const type of [
     'Circle',
     'Ellipse',
@@ -146,7 +147,7 @@ try {
       assert.deepEqual(await pixels(copySVG), originalPixels, label + ' copy-only pixels');
       // Cold reopening is independent of both session history and loaded graph selection.
       await page.reload();
-      await page.waitForSelector('.shape');
+      await page.waitForFunction(() => window.nect);
       await load(JSON.parse(saved));
       await page.waitForFunction(() => !document.querySelector('.warning'));
       assert.equal(await snapshot(), after);

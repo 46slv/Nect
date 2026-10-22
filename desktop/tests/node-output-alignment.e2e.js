@@ -24,7 +24,7 @@ async function select(names) {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.locator('.shape').waitFor();
+  await page.waitForFunction(() => window.nect);
   ids = await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
     const doc = document(),

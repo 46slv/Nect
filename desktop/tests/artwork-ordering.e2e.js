@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -16,7 +17,7 @@ page.on('pageerror', (error) => errors.push(error.message));
 page.on('dialog', (dialog) => dialog.accept());
 const load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
   snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
-  click = (action) => page.locator(`[data-action="${action}"]`).click(),
+  click = (action) => activateCommand(page, action),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
   order = (id, direction = 'forward') =>
     page.locator(`[data-order-layer="${id}"][data-order-direction="${direction}"]`),
@@ -86,7 +87,7 @@ const load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   for (const [width, height] of [
     [1600, 1000],
     [1280, 800],
@@ -176,7 +177,7 @@ try {
       fullPage: true,
     });
     await page.reload();
-    await page.waitForSelector('.shape');
+    await page.waitForFunction(() => window.nect);
     await load(JSON.parse(saved));
     assert.equal(await snapshot(), after);
     assert.deepEqual(await pixels(await exported()), svgPixels);

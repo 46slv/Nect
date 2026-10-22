@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { ensureCommandMenus } from '../src/command-menus.js';
-import { activateCommand } from './command-menu-actions.js';
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 
 // This is a synthetic locator contract check, not browser visibility/input proof.
 // The production menu builder supplies the hierarchy; closed-details action
@@ -17,6 +17,9 @@ function fixture() {
     'save-as',
     'export',
     'export-png',
+    'import-svg',
+    'import-image',
+    'add-svg-part',
     'undo',
   ]
     .map((action) => `<button data-action="${action}">${action}</button>`)
@@ -87,10 +90,11 @@ function fixture() {
   return { app, page, calls, menu, render };
 }
 
-test('browser commands reveal Project and Export actions through their real summaries', async () => {
+test('browser commands reveal Project, Import and Export actions through their real summaries', async () => {
   for (const [label, actions] of [
     ['Project', ['new', 'open', 'save', 'save-as']],
     ['Export', ['export', 'export-png']],
+    ['Import', ['import-svg', 'import-image', 'add-svg-part', 'import-composition']],
   ]) {
     for (const action of actions) {
       const { app, page, calls, menu } = fixture();
@@ -149,4 +153,14 @@ test('disabled menu commands are not bypassed', async () => {
   app.querySelector('[data-action="save"]').disabled = true;
   await assert.rejects(activateCommand(page, 'save'), /disabled actions stay unavailable/);
   assert.deepEqual(calls, ['click:Project']);
+});
+
+test('revealing Export for PNG options does not activate any command or close it on reuse', async () => {
+  const { page, calls, menu } = fixture();
+  await revealCommandMenu(page, 'Export');
+  await revealCommandMenu(page, 'Export');
+  assert.deepEqual(calls, ['click:Export']);
+  assert.equal(menu('Export').open, true);
+  await activateCommand(page, 'export-png');
+  assert.deepEqual(calls, ['click:Export', 'click:export-png']);
 });

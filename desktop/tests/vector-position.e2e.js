@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -40,7 +41,7 @@ const load = async () => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await load();
   assert.equal(
     await page.locator('[data-source="vector-origin"]').getAttribute('aria-label'),
@@ -218,7 +219,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const pending = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await pending).saveAs(`test-results/workflow-vector-position.${ext}`);
   }
   const svg = await fs.readFile('test-results/workflow-vector-position.svg', 'utf8');
@@ -226,7 +227,7 @@ try {
   // Exported raster is byte-for-byte the same with its editor marker disabled.
   await mode().uncheck();
   const hiddenPNG = page.waitForEvent('download');
-  await page.locator('[data-action="export-png"]').click();
+  await activateCommand(page, 'export-png');
   await (await hiddenPNG).saveAs('test-results/workflow-vector-position-no-handle.png');
   assert.deepEqual(
     await fs.readFile('test-results/workflow-vector-position.png'),

@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -50,7 +51,7 @@ const rotate = (g, p, degrees) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await load();
   const original = await saved(),
     originalParams = await params(),
@@ -246,7 +247,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const wait = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await wait).saveAs(`test-results/workflow-transform-handles.${ext}`);
   }
   assert.doesNotMatch(
@@ -258,7 +259,7 @@ try {
   );
   await page.locator(`.node[data-id="${textId}"] .node-head strong`).click();
   const png = page.waitForEvent('download');
-  await page.locator('[data-action="export-png"]').click();
+  await activateCommand(page, 'export-png');
   await (await png).saveAs('test-results/workflow-transform-handles-no-overlay.png');
   assert.deepEqual(
     await fs.readFile('test-results/workflow-transform-handles.png'),

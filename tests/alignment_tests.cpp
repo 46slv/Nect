@@ -182,7 +182,8 @@ int main(){try{
   const auto values=evaluate(document);std::map<std::string,double> params;
   for(const auto& [name,value]:document.objects.at(id).text->parameters){(void)value;params.emplace(name,values.at({id,"","text."+name}));}
   const auto metric=evaluate_text(*document.objects.at(id).text,params).first_line_baseline_y;
-  check(metric.has_value(),"Fixture exposes a first-line metric");const auto& world=evaluate_transforms(document,values).at(id).world;
+  // Copy before the temporary transform map is destroyed.
+  check(metric.has_value(),"Fixture exposes a first-line metric");const auto world=evaluate_transforms(document,values).at(id).world;
   return world[3]*(*metric)+world[5];
  };
  near(baseline(d,"text-b")-baseline(d,"text-a"),20);

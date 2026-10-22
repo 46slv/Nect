@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -19,7 +20,7 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
   stage = () => page.locator('.canvas-stage'),
   deletion = (id) => page.locator(`[data-delete-layer="${id}"]`),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
-  click = (action) => page.locator(`[data-action="${action}"]`).click(),
+  click = (action) => activateCommand(page, action),
   clear = async (expectArtboardFocus = true) => {
     assert.equal(
       await page.locator('.node.selected,.artwork-selection,.character-floating').count(),
@@ -59,7 +60,7 @@ const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document))
 try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   for (const width of [1600, 1280]) {
     await page.setViewportSize({ width, height: width === 1600 ? 1000 : 800 });
     const doc = deletionDocument(),
@@ -101,7 +102,7 @@ try {
       fullPage: true,
     });
     await page.reload();
-    await page.waitForSelector('.shape');
+    await page.waitForFunction(() => window.nect);
     await load(JSON.parse(saved));
     assert.equal(await snapshot(), after);
   }

@@ -37,7 +37,7 @@ async function reset() {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await reset();
   const before = await snapshot(),
     beforeDrawing = await drawing(),

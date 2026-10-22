@@ -77,7 +77,7 @@ async function fitVisible(selector = '.node') {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page.waitForTimeout(400);
   await fs.mkdir('test-results', { recursive: true });
   const ids = await page.evaluate(async () => {

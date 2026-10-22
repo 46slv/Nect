@@ -12,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const load = async (options = {}) => {
     await page.evaluate(async (options) => {
       const { document, node, point, connect, setCharacterKerningPairs, setCharacterStyles } =

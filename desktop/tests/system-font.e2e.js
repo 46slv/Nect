@@ -1,3 +1,4 @@
+import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -40,6 +41,7 @@ const state = () =>
   }));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
   await page.locator('.artboard').click();

@@ -34,9 +34,9 @@ std::string response_result_object(const std::string& response) {
     return {};
 }
 template<class F>void rejects(const char* code,F action){try{action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}throw std::runtime_error("Expected rejection");}
-}
-int main(){try{
-    Session s(empty_document("doc","comp","frame"));auto apply=[&](std::vector<Command> commands){s.apply(commands,s.revision());};
+// Keep independent fixture lifetimes and Debug frames bounded per feature.
+void base_and_italic(Session& s) {
+    auto apply=[&](std::vector<Command> commands){s.apply(commands,s.revision());};
     auto source=default_text("source","Editable\nText");source.parameters.at("font_size").literal=32;
     apply({CreateText{"comp","","title","Title",source}});
     check(s.document().objects.at("title").kind==Kind::text&&s.document().objects.at("title").stack.front().type=="nect.paint.fill","Text creates editable source with a real Fill");
@@ -130,6 +130,9 @@ int main(){try{
     check(version_at!=std::string::npos,"Native writer emits 0.68");native14.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.14\"");
     const auto old_text=decode(native14);check(old_text.objects.at("legacy-object").text->italic&&!old_text.objects.at("legacy-object").text->italic_driver,
         "Native 0.14 Text decodes with its literal italic value");
+}
+
+void weight_links() {
     auto weight_document=empty_document("weight-doc","weight-comp","weight-frame");Session weight_session(weight_document);
     auto weight_apply=[&](std::vector<Command> commands){weight_session.apply(commands,weight_session.revision());};
     auto weight_a=default_text("weight-a-source","Weight A");weight_a.weight=700;
@@ -312,6 +315,9 @@ int main(){try{
     check(legacy_weight.objects.at("weight-a").text->weight==500&&!legacy_weight.objects.at("weight-a").text->weight_driver&&
         legacy_weight.objects.at("weight-b").text->weight==300&&!legacy_weight.objects.at("weight-b").text->weight_driver,
         "Native 0.15 Text migrates authored weights as literals");
+}
+
+void weight_expressions() {
     Session expression_session(empty_document("weight-expression-doc","weight-expression-comp","weight-expression-frame"));
     auto expression_apply=[&](std::vector<Command> commands){expression_session.apply(commands,expression_session.revision());};
     auto expression_a=default_text("expression-a-source","A");expression_a.weight=300;
@@ -400,6 +406,9 @@ int main(){try{
     check(expression_session.document().objects.at("expression-b").text->weight_expression==weight_expression&&
         evaluate_text_weight(expression_session.document(),"expression-b")==600,
         "Undo restores exact Text weight expression and evaluated integer");
+}
+
+void weight_batches() {
     Session weight_batch_session(empty_document("weight-batch-doc","weight-batch-comp","weight-batch-frame"));
     auto weight_batch_apply=[&](std::vector<Command> commands){weight_batch_session.apply(commands,weight_batch_session.revision());};
     auto batch_source=default_text("weight-batch-source","Source");batch_source.weight=100;
@@ -499,6 +508,9 @@ int main(){try{
     check(weight_batch_session.document()==batch_before_failure&&weight_batch_session.revision()==batch_failure_revision&&
         weight_batch_session.history()==batch_failure_history,
         "Editing one driven target rejects all otherwise-valid Text weight targets atomically");
+}
+
+void weight_batch_api() {
     Session weight_batch_api(empty_document("weight-batch-api-doc","weight-batch-api-comp","weight-batch-api-frame"));
     auto weight_api_a=default_text("weight-batch-api-a-source","API A");weight_api_a.weight=100;
     auto weight_api_b=default_text("weight-batch-api-b-source","API B");weight_api_b.weight=140;
@@ -538,6 +550,9 @@ int main(){try{
         evaluate_text_weight(weight_batch_api.document(),"weight-batch-api-b")==400&&
         evaluate_text_weight(weight_batch_api.document(),"weight-batch-api-c")==400,
         "JSON-lines accepts an atomic absolute typed batch edit after explicit unlink");
+}
+
+void content_links() {
     Session content_session(empty_document("content-doc","content-comp","content-frame"));
     auto content_apply=[&](std::vector<Command> commands){content_session.apply(commands,content_session.revision());};
     auto content_a=default_text("content-a-source","Source A");
@@ -670,6 +685,9 @@ int main(){try{
         "Native 0.16 migrates Text content as a literal");
     check(linked_content_bytes.find("\"content_driver\"")!=std::string::npos,
         "Text content link bytes are distinct from the original literal-only state");
+}
+
+void family_links() {
     Session family_session(empty_document("family-doc","family-comp","family-frame"));
     auto family_apply=[&](std::vector<Command> commands){family_session.apply(commands,family_session.revision());};
     auto family_a=default_text("family-a-source","Family source");family_a.family="Segoe UI";
@@ -822,6 +840,9 @@ int main(){try{
         {"family-depth-129","","text.family"},false}},family_depth_revision);});
     check(family_depth_session.revision()==family_depth_revision&&encode(family_depth_session.document())==family_depth_bytes,
         "Text family dependency depth overflow rejects atomically");
+}
+
+void direction_links() {
     Session direction_session(empty_document("direction-doc","direction-comp","direction-frame"));
     auto direction_apply=[&](std::vector<Command> commands){direction_session.apply(commands,direction_session.revision());};
     auto direction_a=default_text("direction-a-source","Direction A");
@@ -988,6 +1009,9 @@ int main(){try{
     check(direction_depth_session.revision()==direction_depth_revision&&encode(direction_depth_session.document())==direction_depth_bytes,
         "Text direction dependency depth overflow rejects atomically");
     check(direction_revision_before_source_change<direction_session.revision(),"Text direction source edits and unlink remain undoable revisions");
+}
+
+void layout_links() {
     Session layout_session(empty_document("layout-link-doc","layout-link-comp","layout-link-frame"));
     auto layout_apply=[&](std::vector<Command> commands){layout_session.apply(commands,layout_session.revision());};
     auto layout_source=default_text("layout-source-text","Source layout");layout_source.layout="auto";
@@ -1146,6 +1170,9 @@ int main(){try{
     check(layout_session.document().objects.at("layout-b").text->layout=="frame"&&
         evaluate_text_layout(layout_session.document(),"layout-b")=="frame",
         "Unlinked Text layout stays frozen after the former source changes");
+}
+
+void alignment_links() {
     Session alignment_session(empty_document("alignment-link-doc","alignment-link-comp","alignment-link-frame"));
     auto alignment_apply=[&](std::vector<Command> commands){alignment_session.apply(commands,alignment_session.revision());};
     auto alignment_source=default_text("alignment-source-text","Alignment link");
@@ -1285,7 +1312,9 @@ int main(){try{
     check(alignment_session.document().objects.at("alignment-b").text->alignment=="end"&&
         evaluate_text_alignment(alignment_session.document(),"alignment-b")=="end",
         "Unlinked Text alignment remains frozen after the former source changes");
+}
 
+void locale_links() {
     Session locale_session(empty_document("locale-link-doc","locale-link-comp","locale-link-frame"));
     auto locale_apply=[&](std::vector<Command> commands){locale_session.apply(commands,locale_session.revision());};
     auto locale_a=default_text("locale-a-source","Source");locale_a.locale="ar-SA";
@@ -1439,7 +1468,9 @@ int main(){try{
     check(locale_session.document().objects.at("locale-b").text->locale=="ja-JP"&&
         evaluate_text_locale(locale_session.document(),"locale-b")=="ja-JP"&&locale_session.revision()==unlink_revision+4,
         "Unlinked Text locale stays frozen when its former source changes");
+}
 
+void dependency_depth() {
     auto layout_depth_doc=empty_document("layout-depth-doc","layout-depth-comp","layout-depth-frame");
     Session layout_depth_session(layout_depth_doc);std::vector<Command> layout_depth_creates;
     for(int i=0;i<130;++i)layout_depth_creates.push_back(CreateText{"layout-depth-comp","","layout-depth-"+std::to_string(i),
@@ -1469,7 +1500,9 @@ int main(){try{
         {"depth-129","","text.content"},false}},depth_revision);});
     check(depth_session.revision()==depth_revision&&encode(depth_session.document())==depth_bytes,
         "Text content dependency depth overflow rejects atomically");
+}
 
+void path_sampler() {
     // The common sampler returns the evaluated cubic itself, not a polyline
     // point/tangent, and keeps authored one-sided knot rules deterministic.
     auto sampler_doc=empty_document("sampler-doc","sampler-comp","sampler-frame");Session sampler_session(sampler_doc);
@@ -1568,7 +1601,9 @@ int main(){try{
     const auto square_wrap=sample_path(square_sampler,450);
     near(square_wrap.position.x,50,1e-10,"Closed contour wraps a finite distance across its seam");
     near(square_wrap.position.y,0,1e-10,"Closed contour seam wrap preserves ordered geometry");
+}
 
+void path_attachment() {
     // Retained attachment lifecycle, strict migration and transactional guards.
     auto attach_doc=empty_document("attach-doc","attach-comp","attach-frame");Session attached(attach_doc);
     Point path_start,path_end;path_start.id="attach-p0";path_end.id="attach-p1";path_end.x.literal=320;
@@ -1754,7 +1789,9 @@ int main(){try{
     check(attached.revision()==4&&evaluate(attached.document()).at({"attach-path","attach-p1","y"})==320&&
         encode(attached.document())==vertical_path_edit,
         "Text-on-Path source geometry edit has one exact Redo step");
+}
 
+void path_attachment_api() {
     auto api_doc=empty_document("api-path-doc","api-path-comp","api-path-frame");Session api_session(api_doc);
     Point api_a,api_b;api_a.id="api-p0";api_b.id="api-p1";api_b.x.literal=320;
     api_session.apply({CreatePath{"api-path-comp","","api-path","API Path",{{"api-contour",false,{api_a,api_b}}}}},0);
@@ -1786,7 +1823,11 @@ int main(){try{
         api_detached_status&&
         api_session.document().objects.at("api-text").text->content=="Text",
         "JSON-lines API detaches in one Session edit and retains authored Text content");
+}
+
+void projection_and_export(Session& s) {
 #ifdef _WIN32
+    auto apply=[&](std::vector<Command> commands){s.apply(commands,s.revision());};
     auto repeat=default_operation("repeat","nect.shape.repeater");repeat.parameters.at("copies").literal=3;
     apply({AddOperation{"title",repeat,1}});
     const auto shape=evaluate_shape(s.document(),"title",evaluate(s.document()));
@@ -1797,5 +1838,25 @@ int main(){try{
     check(request(s,R"({"op":"export_plan","composition":"comp","artboard":"frame"})").find("\"text_policy\":\"outlines\"")!=std::string::npos,"Export plan discloses text editability loss before export");
 #endif
     check(request(s,R"({"op":"text_defaults"})").find("\"frame_width\"")!=std::string::npos,"API exposes complete text defaults");
+}
+}
+int main(){try{
+    Session s(empty_document("doc","comp","frame"));
+    base_and_italic(s);
+    weight_links();
+    weight_expressions();
+    weight_batches();
+    weight_batch_api();
+    content_links();
+    family_links();
+    direction_links();
+    layout_links();
+    alignment_links();
+    locale_links();
+    dependency_depth();
+    path_sampler();
+    path_attachment();
+    path_attachment_api();
+    projection_and_export(s);
     std::cout<<"PASS "<<checks<<" text authoring checks\n";return 0;
 }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}}

@@ -15,7 +15,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nect-wrap-browser-'));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page.evaluate(async () => {
     const { document, node, point, connect } = await import('/src/core.js');
     const doc = document(),

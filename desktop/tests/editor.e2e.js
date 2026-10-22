@@ -1,3 +1,5 @@
+import { activateCommand } from './command-menu-actions.js';
+import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -51,6 +53,7 @@ async function assertBorderSockets() {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.waitForTimeout(500);
   await assertBorderSockets();
@@ -196,7 +199,10 @@ try {
   assert.notEqual(await page.locator('.shape').getAttribute('d'), initial);
   for (const action of ['Open JSON', 'Import SVG', 'New document']) {
     const beforeCancel = await page.evaluate(() => JSON.stringify(window.nect.document));
-    await page.getByRole('button', { name: action, exact: true }).click();
+    await activateCommand(
+      page,
+      { 'Open JSON': 'open', 'Import SVG': 'import-svg', 'New document': 'new' }[action],
+    );
     await page.locator('dialog[open] button[value="cancel"]').click();
     assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeCancel);
   }
@@ -458,7 +464,7 @@ try {
   });
   assert.equal(await page.evaluate(() => window.nect.export()), before);
   const dl = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export SVG', exact: true }).click();
+  await activateCommand(page, 'export');
   assert.equal((await dl).suggestedFilename(), 'nect-artwork.svg');
   await page.locator('.graph-scroll').evaluate((el) => {
     el.scrollTop = 0;
@@ -484,7 +490,7 @@ try {
   // Practical editable fixture, with browser file input and a source-node edit at 1920×1080.
   await page.setViewportSize({ width: 1920, height: 1080 });
   const choosing = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Open JSON', exact: true }).click();
+  await activateCommand(page, 'open');
   await page.locator('dialog[open] button[value="discard"]').click();
   await (await choosing).setFiles('examples/vr-converters.json');
   await page.waitForFunction(() => window.nect.document.name.includes('V/R Converters'));
@@ -512,7 +518,7 @@ try {
   assert.equal(await page.evaluate(() => window.nect.export()), practiceSVG);
   await page.screenshot({ path: 'test-results/vr-editable-1920x1080.png', fullPage: true });
   const practiceDownload = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export SVG', exact: true }).click();
+  await activateCommand(page, 'export');
   assert.equal((await practiceDownload).suggestedFilename(), 'nect-artwork.svg');
 
   // Compact nodes keep their edges and persisted layout; hidden inputs reappear during wiring.

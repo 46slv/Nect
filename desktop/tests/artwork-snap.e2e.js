@@ -45,7 +45,7 @@ const drag = async (p) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page.waitForFunction(() => window.nect.evaluate().error === null);
   await load();
   const before = await saved(),

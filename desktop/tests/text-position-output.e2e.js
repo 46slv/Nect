@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const ids = await page.evaluate(async () => {
     const { document, node, connect, guideDefaults } = await import('/src/core.js');
     const d = document(),
@@ -192,7 +193,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const pending = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await pending).saveAs(`test-results/workflow-text-position-output.${ext}`);
   }
   const json = await fs.readFile('test-results/workflow-text-position-output.json', 'utf8');

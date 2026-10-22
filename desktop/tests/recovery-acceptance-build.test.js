@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import config from '../vite.config.mjs';
+test('only the exact explicit test mode enables the acceptance module', () => {
+  for (const mode of [
+    'production',
+    'development',
+    'test',
+    'recovery-acceptance-test-like',
+    undefined,
+  ]) {
+    const normal = config({ mode });
+    assert.equal(normal.define.__NECT_RECOVERY_ACCEPTANCE_BUILD__, 'false');
+    assert.equal(normal.build.outDir, 'dist');
+  }
+});
 test('normal and explicit test frontend use different compile-time constants and output profiles', () => {
   const normal = config({ mode: 'production' }),
     testBuild = config({ mode: 'recovery-acceptance-test' });

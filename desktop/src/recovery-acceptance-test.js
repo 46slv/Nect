@@ -40,6 +40,40 @@ export async function runRecoveryAcceptance(recovery, api) {
     undoDisabled: document.querySelector('[data-action="undo"]').disabled,
     redoDisabled: document.querySelector('[data-action="redo"]').disabled,
   });
+  result.UIReadiness = [];
+  const liveRetryTarget = async (failed, stage) => {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const captured = document.querySelector('[data-recovery-failures]');
+      assert(captured && !captured.hidden, 'Failure group missing');
+      if (!captured.open) captured.querySelector('summary').click();
+      await frames();
+      const current = document.querySelector('[data-recovery-failures]');
+      result.UIReadiness.push({
+        stage,
+        attempt,
+        Replaced: captured !== current,
+        CapturedConnected: captured.isConnected,
+        CurrentOpen: !!current?.open,
+      });
+      if (captured !== current || !current?.open) continue;
+      const select = current.querySelector('[data-recovery-failed-target]');
+      select.value = failed.id;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      if (current !== document.querySelector('[data-recovery-failures]') || !current.open) continue;
+      const button = current.querySelector('[data-recovery-retry-target]'),
+        rect = button.getBoundingClientRect();
+      assert(
+        button.dataset.recoveryRetryId === failed.id &&
+          Number(button.dataset.recoveryRetryRevision) === failed.failedRevision &&
+          !button.disabled,
+        'Explicit live A target missing',
+      );
+      if (rect.width > 0 && rect.height > 0 && getComputedStyle(button).visibility !== 'hidden')
+        return { group: current, button, rect };
+      await delay(20);
+    }
+    throw Error('Live Retry UI not visible ' + JSON.stringify(result.UIReadiness));
+  };
   try {
     assert(
       window.__NECT_RECOVERY_TEST_INSTANCE__ === true && window.__TAURI_INTERNALS__,
@@ -144,25 +178,7 @@ export async function runRecoveryAcceptance(recovery, api) {
     );
     assert(result.Writes.length === writeCount, 'Stale request wrote');
     equal(snapshot(), before, 'Stale request changed B');
-    const group = document.querySelector('[data-recovery-failures]');
-    assert(group && !group.hidden, 'Failure group missing');
-    group.querySelector('summary').click();
-    await frames();
-    const select = group.querySelector('[data-recovery-failed-target]');
-    select.value = failed.id;
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    const button = group.querySelector('[data-recovery-retry-target]');
-    assert(
-      button.dataset.recoveryRetryId === failed.id &&
-        Number(button.dataset.recoveryRetryRevision) === 2 &&
-        !button.disabled,
-      'Explicit A target missing',
-    );
-    const rect = button.getBoundingClientRect();
-    assert(
-      rect.width > 0 && rect.height > 0 && getComputedStyle(button).visibility !== 'hidden',
-      'Retry UI not visible',
-    );
+    const { group, button, rect } = await liveRetryTarget(failed, 'failure-visible');
     result.FailureUI = {
       HTML: group.outerHTML,
       Target: failed,
@@ -173,7 +189,8 @@ export async function runRecoveryAcceptance(recovery, api) {
     result.Phase = 'failure-visible';
     result.Stages.push({ Phase: result.Phase, UTC: new Date().toISOString() });
     await delay(4000);
-    button.click();
+    const retryTarget = await liveRetryTarget(failed, 'before-retry');
+    retryTarget.button.click();
     await until(() => recovery.failedDocuments.length === 0, 'A UI retry success');
     await recovery.flush();
     await frames();

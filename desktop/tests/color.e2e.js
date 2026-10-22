@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -47,7 +48,7 @@ async function connectMenu(id, key, source) {
 }
 async function download(action, path) {
   const pending = page.waitForEvent('download');
-  await page.locator(`[data-action="${action}"]`).click();
+  await activateCommand(page, action);
   await (await pending).saveAs(path);
   return fs.readFile(path);
 }
@@ -62,7 +63,7 @@ async function shape(hex, alpha) {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await fs.mkdir('test-results', { recursive: true });
   const { rect, out } = await page.evaluate(async () => {
     const { document, node } = await import('/src/core.js');
@@ -169,7 +170,7 @@ try {
   );
   assert.deepEqual(pixel.outside, [0, 0, 0, 0]);
   await page.reload();
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page
     .locator('#open-file')
     .setInputFiles({ name: 'color.json', mimeType: 'application/json', buffer: json });

@@ -20,7 +20,7 @@ const write = async (label, value) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page.waitForFunction(() => window.nect && window.nect.evaluate().error === null);
   const ids = await page.evaluate(async () => {
     const {

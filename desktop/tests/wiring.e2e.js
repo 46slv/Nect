@@ -11,7 +11,7 @@ const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   const ids = await page.evaluate(async () => {
     const { document, node, connect } = await import('/src/core.js');
     const d = document(),

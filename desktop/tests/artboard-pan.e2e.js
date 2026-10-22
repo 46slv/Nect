@@ -48,7 +48,7 @@ async function reset() {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await page.waitForTimeout(300);
   // Real mouse gestures start over blank artwork, a shape, and a guide at enlarged zoom.
   for (const origin of [

@@ -1,17 +1,39 @@
-# Paused for global reset
+# Recovery native test build: archived checkpoint
 
-Explicit user stop at2026-10-22T09:18:45Z. No reset consumed. No new implementation/long validation/native launch until parent resumes.
+This is a historical checkpoint from 2026-10-22, not the current execution or
+verification status. No native GUI or acceptance profile had been launched at
+this checkpoint. Later source changes and native evidence must be assessed
+separately.
 
-Repository: D:/Nect-codex-output-20261022-task13-f336c94f2b714cd5bc73d6ca646c8f2e/mask-luminance-20261022/Nect
-Branch: codex/recovery-native-test-build
-Source HEAD: b4591173ca9064a1ed24b521c64534e8e0dc9d3c
-Base PR74 HEAD: 71be9026ae1365e1b07fe33672d68dc52bb01b66
-Work/evidence: D:/Nect-codex-output-20261022-task13-f336c94f2b714cd5bc73d6ca646c8f2e/recovery-native-test-build-20261022
+## Historical implementation and checks
 
-Implemented compile-time Cargo+Vite gates, fixed one-shot A/B scenario with readonly result and finally-restored writer, external native verifier, exclusion verifier and docs. No runtime failure endpoint/new IPC command. Normal/test frontend and both invalid asset/native pairings verified. New focused tests2 Node+4 Rust profile+2 Rust isolation pass; old27 not rerun. Initial Rust declaration-order compile error corrected; rustfmt unavailable, not installed.
+- Branch: `codex/recovery-native-test-build`.
+- Source: `b4591173ca9064a1ed24b521c64534e8e0dc9d3c`.
+- PR74 base: `71be9026ae1365e1b07fe33672d68dc52bb01b66`.
+- Implemented compile-time Cargo/Vite gates, a fixed one-shot A/B scenario with
+  copied readonly results and finally-restored writer, external native verifier
+  and build-exclusion verifier. No runtime failure endpoint or new IPC command.
+- Normal/test frontend builds and both invalid frontend/native pairings were
+  verified. The 2 focused Node tests, 4 Rust profile tests and 2 Rust isolation
+  tests passed; the earlier 27 checks were not rerun.
+- An initial Rust declaration-order compile error was corrected. Rust formatting
+  was not run because the formatter was unavailable in that environment.
+- A normal native build receipt existed. The test native build and final
+  exclusion receipts were not yet present. This is not a claim that either is
+  still pending today.
 
-Already dispatched build pipeline (exec session46584) may still be running normal then test Cargo builds and final exclusion scan. Normal receipt present: true; test receipt present: false; final exclusion receipt present: false. Inspect actual receipts/logs/process state first, do not blindly repeat. No native GUI or profile was launched; no save/close is pending or uncertain.
+## Generic artifact/resume guidance
 
-Resume only after parent instruction: reconcile existing builds, verify normal/test hashes and normal exclusion; use evidence/launch-native.ps1 (normal port9495, test9497) once each with fresh runtime directories. Immediately run desktop/scripts/verify-recovery-native-test.mjs <stage> normal|test. The script backs up fixtures by CLI and calls finish_close once only after readable backup and test writer-restored result. Then verify own PID/browser/port absence and read only the new test runtime's exact A/B records, compare latest A/B and previous A0. Keep simulated failure distinct from disk failure/OS input.
+Keep evidence in an owned artifact directory rather than recording private host
+paths or process/session identifiers in public documentation. Inspect existing
+receipts, build outputs and current process state before repeating work with an
+uncertain outcome. Reconcile normal/test executable hashes and exclusion checks
+before any fresh native launch.
 
-Outstanding: native cases and ordinary-runtime exclusion proof, final receipt/seal, development push/draft PR targeting codex/recovery-failed-document-retry. Existing candidates/PR74 preserved. No main/release/Library upload.
+Use a new isolated stage for each authorized launch. The native verifier must
+back up readable fixtures and confirm writer restoration before one normal close
+request. Collect identity-specific process, browser-child and port exit evidence
+before reading only that run's exact current A, previous A and current B records.
+Keep synthetic input and simulated write failure distinct from physical input,
+OS dialogs, cold reopen and real disk failure. See the current generic build and
+readback contract in [Recovery native acceptance build](recovery-native-test-build.md).

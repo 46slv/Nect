@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -23,7 +24,7 @@ const sample = await fs.readFile('examples/vector-reference-reuse.json', 'utf8')
   read = (id) => page.evaluate((id) => window.nect.evaluate().run(id), id);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await load();
   assert.deepEqual(await read('reference-position'), [170, 200]);
   assert.deepEqual(await read('reference-offset'), await read('reference-wired'));
@@ -129,7 +130,7 @@ try {
   await fs.writeFile('test-results/workflow-vector-reference.json', await saved());
   await fs.writeFile('test-results/workflow-vector-reference.svg', svg);
   const downloadPromise = page.waitForEvent('download');
-  await page.locator('[data-action="export-png"]').click();
+  await activateCommand(page, 'export-png');
   const download = await downloadPromise;
   await download.saveAs('test-results/workflow-vector-reference.png');
   const png = await fs.readFile('test-results/workflow-vector-reference.png');

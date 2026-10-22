@@ -1,3 +1,4 @@
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -24,7 +25,7 @@ const value = async (name, text) => {
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const download = async (action, path) => {
   const promise = page.waitForEvent('download');
-  await page.locator(`[data-action="${action}"]`).click();
+  await activateCommand(page, action);
   const file = await promise;
   await file.saveAs(path);
   return fs.readFile(path);
@@ -51,7 +52,7 @@ async function pixels(bytes, positions) {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
-  await page.waitForSelector('.shape');
+  await page.waitForFunction(() => window.nect);
   await fs.mkdir('test-results', { recursive: true });
   // Construct through the same public core; all subsequent image/export flows use actual UI.
   await page.evaluate(async () => {
@@ -159,6 +160,7 @@ try {
   assert.match(svg.toString(), /<image /);
   assert.match(svg.toString(), /data:image\/png;base64,/);
   assert.doesNotMatch(svg.toString(), /class=|guide|grid|selection/);
+  await revealCommandMenu(page, 'Export');
   await page.locator('#png-scale').selectOption('2');
   const png = await download('export-png', 'test-results/workflow-image-2x.png');
   const check = await pixels(png, [
@@ -236,7 +238,7 @@ try {
   assert.equal(await snapshot(), restored);
   // Cancel and late completion do not replace a newer edit.
   const chooser = page.waitForEvent('filechooser');
-  await page.locator('[data-action="import-image"]').click();
+  await activateCommand(page, 'import-image');
   await (await chooser).setFiles([]);
   assert.equal(await snapshot(), restored);
   await page.evaluate((base64) => {
@@ -281,6 +283,7 @@ try {
   // Downscaled large artboard is bounded by output pixels, not intrinsic SVG size.
   await value('Artboard width', 10000);
   await value('Artboard height', 1000);
+  await revealCommandMenu(page, 'Export');
   await page.locator('#png-scale').selectOption('0.5');
   const large = await download('export-png', 'test-results/workflow-downscaled.png');
   assert.equal((await pixels(large, [[0, 0]])).width, 5000);
@@ -288,6 +291,7 @@ try {
     .locator('#open-file')
     .setInputFiles({ name: 'saved.json', mimeType: 'application/json', buffer: saved });
   await page.waitForFunction(() => window.nect.document.width === 320);
+  await revealCommandMenu(page, 'Export');
   await page.locator('#png-scale').selectOption('2');
   await page.locator(`[data-select-layer="${imageId}"]`).click();
   await page.screenshot({ path: 'test-results/workflow-image-editor.png', fullPage: true });
