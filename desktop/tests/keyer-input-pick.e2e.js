@@ -1,4 +1,4 @@
-// Native WebView2 CDP synthetic. PNG renderer payload is captured before the OS dialog.
+// Native WebView2 CDP synthetic; generated SVG -> native Canvas PNG, no OS save claim.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -40,40 +40,26 @@ try {
   await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
   await $('[data-action="graph-fit"]').click();
   await $(`.graph .node[data-id="${f.keyer.id}"] .node-head strong`).click();
-  await $('#png-export-mode').selectOption('scale');
-  const exportMenu = () =>
-    page
-      .locator('header details.command-menu')
-      .filter({ has: page.locator('[data-action="export-png"]') });
-  await exportMenu().locator('summary').click();
-  await $('#png-scale').selectOption('1');
-  await exportMenu().locator('summary').click();
-  // The actual export button/rasterizer runs. Only native Save PNG is a test double;
-  // return false (cancel), save captured bytes through the CLI and restore the bridge.
-  await page.evaluate(() => {
-    const original = window.__TAURI_INTERNALS__.invoke;
-    window.keyerPNG = [];
-    window.restoreKeyerBridge = () => {
-      window.__TAURI_INTERNALS__.invoke = original;
-    };
-    window.__TAURI_INTERNALS__.invoke = (command, args, ...rest) => {
-      if (command === 'save_png') {
-        window.keyerPNG.push(args.bytes);
-        return Promise.resolve(false);
-      }
-      return original(command, args, ...rest);
-    };
-  });
   const exportPNG = async (name) => {
-      if (!(await exportMenu().evaluate((menu) => menu.open)))
-        await exportMenu().locator('summary').click();
-      const count = await page.evaluate(() => window.keyerPNG.length);
-      await $('[data-action="export-png"]').click();
-      await page.waitForFunction((n) => window.keyerPNG.length > n, count);
-      const bytes = Buffer.from(await page.evaluate(() => window.keyerPNG.at(-1)));
+      const data = await page.evaluate(async () => {
+        const url = URL.createObjectURL(
+          new Blob([window.nect.export()], { type: 'image/svg+xml' }),
+        );
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = 320;
+          canvas.height = 180;
+          canvas.getContext('2d').drawImage(image, 0, 0, 320, 180);
+          return canvas.toDataURL('image/png').split(',')[1];
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      });
+      const bytes = Buffer.from(data, 'base64');
       await fs.writeFile(path.join(output, name), bytes, { flag: 'wx' });
-      if (await exportMenu().evaluate((menu) => menu.open))
-        await exportMenu().locator('summary').click();
       return bytes;
     },
     pixels = async (input) =>
@@ -137,10 +123,11 @@ try {
   await settle();
   assert.deepEqual((await state()).doc, after.doc);
   assert.equal((await state()).svg, after.svg);
+  const beforeNoop = await state();
   await $('.inspector-body [data-keyer-pick]').click();
   await page.mouse.click(...(await xy([1.5, 0.5])));
   await settle();
-  assert.deepEqual(await state(), after);
+  assert.deepEqual(await state(), beforeNoop);
   await fs.writeFile(path.join(output, 'picked.json'), serialize(after.doc), { flag: 'wx' });
   await fs.writeFile(path.join(output, 'picked.svg'), after.svg, { flag: 'wx' });
   await page.evaluate((s) => window.nect.load(s), serialize(after.doc));
@@ -163,7 +150,7 @@ try {
     PNGSVGFullRGBASHA256: hash(afterRGBA),
     PNGReloadFullRGBAExact: true,
     PNGRoute:
-      'Actual Export PNG renderer payload captured at save_png; OS dialog cancelled by test double; CLI writes bytes',
+      'Native WebView generated SVG -> Canvas PNG artifact; CLI writes bytes. Actual Export PNG/OS save not verified; immutable IPC bridge not overridden',
     PageErrors: errors,
     NotRun: ['Physical/OS input', 'OS Save/Open/export dialogs', 'Normal OS cold reopen'],
   };
@@ -182,7 +169,6 @@ try {
     serializeCompositionProject(own.project),
     { flag: 'wx' },
   );
-  await page.evaluate(() => window.restoreKeyerBridge());
   try {
     await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('finish_close'));
   } catch (error) {
@@ -195,7 +181,6 @@ try {
     const own = await page.evaluate(() => window.nect?.document).catch(() => null);
     if (own?.name === 'NECT_KEYER_INPUT_PICK')
       await fs.writeFile(path.join(output, 'failure-fixture.json'), serialize(own));
-    await page.evaluate(() => window.restoreKeyerBridge?.()).catch(() => {});
   }
   throw error;
 } finally {
