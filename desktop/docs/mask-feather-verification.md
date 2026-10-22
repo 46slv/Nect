@@ -40,3 +40,8 @@ PNG/SVG/JSON comparisons, logs, source delta and SHA-256 manifest.
 Not verified: native GUI interaction for feather, physical input, normal OS
 Save/Open/PNG dialogs and normal OS cold reopen. No broad performance claim,
 installer/release, protected-main merge or Library upload is included.
+
+PR72's same-product native runtime follow-up also verified the PR71 Path Feather
+boundary in WebView2, with full RGBA matching its saved headless reference.
+See [native runtime acceptance](mask-native-runtime-verification.md) for the
+five-state receipt, isolated process shutdown and remaining OS acceptance.

@@ -22,7 +22,9 @@ import {
   maskAppearance,
   maskFeather,
   featherMaskSVG,
+  imageAlphaMaskSVG,
   MASK_FEATHER_SCHEMA_VERSION,
+  IMAGE_MASK_SCHEMA_VERSION,
 } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
 import {
@@ -1236,8 +1238,25 @@ export function socketCompatibleFor(source, target, key, sourcePort) {
         sourcePort === undefined &&
         (imageLuminanceTargets.has(target.type) || target.type === 'Mask') &&
         key === 'path' &&
-        q.type === 'PaintedPath'))
+        q.type === 'PaintedPath') ||
+      (sourceType === 'Image' &&
+        sourcePort === undefined &&
+        target.type === 'Mask' &&
+        key === 'mask' &&
+        q.type === 'Path'))
   );
+}
+function isImageMask(n, byId) {
+  return (
+    n.type === 'Mask' &&
+    n.params.mask.source &&
+    byId.has(n.params.mask.source) &&
+    outputType(byId.get(n.params.mask.source), n.params.mask.sourcePort) === 'Image'
+  );
+}
+function hasImageMask(layer) {
+  const byId = new Map(layer.nodes.map((n) => [n.id, n]));
+  return layer.nodes.some((n) => isImageMask(n, byId));
 }
 export const JOIN_SLOT_LIMIT = 1024;
 export const joinInputKeys = (n) => n.joinInputOrder ?? ['a', 'b'];
@@ -2864,7 +2883,8 @@ export function evaluate(
       } else if (n.type === 'Mask') {
         const source = read('path'),
           shape = read('mask');
-        if (!source || !shape) throw Error('Connect appearance and closed shape to Mask');
+        if (!source || !shape)
+          throw Error('Connect appearance and closed Path or Image alpha to Mask');
         result = maskAppearance(source, shape, {
           invert: read('invert'),
           feather: read('feather'),
@@ -4510,7 +4530,8 @@ export function validate(doc) {
       doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION &&
-      doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION)
+      doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION &&
+      doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -5207,6 +5228,8 @@ export function validate(doc) {
       validateNodePreset(doc, preset);
     }
   }
+  if (sourceSchemaVersion < IMAGE_MASK_SCHEMA_VERSION && doc.layers.some(hasImageMask))
+    throw Error('Image alpha Mask requires schemaVersion 51');
   return doc;
 }
 export function serialize(doc) {
@@ -5242,11 +5265,18 @@ export function renderElement(
     const mask = value.mask;
     const id = `${gradientId}-mask`;
     const definition =
-      mask?.feather > 0
-        ? featherMaskSVG(mask, id, pathData(mask.shape, precision), precision)
-        : mask
-          ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
-          : '';
+      mask?.shape?.kind === 'image'
+        ? imageAlphaMaskSVG(
+            mask,
+            id,
+            renderElement(mask.shape, l, assets, '', `${gradientId}-mask-image`, precision),
+            precision,
+          )
+        : mask?.feather > 0
+          ? featherMaskSVG(mask, id, pathData(mask.shape, precision), precision)
+          : mask
+            ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
+            : '';
     // The mask and its source share the group's local coordinates. A later
     // appearance transform moves both, preserving nested masks and source alpha.
     const matrix = value.matrix.map((number) => formatSvgNumber(number, precision));
@@ -8347,20 +8377,29 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, MASK_FEATHER_SCHEMA_VERSION);
+    if (candidate.layers.some(hasImageMask))
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, IMAGE_MASK_SCHEMA_VERSION);
     validate(candidate);
-    const featherMasks = target.nodes.filter(
-      (n) => n.type === 'Mask' && Object.hasOwn(n.params, 'feather'),
+    const maskSources = new Map(target.nodes.map((n) => [n.id, n]));
+    const checkedMasks = target.nodes.filter(
+      (n) =>
+        n.type === 'Mask' && (Object.hasOwn(n.params, 'feather') || isImageMask(n, maskSources)),
     );
-    if (featherMasks.length) {
+    if (checkedMasks.length) {
       const evaluation = evaluate(
         target,
         resolveFonts(candidate, this.#fonts()),
         candidate.imageAssets,
         candidate,
       );
-      for (const mask of featherMasks) {
+      for (const mask of checkedMasks) {
         const feather = maskFeather(evaluation.parameterValue(mask.id, 'feather'));
-        if (feather > 0 && !mask.bypassed && mask.params.path.source && mask.params.mask.source)
+        if (
+          !mask.bypassed &&
+          mask.params.path.source &&
+          mask.params.mask.source &&
+          (feather > 0 || evaluation.parameterValue(mask.id, 'mask')?.kind === 'image')
+        )
           evaluation.run(mask.id);
       }
     }

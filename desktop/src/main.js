@@ -2024,7 +2024,7 @@ function field(n, key, q) {
     name =
       {
         path: 'Appearance',
-        mask: 'Shape',
+        mask: 'Shape / image alpha',
         invert: 'Invert',
         feather: 'Feather σ (document units)',
       }[key] || key;
@@ -2058,9 +2058,11 @@ function field(n, key, q) {
   }
   let control;
   const connectLabel =
-    n.type === 'Convert to Path' && key === 'path'
-      ? 'Connect Path or PaintedPath…'
-      : `Connect ${q.type}…`;
+    n.type === 'Mask' && key === 'mask'
+      ? 'Connect shape or image alpha…'
+      : n.type === 'Convert to Path' && key === 'path'
+        ? 'Connect Path or PaintedPath…'
+        : `Connect ${q.type}…`;
   let displayed = q.value;
   if (
     isTransform(n) &&
