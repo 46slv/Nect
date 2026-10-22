@@ -121,6 +121,7 @@ import { moveArtworkLayer, moveArtworkLayerBefore } from './artwork-ordering.js'
 import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-multi-move.js';
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
+import { planPointAlignment } from './point-alignment.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
@@ -5739,15 +5740,32 @@ export class CommandSession {
       ).candidate;
     }
     if (['nodes-translate', 'curve-point', 'remap-point'].includes(target.kind)) {
-      assertValue('Vector2', update.delta);
+      const perPoint = update.pointMoves !== undefined;
+      if (perPoint) {
+        if (
+          !['curve-point', 'remap-point'].includes(target.kind) ||
+          target.key !== 'position' ||
+          update.delta !== undefined ||
+          !Array.isArray(update.pointMoves)
+        )
+          throw Error('Invalid per-point movement');
+      } else assertValue('Vector2', update.delta);
+      const pointMoves = new Map();
+      if (perPoint)
+        for (const move of update.pointMoves) {
+          if (!move || typeof move.pointId !== 'string' || pointMoves.has(move.pointId))
+            throw Error('Select distinct point movements');
+          assertValue('Vector2', move.delta);
+          pointMoves.set(move.pointId, move.delta);
+        }
       const candidate = cloneDocument(base),
         layer = candidate.layers.find((l) => l.id === target.layerId);
       if (!layer) throw Error('Missing composition');
       if (layer.locked) throw Error('Composition is locked');
-      const write = (q, original = q?.value) => {
+      const write = (q, original = q?.value, delta = update.delta) => {
         if (!q || q.type !== 'Vector2') throw Error('Missing vector parameter');
         if (q.locked || q.source || q.expression) throw Error('Parameter is locked or driven');
-        q.value = original.map((v, i) => v + update.delta[i]);
+        q.value = original.map((v, i) => v + delta[i]);
       };
       if (target.kind === 'nodes-translate') {
         if (
@@ -5819,12 +5837,17 @@ export class CommandSession {
           (typeof update.independent !== 'boolean' || target.key === 'position')
         )
           throw Error('Independent handles require a handle drag');
+        if (
+          perPoint &&
+          (pointMoves.size !== pointIds.length || pointIds.some((id) => !pointMoves.has(id)))
+        )
+          throw Error('Point movements must match the selected anchors');
         if (target.kind === 'curve-point') {
           const editablePoints = new Map(node.points.map((p) => [p.id, p]));
           for (const pointId of pointIds) {
             const point = editablePoints.get(pointId);
             if (!point) throw Error('Missing point');
-            write(point[target.key]);
+            write(point[target.key], undefined, perPoint ? pointMoves.get(pointId) : update.delta);
             if (update.independent) point.handleType = 'corner';
             if (target.key !== 'position' && point.handleType !== 'corner') {
               const other = point[target.key === 'handleA' ? 'handleB' : 'handleA'];
@@ -5848,15 +5871,27 @@ export class CommandSession {
           ).run(node.params.path.source);
           for (const pointId of pointIds) {
             const existing = node.edits.find((e) => e.pointId === pointId);
+            const original = existing && perPoint ? clone(existing) : null;
             if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
               throw Error('Retained edit is suspended; rebind before dragging');
             const edit = enableRemapPoint(node, input, pointId);
-            write(edit.params[target.key]);
+            const delta = perPoint ? pointMoves.get(pointId) : update.delta;
+            write(edit.params[target.key], undefined, delta);
+            if (perPoint && delta.every((value) => value === 0)) {
+              const index = node.edits.indexOf(edit);
+              if (original) node.edits[index] = original;
+              else node.edits.splice(index, 1);
+            }
           }
         }
       }
       // Returning to the origin must retain sparse Remap edits and the redo branch.
-      if (update.delta.every((value) => value === 0)) return cloneDocument(base);
+      if (
+        (perPoint ? [...pointMoves.values()] : [update.delta]).every((delta) =>
+          delta.every((value) => value === 0),
+        )
+      )
+        return cloneDocument(base);
       validate(candidate);
       assertClosedOffsetChange(
         layer,
@@ -6722,6 +6757,18 @@ export class CommandSession {
       validate(candidate);
       return { candidate, result: {} };
     }
+    if (type === 'align-points') {
+      const pointMoves = planPointAlignment(
+        before,
+        payload.layerId,
+        payload.nodeId,
+        payload.pointIds,
+        payload.action,
+        payload.sourceKey,
+        { fonts: resolveFonts(before, this.#fonts()) },
+      );
+      return this.#commandCandidate('translate-points', { ...payload, pointMoves }, before);
+    }
     if (type === 'translate-points') {
       const item = before.layers
         .find((l) => l.id === payload.layerId)
@@ -6746,7 +6793,12 @@ export class CommandSession {
             pointIds: payload.pointIds,
             key: 'position',
           },
-          { delta: payload.delta },
+          payload.pointMoves === undefined
+            ? { delta: payload.delta }
+            : {
+                pointMoves: payload.pointMoves,
+                ...(payload.delta === undefined ? {} : { delta: payload.delta }),
+              },
         ),
         result: {},
       };
