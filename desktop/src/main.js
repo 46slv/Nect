@@ -3496,7 +3496,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
           )
           .join('')}</select></label>`
       : ''
-  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the document with imported SVG">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -6220,6 +6220,49 @@ function updateRecoveryStatus() {
   }[state.phase];
   el.title = state.error || (state.savedAt ? new Date(state.savedAt).toLocaleString() : '');
   el.classList.toggle('error', state.phase === 'failed');
+  const group = document.querySelector('[data-recovery-failures]'),
+    select = group?.querySelector('[data-recovery-failed-target]'),
+    retry = group?.querySelector('[data-recovery-retry-target]');
+  if (!group || !select || !retry) return;
+  const failures = recovery.failedDocuments,
+    previous = select.value;
+  group.hidden = !failures.length;
+  const summary = group.querySelector('summary');
+  if (summary) summary.textContent = 'Recovery failed (' + failures.length + ')';
+  select.innerHTML = failures
+    .map(
+      (item) =>
+        '<option value="' +
+        esc(item.id) +
+        '">' +
+        esc(item.name) +
+        ' (document ' +
+        item.generation +
+        ') r' +
+        item.failedRevision +
+        ' (saved ' +
+        (item.savedRevision === null ? 'none' : 'r' + item.savedRevision) +
+        ')</option>',
+    )
+    .join('');
+  if (failures.some((item) => item.id === previous)) select.value = previous;
+  const target = failures.find((item) => item.id === select.value);
+  retry.disabled = !target || target.phase !== 'failed';
+  retry.textContent =
+    target?.phase === 'saving' || target?.phase === 'pending'
+      ? 'Retrying ' + target.name
+      : target
+        ? 'Retry ' + target.name
+        : 'Retry document';
+  if (target) {
+    retry.dataset.recoveryRetryId = target.id;
+    retry.dataset.recoveryRetryRevision = String(target.failedRevision);
+  } else {
+    delete retry.dataset.recoveryRetryId;
+    delete retry.dataset.recoveryRetryRevision;
+  }
+  select.title = target?.error || '';
+  retry.title = target?.error || '';
 }
 async function showRecoveryCopies(startup = false) {
   const before = readDocument(),
@@ -13513,7 +13556,7 @@ document.addEventListener('pointercancel', updateLayerDeletionControls);
 // Explicit test/debug API; same model and mutations as the UI.
 window.nect = {
   get recoveryState() {
-    return recovery && { ...recovery.state };
+    return recovery && { ...recovery.state, failedDocuments: recovery.failedDocuments };
   },
   get gestureState() {
     return session.gestureState;
@@ -13577,12 +13620,24 @@ app.addEventListener('keydown', (event) => {
 });
 document.addEventListener('pointercancel', cancelGridOpacity);
 
+app.addEventListener('change', (event) => {
+  if (event.target.matches('[data-recovery-failed-target]')) updateRecoveryStatus();
+});
 app.addEventListener('click', async (event) => {
-  const button = event.target.closest('[data-recovery-open], [data-recovery-retry]');
+  const button = event.target.closest(
+    '[data-recovery-open], [data-recovery-retry], [data-recovery-retry-target]',
+  );
   if (!button || !recovery) return;
   try {
     if (button.hasAttribute('data-recovery-open')) await showRecoveryCopies();
-    else if (recovery.state.phase === 'failed') await recovery.retry();
+    else if (button.hasAttribute('data-recovery-retry-target')) {
+      const id = button.dataset.recoveryRetryId,
+        revision = Number(button.dataset.recoveryRetryRevision);
+      if (!(await recovery.retry(id, revision)))
+        notify('Recovery not saved; select a failed document', true);
+    } else if (recovery.state.phase === 'failed') {
+      await recovery.retry(recovery.current.retryId, recovery.current.failedRevision ?? undefined);
+    }
   } catch (error) {
     notify(error.message || String(error), true);
   }

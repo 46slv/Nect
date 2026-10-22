@@ -6,26 +6,52 @@ export class RecoveryAutosave {
     this.queue = [];
     this.active = null;
     this.draining = null;
+    this.failures = new Map();
+    this.contextSequence = 0;
     this.state = { phase: 'ready', savedRevision: null };
   }
   report(context, state) {
-    if (context !== this.current) return;
-    this.state = {
-      savedRevision: context.savedRevision,
-      requestedRevision: context.revision,
-      savedAt: context.savedAt,
-      ...state,
-    };
+    if (context === this.current)
+      this.state = {
+        savedRevision: context.savedRevision,
+        requestedRevision: context.revision,
+        savedAt: context.savedAt,
+        ...state,
+      };
+    this.publish();
+  }
+  publish() {
     try {
       this.status(this.state);
     } catch {}
   }
+  get failedDocuments() {
+    return [...this.failures.values()].map((context) => ({
+      id: context.retryId,
+      generation: context.generation,
+      name: context.name,
+      failedRevision: context.failedRevision,
+      requestedRevision: context.revision,
+      savedRevision: context.savedRevision,
+      error: context.error,
+      phase: this.active === context ? 'saving' : context.pending ? 'pending' : 'failed',
+    }));
+  }
   observe({ revision = 0, ...snapshot }) {
     snapshot = { ...snapshot, revision };
     let context = this.current;
+    // A delayed observation cannot replace a newer lifetime or committed revision.
+    if (
+      context &&
+      (snapshot.generation < context.generation ||
+        (snapshot.generation === context.generation && revision < context.revision))
+    )
+      return false;
     if (!context || context.generation !== snapshot.generation) {
       this.current = {
         ...snapshot,
+        retryId: String(++this.contextSequence),
+        failedRevision: null,
         pending: false,
         token: null,
         savedRevision: null,
@@ -77,7 +103,11 @@ export class RecoveryAutosave {
         context.token ??= await this.begin();
         context.savedAt = await this.write({ id: context.token, ...snapshot });
         context.savedRevision = snapshot.revision;
-        context.error = null;
+        if (context.failedRevision === null || snapshot.revision >= context.failedRevision) {
+          context.error = null;
+          context.failedRevision = null;
+          this.failures.delete(context.retryId);
+        }
         if (context.sourceId) {
           await this.acknowledge(context.sourceId);
           context.sourceId = null;
@@ -85,6 +115,8 @@ export class RecoveryAutosave {
         this.report(context, { phase: context.pending ? 'pending' : 'saved' });
       } catch (error) {
         context.error = String(error.message || error);
+        context.failedRevision = snapshot.revision;
+        this.failures.set(context.retryId, context);
         this.report(context, {
           phase: 'failed',
           failedRevision: snapshot.revision,
@@ -92,6 +124,7 @@ export class RecoveryAutosave {
         });
       } finally {
         this.active = null;
+        this.publish();
       }
     }
   }
@@ -108,8 +141,17 @@ export class RecoveryAutosave {
     this.request();
     return this.flush();
   }
-  retry() {
-    this.request();
-    return this.flush();
+  async retry(id = this.current?.retryId, expectedFailedRevision) {
+    const context = this.current?.retryId === id ? this.current : this.failures.get(id);
+    if (!context) return false;
+    if (
+      expectedFailedRevision !== undefined &&
+      (!this.failures.has(id) || context.failedRevision !== expectedFailedRevision)
+    )
+      return false;
+    // Retry always uses the context's latest contents. Joining a newer/duplicate
+    // request must not queue a second write of an older captured failure payload.
+    if (!context.pending && this.active !== context) this.request(context);
+    return this.flush(context);
   }
 }
