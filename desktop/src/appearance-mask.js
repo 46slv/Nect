@@ -3,6 +3,7 @@ import { formatSvgNumber, formatSvgExtent } from './svg-number-format.js';
 
 export const MASK_FEATHER_SCHEMA_VERSION = 50;
 export const IMAGE_MASK_SCHEMA_VERSION = 51;
+export const MASK_LUMINANCE_SCHEMA_VERSION = 52;
 export const MAX_MASK_FEATHER = 256;
 export function maskFeather(value) {
   if (!Number.isFinite(value) || value < 0 || value > MAX_MASK_FEATHER)
@@ -24,7 +25,8 @@ export function featherMaskSVG(mask, id, shapeData, precision) {
   return `<defs><filter id="${filterId}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" ${region} color-interpolation-filters="sRGB"><feGaussianBlur in="SourceAlpha" stdDeviation="${formatSvgNumber(maskFeather(mask.feather))}" result="soft" ${region}/>${inverse}<feFlood flood-color="white" flood-opacity="1" result="white" ${region}/><feComposite in="white" in2="${mask.invert ? 'coverage' : 'soft'}" operator="in" ${region}/></filter><mask id="${esc(id)}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" ${region} style="mask-type:luminance" color-interpolation="sRGB"><path d="${esc(shapeData)}" fill="white" fill-rule="nonzero" filter="url(#${filterId})"/></mask></defs>`;
 }
 
-// Image RGB never enters coverage. The transparent rectangle gives inversion a
+// Optional luminance is evaluated in the existing sRGB filter space.
+// The transparent rectangle gives inversion a
 // finite domain even when the Image is transparent or lies outside source bounds.
 export function imageAlphaMaskSVG(mask, id, imageMarkup, precision) {
   const esc = (value) =>
@@ -36,15 +38,19 @@ export function imageAlphaMaskSVG(mask, id, imageMarkup, precision) {
     filterId = esc(id + '-alpha'),
     region = `x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}"`,
     sigma = maskFeather(mask.feather ?? 0),
+    prepare = mask.luminance
+      ? `<feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.2126 0.7152 0.0722 0 0" result="luminance" ${region}/><feComposite in="luminance" in2="SourceAlpha" operator="in" result="material-alpha" ${region}/>`
+      : '',
+    inputAlpha = mask.luminance ? 'material-alpha' : 'SourceAlpha',
     blur =
       sigma > 0
-        ? `<feGaussianBlur in="SourceAlpha" stdDeviation="${formatSvgNumber(sigma)}" result="soft" ${region}/>`
+        ? `<feGaussianBlur in="${inputAlpha}" stdDeviation="${formatSvgNumber(sigma)}" result="soft" ${region}/>`
         : '',
-    alpha = sigma > 0 ? 'soft' : 'SourceAlpha',
+    alpha = sigma > 0 ? 'soft' : inputAlpha,
     inverse = mask.invert
       ? `<feComponentTransfer in="${alpha}" result="coverage" ${region}><feFuncA type="linear" slope="-1" intercept="1"/></feComponentTransfer>`
       : '';
-  return `<defs><filter id="${filterId}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" ${region} color-interpolation-filters="sRGB">${blur}${inverse}<feFlood flood-color="white" flood-opacity="1" result="white" ${region}/><feComposite in="white" in2="${mask.invert ? 'coverage' : alpha}" operator="in" ${region}/></filter><mask id="${esc(id)}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" ${region} style="mask-type:luminance" color-interpolation="sRGB"><g filter="url(#${filterId})"><rect ${region} fill="transparent"/>${imageMarkup}</g></mask></defs>`;
+  return `<defs><filter id="${filterId}" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" ${region} color-interpolation-filters="sRGB">${prepare}${blur}${inverse}<feFlood flood-color="white" flood-opacity="1" result="white" ${region}/><feComposite in="white" in2="${mask.invert ? 'coverage' : alpha}" operator="in" ${region}/></filter><mask id="${esc(id)}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" ${region} style="mask-type:luminance" color-interpolation="sRGB"><g filter="url(#${filterId})"><rect ${region} fill="transparent"/>${imageMarkup}</g></mask></defs>`;
 }
 
 function strokePadding(value, scale = 1) {
@@ -59,8 +65,13 @@ function strokePadding(value, scale = 1) {
         (stroke.join === 'miter' ? Math.max(1, stroke.miterLimit || 4) : 1)
     : 0;
 }
-export function maskAppearance(source, shape, { invert, prefix, bounds, feather = 0 }) {
+export function maskAppearance(
+  source,
+  shape,
+  { invert, prefix, bounds, feather = 0, luminance = false },
+) {
   maskFeather(feather);
+  if (typeof luminance !== 'boolean') throw Error('Image mask mode must be Boolean');
   if (!source || (!Array.isArray(source.contours) && source.kind !== 'image'))
     throw Error('Connect Image or Composition appearance to Mask');
   const imageMask = shape?.kind === 'image';
@@ -75,9 +86,8 @@ export function maskAppearance(source, shape, { invert, prefix, bounds, feather 
       shape.size.length !== 2 ||
       !shape.size.every((v) => Number.isFinite(v) && v > 0 && v <= 100000)
     )
-      throw Error('Invalid Image alpha mask');
-  } else if (!Array.isArray(shape?.contours))
-    throw Error('Connect a closed Path or Image alpha to Mask');
+      throw Error('Invalid Image mask');
+  } else if (!Array.isArray(shape?.contours)) throw Error('Connect a closed Path or Image to Mask');
   if (typeof invert !== 'boolean') throw Error('Mask invert must be Boolean');
   if (
     !imageMask &&
@@ -108,6 +118,7 @@ export function maskAppearance(source, shape, { invert, prefix, bounds, feather 
     invert,
     region,
     ...(feather > 0 ? { feather } : {}),
+    ...(imageMask && luminance ? { luminance: true } : {}),
   };
   const blockers = appearanceExportBlockers([source, shape]);
   if (blockers.length) group.exportBlockers = blockers;

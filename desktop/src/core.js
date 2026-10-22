@@ -25,6 +25,7 @@ import {
   imageAlphaMaskSVG,
   MASK_FEATHER_SCHEMA_VERSION,
   IMAGE_MASK_SCHEMA_VERSION,
+  MASK_LUMINANCE_SCHEMA_VERSION,
 } from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
 import {
@@ -1323,6 +1324,8 @@ export function parameters(n) {
         : Object.entries(n.params);
   if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
     entries.push(['feather', p('Scalar', 0)]);
+  if (n.type === 'Mask' && !Object.hasOwn(n.params, 'luminance'))
+    entries.push(['luminance', p('Boolean', false)]);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
@@ -2883,11 +2886,11 @@ export function evaluate(
       } else if (n.type === 'Mask') {
         const source = read('path'),
           shape = read('mask');
-        if (!source || !shape)
-          throw Error('Connect appearance and closed Path or Image alpha to Mask');
+        if (!source || !shape) throw Error('Connect appearance and closed Path or Image to Mask');
         result = maskAppearance(source, shape, {
           invert: read('invert'),
           feather: read('feather'),
+          luminance: read('luminance'),
           prefix: n.id,
           bounds: pathBounds(source),
         });
@@ -4347,8 +4350,8 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     key === booleanPendingInputKey &&
     !to.booleanInputOrder &&
     !Object.hasOwn(to.params, key);
-  const virtualMaskFeather =
-    to?.type === 'Mask' && key === 'feather' && !Object.hasOwn(to.params, key);
+  const virtualMaskParameter =
+    to?.type === 'Mask' && ['feather', 'luminance'].includes(key) && !Object.hasOwn(to.params, key);
   if (!from || !q) throw Error('Missing socket');
   if (validating && pendingBooleanInput) throw Error('Invalid Boolean input order');
   if (q.locked && !validating) throw Error('Parameter is locked');
@@ -4386,7 +4389,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     n.paintMode,
     Object.entries(n.params).map(([key, q]) => [key, q.type]),
   ]);
-  if (virtualMaskFeather) to.params[key] = q;
+  if (virtualMaskParameter) to.params[key] = q;
   if (pendingBooleanInput) {
     to.booleanInputOrder = ['a', 'b', key];
     to.params[key] = q;
@@ -4409,7 +4412,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
       delete to.params[key];
       delete to.booleanInputOrder;
     }
-    if (virtualMaskFeather) delete to.params[key];
+    if (virtualMaskParameter) delete to.params[key];
     if (old) q.source = old;
     else delete q.source;
     if (oldPort !== undefined) q.sourcePort = oldPort;
@@ -4531,7 +4534,8 @@ export function validate(doc) {
       doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION &&
       doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION &&
-      doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION)
+      doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION &&
+      doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4880,6 +4884,12 @@ export function validate(doc) {
         param(n.params.feather, 'Scalar');
         maskFeather(n.params.feather.value);
       }
+      const extraMaskLuminance = n.type === 'Mask' && Object.hasOwn(n.params, 'luminance');
+      if (extraMaskLuminance) {
+        if (sourceSchemaVersion < MASK_LUMINANCE_SCHEMA_VERSION)
+          throw Error('Mask Luminance requires schemaVersion 52');
+        param(n.params.luminance, 'Boolean');
+      }
       if ((extraTransform.length || n.type === 'Vector Transform') && sourceSchemaVersion < 11)
         throw Error('Extended Transform requires schemaVersion 11');
       if (
@@ -4887,6 +4897,7 @@ export function validate(doc) {
         Object.keys(definitions[n.type]).length +
           extraTransform.length +
           (extraMaskFeather ? 1 : 0) +
+          (extraMaskLuminance ? 1 : 0) +
           (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0) +
           (n.type === 'Boolean' && n.booleanInputOrder ? n.booleanInputOrder.length - 2 : 0)
       )
@@ -7483,18 +7494,19 @@ export class CommandSession {
     const transformNode = target.nodes.find((n) => n.id === payload.nodeId);
     if (
       transformNode?.type === 'Mask' &&
-      payload.key === 'feather' &&
-      !Object.hasOwn(transformNode.params, 'feather')
+      ['feather', 'luminance'].includes(payload.key) &&
+      !Object.hasOwn(transformNode.params, payload.key)
     ) {
-      const virtual = p('Scalar', 0);
+      const virtual = payload.key === 'feather' ? p('Scalar', 0) : p('Boolean', false);
       if (
-        (['set-parameter', 'set-parameter-base'].includes(type) && payload.value === 0) ||
+        (['set-parameter', 'set-parameter-base'].includes(type) &&
+          payload.value === virtual.value) ||
         (type === 'set-parameter-lock' && payload.locked === false) ||
         (type === 'set-parameter-expression' && payload.expression === '') ||
         type === 'disconnect'
       )
         return { candidate, result: {} };
-      transformNode.params.feather = virtual;
+      transformNode.params[payload.key] = virtual;
     }
     if (transformNode?.characterArrangement) {
       const check = evaluate(
@@ -8379,11 +8391,20 @@ export class CommandSession {
       candidate.schemaVersion = Math.max(candidate.schemaVersion, MASK_FEATHER_SCHEMA_VERSION);
     if (candidate.layers.some(hasImageMask))
       candidate.schemaVersion = Math.max(candidate.schemaVersion, IMAGE_MASK_SCHEMA_VERSION);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Mask' && Object.hasOwn(n.params, 'luminance')),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, MASK_LUMINANCE_SCHEMA_VERSION);
     validate(candidate);
     const maskSources = new Map(target.nodes.map((n) => [n.id, n]));
     const checkedMasks = target.nodes.filter(
       (n) =>
-        n.type === 'Mask' && (Object.hasOwn(n.params, 'feather') || isImageMask(n, maskSources)),
+        n.type === 'Mask' &&
+        (Object.hasOwn(n.params, 'feather') ||
+          Object.hasOwn(n.params, 'luminance') ||
+          isImageMask(n, maskSources)),
     );
     if (checkedMasks.length) {
       const evaluation = evaluate(
@@ -8394,6 +8415,7 @@ export class CommandSession {
       );
       for (const mask of checkedMasks) {
         const feather = maskFeather(evaluation.parameterValue(mask.id, 'feather'));
+        evaluation.parameterValue(mask.id, 'luminance');
         if (
           !mask.bypassed &&
           mask.params.path.source &&

@@ -17,7 +17,7 @@ image effects; transparent and outside pixels are not adopted. Driven fields use
 AI subject extraction, spill removal and video are not included.
 
 Add **Mask** after an Image, Keyer or **Composition Reference**. Connect a
-closed Path or an Image/Keyer output to **Shape / image alpha**. Path inputs
+closed Path or an Image/Keyer output to **Shape / image**. Path inputs
 use nonzero winding and ignore paint; Image inputs use alpha only, ignoring
 RGB. Image position/size use the same document coordinates as the appearance.
 **Invert** complements coverage. Source paint, stroke order and alpha are
@@ -50,3 +50,9 @@ Verification: `node --test tests/image-effects.test.js` and
 production bundle/CSP and browser controls, checking alpha pixels, PNG export,
 Bypass, inversion, Undo and exact SVG after JSON reopen. Native Windows chooser,
 manual IME and high-DPI interaction remain separate acceptance items.
+
+**Image mode** defaults to **Alpha**. **Luminance (sRGB)** instead uses the
+material's renderer-decoded sRGB brightness times its alpha, then Feather and
+Invert. Closed Path masks retain geometric coverage. See
+[the mode contract](mask-luminance.md) and the
+[editable comparison](../examples/mask-luminance/README-ja.md).
