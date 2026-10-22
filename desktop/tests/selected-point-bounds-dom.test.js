@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { node, serialize } from '../src/core.js';
 import { compoundFixture } from './fixtures/contour-navigation.js';
+import { directMarqueeFixture } from './fixtures/direct-anchor-marquee.js';
 
 test('selected-point bounds summary', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
@@ -105,6 +106,19 @@ test('selected-point bounds summary', async (t) => {
         Number(el.title),
       ]),
     );
+  const artboardSummary = (region = '.graph') =>
+    $(
+      win.boundsOwner()
+        ? `${region} [data-point-artboard-bounds="${win.boundsOwner()}"]`
+        : `${region} [data-point-artboard-bounds]`,
+    );
+  const artboardValues = (region = '.graph') =>
+    Object.fromEntries(
+      [...artboardSummary(region).querySelectorAll('[data-point-artboard-bound]')].map((el) => [
+        el.dataset.pointArtboardBound,
+        Number(el.title),
+      ]),
+    );
   const expected = (f, ids) => {
     const pts = f.path.points.filter((p) => ids.includes(p.id)).map((p) => p.position.value);
     const x = pts.map((p) => p[0]),
@@ -128,11 +142,21 @@ test('selected-point bounds summary', async (t) => {
       assert.match(summary().textContent, /2 anchors.*Node-local.*document units/);
       assert.deepEqual(values(), expected(f, win.deltaState().ids));
       assert.deepEqual(values('.inspector'), values());
+      assert.deepEqual(artboardValues(), values());
+      assert.deepEqual(artboardValues('.inspector'), artboardValues());
+      assert.match(artboardSummary().textContent, /Artboard.*document units \(px\)/);
       assert.equal(summary().querySelectorAll('input,button,select').length, 0);
+      assert.equal(artboardSummary().querySelectorAll('input,button,select').length, 0);
       const scope = $('.graph [data-point-panel-contour]');
       scope.value = 'scope-hole';
       scope.dispatchEvent(new win.Event('change', { bubbles: true }));
       assert.deepEqual(values(), expected(f, win.deltaState().ids));
+      assert.deepEqual(artboardValues(), values());
+      const unit = $('[data-artboard-unit]');
+      unit.value = 'mm';
+      unit.dispatchEvent(new win.Event('change', { bubbles: true }));
+      assert.match(artboardSummary().textContent, /document units \(px\)/);
+      assert.deepEqual(artboardValues(), values());
       assert.equal(saved(), before);
       assert.deepEqual(win.nect.commandState, state);
       pick(f.path.contours[1].points[0]);
@@ -141,6 +165,7 @@ test('selected-point bounds summary', async (t) => {
       assert.match(summary().textContent, /1 anchor\b/);
       pick(f.path.contours[1].points[0], true);
       assert.equal(summary().dataset.state, 'empty');
+      assert.equal(artboardSummary().dataset.state, 'empty');
       assert.match(summary().textContent, /No points selected/);
       assert.equal(summary().querySelector('[data-point-bound]'), null);
       assert.equal(saved(), before);
@@ -161,10 +186,13 @@ test('selected-point bounds summary', async (t) => {
       minY: original.minY - 8,
       maxY: original.maxY - 8,
     });
+    assert.deepEqual(artboardValues(), moved);
     $('[data-action="undo"]').click();
     assert.deepEqual(values(), original);
+    assert.deepEqual(artboardValues(), original);
     $('[data-action="redo"]').click();
     assert.deepEqual(values(), moved);
+    assert.deepEqual(artboardValues(), moved);
     const pointId = ids[0];
     const field = $(`.graph [data-key="${pointId}.position"] [data-value][data-axis="0"]`);
     field.value = '-30';
@@ -183,8 +211,10 @@ test('selected-point bounds summary', async (t) => {
       state = win.nect.commandState;
     win.forceBounds(f.path.id, [f.path.contours[0].points[0], 'missing-point']);
     assert.equal(summary().dataset.state, 'unavailable');
+    assert.equal(artboardSummary().dataset.state, 'unavailable');
     assert.match(summary().textContent, /Selection changed/);
     assert.equal(summary().querySelector('[data-point-bound]'), null);
+    assert.equal(artboardSummary().querySelector('[data-point-artboard-bound]'), null);
     assert.equal(saved(), before);
     assert.deepEqual(win.nect.commandState, state);
     for (const property of ['locked', 'expression']) {
@@ -193,6 +223,7 @@ test('selected-point bounds summary', async (t) => {
         property === 'locked' ? true : 'value; value';
       load(f);
       assert.equal(summary().dataset.state, 'unavailable');
+      assert.equal(artboardSummary().dataset.state, 'unavailable');
       assert.match(
         summary().textContent,
         property === 'locked' ? /Locked position/ : /Driven position/,
@@ -210,6 +241,14 @@ test('selected-point bounds summary', async (t) => {
     assert.equal(document.activeElement, editor);
     assert.equal(values().width, 0);
     assert.equal(values().height, 0);
+    assert.deepEqual(artboardValues(), values());
+    win.forceBounds(f.path.id, [f.path.contours[1].points[1]]);
+    assert.equal(document.activeElement, editor);
+    assert.deepEqual(artboardValues(), values());
+    assert.equal(
+      document.querySelectorAll(`.graph [data-point-artboard-bounds="${f.path.id}"]`).length,
+      1,
+    );
     assert.match(summary().textContent, /1 anchor\b/);
     assert.equal(saved(), before);
     assert.deepEqual(win.nect.commandState, state);
@@ -226,12 +265,106 @@ test('selected-point bounds summary', async (t) => {
       inspect(remap.id);
       pick(f.path.contours[0].points[0]);
       assert.equal(summary().dataset.state, 'unavailable');
+      assert.equal(artboardSummary().dataset.state, 'unavailable');
       assert.match(summary().textContent, /Owned points only/);
       assert.equal(summary().querySelector('[data-point-bound]'), null);
       win.nect.load(serialize(f.doc));
       inspect(f.path.id);
       assert.equal(summary().dataset.state, 'empty');
+      assert.equal(artboardSummary().dataset.state, 'empty');
       assert.match(summary().textContent, /0 anchors/);
+    },
+  );
+  await t.test(
+    'Artboard bounds follow rotation/nonuniform scale and Transform Undo/Redo without changing local values',
+    () => {
+      const f = directMarqueeFixture({ transformed: true });
+      f.curve.collapsed = false;
+      f.curve.points[0].position.value[0] = 100.1234567890123;
+      win.nect.load(serialize(f.doc));
+      inspect(f.curve.id);
+      pick('anchor-0');
+      pick('anchor-1', true);
+      pick('anchor-2', true);
+      const before = saved(),
+        state = win.nect.commandState,
+        local = values(),
+        original = artboardValues();
+      const expectedArtboard = (rotation) => {
+        const radians = (rotation * Math.PI) / 180,
+          q = f.transform.params;
+        const positions = f.curve.points.slice(0, 3).map((p) => {
+          const x = (p.position.value[0] - q.anchor.value[0]) * q.scaleWidth.value;
+          const y = (p.position.value[1] - q.anchor.value[1]) * q.scale.value;
+          return [
+            x * Math.cos(radians) - y * Math.sin(radians) + q.position.value[0],
+            x * Math.sin(radians) + y * Math.cos(radians) + q.position.value[1],
+          ];
+        });
+        const x = positions.map((p) => p[0]),
+          y = positions.map((p) => p[1]);
+        return {
+          minX: Math.min(...x),
+          maxX: Math.max(...x),
+          width: Math.max(...x) - Math.min(...x),
+          minY: Math.min(...y),
+          maxY: Math.max(...y),
+          height: Math.max(...y) - Math.min(...y),
+        };
+      };
+      const check = (expected) => {
+        for (const [key, value] of Object.entries(expected)) {
+          const output = artboardSummary().querySelector(`[data-point-artboard-bound="${key}"]`);
+          assert.ok(Math.abs(Number(output.title) - value) < 1e-10);
+          assert.equal(output.textContent, String(Number(Number(output.title).toPrecision(6))));
+        }
+        assert.deepEqual(artboardValues('.inspector'), artboardValues());
+        assert.deepEqual(values(), local);
+      };
+      check(expectedArtboard(35));
+      assert.notDeepEqual(original, local);
+      assert.equal(saved(), before);
+      assert.deepEqual(win.nect.commandState, state);
+      win.nect.dispatch({
+        ...win.nect.commandState,
+        type: 'set-transform-control',
+        payload: { layerId: f.layer.id, nodeId: f.transform.id, key: 'rotation', value: 63 },
+      });
+      check(expectedArtboard(63));
+      const changed = artboardValues();
+      $('[data-action="undo"]').click();
+      // Generic command Undo keeps its existing edit-selection reset behavior.
+      assert.equal(artboardSummary().dataset.state, 'empty');
+      assert.equal(artboardSummary().querySelector('[data-point-artboard-bound]'), null);
+      pick('anchor-0');
+      pick('anchor-1', true);
+      pick('anchor-2', true);
+      check(expectedArtboard(35));
+      $('[data-action="redo"]').click();
+      assert.equal(artboardSummary().dataset.state, 'empty');
+      pick('anchor-0');
+      pick('anchor-1', true);
+      pick('anchor-2', true);
+      assert.deepEqual(artboardValues(), changed);
+    },
+  );
+  await t.test(
+    'unsupported downstream route keeps local measurements and gives the existing Artboard reason',
+    () => {
+      const f = compoundFixture([8, 5, 7, 4]),
+        repeat = node('Geometry Repeater');
+      repeat.params.path.source = f.path.id;
+      f.layer.nodes.splice(1, 0, repeat);
+      f.fill.params.path.source = repeat.id;
+      load(f);
+      const before = saved(),
+        state = win.nect.commandState;
+      assert.equal(summary().dataset.state, 'ready');
+      assert.equal(artboardSummary().dataset.state, 'unavailable');
+      assert.match(artboardSummary().textContent, /generated or combined paths are protected/);
+      assert.equal(artboardSummary().querySelector('[data-point-artboard-bound]'), null);
+      assert.equal(saved(), before);
+      assert.deepEqual(win.nect.commandState, state);
     },
   );
 });

@@ -75,7 +75,7 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       (_, path) => `from '${new URL('../src/' + path.slice(2), import.meta.url)}'`,
     );
   source +=
-    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, same: sameArtworkMove };';
+    '\nwindow.artworkUI = () => ({activeLayer, selected, artworkTarget, selection: [...selection], past: history.past.length, future: history.future.length, drag: drag?.type, tool, draft: penDraft?.layer, pointIds: [...pointSelection.ids], pointFocus}); window.markPenSaved = () => { savedSnapshot = serialize(history.doc); }; window.curveMoveProbe = { resolve: artworkMove, same: sameArtworkMove };';
   // These suites synchronously create/evaluate Text after startup. Await the
   // font condition inside the test module, rather than racing filesystem I/O.
   source +=
@@ -375,23 +375,59 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       assert.equal(ui().artworkTarget, null);
       const before = structuredClone(win.nect.document),
         p = l.nodes[0].points[1];
+      const assertEditContext = () => {
+        assert.equal(ui().selected, id);
+        assert.equal(ui().artworkTarget, null);
+        assert.deepEqual(ui().pointIds, [p.id]);
+        assert.deepEqual(ui().pointFocus, { nodeId: id, pointId: p.id });
+        assert.ok($('[data-node-stage-move]'));
+      };
+      const historyBefore = ui().past;
       fire($(`.vertex[data-point="${p.id}"]`), 'pointerdown', p.position.value);
-      fire(document, 'pointerup');
-      fire($(`[data-point="${p.id}"][data-handle="handleB"]`), 'pointerdown', [280, 210]);
+      fire(document, 'pointerup', p.position.value);
+      assert.equal(ui().past, historyBefore, 'anchor selection is not an authored edit');
+      assertEditContext();
+      const handle = () => $(`[data-point="${p.id}"][data-handle="handleB"]`);
+      for (const ending of ['pointercancel', 'return-to-origin']) {
+        fire(handle(), 'pointerdown', [280, 210], { altKey: true });
+        fire(document, 'pointermove', [290, 220], { altKey: true });
+        if (ending === 'return-to-origin')
+          fire(document, 'pointermove', [280, 210], { altKey: true });
+        else fire(document, 'pointercancel', [290, 220]);
+        fire(document, 'pointerup', [280, 210]);
+        assert.deepEqual(win.nect.document, before, ending);
+        assert.equal(ui().past, historyBefore, `${ending} adds no history`);
+        assert.equal(ui().future, 0);
+        assertEditContext();
+      }
+      fire(handle(), 'pointerdown', [280, 210], { altKey: true });
       fire(document, 'pointermove', [290, 220], { altKey: true });
-      fire(document, 'pointerup');
-      const n = win.nect.document.layers.at(-1).nodes[0];
+      fire(document, 'pointerup', [290, 220]);
+      const n = win.nect.document.layers.at(-1).nodes[0],
+        edited = structuredClone(win.nect.document);
       assert.deepEqual(
         n.points.map((pt) => pt.position),
         before.layers.at(-1).nodes[0].points.map((pt) => pt.position),
       );
-      assert.notDeepEqual(n.points[1].handleB, before.layers.at(-1).nodes[0].points[1].handleB);
+      assert.deepEqual(n.points[1].handleB.value, [40, 40]);
+      assert.deepEqual(n.points[1].handleA, before.layers.at(-1).nodes[0].points[1].handleA);
+      assert.equal(ui().past, historyBefore + 1, 'handle drag is one transaction');
       click('[data-action="undo"]');
       assert.deepEqual(win.nect.document, before);
+      assert.equal(ui().past, historyBefore);
+      assertEditContext();
+      click('[data-action="redo"]');
+      assert.deepEqual(win.nect.document, edited);
+      assert.equal(ui().past, historyBefore + 1);
+      assertEditContext();
+      click('[data-action="undo"]');
+      assert.deepEqual(win.nect.document, before);
+      assertEditContext();
       fire($('[data-node-stage-move]'), 'pointerdown', [180, 180]);
       fire(document, 'pointermove', [190, 200], { altKey: true });
       fire(document, 'pointerup');
       movedCurve(before, [10, 20]);
+      assert.equal(ui().past, historyBefore + 1, 'source-stage move is one transaction');
       assert.equal(ui().artworkTarget, null);
     },
   );

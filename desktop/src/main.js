@@ -13,6 +13,7 @@ import { standardLigatureSupport, textFeatureReason } from './opentype-features.
 import { initialLayerId } from './initial-layer.js';
 import { hasDotControls } from './dither-controls.js';
 import { repeaterControls } from './repeater.js';
+import { angleDialIndicator, angleDialPointer, advanceAngleDial } from './repeater-angle-dial.js';
 import { svgPartTarget } from './svg-part.js';
 import {
   directSelectionSource,
@@ -42,7 +43,7 @@ import { captureFocus, restoreFocus } from './focus.js';
 import { graphemeDeletionRange, graphemeMovementCorrection } from './grapheme-editing.js';
 import { textToolGroup } from './text-tool.js';
 import { handlePolar, commitHandlePolar } from './handle-polar.js';
-import { selectedPointBounds } from './selected-point-bounds.js';
+import { selectedPointBounds, selectedPointArtboardBounds } from './selected-point-bounds.js';
 import './style.css';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { anchorMarqueeIds } from './direct-anchor-marquee.js';
@@ -1574,6 +1575,185 @@ function numericAttributes(n, key) {
   const [min, max] = numericLimits(n, key);
   return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Auto Handles' && key === 'strength') || (n.type === 'Expand Stroke' && ['startWidthMultiplier', 'endWidthMultiplier'].includes(key)) || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
 }
+// Presentation scopes reject detached or revision-stale controls without adding model state.
+const repeaterAngleScopes = new WeakMap();
+function repeaterAngleControl(n, q) {
+  const base = q.source || q.expression ? ' base' : '',
+    disabled = current().locked || q.locked,
+    angle = angleDialIndicator(q.value);
+  return `<button type="button" class="repeater-angle-dial" data-repeater-angle role="slider" aria-label="${esc(n.name + ' Rotation' + base + ' dial')}" aria-valuemin="${-Number.MAX_VALUE}" aria-valuemax="${Number.MAX_VALUE}" aria-valuenow="${q.value}" aria-valuetext="${q.value} degrees${base}; indicator ${angle} degrees" aria-disabled="${!!disabled}" title="0° right; clockwise positive. Arrow keys 1°; Shift 10°; Alt 0.1°." ${disabled ? 'disabled' : ''}><span class="angle-dial-face" aria-hidden="true"><span data-angle-indicator style="transform:rotate(${angle}deg)"></span></span></button>`;
+}
+function repeaterAngleContext(control) {
+  const scope = repeaterAngleScopes.get(control),
+    state = session.state,
+    field = control.closest('.field'),
+    n = current().nodes.find((n) => n.id === field?.dataset.node),
+    q = n?.params.rotation;
+  if (
+    !scope ||
+    scope.owner !== session ||
+    scope.envelope.sessionId !== state.sessionId ||
+    scope.envelope.expectedRevision !== state.expectedRevision ||
+    scope.layerId !== current().id ||
+    !control.isConnected ||
+    control.disabled ||
+    current().locked ||
+    n?.type !== 'Geometry Repeater' ||
+    field.dataset.key !== 'rotation' ||
+    q?.type !== 'Scalar' ||
+    q.locked ||
+    !Number.isFinite(q.value)
+  )
+    return null;
+  return {
+    n,
+    q,
+    target: {
+      kind: 'parameter',
+      layerId: scope.layerId,
+      nodeId: n.id,
+      key: 'rotation',
+      authoredBase: true,
+    },
+  };
+}
+function startRepeaterAngle(control, event) {
+  if (!repeaterAngleContext(control) || deletionBusy() || variableAction || osTextDrafts.size)
+    return;
+  // Settle a typed rotation through its existing change command before capturing
+  // the gesture baseline. Do not depend on browser-specific focus/change ordering.
+  const active = document.activeElement,
+    row = control.closest('.field');
+  if (
+    active?.closest('.field') === row &&
+    active.matches('input[data-value], input[data-base]') &&
+    active.value !== active.defaultValue
+  ) {
+    const raw = active.value,
+      expected = Number(raw),
+      scope = repeaterAngleScopes.get(control),
+      before = session.state;
+    active.dispatchEvent(new window.Event('change', { bubbles: true }));
+    const after = session.state,
+      q = current().nodes.find((n) => n.id === row.dataset.node)?.params.rotation;
+    if (
+      !raw.trim() ||
+      !Number.isFinite(expected) ||
+      q?.value !== expected ||
+      before.sessionId !== after.sessionId ||
+      after.expectedRevision < before.expectedRevision ||
+      after.expectedRevision > before.expectedRevision + 1
+    )
+      return;
+    active.defaultValue = active.value;
+    repeaterAngleScopes.set(control, { ...scope, envelope: after });
+    showRepeaterAngle(control, expected);
+  }
+  const beforeFocus = repeaterAngleContext(control),
+    focusScope = repeaterAngleScopes.get(control);
+  control.focus({ preventScroll: true });
+  // A different numeric field can emit its native change while losing focus.
+  // Admit only that one revision, and never rebase a changed rotation target.
+  if (
+    beforeFocus &&
+    active?.matches('input[type="number"], input[data-numeric-expression]') &&
+    active.closest('.field[data-node]') &&
+    focusScope.owner === session &&
+    focusScope.envelope.sessionId === session.state.sessionId &&
+    session.state.expectedRevision === focusScope.envelope.expectedRevision + 1 &&
+    JSON.stringify(current().nodes.find((n) => n.id === beforeFocus.n.id)?.params.rotation) ===
+      JSON.stringify(beforeFocus.q)
+  )
+    repeaterAngleScopes.set(control, { ...focusScope, envelope: session.state });
+  const context = repeaterAngleContext(control);
+  if (!context) return;
+  const gesture = beginGraphGesture(context.target);
+  if (!gesture) return;
+  drag = {
+    type: 'repeater-angle',
+    capture: control,
+    pointerId: event.pointerId,
+    gesture,
+    original: context.q.value,
+    angle: angleDialPointer(control.getBoundingClientRect(), [event.clientX, event.clientY]),
+    delta: 0,
+  };
+  control.classList.add('scrubbing');
+  try {
+    control.setPointerCapture?.(event.pointerId);
+  } catch {
+    cancelInteraction();
+  }
+}
+function showRepeaterAngle(control, value) {
+  const field = control.closest('.field'),
+    angle = angleDialIndicator(value);
+  for (const row of app.querySelectorAll('.field[data-node][data-key="rotation"]')) {
+    if (row.dataset.node !== field.dataset.node) continue;
+    const input = row.querySelector('input[data-base], input[data-value]');
+    if (input) input.value = String(value);
+  }
+  control.setAttribute('aria-valuenow', String(value));
+  const base = repeaterAngleContext(control)?.q;
+  control.setAttribute(
+    'aria-valuetext',
+    `${value} degrees${base?.source || base?.expression ? ' base' : ''}; indicator ${angle} degrees`,
+  );
+  control.querySelector('[data-angle-indicator]').style.transform = `rotate(${angle}deg)`;
+}
+function moveRepeaterAngle(event) {
+  const d = drag;
+  if (!repeaterAngleContext(d.capture)) {
+    cancelInteraction();
+    return;
+  }
+  event.preventDefault();
+  const next = advanceAngleDial(
+    d,
+    angleDialPointer(d.capture.getBoundingClientRect(), [event.clientX, event.clientY]),
+  );
+  d.angle = next.angle;
+  d.delta = next.delta;
+  const value = d.original + d.delta;
+  if (!Number.isFinite(value)) return;
+  if (!updateGraphGesture({ value })) return;
+  // Keep the captured element stable. Canvas renders the detached Session preview only.
+  showRepeaterAngle(d.capture, value);
+  updateCanvas();
+}
+app.addEventListener(
+  'keydown',
+  (event) => {
+    const control = event.target.closest?.('[data-repeater-angle]');
+    if (!control || event.isComposing || composing || event.ctrlKey || event.metaKey) return;
+    const direction = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 }[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const context = repeaterAngleContext(control);
+    if (!context || deletionBusy() || variableAction || osTextDrafts.size) return;
+    let token = beginGraphGesture(context.target);
+    if (!token) return;
+    try {
+      token = session.dispatch({
+        ...session.state,
+        type: 'update-gesture',
+        payload: {
+          ...token,
+          update: {
+            value: context.q.value + direction * (event.altKey ? 0.1 : event.shiftKey ? 10 : 1),
+          },
+        },
+      });
+      session.dispatch({ ...session.state, type: 'commit-gesture', payload: token });
+    } catch (error) {
+      session.dispatch({ ...session.state, type: 'cancel-gesture', payload: token });
+      notify(error.message, true);
+    }
+    render();
+  },
+  true,
+);
 function numericControlTarget(input) {
   const d = input.dataset,
     payload = { layerId: current().id };
@@ -1884,10 +2064,11 @@ function editorExpressionTargets(nodeId, type) {
     ...(type === 'Color' ? expressionReferenceTargets(current(), nodeId) : []),
   ];
 }
-function field(n, key, q) {
+function field(n, key, q, inspector = false) {
   let source = current().nodes.find((x) => x.id === q.source),
     locked =
       q.locked ||
+      (n.type === 'Geometry Repeater' && key === 'rotation' && current().locked) ||
       (n.type === 'Text' && key === 'letterSpacing' && maintainedAxis(n) !== null) ||
       !!q.source ||
       (isTransform(n) &&
@@ -2059,6 +2240,7 @@ function field(n, key, q) {
           ? String.fromCharCode(65 + index)
           : `Input ${index + 1}`;
   }
+  const angleDial = inspector && n.type === 'Geometry Repeater' && key === 'rotation';
   let control;
   const connectLabel =
     n.type === 'Mask' && key === 'mask'
@@ -2132,14 +2314,15 @@ function field(n, key, q) {
     } catch {
       result = '— Cannot evaluate';
     }
-    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}</div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
+    control = `<div class="authored-control"><div class="base-inputs">${baseInputs}${angleDial ? repeaterAngleControl(n, q) : ''}</div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} · ${esc(result)}</output>${q.source ? '<small class="base-hint">Base saved · connection takes priority.</small>' : ''}${q.expression ? `<details class="parameter-expression"><summary>${q.source ? 'Expression paused by connection' : 'Expression'}</summary><input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${baseLocked ? 'disabled' : ''}><small class="base-hint">${q.type === 'Vector2' ? 'X; Y · value = each component’s base' : 'value = base'}${factor !== 1 ? ' · expression units: ×, display: %' : ''}</small></details>` : ''}</div>`;
   } else
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
+  if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
   return `<div class="field ${q.source ? 'connected' : ''}" data-node="${n.id}" data-key="${esc(key)}" data-type="${q.type}"><label>${esc(name)}${n.type === 'Stroke' && key === 'width' ? ' (px)' : ''}</label><div class="field-tools">${!['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<button class="mini" data-connect-menu title="Connect ${esc(name)} input" aria-label="Connect ${esc(n.name + ' ' + name)} input">↗</button>` : ''}<button class="lock" data-lock title="${q.locked ? 'Unlock' : 'Lock'} ${esc(name)}">${q.locked ? '🔒' : '○'}</button>${['Scalar', 'Vector2', 'Color'].includes(q.type) ? `<button class="mini" data-fx title="Expression and parameter references: Vector2 uses X; Y">ƒ</button>` : ''}</div><div class="field-controls" title="${q.source ? esc('Saved fallback: ' + JSON.stringify(q.value)) : ''}">${q.source ? `<button class="socket input" title="Drag to empty space to disconnect; right-click to disconnect" aria-label="Disconnect ${esc(name)}"></button>` : ''}${control}</div>${source && !['Path', 'PaintedPath', 'Image'].includes(q.type) ? `<span class="source-name">← ${esc(source.name + (q.sourcePort ? ' ' + (outputPorts(source).find((p) => p.id === q.sourcePort)?.label || q.sourcePort) : ''))} · connected value</span>` : ''}</div>`;
 }
 // Presentation-only state; Canvas selection remains the single point selection owner.
@@ -2160,8 +2343,17 @@ const POINT_PANEL_PAGE_SIZE = 24;
 let pointDeltaDraft = null;
 let pointSpacingDraft = null;
 function pointBoundsSummary(n) {
-  const bounds = selectedPointBounds(n, selectedPointIds(n), current().locked);
-  return `<section class="point-bounds" data-point-bounds="${n.id}" data-state="${bounds.state}" aria-label="Selected point bounds"><p class="point-panel-summary">${bounds.count} ${bounds.count === 1 ? 'anchor' : 'anchors'} · Node-local · document units</p>${
+  const ids = selectedPointIds(n),
+    local = selectedPointBounds(n, ids, current().locked),
+    artboard = selectedPointArtboardBounds(history.doc, current().id, n.id, ids, {
+      fonts: resolveFonts(history.doc, activeFonts()),
+    });
+  return `<div data-point-bounds-summary="${n.id}">${pointBoundsRow(n, local)}${pointBoundsRow(n, artboard, true)}</div>`;
+}
+function pointBoundsRow(n, bounds, artboard = false) {
+  const attribute = artboard ? 'point-artboard-bound' : 'point-bound',
+    label = artboard ? 'Selected Artboard anchor' : 'Selected anchor';
+  return `<section class="point-bounds" data-${artboard ? 'point-artboard-bounds' : 'point-bounds'}="${n.id}" data-state="${bounds.state}" aria-label="Selected point ${artboard ? 'Artboard ' : ''}bounds"><p class="point-panel-summary">${artboard ? 'Artboard · document units (px)' : `${bounds.count} ${bounds.count === 1 ? 'anchor' : 'anchors'} · Node-local · document units`}</p>${
     bounds.state === 'ready'
       ? `<dl>${[
           ['minX', 'Min X'],
@@ -2172,11 +2364,11 @@ function pointBoundsSummary(n) {
           ['height', 'Height'],
         ]
           .map(
-            ([key, label]) =>
-              `<div><dt>${label}</dt><dd><output data-point-bound="${key}" title="${bounds.values[key]}" aria-label="Selected anchor ${label}">${Number(bounds.values[key].toPrecision(6))}</output></dd></div>`,
+            ([key, name]) =>
+              `<div><dt>${name}</dt><dd><output data-${attribute}="${key}" title="${bounds.values[key]}" aria-label="${label} ${name}">${Number(bounds.values[key].toPrecision(6))}</output></dd></div>`,
           )
           .join('')}</dl>`
-      : `<p class="point-panel-summary" data-point-bounds-status>${esc(bounds.reason)}</p>`
+      : `<p class="point-panel-summary" data-${artboard ? 'point-artboard-bounds-status' : 'point-bounds-status'}>${esc(bounds.reason)}</p>`
   }</section>`;
 }
 function pointDeltaMatches(nodeId, ids) {
@@ -2679,7 +2871,7 @@ function refreshPointPanels() {
       !document.activeElement.matches('[data-point-panel-unit], [data-point-panel-contour]')
     ) {
       // Read-only selection geometry must follow Canvas selection even while a field keeps focus.
-      const bounds = panel.querySelector('[data-point-bounds]');
+      const bounds = panel.querySelector('[data-point-bounds-summary]');
       if (bounds) bounds.outerHTML = pointBoundsSummary(n);
       continue;
     }
@@ -3549,7 +3741,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
                 (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
               !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
-          .map(([k, q]) => field(n, k, q))
+          .map(([k, q]) => field(n, k, q, true))
           .join('')}`
       : artworkTarget
         ? `<h3>Artwork · ${artworkSelection.size > 1 ? `${artworkSelection.size} selected` : esc(l.name)}</h3><button data-duplicate-artwork="${esc(l.id)}" ${!duplication.supported || deletionBusy() ? 'disabled' : ''} title="${esc(duplication.supported ? 'Create independent copies immediately above each source at the same coordinates (one Undo)' : duplication.reason)}">Duplicate in place</button><p class="artwork-duplicate-status">${esc(duplication.supported ? '' : duplication.reason)}</p>${artworkSelection.size > 1 ? `<p class="artwork-active">Active layer ${esc(l.name)}</p>` : ''}<p class="artwork-move-status">${esc(move.supported ? 'Drag artwork to move' : move.reason)}</p>`
@@ -3642,6 +3834,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     app.querySelector('.canvas-stage').append(canvasEditor);
   textTools?.sync();
   updateNavigation();
+  for (const dial of app.querySelectorAll('[data-repeater-angle]'))
+    repeaterAngleScopes.set(dial, { owner: session, envelope: session.state, layerId: l.id });
   restoreFocus(app, focused);
   if (pointScroll)
     app.querySelectorAll('.point-panel-rows').forEach((el, i) => {
@@ -4722,6 +4916,23 @@ function drawCanvas() {
     guidesOverlay() +
     canvasOverlay(artworkTarget ? undefined : l.nodes.find((node) => node.id === selected), r);
   renderEvaluation = r;
+  if (drag?.type === 'repeater-angle') {
+    const context = repeaterAngleContext(drag.capture);
+    if (context && (context.q.source || context.q.expression)) {
+      let result;
+      try {
+        result = formatParameterResult(r.parameterValue(context.n.id, 'rotation'));
+      } catch {
+        result = '— Cannot evaluate';
+      }
+      for (const row of app.querySelectorAll('.field[data-node][data-key="rotation"]')) {
+        if (row.dataset.node !== context.n.id) continue;
+        const output = row.querySelector('.parameter-result');
+        if (output)
+          output.textContent = `${context.q.source ? 'Connected result' : 'Result'} · ${result}`;
+      }
+    }
+  }
   updateViewers(app, viewerState, display, fonts, new Map([[l.id, r]]));
   sizePositionHandle();
   positionCharacterFloating();
@@ -8489,6 +8700,8 @@ app.addEventListener('dblclick', (e) => {
     beginNameEdit(title.dataset.selectLayer || current().id, title.dataset.renameNode || null);
 });
 app.addEventListener('focusout', (e) => {
+  if (e.target.matches('[data-repeater-angle]') && drag?.type === 'repeater-angle')
+    cancelInteraction();
   if (e.target.matches('[data-rename-name]') && nameEdit) finishNameEdit(true, true);
   if (e.target.matches('.canvas-text-editor') && canvasTextEdit) {
     e.target.dispatchEvent(new Event('change', { bubbles: true }));
@@ -9402,7 +9615,8 @@ app.addEventListener('change', async (e) => {
             (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
               n.type,
             ) ||
-              (n.type === 'Stroke' && field.dataset.key === 'width'))
+              (n.type === 'Stroke' && field.dataset.key === 'width') ||
+              (n.type === 'Geometry Repeater' && field.dataset.key === 'rotation'))
           )
             throw Error('Expected a finite number');
         }
@@ -9989,6 +10203,10 @@ function updateGraphGesture(update) {
 }
 function updateCanvasGesture(target, update) {
   if (!drag.gesture) {
+    // Point edits must restore their own source/anchor context, not an older
+    // whole-artwork selection saved when this document snapshot was created.
+    if (['point', 'remap', 'point-handles'].includes(drag.type))
+      drag.pointUIBefore = selectionSnapshot(true);
     drag.reservingGesture = true;
     drag.gesture = beginGraphGesture(target);
     delete drag.reservingGesture;
@@ -10352,6 +10570,12 @@ app.addEventListener('lostpointercapture', (e) => {
 
 app.addEventListener('pointerdown', (e) => {
   if (drag) return;
+  const angleDial = e.target.closest('[data-repeater-angle]');
+  if (angleDial) {
+    e.preventDefault();
+    if (e.button === 0) startRepeaterAngle(angleDial, e);
+    return;
+  }
   const overview = e.target.closest('.graph-overview-map');
   if (overview) {
     e.preventDefault();
@@ -11499,6 +11723,10 @@ function movePointer(e) {
     return;
   }
   if (!drag || (drag.pointerId !== undefined && drag.pointerId !== e.pointerId)) return;
+  if (drag.type === 'repeater-angle') {
+    moveRepeaterAngle(e);
+    return;
+  }
   if (drag.type === 'text-wrap-resize') {
     queueWrapResize(e);
     return;
@@ -11814,6 +12042,7 @@ function movePointer(e) {
       step = Number(d.capture.dataset.scrubStep),
       // Subtract the activation threshold so a click with slight jitter never jumps.
       distance = Math.sign(dx) * Math.max(0, Math.abs(dx) - 4),
+      adjusted = d.original + (Math.trunc(distance) * step) / (d.factor || 1),
       value =
         Math.trunc(distance) === 0
           ? d.original
@@ -11821,9 +12050,9 @@ function movePointer(e) {
               min,
               Math.min(
                 max,
-                Number(
-                  (d.original + (Math.trunc(distance) * step) / (d.factor || 1)).toPrecision(15),
-                ),
+                n.type === 'Geometry Repeater' && d.key === 'rotation'
+                  ? adjusted
+                  : Number(adjusted.toPrecision(15)),
               ),
             );
     if (!Number.isFinite(value)) return;
@@ -12052,6 +12281,10 @@ document.addEventListener('pointercancel', (e) => {
 document.addEventListener('pointerup', (e) => {
   if (drag?.pointerId !== undefined && drag.pointerId !== e.pointerId) return;
   if (drag?.type === 'text-wrap-resize' && !flushWrapResize(drag)) return;
+  if (drag?.type === 'repeater-angle' && !repeaterAngleContext(drag.capture)) {
+    cancelInteraction();
+    return;
+  }
   if (drag?.type === 'numeric' && drag.started) {
     const n = current().nodes.find((n) => n.id === drag.nodeId),
       q = !drag.textKind && n && parameter(n, drag.key);
@@ -12183,9 +12416,9 @@ document.addEventListener('pointerup', (e) => {
           type: 'commit-gesture',
           payload: d.gesture,
         });
-        if (result.changed && d.type === 'artwork') {
-          selectionHistory.set(history.past.at(-1), d.selectionBefore);
-          selectionHistory.set(history.doc, selectionSnapshot());
+        if (result.changed && (d.type === 'artwork' || d.pointUIBefore)) {
+          selectionHistory.set(history.past.at(-1), d.pointUIBefore || d.selectionBefore);
+          selectionHistory.set(history.doc, selectionSnapshot(!!d.pointUIBefore));
         }
       } catch (error) {
         session.dispatch({
@@ -13063,12 +13296,12 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
-  if (drag?.type === 'numeric' && e.key === 'Escape') {
+  if (['numeric', 'repeater-angle'].includes(drag?.type) && e.key === 'Escape') {
     e.preventDefault();
     cancelInteraction();
     return;
   }
-  if (drag?.type === 'numeric' && drag.started) {
+  if ((drag?.type === 'numeric' && drag.started) || drag?.type === 'repeater-angle') {
     e.preventDefault();
     return;
   }

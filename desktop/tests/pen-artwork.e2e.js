@@ -1,6 +1,8 @@
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { activateCommand } from './command-menu-actions.js';
+import { downloadCommand } from './command-download.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -11,6 +13,7 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
+const projectSnapshot = () => page.evaluate(() => JSON.stringify(window.nect.projectSnapshot()));
 const xy = (p) =>
   page.locator('.artboard').evaluate((svg, p) => {
     const q = new DOMPoint(...p).matrixTransform(svg.getScreenCTM());
@@ -25,10 +28,9 @@ const point = async (p, handle) => {
 const begin = async () => page.locator('[data-tool="pen"]').click();
 const load = async (s) => page.evaluate((s) => window.nect.load(s), s);
 const download = async (action, ext, name = 'workflow-pen-artwork') => {
-  const pending = page.waitForEvent('download');
-  await page.locator(`[data-action="${action}"]`).click();
+  const file = await downloadCommand(page, action);
   const path = `test-results/${name}.${ext}`;
-  await (await pending).saveAs(path);
+  await file.saveAs(path);
   return fs.readFile(path);
 };
 const pixels = (data, mime = 'image/svg+xml') =>
@@ -151,7 +153,8 @@ try {
   await point([690, 320], [660, 340]);
   await page.locator('.point-hit[data-point]:not([data-handle])').first().click();
   const closed = JSON.parse(await snapshot()),
-    closedJSON = JSON.stringify(closed);
+    closedJSON = JSON.stringify(closed),
+    closedProject = await projectSnapshot();
   assert.equal(closed.layers.length, 4);
   assert.deepEqual(closed.layers.slice(0, -1), open.layers);
   assert.equal(closed.layers.at(-1).nodes[0].params.closed.value, true);
@@ -167,12 +170,16 @@ try {
   assert.ok(
     svg.toString().includes(oldSVG.slice(oldSVG.indexOf('>') + 1, oldSVG.lastIndexOf('</svg>'))),
   );
-  assert.equal(JSON.stringify(JSON.parse(saved.toString())), closedJSON);
+  // Save contains the complete Composition project, not only its active document.
+  assert.deepEqual(JSON.parse(saved.toString()), JSON.parse(closedProject));
+  assert.equal(await snapshot(), closedJSON);
+  assert.equal(await projectSnapshot(), closedProject);
   // Cold reopen exercises persistence independently from the session history.
   await page.reload();
   await page.waitForFunction(() => window.nect);
   await load(saved.toString());
   assert.equal(await snapshot(), closedJSON);
+  assert.equal(await projectSnapshot(), closedProject);
   assert.equal((await pixels(await page.evaluate(() => window.nect.export()))).all, svgPixels.all);
   // Actual file actions resolve drafts before serializing or rasterizing.
   for (const [action, ext] of [
@@ -186,18 +193,27 @@ try {
       await point([300, 350]);
       if (count === 2) await point([440, 400], [470, 420]);
       if (action === 'save') {
-        await page.locator('[data-action="save"]').click();
+        const before = await snapshot(),
+          beforeProject = await projectSnapshot(),
+          beforeCommand = await page.evaluate(() => window.nect.commandState);
+        await activateCommand(page, 'save');
         assert.match(await page.locator('.message').textContent(), /Finish or cancel/);
         assert.equal(await page.locator('[data-pen-draft]').count(), 1);
+        assert.equal(await snapshot(), before);
+        assert.equal(await projectSnapshot(), beforeProject);
+        assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeCommand);
         await page.locator('[data-pen-finish]').click();
       }
+      const expectedSave = action === 'save' ? await projectSnapshot() : null;
       const bytes = await download(action, ext, `workflow-pen-finish-${action}-${count}`),
         current = JSON.parse(await snapshot());
       assert.equal(await page.locator('[data-pen-draft]').count(), 0);
       assert.equal(current.layers.length, count === 2 ? 5 : 4);
       assert.deepEqual(current.layers.slice(0, 4), closed.layers);
-      if (action === 'save') assert.deepEqual(JSON.parse(bytes.toString()), current);
-      else if (action === 'export')
+      if (action === 'save') {
+        assert.deepEqual(JSON.parse(bytes.toString()), JSON.parse(expectedSave));
+        assert.equal(await projectSnapshot(), expectedSave);
+      } else if (action === 'export')
         assert.equal(bytes.toString(), await page.evaluate(() => window.nect.export()));
       else
         assert.deepEqual(
@@ -530,18 +546,22 @@ try {
     await page.locator('[data-action="redo"]').click();
     await page.locator('[data-action="redo"]').click();
     assert.equal(await snapshot(), movedJSON);
-    const label = isClosed ? 'closed' : 'open',
+    const movedProject = await projectSnapshot(),
+      label = isClosed ? 'closed' : 'open',
       svg = await download('export', 'svg', 'workflow-curve-placement-' + label),
       png = await download('export-png', 'png', 'workflow-curve-placement-' + label),
       json = await download('save', 'json', 'workflow-curve-placement-' + label),
       rendered = await pixels(svg);
     assert.deepEqual(await pixels(png, 'image/png'), rendered);
     assert.equal(rendered.old, oldPixels.old);
-    assert.equal(JSON.stringify(JSON.parse(json.toString())), movedJSON);
+    assert.deepEqual(JSON.parse(json.toString()), JSON.parse(movedProject));
+    assert.equal(await snapshot(), movedJSON);
+    assert.equal(await projectSnapshot(), movedProject);
     await page.reload();
     await page.waitForFunction(() => window.nect);
     await load(json.toString());
     assert.equal(await snapshot(), movedJSON);
+    assert.equal(await projectSnapshot(), movedProject);
     assert.deepEqual(await pixels(await page.evaluate(() => window.nect.export())), rendered);
     // Actual pressed-pointer interruption cannot leave part of the batch moved or resume later.
     for (const interrupt of [
@@ -638,6 +658,7 @@ try {
     );
     await page.locator(`[data-select-layer="${id}"]`).click();
     const beforeJSON = await snapshot(),
+      beforeProject = await projectSnapshot(),
       before = JSON.parse(beforeJSON);
     if (count === 128) {
       assert.match(await page.locator('.artwork-move-status').innerText(), /Drag artwork/);
@@ -657,9 +678,14 @@ try {
         png = await download('export-png', 'png', 'workflow-curve-limit-129'),
         json = await download('save', 'json', 'workflow-curve-limit-129');
       assert.deepEqual(await pixels(svg), await pixels(png, 'image/png'));
-      assert.equal(JSON.parse(json.toString()).layers.at(-1).nodes[0].points.length, 129);
+      assert.deepEqual(JSON.parse(json.toString()), JSON.parse(beforeProject));
+      assert.equal(
+        JSON.parse(json.toString()).compositions[0].layers.at(-1).nodes[0].points.length,
+        129,
+      );
       await load(json.toString());
       assert.equal(await snapshot(), beforeJSON);
+      assert.equal(await projectSnapshot(), beforeProject);
       const nodeId = before.layers.at(-1).nodes[0].id;
       await page.locator(`[data-select-layer="${id}"]`).click();
       await page.locator(`.node[data-id="${nodeId}"] .node-head strong`).click();

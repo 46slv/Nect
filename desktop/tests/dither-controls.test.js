@@ -16,6 +16,7 @@ import {
   deserialize,
   pathArea,
   validate,
+  remapFingerprintMatches,
 } from '../src/core.js';
 
 const types = ['Ordered Dither', 'Error Diffusion Dither'];
@@ -170,20 +171,63 @@ test('invalid direct, socket, expression, shape and geometry-budget edits reject
   assert.throws(() => ditherSettings('circle', null), /dot size/);
 });
 
-test('legacy files keep exact output/fingerprints; migrated pitch drivers stay valid; schema36 requires size', () => {
+test('legacy files retain exact historical fingerprints and newer saved-edit identities; migrated pitch drivers stay valid; schema36 requires size', () => {
+  // Both independently captured golden files remain unchanged. The compatibility
+  // evaluator exposes the pre-expression canonical hash and privately retains the
+  // exact empty-expression-field-era identity used by the dither-controls baseline.
   const baseline = JSON.parse(
-    fs.readFileSync(new URL('./fixtures/dither-legacy-fingerprints.json', import.meta.url), 'utf8'),
-  );
+      fs.readFileSync(
+        new URL('./fixtures/dither-legacy-fingerprints.json', import.meta.url),
+        'utf8',
+      ),
+    ),
+    historical = JSON.parse(
+      fs.readFileSync(
+        new URL('./fixtures/luminance-tone-default-fingerprints.json', import.meta.url),
+        'utf8',
+      ),
+    );
+  assert.deepEqual(Object.keys(baseline), Object.keys(historical));
   for (const [name, expected] of Object.entries(baseline)) {
     const doc = deserialize(
-      fs.readFileSync(new URL(`../examples/${name}.json`, import.meta.url), 'utf8'),
-    );
+        fs.readFileSync(new URL(`../examples/${name}.json`, import.meta.url), 'utf8'),
+      ),
+      before = serialize(doc),
+      layers = doc.layers.filter((l) => l.nodes.some((n) => n.params.gridOrigin)),
+      actual = layers.map((l) => evaluate(l, {}, doc.imageAssets).path);
     assert.deepEqual(
-      doc.layers
-        .filter((l) => l.nodes.some((n) => n.params.gridOrigin))
-        .map((l) => evaluate(l, {}, doc.imageAssets).path.fingerprint),
-      expected,
+      actual.map((path) => path.fingerprint),
+      historical[name],
+      name,
     );
+    assert.equal(actual.length, expected.length, name);
+    for (let i = 0; i < actual.length; i++) {
+      const path = actual[i],
+        cached = evaluate(layers[i], {}, doc.imageAssets);
+      assert.equal(cached.error, null, name);
+      assert.ok(cached.stats.reused > 0, name);
+      assert.deepEqual(cached.path, path, name);
+      assert.equal(remapFingerprintMatches(path, expected[i]), true, name);
+      assert.equal(remapFingerprintMatches(cached.path, expected[i]), true, name);
+      assert.equal(remapFingerprintMatches(path, 'sha256:unrelated'), false, name);
+      assert.equal(remapFingerprintMatches(structuredClone(path), expected[i]), false, name);
+      const changed = structuredClone(layers[i]);
+      changed.nodes.find((n) => n.params.gridOrigin).params.pitch.value += 1;
+      const changedResult = evaluate(changed, {}, doc.imageAssets);
+      assert.equal(changedResult.error, null, name);
+      for (const retained of [historical[name][i], expected[i]])
+        assert.equal(remapFingerprintMatches(changedResult.path, retained), false, name);
+    }
+    const reopened = deserialize(before),
+      reopenedPaths = reopened.layers
+        .filter((l) => l.nodes.some((n) => n.params.gridOrigin))
+        .map((l) => evaluate(l, {}, reopened.imageAssets).path);
+    assert.deepEqual(reopenedPaths, actual, name);
+    reopenedPaths.forEach((path, i) =>
+      assert.equal(remapFingerprintMatches(path, expected[i]), true, name),
+    );
+    assert.equal(serialize(reopened), before, name);
+    assert.equal(serialize(doc), before, name);
   }
   for (const type of types) {
     const { doc, layer, effect } = fixture(type);

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 // Load geometry before a synthetic browser global exists: geometry remains headless.
-import { node } from '../src/core.js';
+import { document as makeDoc, node } from '../src/core.js';
 test('View navigation is scoped, view-only and preserves drafts, scroll, focus and IME', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
@@ -71,7 +71,8 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
     .replace("from './svg-import.js'", `from '${new URL('../src/svg-import.js', import.meta.url)}'`)
     .replace("from './storage.js'", `from '${new URL('../src/storage.js', import.meta.url)}'`)
     .replace("from './fonts.js'", `from '${new URL('../src/fonts.js', import.meta.url)}'`);
-  source += '\nwindow.flushCanvasForTest = () => updateCanvas(true);';
+  source +=
+    '\nwindow.flushCanvasForTest = () => updateCanvas(true); window.navigationGestureForTest = () => drag?.type || (wiring ? "wire" : null);';
   source = resolveMainRelativeImports(source);
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   await new Promise((r) => setTimeout(r, 100));
@@ -109,6 +110,9 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
     );
   const scale = (name) => q(`[data-zoom="${name}"]`).textContent;
   const view = () => q('.artboard').style.transform;
+  // Launch is intentionally blank. Seed authored graph controls and a movable
+  // source stage rather than accidentally targeting hidden export settings.
+  win.nect.load(JSON.stringify(makeDoc()));
   const saved = JSON.stringify(win.nect.document),
     svg = win.nect.export();
   click('actual-size');
@@ -207,8 +211,17 @@ test('View navigation is scoped, view-only and preserves drafts, scroll, focus a
               ? q('.node-resize')
               : kind === 'shape'
                 ? q('[data-node-stage-move]')
-                : q('input[type="number"][data-scrub-step]');
+                : q(
+                    '.graph .field[data-node][data-key] input[type="number"][data-scrub-step]:not(:disabled):not([readonly])',
+                  );
+    assert.ok(target, `${kind} has an actual editable gesture target`);
     pointer(target, 'pointerdown', { button: kind === 'pan' ? 1 : 0 });
+    if (kind === 'numeric')
+      assert.equal(
+        win.navigationGestureForTest(),
+        'numeric',
+        'authored graph input reserves a scrub',
+      );
     const before = [scale('canvas'), scale('graph'), view()];
     click('zoom-in');
     click('graph-zoom-in');

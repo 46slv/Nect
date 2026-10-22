@@ -5,3 +5,9 @@ public/fonts
 test-results
 src-tauri/target
 .agents/skills/stop-describing-ui/SKILL.md
+
+# Serializer-native legacy documents are byte-exact compatibility fixtures.
+examples/keyer-mask/01-pick-background.json
+examples/keyer-mask/02-keyed-mask.json
+examples/image-alpha-mask/01-image-alpha.json
+examples/image-alpha-mask/02-keyer-feather.json

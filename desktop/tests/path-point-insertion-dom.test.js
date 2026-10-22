@@ -192,25 +192,61 @@ test('Pen inserts selected source segments atomically and keeps gesture ownershi
     },
   );
   await t.test(
-    'anchors select, Shift toggles and Alt creates handles rather than a new path',
+    'interior anchors select, Shift toggles and Alt creates handles rather than a new path',
     () => {
       const f = setupPath(),
         before = saved();
-      fire($('.artboard'), 'pointerdown', [100, 100]);
-      fire(document, 'pointerup', [100, 100]);
-      assert.deepEqual(ui().pointIds, [f.n.points[0].id]);
+      fire($('.artboard'), 'pointerdown', [400, 100]);
+      fire(document, 'pointerup', [400, 100]);
+      assert.deepEqual(ui().pointIds, [f.n.points[1].id]);
       assert.equal(saved(), before);
-      fire($('.artboard'), 'pointerdown', [100, 100], { shiftKey: true });
-      fire(document, 'pointerup', [100, 100]);
+      assert.equal(ui().past, 0);
+      assert.equal(ui().draft, undefined);
+      fire($('.artboard'), 'pointerdown', [400, 100], { shiftKey: true });
+      fire(document, 'pointerup', [400, 100]);
       assert.deepEqual(ui().pointIds, []);
-      fire($('.artboard'), 'pointerdown', [100, 100], { altKey: true });
-      fire(document, 'pointerup', [100, 100], { altKey: true });
+      fire($('.artboard'), 'pointerdown', [400, 100], { altKey: true });
+      fire(document, 'pointerup', [400, 100], { altKey: true });
       assert.equal(f.live().points.length, 3);
-      assert.ok(Math.hypot(...f.live().points[0].handleB.value) > 0);
+      assert.ok(Math.hypot(...f.live().points[1].handleB.value) > 0);
       assert.equal(win.nect.document.layers.length, 1);
       assert.equal(ui().draft, undefined);
+      assert.equal(ui().past, 1);
+      const edited = saved();
+      const assertSourceContext = () => {
+        assert.equal(ui().selected, f.n.id);
+        assert.equal(ui().artworkTarget, null);
+        assert.deepEqual(ui().pointIds, [f.n.points[1].id]);
+        assert.deepEqual(ui().pointFocus, { nodeId: f.n.id, pointId: f.n.points[1].id });
+      };
+      key(stage(), 'z', { ctrlKey: true });
+      assert.equal(saved(), before);
+      assertSourceContext();
+      key(stage(), 'z', { ctrlKey: true, shiftKey: true });
+      assert.equal(saved(), edited);
+      assert.equal(ui().past, 1);
+      assertSourceContext();
     },
   );
+  await t.test('open endpoints continue the existing path without committing on selection', () => {
+    for (const index of [0, 2]) {
+      const f = setupPath(),
+        before = saved(),
+        endpoint = f.n.points[index];
+      fire($('.artboard'), 'pointerdown', endpoint.position.value);
+      fire(document, 'pointerup', endpoint.position.value);
+      assert.equal(win.nect.gestureState?.resuming, true);
+      assert.equal(ui().draft.id, f.l.id);
+      assert.deepEqual(ui().draft.nodes.find((n) => n.id === f.n.id).points, f.n.points);
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+      click('[data-pen-cancel]');
+      assert.equal(win.nect.gestureState, null);
+      assert.equal(ui().draft, undefined);
+      assert.equal(saved(), before);
+      assert.equal(ui().past, 0);
+    }
+  });
   await t.test(
     'modifiers, locked target, generated target and ambiguous crossings never start independent paths',
     () => {

@@ -1,5 +1,6 @@
 #include "nect/io.hpp"
 #include "native_legacy_fixture.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 

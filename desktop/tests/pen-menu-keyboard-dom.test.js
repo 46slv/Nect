@@ -4,11 +4,18 @@ import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { blankDocument, serialize } from '../src/core.js';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
+import { penMenuMutationObserver } from './helpers/pen-menu-mutation-observer.js';
 import { isolatedDomScenarios } from './run-isolated-dom-scenarios.js';
 
 test('Pen finish shortcuts leave native menu activation intact', async (rawT) => {
   const t = isolatedDomScenarios(rawT, import.meta.url);
-  const win = new Window({ url: 'http://localhost:5173' });
+  const win = new Window({
+    url: 'http://localhost:5173',
+    // Surface event/observer failures instead of hiding them in the virtual console.
+    settings: { disableErrorCapturing: true },
+  });
+  rawT.after(() => win.happyDOM.close());
+  win.MutationObserver = penMenuMutationObserver(win.MutationObserver);
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
     globalThis[key] = win[key];
@@ -32,22 +39,41 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
   });
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = resolveMainRelativeImports(source.replace("import './style.css';", ''));
+  const fontRequest = "fetch('/fonts/DejaVuSans.ttf')";
+  assert.equal(source.split(fontRequest).length, 2, 'capture the real font startup promise');
+  source = source.replace(fontRequest, `window.penKeyboardFontReady = ${fontRequest}`);
   source += `
     window.penKeyboardState = () => structuredClone({
       draft: penDraft?.layer, drag: drag?.type, tool, activeLayer, selected,
       artworkTarget, selection: [...selection], past: history.past.length,
       future: history.future.length,
     });
-    const deadline = Date.now() + 5000;
-    while (!bundledFont) {
-      if (Date.now() >= deadline) throw Error('Bundled test font did not finish loading');
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    window.penKeyboardFontLoaded = () => !!bundledFont;
   `;
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
-  rawT.after(() => win.happyDOM.abort());
+  await win.penKeyboardFontReady;
   const $ = (selector) => document.querySelector(selector);
   const state = () => win.penKeyboardState();
+  const settleMenus = async (phase) => {
+    // Drain the actual observer microtasks, then inspect their result. No timer
+    // can recover a GC'd Happy DOM listener, and calling ensureCommandMenus here
+    // would bypass the startup path this test needs to exercise.
+    await win.happyDOM.waitUntilComplete();
+    const summaries = [...document.querySelectorAll('.command-menu > summary')].map(
+      (summary) => summary.textContent,
+    );
+    const diagnostics = JSON.stringify({
+      phase,
+      fontLoaded: win.penKeyboardFontLoaded(),
+      headerMounted: !!$('header'),
+      summaries,
+      status: $('.status .message')?.textContent,
+      console: win.happyDOM.virtualConsolePrinter.readAsString(),
+    });
+    assert.equal(win.penKeyboardFontLoaded(), true, diagnostics);
+    assert.deepEqual(summaries, ['Project', 'Import', 'Export'], diagnostics);
+  };
+  await settleMenus('startup');
   const saved = () => serialize(win.nect.document);
   const pointer = (type, position = [100, 100], target = document) =>
     target.dispatchEvent(
@@ -84,12 +110,7 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
     $('[data-tool="pen"]').click();
     for (let i = 0; i < released; i++) point([100 + i * 80, 100 + i * 40]);
     if (pressed) point([350, 300], false);
-    // Structural renders replace the header; await the real menu observer's result.
-    const deadline = Date.now() + 5000;
-    while (!projectSummary()) {
-      if (Date.now() >= deadline) throw Error('Project command menu did not finish mounting');
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
+    await settleMenus(`Pen draft: ${released} released, pointer ${pressed ? 'held' : 'released'}`);
     assert.ok(state().draft);
     assert.equal(state().drag, pressed ? 'pen' : undefined);
     assert.equal(state().past, 0);
