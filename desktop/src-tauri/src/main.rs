@@ -1,6 +1,6 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #[cfg(feature = "recovery-acceptance-test")]
 mod recovery_acceptance_gate;
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
 mod document_storage;
 mod desktop_font_layout;

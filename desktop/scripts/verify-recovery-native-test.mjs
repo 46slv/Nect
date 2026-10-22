@@ -41,10 +41,15 @@ const receipt = {
 };
 try {
   await new Promise((r) => setTimeout(r, 100));
-  const pages = browser
-    .contexts()[0]
-    .pages()
-    .filter((p) => /tauri\.localhost/.test(p.url()));
+  let pages = [];
+  const deadline = Date.now() + 15000;
+  while (!pages.length && Date.now() < deadline) {
+    pages = browser
+      .contexts()[0]
+      .pages()
+      .filter((p) => /tauri\.localhost/.test(p.url()));
+    if (!pages.length) await new Promise((r) => setTimeout(r, 50));
+  }
   assert.equal(pages.length, 1);
   [page] = pages;
   page.on('pageerror', (e) => errors.push(e.message));
