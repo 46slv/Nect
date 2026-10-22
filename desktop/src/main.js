@@ -1378,6 +1378,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
       'translate-points',
       'align-points',
       'distribute-points',
+      'space-points',
       'delete-point',
       'set-point-mode',
     ].includes(type)
@@ -1416,6 +1417,7 @@ function resetTransient() {
   pointPanelViews.clear();
   pointScopeActions.clear();
   pointDeltaDraft = null;
+  pointSpacingDraft = null;
   pointFocus = null;
   pointSelection = { nodeId: null, ids: new Set() };
   pointHover = null;
@@ -2132,6 +2134,7 @@ const pointAlignmentActions = new Map();
 let pointScopeSerial = 0;
 const POINT_PANEL_PAGE_SIZE = 24;
 let pointDeltaDraft = null;
+let pointSpacingDraft = null;
 function pointBoundsSummary(n) {
   const bounds = selectedPointBounds(n, selectedPointIds(n), current().locked);
   return `<section class="point-bounds" data-point-bounds="${n.id}" data-state="${bounds.state}" aria-label="Selected point bounds"><p class="point-panel-summary">${bounds.count} ${bounds.count === 1 ? 'anchor' : 'anchors'} · Node-local · document units</p>${
@@ -2220,8 +2223,31 @@ function pointSpacingFields(n) {
           : 'Select editable, unlocked anchors';
   return `<div class="batch-edit" data-point-distribute-panel="${n.id}" role="group" aria-label="Evenly space anchors in artboard coordinates"><p>Even spacing · Artboard</p><div class="point-panel-pages">${anchorDistributions.map(([action, label]) => `<button class="mini" data-point-distribute="${action}" data-point-align-node="${n.id}" data-point-align-token="${record?.token || ''}" ${reason ? 'disabled' : ''} title="${esc(reason || label + ' · Fixed endpoints')}" aria-label="Evenly space anchors ${label.toLowerCase()}">${label}</button>`).join('')}</div></div>`;
 }
-function alignSelectedPoints(nodeId, token, action, type = 'align-points') {
-  const label = type === 'distribute-points' ? 'Point spacing' : 'Point alignment';
+function pointIntervalFields(n) {
+  const ids = selectedPointIds(n);
+  if (!ids.length) return '';
+  const record = pointAlignmentActions.get(n.id),
+    value =
+      pointSpacingDraft?.token === record?.token && pointSpacingDraft?.nodeId === n.id
+        ? pointSpacingDraft.value
+        : '10';
+  return `<div class="batch-edit" data-point-spacing-panel="${n.id}" role="group" aria-label="Set anchor spacing in artboard coordinates"><p>Set spacing · Artboard</p><label>Interval · document units<input type="number" min="0" step="any" data-point-spacing="${n.id}" data-point-spacing-token="${record?.token || ''}" value="${esc(value)}" ${record ? '' : 'disabled'} aria-label="Anchor spacing in document units"></label><p class="point-panel-summary">Min fixed · max moves</p><div class="point-panel-pages">${anchorDistributions.map(([axis, label]) => `<button class="mini" data-point-set-spacing="${axis}" data-point-align-node="${n.id}" data-point-align-token="${record?.token || ''}" ${record ? '' : 'disabled'} title="${label} spacing in artboard document units; minimum fixed, maximum moves">Set ${axis.toUpperCase()} spacing</button>`).join('')}</div></div>`;
+}
+function stagePointSpacing(input) {
+  const nodeId = input.dataset.pointSpacing,
+    token = input.dataset.pointSpacingToken;
+  if (!token || pointAlignmentActions.get(nodeId)?.token !== token) return;
+  pointSpacingDraft = { nodeId, token, value: input.value };
+  for (const peer of document.querySelectorAll('[data-point-spacing]'))
+    if (peer.dataset.pointSpacing === nodeId && peer.dataset.pointSpacingToken === token)
+      peer.value = input.value;
+}
+function cancelPointSpacing() {
+  pointSpacingDraft = null;
+  for (const input of document.querySelectorAll('[data-point-spacing]')) input.value = '10';
+}
+function alignSelectedPoints(nodeId, token, action, type = 'align-points', spacingValue) {
+  const label = type === 'align-points' ? 'Point alignment' : 'Point spacing';
   try {
     const record = pointAlignmentActions.get(nodeId),
       n = selectedNode(),
@@ -2253,7 +2279,7 @@ function alignSelectedPoints(nodeId, token, action, type = 'align-points') {
     const scope = pointScopeIdentity(pointPanelSource(n), {});
     if (!samePointScope(record.scope, scope)) throw Error(`${label} cancelled: source changed`);
     cancelPointDelta();
-    commandChange(
+    const result = commandChange(
       type,
       {
         layerId: record.layerId,
@@ -2261,11 +2287,32 @@ function alignSelectedPoints(nodeId, token, action, type = 'align-points') {
         pointIds: record.pointIds,
         action,
         sourceKey: record.sourceKey,
+        ...(type === 'space-points'
+          ? {
+              spacing:
+                typeof spacingValue === 'string' && spacingValue.trim()
+                  ? Number(spacingValue)
+                  : NaN,
+            }
+          : {}),
       },
-      type === 'distribute-points' ? 'Evenly spaced selected anchors' : 'Aligned selected anchors',
+      type === 'space-points'
+        ? 'Set selected anchor spacing'
+        : type === 'distribute-points'
+          ? 'Evenly spaced selected anchors'
+          : 'Aligned selected anchors',
       false,
       record.envelope,
     );
+    if (result && type === 'space-points') {
+      const input = [...document.querySelectorAll('[data-point-spacing]')].find(
+        (el) => el.dataset.pointSpacing === nodeId,
+      );
+      if (input) {
+        input.value = spacingValue;
+        stagePointSpacing(input);
+      }
+    }
   } catch (error) {
     notify(error.message, true);
   }
@@ -2534,7 +2581,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${pointAlignmentFields(n)}${pointSpacingFields(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${pointAlignmentFields(n)}${pointSpacingFields(n)}${pointIntervalFields(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -6389,6 +6436,20 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.pointSetSpacing) {
+    if (!b.disabled) {
+      const input = b.closest('[data-point-spacing-panel]')?.querySelector('[data-point-spacing]');
+      b.blur();
+      alignSelectedPoints(
+        d.pointAlignNode,
+        d.pointAlignToken,
+        d.pointSetSpacing,
+        'space-points',
+        input?.value,
+      );
+    }
+    return;
+  }
   if (d.pointDistribute) {
     if (!b.disabled) {
       b.blur();
@@ -8398,6 +8459,10 @@ app.addEventListener('input', (e) => {
     stagePointDelta(e.target);
     return;
   }
+  if (e.target.matches('[data-point-spacing]')) {
+    stagePointSpacing(e.target);
+    return;
+  }
   if (e.target.id === 'svg-export-preset-name') {
     svgExportPresetName = e.target.value;
     if (e.target.value.trim() !== (selectedSvgExportPreset || ''))
@@ -8526,6 +8591,10 @@ app.addEventListener('compositionend', (e) => {
 app.addEventListener('change', async (e) => {
   let el = e.target,
     d = el.dataset;
+  if (d.pointSpacing !== undefined) {
+    stagePointSpacing(el);
+    return;
+  }
   if (d.pointDeltaAxis !== undefined) {
     stagePointDelta(el);
     return;
@@ -12730,6 +12799,14 @@ document.addEventListener('keydown', (e) => {
     cancelInteraction();
     return;
   }
+  if (e.target.matches?.('[data-point-spacing]') && !e.isComposing && e.keyCode !== 229) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelPointSpacing();
+    }
+    if (e.key === 'Enter') e.preventDefault();
+    return;
+  }
   if (e.target.matches?.('[data-point-delta-axis]') && !e.isComposing && e.keyCode !== 229) {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -12746,6 +12823,7 @@ document.addEventListener('keydown', (e) => {
   const numericExpressionInput =
     !(drag?.type === 'numeric' && drag.started) &&
     !e.target.matches?.('[data-point-delta-axis]') &&
+    !e.target.matches?.('[data-point-spacing]') &&
     e.target.matches?.('input[type="number"], input[data-numeric-expression]');
   if (
     numericExpressionInput &&
