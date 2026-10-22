@@ -2353,3 +2353,22 @@ input[data-scrub-step].scrubbing {
   min-height: 20px;
   padding-top: 8px;
 }
+
+.recovery-failures {
+  position: relative;
+  flex: none;
+  color: #a12b2b;
+}
+.recovery-failures summary {
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.recovery-failures .command-menu-items {
+  width: 310px;
+  max-width: 85vw;
+}
+.recovery-failures select {
+  width: 100%;
+}

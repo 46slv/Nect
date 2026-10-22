@@ -21,7 +21,17 @@ and shows requested/saving and last saved revisions. Revision numbers identify
 the current editing Session; restore starts a new Session. Existing recovery
 records retain their full contents, time and document/window identity, without
 an authored-schema change or a requirement for a persisted revision counter.
-Click a failed recovery status to retry. Recovery copies opens the restore picker;
+Failures remain selectable after switching documents. The compact Recovery failed
+menu names each document, its lifetime and failed/saved revisions. Select a
+failed document and Retry sends that context's latest contents under its original
+native token. Current-document status stays separate. Pending retries join the
+existing queue; missing, resolved or stale failure targets are neutral. Older
+revision/lifetime observations cannot overwrite a newer state. A later successful
+write covering a failure removes that entry. There is no automatic retry loop.
+Failed contexts are held in this running window until success or window exit;
+this does not make an unsuccessful write durable or add on-disk retention.
+
+Click a failed current recovery status to retry that current document. Recovery copies opens the restore picker;
 startup offers inactive, unsaved copies. Later preserves them. Restore creates an
 unbound, unsaved Session: Save As chooses the user's project destination. Image
 preflight, font preparation and the existing codec validate before replacement.
