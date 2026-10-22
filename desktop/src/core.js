@@ -122,7 +122,7 @@ import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
-import { planPointDistribution } from './point-distribution.js';
+import { planPointDistribution, planPointSpacing } from './point-distribution.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
@@ -6758,15 +6758,21 @@ export class CommandSession {
       validate(candidate);
       return { candidate, result: {} };
     }
-    if (['align-points', 'distribute-points'].includes(type)) {
-      const pointMoves = (type === 'align-points' ? planPointAlignment : planPointDistribution)(
+    if (['align-points', 'distribute-points', 'space-points'].includes(type)) {
+      const planner =
+        type === 'align-points'
+          ? planPointAlignment
+          : type === 'space-points'
+            ? planPointSpacing
+            : planPointDistribution;
+      const pointMoves = planner(
         before,
         payload.layerId,
         payload.nodeId,
         payload.pointIds,
         payload.action,
         payload.sourceKey,
-        { fonts: resolveFonts(before, this.#fonts()) },
+        { fonts: resolveFonts(before, this.#fonts()), spacing: payload.spacing },
       );
       return this.#commandCandidate('translate-points', { ...payload, pointMoves }, before);
     }
