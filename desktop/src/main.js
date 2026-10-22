@@ -50,6 +50,7 @@ import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
+import { MAX_MASK_FEATHER } from './appearance-mask.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -1471,6 +1472,7 @@ function resetTransient() {
 }
 // Bounds are shared by rendered controls and pointer scrubbing.
 function numericLimits(n, key) {
+  if (n.type === 'Mask' && key === 'feather') return [0, MAX_MASK_FEATHER];
   if (n.type === 'Keyer' && ['tolerance', 'softness'].includes(key)) return [0, 1];
   if (n.params.tonePower && key === 'tonePower') return [0.1, 10];
   if (hasDotControls(n.type)) {
@@ -1565,6 +1567,8 @@ function numericLimits(n, key) {
   return [-Number.MAX_VALUE, Number.MAX_VALUE];
 }
 function numericAttributes(n, key) {
+  if (n.type === 'Mask' && key === 'feather')
+    return `min="0" max="${MAX_MASK_FEATHER}" data-scrub-step="0.25" title="Gaussian standard deviation in Mask input document units; later appearance transforms scale it"`;
   const [min, max] = numericLimits(n, key);
   return `${min === -Number.MAX_VALUE ? '' : `min="${min}" max="${max}"`} data-scrub-step="${['scale', 'scaleWidth'].includes(key) && isTransform(n) ? 1 : key === 'scale' || (n.type === 'Resample Path' && key === 'spacing') || (n.type === 'Smooth Path' && key === 'factor') || (n.type === 'Auto Handles' && key === 'strength') || (n.type === 'Expand Stroke' && ['startWidthMultiplier', 'endWidthMultiplier'].includes(key)) || (n.type === 'Trim Path' && ['start', 'end'].includes(key)) || (n.type === 'Set Path Start' && key === 'start') ? 0.01 : 1}" title="Drag horizontally to adjust; click to type"`;
 }
@@ -2016,7 +2020,14 @@ function field(n, key, q) {
     name =
       { path: 'Image', keyColor: 'Key color', tolerance: 'Range', softness: 'Softness' }[key] ||
       key;
-  if (n.type === 'Mask') name = { path: 'Appearance', mask: 'Shape', invert: 'Invert' }[key] || key;
+  if (n.type === 'Mask')
+    name =
+      {
+        path: 'Appearance',
+        mask: 'Shape',
+        invert: 'Invert',
+        feather: 'Feather σ (document units)',
+      }[key] || key;
   if (n.type === 'Geometry Repeater' && n.operation === 'ae-2d')
     name =
       {
@@ -3221,6 +3232,7 @@ function expandedNodeBody(n, result) {
       ([k]) =>
         isTransform(n) ||
         Object.hasOwn(n.params, k) ||
+        (n.type === 'Mask' && k === 'feather') ||
         (n.type === 'Boolean' && k === booleanPendingInputKey),
     )
     .map(([k, q]) => field(n, k, q))
@@ -3526,6 +3538,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
             ([k, q]) =>
               (isTransform(n) ||
                 Object.hasOwn(n.params, k) ||
+                (n.type === 'Mask' && k === 'feather') ||
                 (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
               !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
