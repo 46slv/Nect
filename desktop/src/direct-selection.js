@@ -61,6 +61,7 @@ export function directSelectionSource(doc, layerId, { fonts = {}, sourceId } = {
       supported: true,
       layerId,
       nodeId: n.id,
+      route: [...seen],
       matrix,
       path: transformDirectPath(path, matrix),
       locked: routeLocked,
