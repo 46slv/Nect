@@ -44,6 +44,7 @@ import { handlePolar, commitHandlePolar } from './handle-polar.js';
 import { selectedPointBounds } from './selected-point-bounds.js';
 import './style.css';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
+import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -7002,7 +7003,7 @@ app.addEventListener('click', async (e) => {
         if (pointSelection.nodeId !== selected)
           pointSelection = { nodeId: selected, ids: new Set() };
       }
-      notify(route.supported ? 'Select anchors; Shift-click adds or removes points' : route.reason);
+      notify(route.supported ? 'Drag blank canvas to select anchors; Shift adds' : route.reason);
       render();
       document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
     } else if (tool !== 'select') {
@@ -9213,6 +9214,183 @@ function clearCanvasMarquee(d) {
   d.overlay?.remove();
   d.guides?.remove();
 }
+function directMarqueeSource() {
+  const n = selectedNode();
+  if (
+    tool !== 'direct' ||
+    artworkTarget ||
+    artworkSelection.size ||
+    selection.size !== 1 ||
+    !selection.has(n?.id) ||
+    !['Curve', 'Multi Path', 'Path Remap'].includes(n?.type) ||
+    !layerShown(current()) ||
+    n.bypassed
+  )
+    return null;
+  const context = directPointContext(n);
+  if (!context?.supported) return null;
+  const scope = pointScopeIdentity(pointPanelSource(n), {}),
+    anchors = pointControlTargets(context.path, canvasScale()).filter((t) => t.key === 'position'),
+    byId = new Map(anchors.map((t) => [t.pointId, t]));
+  if (
+    byId.size !== anchors.length ||
+    scope.ids.length !== anchors.length ||
+    scope.ids.some((id) => !byId.has(id)) ||
+    anchors.some((t) => !t.position.every(Number.isFinite))
+  )
+    return null;
+  return {
+    nodeId: n.id,
+    scope,
+    targets: scope.ids.map((id) => byId.get(id)),
+    fingerprint: JSON.stringify([
+      current().output,
+      context.route,
+      context.matrix,
+      context.path.fingerprint || null,
+      anchors.map((t) => t.pointId),
+    ]),
+  };
+}
+function directMarqueeCurrent(d, resolve = false) {
+  if (
+    !canvasMarqueeCurrent(d) ||
+    d.capture !== document.querySelector('.canvas-stage') ||
+    d.epoch !== sourceEpoch ||
+    tool !== 'direct' ||
+    current().id !== d.layerId ||
+    selected !== d.nodeId ||
+    selection.size !== 1 ||
+    !selection.has(d.nodeId) ||
+    artworkTarget ||
+    artworkSelection.size ||
+    session.hasGesture
+  )
+    return false;
+  if (!resolve) return true;
+  try {
+    const source = directMarqueeSource();
+    return source && samePointScope(source.scope, d.scope) && source.fingerprint === d.fingerprint;
+  } catch {
+    return false;
+  }
+}
+function beginDirectMarquee(e, reason) {
+  if (
+    navigationBusy() ||
+    composing ||
+    penDraft ||
+    session.hasGesture ||
+    document.querySelector('dialog[open]')
+  )
+    return false;
+  document.querySelector('.canvas-stage').focus({ preventScroll: true });
+  let source;
+  try {
+    source = directMarqueeSource();
+  } catch {
+    return false;
+  }
+  if (!source) return false;
+  cancelPointDelta();
+  const capture = document.querySelector('.canvas-stage'),
+    canvas = document.querySelector('.artboard'),
+    overlay = document.createElement('div'),
+    label = document.createElement('span'),
+    guides = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  overlay.className = 'canvas-marquee direct-anchor-marquee';
+  overlay.style.pointerEvents = 'none';
+  overlay.hidden = true;
+  overlay.setAttribute('aria-label', 'Anchor selection');
+  overlay.append(label);
+  guides.classList.add('direct-anchor-marquee-guides');
+  guides.setAttribute('aria-hidden', 'true');
+  guides.setAttribute('pointer-events', 'none');
+  for (const target of source.targets) {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.classList.add('guide');
+    circle.setAttribute('cx', target.position[0]);
+    circle.setAttribute('cy', target.position[1]);
+    circle.setAttribute('r', 9 / canvasScale());
+    circle.style.display = 'none';
+    circle.dataset.anchorMarqueeCandidate = target.pointId;
+    guides.append(circle);
+  }
+  capture.append(overlay);
+  canvas.append(guides);
+  drag = {
+    ...source,
+    type: 'direct-marquee',
+    capture,
+    canvas,
+    overlay,
+    guides,
+    label,
+    start: [e.clientX, e.clientY],
+    startWorld: canvasPoint(e),
+    viewport: capture.getBoundingClientRect(),
+    beforeUI: selectionSnapshot(true),
+    beforeHover: pointHover ? { ...pointHover } : null,
+    additive: e.shiftKey,
+    envelope: session.state,
+    compositionId: session.activeCompositionId,
+    layerId: current().id,
+    epoch: sourceEpoch,
+    pointerId: e.pointerId,
+    started: false,
+    ids: [],
+    reason,
+  };
+  capture.setPointerCapture?.(e.pointerId);
+  return true;
+}
+function moveDirectMarquee(e, d = drag) {
+  if (!directMarqueeCurrent(d)) return false;
+  if (!d.started && Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) < 4) return true;
+  d.started = true;
+  const r = d.viewport,
+    x = Math.max(r.left, Math.min(r.right, e.clientX)),
+    y = Math.max(r.top, Math.min(r.bottom, e.clientY)),
+    initial =
+      d.additive && d.beforeUI.pointSelection.nodeId === d.nodeId
+        ? [...d.beforeUI.pointSelection.ids]
+        : [];
+  d.ids = anchorMarqueeIds(
+    d.targets,
+    d.startWorld,
+    canvasPoint({ clientX: x, clientY: y }),
+    initial,
+  );
+  const chosen = new Set(d.ids);
+  for (const circle of d.guides.children)
+    circle.style.display = chosen.has(circle.dataset.anchorMarqueeCandidate) ? '' : 'none';
+  d.overlay.hidden = false;
+  Object.assign(d.overlay.style, {
+    left: Math.min(d.start[0], x) - r.left + 'px',
+    top: Math.min(d.start[1], y) - r.top + 'px',
+    width: Math.abs(x - d.start[0]) + 'px',
+    height: Math.abs(y - d.start[1]) + 'px',
+  });
+  d.label.textContent = `${d.ids.length} anchor${d.ids.length === 1 ? '' : 's'}`;
+  return true;
+}
+function finishDirectMarquee(d, e) {
+  const fresh = moveDirectMarquee(e, d) && directMarqueeCurrent(d, true);
+  clearCanvasMarquee(d);
+  if (!fresh) return;
+  const ids = d.started ? d.ids : [],
+    active =
+      d.beforeUI.pointFocus?.nodeId === d.nodeId && ids.includes(d.beforeUI.pointFocus.pointId)
+        ? d.beforeUI.pointFocus.pointId
+        : ids[0];
+  pointSelection = { nodeId: d.started ? d.nodeId : null, ids: new Set(ids) };
+  pointFocus = active ? { nodeId: d.nodeId, pointId: active } : null;
+  pointHover = null;
+  if (active) followPointPanelTarget(selectedNode(), active);
+  if (!d.started) notify(d.reason, true);
+  render();
+  document.querySelector('.canvas-stage')?.focus({ preventScroll: true });
+}
 function beginCanvasMarquee(e, capture) {
   const canvas = document.querySelector('.artboard'),
     targets = [],
@@ -9598,6 +9776,13 @@ function cancelInteraction(renderView = true) {
   releaseWirePointer(wire);
   if (old?.type === 'canvas-marquee') {
     if (canvasMarqueeCurrent(old)) {
+      restoreMarqueeSelection(old.beforeUI);
+      pointHover = old.beforeHover;
+    }
+    clearCanvasMarquee(old);
+  }
+  if (old?.type === 'direct-marquee') {
+    if (directMarqueeCurrent(old, true)) {
       restoreMarqueeSelection(old.beforeUI);
       pointHover = old.beforeHover;
     }
@@ -10178,7 +10363,9 @@ app.addEventListener('pointerdown', (e) => {
   if (
     tool === 'direct' &&
     e.button === 0 &&
-    !e.target.closest('[data-point],[data-path-unit-move]')
+    !e.target.closest(
+      '[data-guide],[data-text-wrap-resize],[data-object-resize],[data-transform-handle],[data-position-handle],[data-point],[data-path-unit-move],[data-node-stage-move]',
+    )
   ) {
     const doc = displayDocument(),
       point = canvasPoint(e),
@@ -10210,6 +10397,10 @@ app.addEventListener('pointerdown', (e) => {
       }
     }
     if (!picked) {
+      if (!hitLayer && !control && beginDirectMarquee(e, reason)) {
+        e.preventDefault();
+        return;
+      }
       pointSelection = { nodeId: null, ids: new Set() };
       pointFocus = null;
       notify(reason, true);
@@ -10977,6 +11168,10 @@ function movePointer(e) {
     if (!moveCanvasMarquee(e)) cancelInteraction();
     return;
   }
+  if (drag.type === 'direct-marquee') {
+    if (!moveDirectMarquee(e)) cancelInteraction();
+    return;
+  }
   if (directionDrag())
     drag.lastPointer = {
       clientX: e.clientX,
@@ -11582,6 +11777,10 @@ document.addEventListener('pointerup', (e) => {
     if (d.capture?.hasPointerCapture?.(d.pointerId)) d.capture.releasePointerCapture(d.pointerId);
     if (d.type === 'canvas-marquee') {
       finishCanvasMarquee(d, e);
+      return;
+    }
+    if (d.type === 'direct-marquee') {
+      finishDirectMarquee(d, e);
       return;
     }
     if (d.type === 'path-insert') {
@@ -12528,9 +12727,14 @@ document.addEventListener('keydown', (e) => {
     }
   }
   if (
-    ['pan', 'graph-pan', 'graph-marquee', 'canvas-marquee', 'graph-overview'].includes(
-      drag?.type,
-    ) &&
+    [
+      'pan',
+      'graph-pan',
+      'graph-marquee',
+      'canvas-marquee',
+      'direct-marquee',
+      'graph-overview',
+    ].includes(drag?.type) &&
     e.key === 'Escape'
   ) {
     // Navigation is view-only: stop at the current offset without undo or selection changes.
