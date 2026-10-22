@@ -64,3 +64,12 @@ baseline failure receipt, focused/build logs, source delta and hash manifest.
 Profiles, TEMP, caches and normal Recovery data are excluded. Prior candidates
 are preserved. No new native process or dialog remains from this task; the
 headless browser/server runs exited normally via their existing finally paths.
+
+## Native follow-up boundary
+
+The requested native mock-write acceptance could not start: this EXE exposes no
+acceptance-scoped Recovery writer injection interface. See
+[the exact native boundary receipt](recovery-native-boundary.md). No app/profile/
+port was started, no CLI save/close operation was pending, and no bridge or real
+Recovery fault was forced. The product fix stays verified by its focused/browser
+evidence; native failure/retry acceptance remains NOT RUN, not passed.
