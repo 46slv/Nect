@@ -207,6 +207,60 @@ test('Artwork creation and placement use independent layers and explicit, safe e
       assert.equal(win.nect.export(), svg);
     },
   );
+  await t.test('Text placement appends real artwork after the four-shape workflow baseline', () => {
+    const d = makeDoc();
+    d.layers[0].locked = true;
+    d.layers[0].visible = false;
+    load(d);
+    for (const type of ['Circle', 'Rectangle', 'Polygon', 'Star']) click(`[data-tool="${type}"]`);
+    const before = saved(),
+      previous = JSON.parse(before),
+      star = structuredClone(previous.layers.at(-1)),
+      past = ui().past,
+      center = [d.width / 2, d.height / 2];
+    assert.equal(star.nodes[0].type, 'Star');
+    click('[data-tool="Text"]');
+    assert.equal(saved(), before, 'Tool activation cannot append or remove the previous Star');
+    assert.equal(ui().past, past);
+    const [left, top] = xy([0, 0]),
+      [right, bottom] = xy([d.width, d.height]);
+    stage().getBoundingClientRect = () => ({
+      left,
+      top,
+      right,
+      bottom,
+      width: right - left,
+      height: bottom - top,
+    });
+    fire($('.artboard'), 'pointerdown', center, { isPrimary: true });
+    assert.equal(saved(), before, 'The press alone has not created Text');
+    fire(document, 'pointerup', center, { isPrimary: true });
+    const after = win.nect.document,
+      textLayer = after.layers.at(-1),
+      text = textLayer.nodes[0];
+    assert.equal(after.layers.length, previous.layers.length + 1);
+    assert.equal(text.type, 'Text');
+    assert.equal(
+      previous.layers.some((layer) => layer.id === textLayer.id),
+      false,
+    );
+    assert.equal(textLayer.nodes.length, 3);
+    assert.deepEqual(text.params.position.value, center);
+    assert.ok(text.text.trim().length > 0);
+    assert.ok($(`.shape[data-layer="${textLayer.id}"]`).getAttribute('d'));
+    assert.equal(win.nect.evaluate().error, null);
+    assert.deepEqual(after.layers.slice(0, -1), previous.layers);
+    assert.deepEqual(
+      after.layers.find((layer) => layer.id === star.id),
+      star,
+    );
+    assert.equal(ui().past, past + 1);
+    const created = saved();
+    click('[data-action="undo"]');
+    assert.equal(saved(), before);
+    click('[data-action="redo"]');
+    assert.equal(saved(), created);
+  });
   await t.test('layer limit rejection preserves document, history, selection and view', () => {
     const { d } = fixture();
     while (d.layers.length < 100) appendArtwork(d, 'Circle', { at: [20, 20] });

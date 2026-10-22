@@ -103,7 +103,27 @@ try {
   for (const type of ['Circle', 'Rectangle', 'Polygon', 'Star', 'Text']) {
     const before = JSON.parse(await saved());
     await page.locator(`[data-tool="${type}"]`).click();
+    if (type === 'Text') {
+      // REQ-210: choosing Text is neutral; Canvas release authors its artwork.
+      assert.deepEqual(
+        JSON.parse(await saved()),
+        before,
+        'Text Tool selection only arms placement',
+      );
+      await page.locator('.artboard').click();
+    }
     const after = JSON.parse(await saved());
+    if (type === 'Text') {
+      const textLayer = after.layers.at(-1);
+      assert.equal(after.layers.length, before.layers.length + 1, 'Canvas placement appends Text');
+      assert.equal(textLayer.nodes[0].type, 'Text', 'Text exists before layer-preservation checks');
+      assert.equal(
+        before.layers.some((layer) => layer.id === textLayer.id),
+        false,
+      );
+      await page.locator(`.shape[data-layer="${textLayer.id}"]`).waitFor();
+      assert.equal(await page.locator(`.shape[data-layer="${textLayer.id}"]`).count(), 1);
+    }
     assert.deepEqual(after.layers.slice(0, -1), before.layers);
     assert.equal(after.layers.at(-1).nodes[0].type, type);
     assert.equal(after.layers.at(-1).nodes.length, 3);
