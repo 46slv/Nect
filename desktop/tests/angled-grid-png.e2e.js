@@ -32,10 +32,13 @@ try {
     results = [];
   for (const angle of [0, 45]) {
     if (angle) {
+      await page.keyboard.press('Escape');
       await page.locator('[data-action="grid-panel"]').click();
       const field = page.locator('[data-guide-setting="gridAngle"]');
       await field.fill('45');
       await field.press('Tab');
+      assert.equal(await page.evaluate(() => window.nect.document.editor.gridAngle), 45);
+      assert.equal(await page.locator('[data-grid-overlay]').getAttribute('data-grid-angle'), '45');
       await page.keyboard.press('Escape');
       assert.equal(await page.evaluate(() => window.nect.export()), svg);
       assert.deepEqual(await page.evaluate(() => window.nect.document.layers), f.doc.layers);

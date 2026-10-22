@@ -49,7 +49,7 @@ try {
           .center.value,
     );
   const moveStart = () =>
-    $('[data-node-stage-move]')
+    $('g.node-stage-move[data-node-stage-move]')
       .first()
       .evaluate((el) => {
         const r = (el.querySelector('rect') || el).getBoundingClientRect();
