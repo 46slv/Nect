@@ -48,6 +48,8 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
+import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
+import { openKeyerInputPicker } from './keyer-input-picker.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -672,6 +674,7 @@ let osFontCatalogRequest = 0;
 let osFontCatalogPending = false;
 let editorPicker = null,
   fontPreview = null;
+let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
 function readAlignmentPreferences() {
@@ -1404,6 +1407,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  keyerInputPicker?.close();
   pointAlignmentActions.clear();
   osTextDrafts.clear();
   gridOpacityDraft = null;
@@ -2083,6 +2087,8 @@ function field(n, key, q) {
       }
       control = `<div class="authored-control"><div class="base-inputs"><label class="base-component">Base${inputs}</label></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
     } else control = inputs;
+    if (n.type === 'Keyer' && key === 'keyColor')
+      control += `<button class="mini" data-keyer-pick="${n.id}" ${disabled ? 'disabled' : ''}>${driven ? 'Pick base from input' : 'Pick from input'}</button>`;
   } else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
@@ -3372,6 +3378,7 @@ function updatePngExportPreview() {
   if (button) button.disabled = !preview.size;
 }
 function render(resetView = false, artworkResolution = null, graphScrollOverride = null) {
+  keyerInputPicker?.validate();
   textTools?.cancel();
   const osOwners = new Set(
     history.doc.layers.flatMap((layer) => layer.nodes.filter((n) => n.osFont).map((n) => n.id)),
@@ -5603,6 +5610,72 @@ function showEditorDialog(dialog) {
   dialog.showModal();
   updateLayerDeletionControls();
 }
+function pickKeyerInputColor(nodeId) {
+  try {
+    if (
+      keyerInputPicker ||
+      editorPicker ||
+      deletionBusy() ||
+      session.hasGesture ||
+      session.hasTextComposition
+    )
+      throw Error('Finish the current edit before picking a key color');
+    if (
+      selected !== nodeId ||
+      selectedNode()?.type !== 'Keyer' ||
+      selection.size !== 1 ||
+      !selection.has(nodeId)
+    )
+      throw Error('Select one Keyer');
+    const envelope = session.state,
+      layerId = current().id,
+      compositionId = session.activeCompositionId,
+      epoch = sourceEpoch,
+      context = keyerInputPickContext(history.doc, layerId, nodeId, {
+        fonts: resolveFonts(history.doc, activeFonts()),
+      }),
+      isCurrent = () =>
+        selected === nodeId &&
+        selectedNode()?.id === nodeId &&
+        selection.size === 1 &&
+        selection.has(nodeId) &&
+        current().id === layerId &&
+        session.activeCompositionId === compositionId &&
+        sourceEpoch === epoch &&
+        session.state.sessionId === envelope.sessionId &&
+        session.state.expectedRevision === envelope.expectedRevision;
+    keyerInputPicker = openKeyerInputPicker({
+      context,
+      title:
+        context.color.source || context.color.expression ? 'Pick Key color base' : 'Pick Key color',
+      isCurrent,
+      onClose: () => {
+        keyerInputPicker = null;
+        updateLayerDeletionControls();
+      },
+      onPick: (point, close) => {
+        if (!isCurrent()) {
+          close();
+          return;
+        }
+        try {
+          const plan = planKeyerInputPick(history.doc, context, point, {
+            fonts: resolveFonts(history.doc, activeFonts()),
+          });
+          if (plan.state !== 'color') return;
+          close();
+          commandChange(plan.type, plan.payload, 'Picked key color', false, envelope);
+        } catch (error) {
+          close();
+          notify(error.message, true);
+        }
+      },
+    });
+    updateLayerDeletionControls();
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
 function deleteArtwork(layerId) {
   // Reject before taking a history snapshot or touching any detached draft.
   if (deletionBusy()) return;
@@ -6436,6 +6509,10 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.keyerPick) {
+    if (!b.disabled) pickKeyerInputColor(d.keyerPick);
+    return;
+  }
   if (d.pointSetSpacing) {
     if (!b.disabled) {
       const input = b.closest('[data-point-spacing-panel]')?.querySelector('[data-point-spacing]');
@@ -9713,6 +9790,7 @@ function navigationExcluded(target) {
 }
 function navigationBusy() {
   return !!(
+    keyerInputPicker ||
     drag ||
     wiring ||
     composing ||

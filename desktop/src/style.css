@@ -2322,3 +2322,34 @@ input[data-scrub-step].scrubbing {
 .layer[data-layer-drop='below'] {
   box-shadow: inset 0 -2px #3785d6;
 }
+.keyer-input-picker {
+  width: min(680px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px;
+}
+.keyer-input-picker header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 8px;
+}
+.keyer-input-picker p {
+  margin: 0 0 8px;
+}
+.keyer-input-picker svg {
+  display: block;
+  width: 100%;
+  height: min(420px, 60vh);
+  cursor: crosshair;
+  background: repeating-conic-gradient(#e5e8eb 0% 25%, #fff 0% 50%) 0 / 16px 16px;
+}
+.keyer-input-picker image {
+  image-rendering: pixelated;
+}
+.keyer-input-picker output {
+  display: block;
+  min-height: 20px;
+  padding-top: 8px;
+}
