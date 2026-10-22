@@ -105,6 +105,18 @@ try {
       await page.mouse.up();
       await settle();
     }
+    const readView = () =>
+      page.evaluate(() => {
+        const svg = document.querySelector('.artboard'),
+          m = svg.getScreenCTM();
+        return {
+          label: document.querySelector('[data-zoom="canvas"]').textContent,
+          matrix: [m.a, m.b, m.c, m.d, m.e, m.f],
+          width: svg.style.width,
+          height: svg.style.height,
+        };
+      });
+    const viewBefore = await readView();
     const before = await state(),
       startingSelection = await selection(),
       a = [0, 1].map((i) => Math.min(positions['anchor-0'][i], positions['anchor-1'][i]) - 14),
@@ -112,7 +124,7 @@ try {
     if (c.additive) await page.keyboard.down('Shift');
     await move(a);
     await page.mouse.down();
-    // First pass includes all anchors; final smaller rectangle must not accumulate hits.
+    // First pass includes another anchor; shrinking must not accumulate hits.
     const allEnd = [
       Math.max(...Object.values(positions).map((p) => p[0])) + 20,
       Math.max(...Object.values(positions).map((p) => p[1])) + 20,
@@ -139,8 +151,13 @@ try {
     assert.equal(chosen.focus, c.additive ? 'anchor-3' : 'anchor-0');
     assert.deepEqual(chosen.nodes, [f.curve.id]);
     assert.deepEqual(await state(), before);
+    const view = await readView();
+    assert.deepEqual(view, viewBefore);
+    assert.equal(view.label, `${c.zoom}%`);
+    assert.equal(view.width, `${(f.doc.width * c.zoom) / 100}px`);
+    assert.equal(view.height, `${(f.doc.height * c.zoom) / 100}px`);
     await page.screenshot({ path: path.join(output, `${c.zoom}-selected.png`) });
-    // A different full rectangle is cancelled; the mouse's subsequent release is late.
+    // A different rectangle is cancelled; the mouse's subsequent release is late.
     await move(a);
     await page.mouse.down();
     await move(allEnd);
@@ -181,6 +198,7 @@ try {
       ...c,
       transform: { rotation: 35, scaleWidth: 1.5, scaleHeight: 0.7 },
       positions,
+      view,
       expected,
       focus: chosen.focus,
       anchorOnly: true,
