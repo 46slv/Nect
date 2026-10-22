@@ -155,17 +155,23 @@ try {
   await page.mouse.up({ button: 'middle' });
   assert.deepEqual(await position(), beforePan);
   assert.ok((await scroll())[0] >= 95 && (await scroll())[1] >= 45);
-  // Toolbar pan pad moves only the viewport at 5%, 100% and 200% zoom.
+  // Joystick moves only the viewport at 5%, 100% and 200% zoom.
   for (const zoomStep of ['reset', 'low', 'high']) {
     await page.locator('[data-action="graph-reset"]').click();
     if (zoomStep === 'low')
       for (let i = 0; i < 17; i++) await page.locator('[data-action="graph-zoom-out"]').click();
     if (zoomStep === 'high')
       for (let i = 0; i < 4; i++) await page.locator('[data-action="graph-zoom-in"]').click();
-    const beforePad = await scroll();
+    const beforeStick = await scroll();
     const beforeNode = await position();
-    await page.locator('[data-action="graph-pan-right"]').click();
-    assert.ok((await scroll())[0] >= beforePad[0]);
+    await page.locator('.graph-pan-joystick').focus();
+    await page.keyboard.down('ArrowLeft');
+    await page.waitForFunction(
+      (before) => document.querySelector('.graph-scroll').scrollLeft > before + 10,
+      beforeStick[0],
+    );
+    await page.keyboard.up('ArrowLeft');
+    assert.ok((await scroll())[0] > beforeStick[0]);
     assert.deepEqual(await position(), beforeNode);
   }
   await page.locator('[data-action="graph-reset"]').click();

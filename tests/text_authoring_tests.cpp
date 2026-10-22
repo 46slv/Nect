@@ -1028,32 +1028,46 @@ int main(){try{
         for(const auto& [name,scalar]:evaluated.parameters){(void)scalar;parameters[name]=values.at({object,"","text."+name});}
         return evaluate_text(evaluated,parameters);
     };
+#ifdef _WIN32
     const auto same_layout=[](const TextLayout& a,const TextLayout& b) {
         return a.x==b.x&&a.y==b.y&&a.width==b.width&&a.height==b.height&&a.overflow==b.overflow&&
             a.glyph_count==b.glyph_count&&a.warnings==b.warnings&&a.used_fonts==b.used_fonts;
     };
     const auto layout_initial_frame=measure_layout(layout_session.document(),"layout-b");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)measure_layout(layout_session.document(),"layout-b");});
+#endif
     const auto layout_history_before=layout_session.history().retained_bytes;
     layout_apply({LinkTextLayout{layout_b_ref,layout_a_ref,false}});
     check(layout_session.document().objects.at("layout-b").text->layout=="frame"&&
         layout_session.document().objects.at("layout-b").text->parameters.at("frame_width").literal==96&&
         layout_session.document().objects.at("layout-b").text->parameters.at("frame_height").literal==48&&
         evaluate_text_layout(layout_session.document(),"layout-b")=="auto"&&
-        layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref&&
-        same_layout(measure_layout(layout_session.document(),"layout-b"),measure_layout(layout_session.document(),"layout-auto-twin"))&&
+        layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref,
+        "Text layout link evaluates auto sizing while preserving the target literal and its own frame dimensions");
+#ifdef _WIN32
+    check(same_layout(measure_layout(layout_session.document(),"layout-b"),measure_layout(layout_session.document(),"layout-auto-twin"))&&
         !same_layout(layout_initial_frame,measure_layout(layout_session.document(),"layout-b")),
-        "Text layout link projects auto sizing while preserving the target literal and its own frame dimensions");
+        "Linked auto sizing matches its literal twin and differs from the original fixed frame");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)measure_layout(layout_session.document(),"layout-b");});
+#endif
     check(layout_session.history().retained_bytes>layout_history_before&&
         layout_session.history().states.back().label.find("Link Text layout")!=std::string::npos,
         "Text layout link is admitted to History with a readable label and retained state accounting");
     auto layout_source_edit=*layout_session.document().objects.at("layout-a").text;layout_source_edit.layout="frame";
     layout_apply({UpdateText{"layout-a",layout_source_edit}});
+#ifdef _WIN32
     const auto layout_linked_frame=measure_layout(layout_session.document(),"layout-b");
+    check(same_layout(layout_linked_frame,measure_layout(layout_session.document(),"layout-frame-twin")),
+        "Linked fixed-frame wrapping and overflow match the equal literal twin");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)measure_layout(layout_session.document(),"layout-b");});
+#endif
     check(evaluate_text_layout(layout_session.document(),"layout-b")=="frame"&&
-        same_layout(layout_linked_frame,measure_layout(layout_session.document(),"layout-frame-twin"))&&
         layout_session.document().objects.at("layout-b").text->parameters.at("frame_width").literal==96&&
         layout_session.document().objects.at("layout-b").text->parameters.at("frame_height").literal==48,
-        "Linked frame sizing wraps and overflows from the target's frame dimensions");
+        "Linked frame layout retains the target's frame dimensions");
     layout_apply({Rename{"layout-a","Renamed Layout A"},ReorderObjects{"layout-link-comp","",{"layout-b","layout-a","layout-auto-twin","layout-frame-twin","layout-c","layout-path"}}});
     check(evaluate_text_layout(layout_session.document(),"layout-b")=="frame"&&
         layout_session.document().objects.at("layout-b").text->layout_driver->link==layout_a_ref,
@@ -1174,16 +1188,25 @@ int main(){try{
         for(const auto& contour:*layout.contours)for(const auto& point:contour.points)left=std::min(left,point.anchor.x);
         return left;
     };
+#ifdef _WIN32
     const auto initial_alignment_left=alignment_glyph_left(alignment_session.document(),"alignment-b");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)alignment_glyph_left(alignment_session.document(),"alignment-b");});
+#endif
     const auto alignment_history_before=alignment_session.history().retained_bytes;
     alignment_apply({LinkTextAlignment{alignment_b_ref,alignment_a_ref,false}});
     check(alignment_session.document().objects.at("alignment-b").text->alignment=="end"&&
         alignment_session.document().objects.at("alignment-b").text->parameters.at("frame_width").literal==240&&
         evaluate_text_alignment(alignment_session.document(),"alignment-b")=="start"&&
-        alignment_session.document().objects.at("alignment-b").text->alignment_driver->link==alignment_a_ref&&
-        alignment_glyph_left(alignment_session.document(),"alignment-b")==alignment_glyph_left(alignment_session.document(),"alignment-start-twin")&&
+        alignment_session.document().objects.at("alignment-b").text->alignment_driver->link==alignment_a_ref,
+        "Same-field Text alignment link evaluates start alignment while retaining target literal and frame");
+#ifdef _WIN32
+    check(alignment_glyph_left(alignment_session.document(),"alignment-b")==alignment_glyph_left(alignment_session.document(),"alignment-start-twin")&&
         alignment_glyph_left(alignment_session.document(),"alignment-b")<initial_alignment_left,
-        "Same-field Text alignment link moves fixed-frame glyphs while retaining target literal and frame");
+        "Linked start alignment moves real fixed-frame glyphs to their literal twin");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)alignment_glyph_left(alignment_session.document(),"alignment-b");});
+#endif
     check(alignment_session.history().retained_bytes>alignment_history_before&&
         alignment_session.history().states.back().label.find("Link Text alignment")!=std::string::npos,
         "Text alignment link records retained driver bytes with a readable History label");
@@ -1191,9 +1214,14 @@ int main(){try{
     alignment_apply({UpdateText{"alignment-a",alignment_source_edit},Rename{"alignment-a","Renamed Alignment A"},
         ReorderObjects{"alignment-link-comp","",{"alignment-b","alignment-a","alignment-start-twin","alignment-center-twin","alignment-c","alignment-path"}}});
     check(evaluate_text_alignment(alignment_session.document(),"alignment-b")=="center"&&
-        alignment_glyph_left(alignment_session.document(),"alignment-b")==alignment_glyph_left(alignment_session.document(),"alignment-center-twin")&&
         alignment_session.document().objects.at("alignment-b").text->alignment_driver->link==alignment_a_ref,
-        "Source alignment edits drive fixed-frame layout while rename and reorder preserve the stable Ref");
+        "Source alignment edits drive the enum while rename and reorder preserve the stable Ref");
+#ifdef _WIN32
+    check(alignment_glyph_left(alignment_session.document(),"alignment-b")==alignment_glyph_left(alignment_session.document(),"alignment-center-twin"),
+        "Linked center alignment moves fixed-frame glyphs to their literal twin");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)alignment_glyph_left(alignment_session.document(),"alignment-b");});
+#endif
     const auto alignment_revision=alignment_session.revision();const auto alignment_bytes=encode(alignment_session.document());
     rejects("MISSING_REFERENCE",[&]{alignment_apply({DeleteObjects{{"alignment-a"}}});});
     rejects("DRIVEN_PROPERTY",[&]{alignment_apply({LinkTextAlignment{alignment_b_ref,alignment_c_ref,false}});});
@@ -1295,6 +1323,7 @@ int main(){try{
         for(const auto& [name,value]:source.parameters){(void)value;parameters[name]=scalar_values.at({object,"","text."+name});}
         return evaluate_text(source,parameters);
     };
+#ifdef _WIN32
     const auto same_locale_layout=[](const TextLayout& a,const TextLayout& b) {
         if(a.x!=b.x||a.y!=b.y||a.width!=b.width||a.height!=b.height||a.first_line_baseline_y!=b.first_line_baseline_y||
            a.line_baselines_y!=b.line_baselines_y||a.column_baselines_x!=b.column_baselines_x||a.overflow!=b.overflow||
@@ -1311,20 +1340,31 @@ int main(){try{
         }
         return true;
     };
+#endif
     locale_apply({LinkTextLocale{locale_b_ref,locale_a_ref,false}});
     check(locale_session.document().objects.at("locale-b").text->locale=="ja-JP"&&
         evaluate_text_locale(locale_session.document(),"locale-b")=="ar-SA"&&
-        locale_session.document().objects.at("locale-b").text->locale_driver->link==locale_a_ref&&
-        same_locale_layout(locale_layout(locale_session.document(),"locale-b"),locale_layout(locale_session.document(),"locale-arabic-twin")),
-        "Linked Arabic Text locale preserves its target literal and matches an equal literal twin's layout, fonts and warnings");
+        locale_session.document().objects.at("locale-b").text->locale_driver->link==locale_a_ref,
+        "Linked Arabic Text locale preserves its target literal and stable source Ref");
+#ifdef _WIN32
+    check(same_locale_layout(locale_layout(locale_session.document(),"locale-b"),locale_layout(locale_session.document(),"locale-arabic-twin")),
+        "Linked locale matches its literal twin's glyphs, metrics, fonts and warnings");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)locale_layout(locale_session.document(),"locale-b");});
+#endif
     auto locale_a_edit=*locale_session.document().objects.at("locale-a").text;locale_a_edit.locale="ja-JP";
     locale_apply({UpdateText{"locale-a",locale_a_edit},Rename{"locale-a","Renamed Locale A"},
         ReorderObjects{"locale-link-comp","",{"locale-b","locale-a","locale-arabic-twin","locale-japanese-twin","locale-c","locale-path"}}});
     check(evaluate_text_locale(locale_session.document(),"locale-b")=="ja-JP"&&
         locale_session.document().objects.at("locale-b").text->locale=="ja-JP"&&
-        locale_session.document().objects.at("locale-b").text->locale_driver->link==locale_a_ref&&
-        same_locale_layout(locale_layout(locale_session.document(),"locale-b"),locale_layout(locale_session.document(),"locale-japanese-twin")),
-        "Source locale edits drive the same Text layout while rename and reorder preserve the stable Ref");
+        locale_session.document().objects.at("locale-b").text->locale_driver->link==locale_a_ref,
+        "Source locale edits drive the typed value while rename and reorder preserve the stable Ref");
+#ifdef _WIN32
+    check(same_locale_layout(locale_layout(locale_session.document(),"locale-b"),locale_layout(locale_session.document(),"locale-japanese-twin")),
+        "Linked locale matches its literal twin's glyphs, metrics, fonts and warnings");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)locale_layout(locale_session.document(),"locale-b");});
+#endif
     const auto locale_link_bytes=encode(locale_session.document());
     check(locale_link_bytes.find("\"locale_driver\":{\"link\":")!=std::string::npos&&
         encode(decode(locale_link_bytes))==locale_link_bytes,
@@ -1332,9 +1372,14 @@ int main(){try{
     const auto reopened_locale=decode(locale_link_bytes);
     check(reopened_locale.objects.at("locale-b").text->locale=="ja-JP"&&
         reopened_locale.objects.at("locale-b").text->locale_driver->link==locale_a_ref&&
-        evaluate_text_locale(reopened_locale,"locale-b")=="ja-JP"&&
-        same_locale_layout(locale_layout(reopened_locale,"locale-b"),locale_layout(reopened_locale,"locale-japanese-twin")),
-        "Cold codec reopen retains authored locales, stable Ref and evaluated Arabic-capable layout state");
+        evaluate_text_locale(reopened_locale,"locale-b")=="ja-JP",
+        "Cold codec reopen retains authored locales, stable Ref and evaluated locale");
+#ifdef _WIN32
+    check(same_locale_layout(locale_layout(reopened_locale,"locale-b"),locale_layout(reopened_locale,"locale-japanese-twin")),
+        "Linked locale matches its literal twin's glyphs, metrics, fonts and warnings");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)locale_layout(reopened_locale,"locale-b");});
+#endif
     auto legacy_locale=test_support::without_empty_presets_for_legacy_fixture(locale_literal_bytes);const auto legacy_locale_version=legacy_locale.find(test_support::current_native_version_marker());
     legacy_locale.replace(legacy_locale_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.21\"");
     check(decode(legacy_locale).objects.at("locale-b").text->locale=="ja-JP"&&

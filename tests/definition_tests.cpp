@@ -43,9 +43,9 @@ Document fixture() {
     document.compositions.front().roots={"outer","source-root"};
     return document;
 }
-EvaluatedScene scene(const Document& document) {
+SceneProjection projection(const Document& document) {
     const auto values=evaluate(document);
-    return evaluate_scene(document,"definition-comp",values,evaluate_transforms(document,values));
+    return project_definition_instances(document,"definition-comp",values,evaluate_transforms(document,values));
 }
 const EvaluatedSceneNode* find_node(const std::vector<EvaluatedSceneNode>& nodes,const Id& id) {
     for(const auto& node:nodes) {
@@ -54,7 +54,7 @@ const EvaluatedSceneNode* find_node(const std::vector<EvaluatedSceneNode>& nodes
     }
     return nullptr;
 }
-Id proxy_for(const EvaluatedScene& evaluated,const Id& instance,const Id& source) {
+Id proxy_for(const SceneProjection& evaluated,const Id& instance,const Id& source) {
     for(const auto& [proxy,owner]:evaluated.instance_owners)
         if(owner==instance&&evaluated.instance_sources.at(proxy)==source)return proxy;
     throw std::runtime_error("Missing render proxy for "+instance+" / "+source);
@@ -72,97 +72,113 @@ void source_projection_and_overrides() {
 
     apply(session,{DefinitionCommand{SetInstanceOverride{"instance-1",{"path-a","","composite.opacity"},0.2}},
         DefinitionCommand{SetInstanceOverride{"instance-2",{"text-b","","text.font_size"},34}}});
-    const auto evaluated=scene(session.document());
-    check(evaluated.expanded_document&&evaluated.instance_owners.size()==6&&evaluated.instance_sources.size()==6,
+    const auto evaluated=projection(session.document());
+    check(evaluated.document&&evaluated.instance_owners.size()==6&&evaluated.instance_sources.size()==6,
         "Two Instances expand to unique transient render Objects without changing authored Object count");
-    check(session.document().objects.size()==6,"Rendering never adds proxy Objects to authored state");
-    const auto* master=find_node(evaluated.roots,"source-root");
-    const auto* first=find_node(evaluated.roots,"instance-1");
-    const auto* second=find_node(evaluated.roots,"instance-2");
-    check(master&&!master->visible&&first&&first->visible&&second&&second->visible,
-        "Master-root visibility is excluded while each Instance uses its own visibility");
-    same_matrix(first->world,{1,0,0,1,25,20},"Instance placement is its own world transform");
-    same_matrix(second->world,{1,0,0,1,105,20},"Second Instance placement is independent");
+    check(session.document().objects.size()==6,"Projection never adds proxy Objects to authored state");
     const auto proxy_root=proxy_for(evaluated,"instance-1","source-root");
-    const auto* root_node=find_node(evaluated.roots,proxy_root);
-    check(root_node&&root_node->visible,"Definition root visibility is reset to visible in projection");
-    near(root_node->opacity,0.5,"Definition-root compositing opacity remains in the evaluated source");
-    same_matrix(root_node->world,first->world,"Source-root affine and external Transform Parent do not affect Instance content");
+    const auto visible=evaluate_object_visibilities(*evaluated.document);
+    check(!visible.at("source-root")&&visible.at("instance-1")&&visible.at("instance-2")&&visible.at(proxy_root),
+        "Master-root visibility is excluded while each Instance and its proxy root retain their own visibility");
+    same_matrix(evaluated.transforms->at("instance-1").world,{1,0,0,1,25,20},"Instance placement is its own world transform");
+    same_matrix(evaluated.transforms->at("instance-2").world,{1,0,0,1,105,20},"Second Instance placement is independent");
+    near(evaluated.values->at({proxy_root,"","composite.opacity"}),0.5,"Definition-root compositing opacity remains in the evaluated source");
+    same_matrix(evaluated.transforms->at(proxy_root).world,evaluated.transforms->at("instance-1").world,
+        "Source-root affine and external Transform Parent do not affect Instance content");
     const auto proxy_path_1=proxy_for(evaluated,"instance-1","path-a");
     const auto proxy_path_2=proxy_for(evaluated,"instance-2","path-a");
     const auto proxy_text_1=proxy_for(evaluated,"instance-1","text-b");
     const auto proxy_text_2=proxy_for(evaluated,"instance-2","text-b");
-    check(proxy_path_1!=proxy_path_2&&evaluated.shapes.contains(proxy_path_1)&&evaluated.shapes.contains(proxy_path_2),
-        "Each Instance has distinct shape-map keys and render node IDs");
-    near(evaluated.expanded_values->at({proxy_path_1,"","composite.opacity"}),0.2,
+    check(proxy_path_1!=proxy_path_2&&evaluated.document->objects.contains(proxy_path_1)&&evaluated.document->objects.contains(proxy_path_2),
+        "Each Instance has distinct transient Object IDs");
+    const auto source_values=evaluate(session.document());
+    const auto source_transforms=evaluate_transforms(session.document(),source_values);
+#ifdef _WIN32
+    const auto rendered=evaluate_scene(session.document(),"definition-comp",source_values,source_transforms);
+    check(rendered.shapes.contains(proxy_path_1)&&rendered.shapes.contains(proxy_path_2)&&
+        rendered.shapes.contains(proxy_text_1)&&rendered.shapes.contains(proxy_text_2),
+        "Windows renders both Path and DirectWrite Text proxies through the real scene path");
+    const auto* master=find_node(rendered.roots,"source-root");
+    const auto* first=find_node(rendered.roots,"instance-1");
+    const auto* second=find_node(rendered.roots,"instance-2");
+    const auto* root_node=find_node(rendered.roots,proxy_root);
+    check(master&&!master->visible&&first&&first->visible&&second&&second->visible&&root_node&&root_node->visible,
+        "Rendered scene nodes preserve master and Instance visibility");
+    same_matrix(root_node->world,first->world,"Rendered Instance root retains its projected world transform");
+    near(root_node->opacity,0.5,"Rendered source root retains its opacity");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)evaluate_scene(session.document(),"definition-comp",source_values,source_transforms);});
+#endif
+    near(evaluated.values->at({proxy_path_1,"","composite.opacity"}),0.2,
         "Instance 1 applies its Path opacity override");
-    near(evaluated.expanded_values->at({proxy_path_2,"","composite.opacity"}),1,
+    near(evaluated.values->at({proxy_path_2,"","composite.opacity"}),1,
         "Instance 2 receives no unrelated Path override");
-    near(evaluated.expanded_values->at({proxy_text_2,"","text.font_size"}),34,
+    near(evaluated.values->at({proxy_text_2,"","text.font_size"}),34,
         "Instance 2 applies its Text font-size override");
-    near(evaluated.expanded_values->at({proxy_text_1,"","text.font_size"}),48,
+    near(evaluated.values->at({proxy_text_1,"","text.font_size"}),48,
         "Instance 1 receives no unrelated Text override");
-    check(evaluated.expanded_document->objects.at(proxy_path_1).name=="A"&&
-        evaluated.expanded_document->objects.at(proxy_text_2).name=="B",
+    check(evaluated.document->objects.at(proxy_path_1).name=="A"&&
+        evaluated.document->objects.at(proxy_text_2).name=="B",
         "Proxy copies retain the source item names");
 
-    const auto baseline_bounds=object_bounds(*evaluated.expanded_document,proxy_path_1,*evaluated.expanded_values,
-        *evaluated.expanded_transforms,true);
+    const auto baseline_bounds=object_bounds(*evaluated.document,proxy_path_1,*evaluated.values,
+        *evaluated.transforms,true);
     check(baseline_bounds.has_value(),"Expanded Path has real world geometry");
     const auto native_before=encode(session.document());
     apply(session,{SetVisibility{"source-root",true},Set{{"source-root","","transform.tx"},700},
         Set{{"source-root","","transform.ty"},900},Rename{"path-a","A renamed"},
         Set{{"path-a","path-a-p1","x"},60},Set{{"path-a","","composite.opacity"},0.65},
         SetVisibility{"path-a",false},ReorderObjects{"definition-comp","source-root",{"text-b","path-a"}}});
-    auto changed=scene(session.document());
+    auto changed=projection(session.document());
     const auto changed_path=proxy_for(changed,"instance-1","path-a");
     const auto changed_path_2=proxy_for(changed,"instance-2","path-a");
     const auto changed_text=proxy_for(changed,"instance-2","text-b");
-    check(changed.expanded_document->objects.at(changed_path).name=="A renamed"&&
-        changed.expanded_document->objects.at("instance-1").children.front()==proxy_for(changed,"instance-1","source-root"),
+    check(changed.document->objects.at(changed_path).name=="A renamed"&&
+        changed.document->objects.at("instance-1").children.front()==proxy_for(changed,"instance-1","source-root"),
         "Source rename propagates and stable source IDs preserve references");
-    check(changed.expanded_document->objects.at(proxy_for(changed,"instance-1","source-root")).children==
+    check(changed.document->objects.at(proxy_for(changed,"instance-1","source-root")).children==
         std::vector<Id>{proxy_for(changed,"instance-1","text-b"),changed_path},
         "Source reorder propagates to each expanded Instance");
-    near(changed.expanded_values->at({changed_path,"","composite.opacity"}),0.2,
+    near(changed.values->at({changed_path,"","composite.opacity"}),0.2,
         "A source Path opacity edit does not replace Instance 1's explicit local override");
-    near(changed.expanded_values->at({changed_path_2,"","composite.opacity"}),0.65,
+    near(changed.values->at({changed_path_2,"","composite.opacity"}),0.65,
         "A source Path opacity edit propagates to Instance 2 without a local override");
-    check(!find_node(changed.roots,changed_path)->visible&&!find_node(changed.roots,changed_path_2)->visible,
+    const auto changed_visibility=evaluate_object_visibilities(*changed.document);
+    check(!changed_visibility.at(changed_path)&&!changed_visibility.at(changed_path_2),
         "Descendant authored visibility propagates to both derived Instances");
     apply(session,{SetVisibility{"path-a",true}});
-    changed=scene(session.document());
-    check(find_node(changed.roots,proxy_for(changed,"instance-1","path-a"))->visible&&
-        find_node(changed.roots,proxy_for(changed,"instance-2","path-a"))->visible,
+    changed=projection(session.document());
+    const auto restored_visibility=evaluate_object_visibilities(*changed.document);
+    check(restored_visibility.at(proxy_for(changed,"instance-1","path-a"))&&
+        restored_visibility.at(proxy_for(changed,"instance-2","path-a")),
         "Restoring descendant authored visibility restores both derived Instances");
-    const auto changed_bounds=object_bounds(*changed.expanded_document,changed_path,*changed.expanded_values,
-        *changed.expanded_transforms,true);
+    const auto changed_bounds=object_bounds(*changed.document,changed_path,*changed.values,
+        *changed.transforms,true);
     check(changed_bounds&&changed_bounds->right>baseline_bounds->right,
         "Source geometry edits update the derived Instance geometry");
-    check(evaluated_text_source(*changed.expanded_document,changed_text).content=="Source text",
+    check(evaluated_text_source(*changed.document,changed_text).content=="Source text",
         "Text source content remains available on each Instance proxy");
-    const auto source_values=evaluate(session.document());
-    const auto source_width=source_values.at({"text-b","","text.font_size"});
+    const auto source_width=evaluate(session.document()).at({"text-b","","text.font_size"});
     apply(session,{UpdateText{"text-b",default_text("text-source","Updated source text")},
         Set{{"text-b","","text.font_size"},source_width+8}});
-    changed=scene(session.document());
+    changed=projection(session.document());
     const auto text_1=proxy_for(changed,"instance-1","text-b");
     const auto text_2=proxy_for(changed,"instance-2","text-b");
-    check(evaluated_text_source(*changed.expanded_document,text_1).content=="Updated source text"&&
-        evaluated_text_source(*changed.expanded_document,text_2).content=="Updated source text",
+    check(evaluated_text_source(*changed.document,text_1).content=="Updated source text"&&
+        evaluated_text_source(*changed.document,text_2).content=="Updated source text",
         "Source Text content edits flow to both Instances");
-    near(changed.expanded_values->at({text_1,"","text.font_size"}),source_width+8,
+    near(changed.values->at({text_1,"","text.font_size"}),source_width+8,
         "Source Text size edits flow to an Instance without a local override");
-    near(changed.expanded_values->at({text_2,"","text.font_size"}),34,
+    near(changed.values->at({text_2,"","text.font_size"}),34,
         "Source Text size edits do not replace an explicit local override");
     check(encode(session.document())!=native_before,"Authored source edits update the native Document");
 
     apply(session,{DefinitionCommand{ResetInstanceOverride{"instance-1",{"path-a","","composite.opacity"}}},
         DefinitionCommand{ResetInstanceOverride{"instance-2",{"text-b","","text.font_size"}}}});
-    changed=scene(session.document());
-    near(changed.expanded_values->at({proxy_for(changed,"instance-1","path-a"),"","composite.opacity"}),0.65,
+    changed=projection(session.document());
+    near(changed.values->at({proxy_for(changed,"instance-1","path-a"),"","composite.opacity"}),0.65,
         "Reset removes a local Path override and restores the live source value");
-    near(changed.expanded_values->at({proxy_for(changed,"instance-2","text-b"),"","text.font_size"}),source_width+8,
+    near(changed.values->at({proxy_for(changed,"instance-2","text-b"),"","text.font_size"}),source_width+8,
         "Reset removes a local Text override and restores the updated source value");
 }
 
@@ -178,17 +194,21 @@ void detach_history_native_api_and_export() {
         "Explicit delete refusal retains live Definition and Instance state");
     const auto before_detach=session.document();
     const auto reopened_live=decode(encode(before_detach));
-    const auto reopened_scene=scene(reopened_live);
+    const auto reopened_scene=projection(reopened_live);
     check(reopened_live==before_detach&&reopened_live.objects.at("instance-1").instance->definition=="definition"&&
         reopened_live.objects.at("instance-1").instance->overrides.size()==2,
         "Native cold reopen preserves the live Definition relation and both local overrides");
-    near(reopened_scene.expanded_values->at({proxy_for(reopened_scene,"instance-1","path-a"),"","composite.opacity"}),0.3,
-        "Native cold reopen preserves the placed Path opacity override in rendering");
-    near(reopened_scene.expanded_values->at({proxy_for(reopened_scene,"instance-1","text-b"),"","text.font_size"}),33,
-        "Native cold reopen preserves the placed Text font-size override in rendering");
+    near(reopened_scene.values->at({proxy_for(reopened_scene,"instance-1","path-a"),"","composite.opacity"}),0.3,
+        "Native cold reopen preserves the placed Path opacity override in projection");
+    near(reopened_scene.values->at({proxy_for(reopened_scene,"instance-1","text-b"),"","text.font_size"}),33,
+        "Native cold reopen preserves the placed Text font-size override in projection");
+#ifdef _WIN32
     const auto svg=export_svg(before_detach,"definition-comp","definition-art");
     check(svg.find("id=\"instance-1\"")!=std::string::npos&&svg.find("id=\"instance-1\"")<svg.rfind("</svg>"),
         "SVG export renders the placed Instance through the modern scene path");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)export_svg(before_detach,"definition-comp","definition-art");});
+#endif
     const auto detaching_revision=session.revision();
     apply(session,{DefinitionCommand{DetachInstance{"instance-1","detached-copy"}}});
     const auto detached=session.document();const auto detached_root=detached.objects.at("instance-1").children.front();
@@ -342,7 +362,8 @@ void validation_and_malformed_input() {
         render_limit.objects.emplace(filler.id,filler);render_limit.compositions.front().roots.push_back(filler.id);
     }
     check(render_limit.objects.size()==10000,"Render ceiling fixture reaches the authored Document Object limit");
-    rejects("INSTANCE_RENDER_LIMIT",[&]{(void)scene(render_limit);});
+    rejects("INSTANCE_RENDER_LIMIT",[&]{const auto values=evaluate(render_limit);
+        (void)evaluate_scene(render_limit,"definition-comp",values,evaluate_transforms(render_limit,values));});
 
     apply(session,{DefinitionCommand{SetInstanceOverride{"instance",{"path-a","","composite.opacity"},0.25}}});
     auto malformed=encode(session.document());

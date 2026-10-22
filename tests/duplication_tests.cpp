@@ -18,13 +18,31 @@ Id copy_of(const Document& document,const Id& original) {
     for(const auto& [id,object]:document.objects)if(object.name==document.objects.at(original).name+" copy")return id;
     throw std::runtime_error("Copy not found: "+original);
 }
+std::vector<Id> fixture_children() {
+    std::vector<Id> result{"path-A","star","text"};
+#ifdef _WIN32
+    result.push_back("image");
+#endif
+    return result;
+}
+const Id selection_peer=
+#ifdef _WIN32
+    "image";
+#else
+    "text";
+#endif
 Document fixture() {
     Session s(demo_document());
-    RasterPixels pixels{1,1,{80,120,200,255}};
     apply(s,{CreatePrimitive{"comp-main","","star","Star",default_primitive("star-source","nect.shape.star")},
-        CreateText{"comp-main","","text","Text",default_text("text-source","Independent")},
-        AddRasterAsset{{"asset","Image","linked","C:/absent/original.png",make_raster(encode_raster_png(pixels))}},
+        CreateText{"comp-main","","text","Text",default_text("text-source","Independent")}});
+#ifdef _WIN32
+    RasterPixels pixels{1,1,{80,120,200,255}};
+    apply(s,{AddRasterAsset{{"asset","Image","linked","C:/absent/original.png",make_raster(encode_raster_png(pixels))}},
         CreateImage{"comp-main","","image","Image",{"asset",{120},{80}}}});
+#else
+    try{(void)encode_raster_png(RasterPixels{1,1,{80,120,200,255}});throw std::runtime_error("Expected unsupported PNG encoding");}
+    catch(const Error& error){check(error.code=="RASTER_PLATFORM_UNSUPPORTED","No raster payload is fabricated without WIC");}
+#endif
     Gradient g;g.id="gradient";g.end_x.literal=90;GradientStop a,b;a.id="stop-a";b.id="stop-b";b.offset.literal=1;g.stops={a,b};
     NamedColor color;color.id="palette";color.name="Palette";color.rgba[0].literal=.3;
     apply(s,{SetGradient{"path-A",s.document().objects.at("path-A").legacy_stroke,g},CreateNamedColor{color},
@@ -36,10 +54,20 @@ Document fixture() {
         Set{{"star","star-source-outer-0-1","x"},15},
         SetExpression{{{"star","star-source-outer-0-1","y"}},{"ref(\"path-A\",\"point-A1\",\"x\")",1}},EnablePointEdit{"star",false},
         AddOperation{"star",default_operation("offset","nect.shape.offset"),0},
-        Set{{"star","","op.offset.amount"},0},
-        ReorderObjects{"comp-main","",{"path-B","path-A","star","text","image"}}});
-    apply(s,{GroupContiguous{"comp-main","",{"path-A","star","text","image"},"group","Group"},
-        SetTransformParent{"group","path-B",false},SetTransformParent{"path-A","star",false},
+        Set{{"star","","op.offset.amount"},0}});
+    auto order=fixture_children();order.insert(order.begin(),"path-B");
+    apply(s,{ReorderObjects{"comp-main","",order}});
+#ifdef _WIN32
+    apply(s,{GroupContiguous{"comp-main","",fixture_children(),"group","Group"}});
+#else
+    // A mixed Text Group cannot be auto-centered without font geometry. Verify
+    // that boundary, then use a native authored Group to exercise duplication.
+    atomic(s,"TEXT_PLATFORM_UNSUPPORTED",{GroupContiguous{"comp-main","",fixture_children(),"group","Group"}});
+    auto authored=s.document();Object group;group.id="group";group.name="Group";group.kind=Kind::group;
+    group.children=fixture_children();authored.objects.emplace(group.id,group);
+    authored.compositions.front().roots={"path-B","group"};s=Session(std::move(authored));
+#endif
+    apply(s,{SetTransformParent{"group","path-B",false},SetTransformParent{"path-A","star",false},
         SetMask{"group",GeometryMask{"mask","star"}},SetVisibility{"star",false}});
     auto document=s.document();document.collections.push_back({"collection","Collection",{"group","path-A"}});validate(document);return document;
 }
@@ -47,12 +75,13 @@ void retained_group() {
     const auto original=fixture();Session s(original);const DuplicateObjects duplicate{{"path-A","group","star"},"copy"};
     const auto roots=duplicated_roots(original,duplicate);check(roots.size()==1,"Selected descendants collapse under Group");
     apply(s,{duplicate});const auto copied=s.document();check(s.revision()==1,"One command/Undo boundary");
-    check(copied.objects.size()==original.objects.size()+5,"Group closure copied once");
-    const auto group=copy_of(copied,"group"),path=copy_of(copied,"path-A"),star=copy_of(copied,"star"),text=copy_of(copied,"text"),image=copy_of(copied,"image");
+    check(copied.objects.size()==original.objects.size()+fixture_children().size()+1,"Group closure copied once");
+    const auto group=copy_of(copied,"group"),path=copy_of(copied,"path-A"),star=copy_of(copied,"star"),text=copy_of(copied,"text");
     check(roots.front()==group&&copied.compositions.front().roots==std::vector<Id>{"path-B","group",group},"Copy selected above source Group");
     for(const auto& [id,object]:original.objects)check(copied.objects.at(id)==object,"Original authored object and inbound links unchanged");
     check(copied.collections==original.collections&&copied.named_colors==original.named_colors&&copied.raster_assets==original.raster_assets,"Collections and shared definitions unchanged");
-    check(copied.objects.at(group).children==std::vector<Id>{path,star,text,image},"Copy child paint order preserved");
+    std::vector<Id> copied_children;for(const auto& id:fixture_children())copied_children.push_back(copy_of(copied,id));
+    check(copied.objects.at(group).children==copied_children,"Copy child paint order preserved");
     check(copied.objects.at(group).compositing.mask->source==star&&copied.objects.at(group).compositing.mask->id!="mask","Internal mask copied and remapped");
     check(copied.objects.at(group).transform_parent=="path-B"&&copied.objects.at(path).transform_parent==star,"External and internal Transform Parents preserved");
     const auto& p=copied.objects.at(path);const auto& point=p.contours.front().points.front();
@@ -69,11 +98,19 @@ void retained_group() {
     check(primitive.point_edit->overrides.contains(primitive.source->id+"-outer-0-1"),"Generated angular roles remapped");
     check(expression_dependencies(*primitive.point_edit->overrides.begin()->second.at("y").expression).front()==Ref{path,point.id,"x"},"Disabled correction expression remapped");
     check(copied.objects.at(text).text->id!="text-source"&&copied.objects.at(text).text->content=="Independent","Text retains content with fresh source");
-    check(copied.objects.at(image).image->asset=="asset","Image placement retains shared accepted asset");
+#ifdef _WIN32
+    check(copied.objects.at(copy_of(copied,"image")).image->asset=="asset","Image placement retains shared accepted asset");
+#endif
     const auto before=evaluate_transforms(original,evaluate(original)),after=evaluate_transforms(copied,evaluate(copied));
-    for(const auto& id:{"group","path-A","star","text","image"})check(before.at(id).world==after.at(copy_of(copied,id)).world,"In-place world placement unchanged");
+    auto copied_ids=fixture_children();copied_ids.push_back("group");
+    for(const auto& id:copied_ids)check(before.at(id).world==after.at(copy_of(copied,id)).world,"In-place world placement unchanged");
     check(decode(encode(copied))==copied,"Native roundtrip retains complete authored state");
+#ifdef _WIN32
     check(!export_svg(copied,"comp-main","art-main").empty(),"Copied scene exports");
+#else
+    try{(void)export_svg(copied,"comp-main","art-main");throw std::runtime_error("Expected unsupported Text projection");}
+    catch(const Error& error){check(error.code=="TEXT_PLATFORM_UNSUPPORTED","Copied native Text remains explicit about unavailable SVG projection");}
+#endif
     s.undo(s.revision());check(s.document()==original,"One Undo restores exact original");s.redo(s.revision());check(s.document()==copied,"Redo preserves new stable IDs");
     apply(s,{Set{{path,point.id,"x"},180}});
     check(evaluate(s.document()).at({star,"","generator.outer_radius"})==90&&evaluate(s.document()).at({"star","","generator.outer_radius"})==50,"Independent edits follow internal copy links only");
@@ -97,10 +134,16 @@ void selection_and_failures() {
 }
 void nested_selection_and_roles() {
     Session s(fixture());const auto before=s.document();
-    const DuplicateObjects command{{"image","path-A"},"nested"};const auto roots=duplicated_roots(before,command);
-    apply(s,{command});const auto path=copy_of(s.document(),"path-A"),image=copy_of(s.document(),"image");
-    check(roots==std::vector<Id>{path,image},"Noncontiguous selection follows structural paint order");
-    check(s.document().objects.at("group").children==std::vector<Id>{"path-A",path,"star","text","image",image},"Noncontiguous runs remain in their original structural owner");
+    const DuplicateObjects command{{selection_peer,"path-A"},"nested"};const auto roots=duplicated_roots(before,command);
+    apply(s,{command});const auto path=copy_of(s.document(),"path-A"),peer=copy_of(s.document(),selection_peer);
+    check(roots==std::vector<Id>{path,peer},"Noncontiguous selection follows structural paint order");
+    std::vector<Id> expected_children;
+    for(const auto& id:fixture_children()) {
+        expected_children.push_back(id);
+        if(id=="path-A")expected_children.push_back(path);
+        if(id==selection_peer)expected_children.push_back(peer);
+    }
+    check(s.document().objects.at("group").children==expected_children,"Noncontiguous runs remain in their original structural owner");
     check(s.document().objects.at(path).transform_parent=="star","Unselected internal Group sibling remains an external Transform Parent");
     s.undo(s.revision());check(s.document()==before,"Undo restores unselected structural owner's exact order");
     apply(s,{SetExpression{{{"text","","text.font_size"}},{"ref(\"star\",\"star-source-outer-0-1\",\"x\") + 100",1}},

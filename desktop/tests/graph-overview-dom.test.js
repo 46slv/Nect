@@ -194,7 +194,11 @@ test('graph overview navigation is view-only, measured, guarded and cancellable'
   height = 80;
   resize();
   assert.equal(+$('.overview-viewport').getAttribute('width'), 500);
-  assert.equal($('.graph-overview').style.width, '128px', 'small panels contain overview');
+  assert.equal(
+    $('.graph-overview').style.width,
+    '124px',
+    'small panels include Overview border clearance',
+  );
   $('.graph .node').style.width = '520px';
   resize();
   assert.equal(+$('.overview-node').getAttribute('width'), 520);

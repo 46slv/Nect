@@ -1582,17 +1582,51 @@ input[data-scrub-step].scrubbing {
   width: 120px;
   min-width: 100px;
 }
-.graph-pan-pad {
-  display: inline-grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px;
-  margin: 0 3px;
-  vertical-align: middle;
+.graph-pan-joystick {
+  position: absolute;
+  z-index: 26;
+  right: 24px;
+  bottom: 24px;
+  width: 80px;
+  height: 80px;
+  min-width: 0;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid #36424c9d;
+  border-radius: 50%;
+  background: #26313b70;
+  box-shadow:
+    inset 0 2px 5px #0009,
+    0 1px 3px #26374440;
+  touch-action: none;
+  user-select: none;
+  cursor: grab;
 }
-.graph-pan-pad button {
-  min-width: 1.55em;
-  padding: 1px 3px;
-  line-height: 1.1;
+.graph-pan-joystick[hidden] {
+  display: none;
+}
+.graph-pan-joystick:hover,
+.graph-pan-joystick:active {
+  background: #26313b70;
+}
+.graph-pan-joystick:focus-visible {
+  outline: 2px solid var(--selection);
+  outline-offset: 2px;
+}
+.graph-pan-joystick.is-active {
+  cursor: grabbing;
+}
+.graph-pan-joystick-knob {
+  width: 50%;
+  height: 50%;
+  border-radius: 50%;
+  border: 1px solid #5a626c;
+  background: radial-gradient(circle at 50% 60%, #242a31 35%, #3b434d 70%, #626b76);
+  box-shadow:
+    inset 0 2px 4px #0009,
+    0 2px 4px #0009;
+  pointer-events: none;
 }
 .navigation-hint {
   margin-right: 12px;

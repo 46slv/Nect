@@ -50,8 +50,11 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
       return { x: this.x * m.a + this.y * m.c + m.e, y: this.x * m.b + this.y * m.d + m.f };
     }
   };
-  win.SVGElement.prototype.getScreenCTM = () => matrix;
-  win.SVGSVGElement.prototype.getScreenCTM = () => matrix;
+  let matrixForSVG = () => matrix;
+  win.SVGElement.prototype.getScreenCTM = function () {
+    return matrixForSVG(this);
+  };
+  win.SVGSVGElement.prototype.getScreenCTM = win.SVGElement.prototype.getScreenCTM;
   globalThis.fetch = async () => ({
     ok: true,
     arrayBuffer: async () => {
@@ -189,6 +192,79 @@ test('Committed Curve artwork placement is rigid, atomic and independent', async
         load(JSON.parse(after));
         assert.equal(saved(), after);
         assert.equal(win.nect.export(), svg);
+      }
+    },
+  );
+  await t.test(
+    'Curve pointer origin survives selection replacing SVG with transient geometry',
+    () => {
+      for (const closed of [false, true]) {
+        const before = committedCurve(closed),
+          id = before.layers.at(-1).id,
+          beforeJSON = saved(),
+          incomingSVG = $('.artboard');
+        // Happy DOM has no layout. Model a temporary geometry difference only
+        // on the replacement SVG during the actual selection/render handler.
+        // The existing event target and later pointer moves retain the same CTM.
+        const transient = {
+          ...matrix,
+          f: matrix.f + 34.0875,
+          inverse() {
+            return { a: 0.5, b: 0, c: 0, d: 0.5, e: -40, f: -this.f / 2 };
+          },
+        };
+        let incomingReads = 0;
+        const press = () => {
+          const currentSVG = $('.artboard');
+          matrixForSVG = (svg) => {
+            if (svg === currentSVG) {
+              incomingReads++;
+              return matrix;
+            }
+            return transient;
+          };
+          try {
+            fire(shape(id), 'pointerdown', [180, 180], { altKey: true });
+            assert.notEqual($('.artboard'), currentSVG, 'selection really replaces the SVG');
+          } finally {
+            matrixForSVG = () => matrix;
+          }
+          assert.equal(ui().drag, 'artwork');
+          assert.equal(saved(), beforeJSON, 'press itself is document-neutral');
+        };
+        press();
+        assert.equal(incomingSVG.isConnected, false);
+        fire(document, 'pointermove', [198.75, 168.75], { altKey: true });
+        assert.equal(saved(), beforeJSON, 'a rigid preview must remain uncommitted');
+        fire(document, 'pointerup');
+        movedCurve(before, [18.75, -11.25]);
+        assert.ok(incomingReads > 0, 'gesture origin uses the incoming SVG');
+        assert.equal(ui().past, 2, 'placement is one separate history unit');
+        const afterJSON = saved();
+        click('[data-action="undo"]');
+        assert.equal(saved(), beforeJSON);
+        click('[data-action="redo"]');
+        assert.equal(saved(), afterJSON);
+        click('[data-action="undo"]');
+        assert.equal(saved(), beforeJSON);
+        // Cancellation and exact out-and-back still roll back the full batch
+        // when the press itself rerenders under the same transient geometry.
+        for (const end of ['Escape', 'pointercancel', 'out-and-back']) {
+          press();
+          fire(document, 'pointermove', [198.75, 168.75], { altKey: true });
+          assert.equal(saved(), beforeJSON);
+          assert.notDeepEqual(win.canvasPreview(), before);
+          if (end === 'Escape') key(stage(), 'Escape');
+          else if (end === 'pointercancel') fire(document, 'pointercancel');
+          else fire(document, 'pointermove', [180, 180], { altKey: true });
+          fire(document, 'pointerup');
+          fire(document, 'pointermove', [215, 195], { altKey: true });
+          assert.equal(saved(), beforeJSON, end);
+          assert.equal(ui().past, 1, end);
+          assert.equal(ui().future, 1, end);
+          assert.equal(ui().artworkTarget, id, end);
+          assert.equal(ui().drag, undefined, end);
+        }
       }
     },
   );

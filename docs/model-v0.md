@@ -674,6 +674,10 @@ that source first; a circular initial-Anchor dependency rejects atomically with
 CREATION_ANCHOR_CYCLE. Anchor-dependent position/transform commands in the
 same batch consume the initialized center. Empty geometry retains a neutral Anchor;
 the explicit Center Anchor command still rejects EMPTY_BOUNDS.
+On platforms without Windows DirectWrite, Text creation retains its neutral or
+explicitly authored Anchor rather than requiring glyph measurement. Text sources,
+typed properties, native state and History remain editable; geometry-dependent
+bounds and explicit Text recentering still report TEXT_PLATFORM_UNSUPPORTED.
 GroupContiguous initializes its new Group at current geometric bounds center.
 Later child/source changes never implicitly recenter an authored Anchor.
 

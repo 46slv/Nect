@@ -79,6 +79,36 @@ def check(value, message):
         raise AssertionError(message)
     checks += 1
 
+def historical_svg_fixture(path):
+    expected = path.read_text(encoding='utf-8')
+    if not sys.platform.startswith('linux'):
+        return expected
+    # The original 0.3/0.4 producers emit these same Linux bytes. The checked-in
+    # Windows fixtures differ only in libm's last-bit rounding of sin(pi/4).
+    # Keep every other byte exact, including all other transform components.
+    # See docs/legacy-svg-compatibility.md for independently reproduced evidence.
+    windows_transform = ('matrix(0.70710678118654757 0.70710678118654757 '
+                         '-0.70710678118654757 0.70710678118654757 '
+                         '366.86291501015239 -245.68542494923804 )')
+    linux_transform = ('matrix(0.70710678118654757 0.70710678118654746 '
+                       '-0.70710678118654746 0.70710678118654757 '
+                       '366.86291501015239 -245.68542494923804 )')
+    check(expected.count(windows_transform) == 4,
+          'Historical SVG has exactly four independently verified platform transforms')
+    return expected.replace(windows_transform, linux_transform)
+
+def check_text_projection_response(reply, expected_revision):
+    # Authored Text commands, links, History and native roundtrips run everywhere.
+    # Only the DirectWrite-derived geometry/font projection is platform-specific.
+    check(reply['revision'] == expected_revision,
+          'Text projection preserves the exact Session revision')
+    if sys.platform == 'win32':
+        check(reply['ok'], 'Windows Text projection succeeds through DirectWrite')
+    else:
+        check(not reply['ok'] and reply['error']['code'] == 'TEXT_PLATFORM_UNSUPPORTED' and
+              'result' not in reply,
+              'Non-Windows Text projection explicitly rejects without a fabricated result')
+
 def remove_migrated_asset_defaults(document):
     check(document.pop("raster_assets") == [], "legacy migration starts with no raster assets")
     for obj in document['objects']:
@@ -2516,8 +2546,25 @@ migrated_run = subprocess.run([exe,'--serve',str(ornament)],input='{"op":"inspec
 new=json.loads(migrated_run.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.3'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.3 migration starts with no named colors')
 check(new==old,'0.3 migration retains all paint, repeat, binding and correction state')
-check(run('--svg',old).stdout==(ornament.with_suffix('.svg')).read_text(encoding='utf-8'),
+ornament_svg=historical_svg_fixture(ornament.with_suffix('.svg'))
+check(run('--svg',old).stdout==ornament_svg,
     'solid 0.3 scene exports identical SVG after migration')
+# A platform-specific expected string is not a general float/XML normalizer.
+# Real CLI exports must still detect small geometry edits and structural drift.
+for mutation in ('geometry', 'transform', 'name', 'paint_order'):
+    changed=json.loads(json.dumps(old))
+    petal=next(obj for obj in changed['objects'] if obj['id']=='petal')
+    if mutation=='geometry':
+        petal['source']['parameters']['radius']['literal']+=1e-9
+    elif mutation=='transform':
+        petal['transform'][4]['literal']+=1e-9
+    elif mutation=='name':
+        petal['name']='Changed petal'
+    else:
+        changed['compositions'][0]['roots'].reverse()
+    changed_svg=run('--svg',changed)
+    check(changed_svg.returncode==0 and changed_svg.stdout!=ornament_svg,
+          'Historical SVG exact equality rejects '+mutation+' changes')
 with tempfile.TemporaryDirectory() as tmp:
     operation = dict(id='cold-posterize', type='nect.group.posterize', version=1,
                      enabled=True, parameters=dict(levels=dict(literal=3)),
@@ -2548,7 +2595,7 @@ upgraded=subprocess.run([exe,'--serve',str(gradient_path)],input='{"op":"inspect
 new=json.loads(upgraded.stdout)['result'];remove_migrated_anchor_defaults(new);new['version']='0.4'; remove_empty_presets_for_legacy_fixture(new)
 check(new.pop('named_colors')==[], '0.4 migration starts with no named colors')
 check(new==old,'0.4 migration preserves gradients and their linked stable stops')
-check(run('--svg',old).stdout==gradient_path.with_suffix('.svg').read_text(encoding='utf-8'),
+check(run('--svg',old).stdout==historical_svg_fixture(gradient_path.with_suffix('.svg')),
     'gradient 0.4 scene exports identical SVG after frame migration')
 frames=json.loads(json.dumps(sample));frames['version']='0.5'; remove_empty_presets_for_legacy_fixture(frames)
 frames.pop('named_colors')
@@ -2748,8 +2795,9 @@ with tempfile.TemporaryDirectory() as tmp:
         capture_output=True,text=True,encoding='utf-8',timeout=20)
     replies=[json.loads(line) for line in proc.stdout.splitlines()]
     check(len(replies)==len(requests),'Text weight process returns one response for every request')
-    check(all(replies[i]['ok'] for i in (0,1,2,3,4,5,6,8,9,10,11,12,13)),
-        'Text weight API create/discovery/link/update/layout/unlink/Undo succeeds')
+    check(all(replies[i]['ok'] for i in (0,1,2,3,4,5,6,8,10,11,12,13)),
+        'Text weight API create/discovery/link/update/unlink/Undo succeeds')
+    check_text_projection_response(replies[9], 3)
     check(replies[1]['result']==ref_a,'JSON-lines resolve_name returns the stable Text weight Ref')
     metadata=next(value for value in replies[2]['result'] if value['ref']==ref_b)
     check(metadata['type']=='integer' and metadata['unit']=='unitless' and metadata['range']==dict(min=1,max=999) and
@@ -2763,7 +2811,8 @@ with tempfile.TemporaryDirectory() as tmp:
     source_objects={obj['id']:obj for obj in replies[8]['result']['objects']}
     check(source_objects['weight-b']['text']['weight']==400 and source_objects['weight-b']['text']['weight_driver']==dict(link=ref_a),
         'Rejected process command preserves the authored source and link')
-    check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
+    if sys.platform == 'win32':
+        check(replies[9]['result']['weight']==300,'Text layout consumes the evaluated linked weight')
     check(replies[12]['result']['version']==CURRENT_NATIVE_VERSION and replies[12]['result']==replies[8]['result'],
         'Undo restores the pre-unlink native state exactly')
     check(replies[13]['result']['evaluated']==300 and replies[13]['result']['authored']['literal']==400,
@@ -2824,20 +2873,24 @@ with tempfile.TemporaryDirectory() as tmp:
     check(replies[9]['result']['authored']==dict(literal='Revised A',driver=None) and
         replies[11]['result']['evaluated']=='Revised A' and replies[11]['result']['authored']['driver']==dict(link=ref_a),
         'Unlink freezes content and Undo restores its link and current evaluation')
-    check(all(replies[i]['ok'] for i in (13,14,15,16,18,19,20,21,22,23,24,25,26)),
+    check(all(replies[i]['ok'] for i in (13,14,15,16,18,19,20,21,22,24,25)),
         'Text family API link, source update, discovery, unlink and Undo requests succeed')
+    check_text_projection_response(replies[23], 9)
+    check_text_projection_response(replies[26], 10)
     check(replies[15]['result']['authored']==dict(literal='Manual family',driver=dict(link=family_ref_a)) and
         replies[15]['result']['evaluated']=='Revised source family' and
         any(item['ref']==family_ref_b and item['link'] is True and item['evaluated']=='Revised source family' for item in replies[16]['result']),
         'JSON-lines family reads preserve the authored literal and evaluate the linked source')
     check(not replies[17]['ok'] and replies[17]['error']['code']=='DRIVEN_PROPERTY' and replies[17]['revision']==7,
         'JSON-lines UpdateText cannot change a driven font-family literal')
-    linked_layout=replies[23]['result'];frozen_layout=replies[26]['result']
-    layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
-    check(replies[25]['result']['authored']==dict(literal='Revised source family',driver=None) and
-        linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
-        all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
-        'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
+    check(replies[25]['result']['authored']==dict(literal='Revised source family',driver=None),
+        'Unlink freezes the evaluated Text family literal on every platform')
+    if sys.platform == 'win32':
+        linked_layout=replies[23]['result'];frozen_layout=replies[26]['result']
+        layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
+        check(linked_layout['glyph_count']>0 and linked_layout['used_fonts'] and
+            all(linked_layout[field]==frozen_layout[field] for field in layout_fields),
+            'Text layout consumes the linked family, and unlink freezes identical geometry, warnings and used fonts')
     native=replies[12]['result'];check(native['version']==CURRENT_NATIVE_VERSION and run('--validate',native).returncode==0,
         'Native 0.23 content link validates in a separate CLI process')
     family_native=replies[22]['result'];check(family_native['version']==CURRENT_NATIVE_VERSION and run('--validate',family_native).returncode==0,
@@ -2894,8 +2947,12 @@ with tempfile.TemporaryDirectory() as tmp:
     replies=[json.loads(line) for line in proc.stdout.splitlines()]
     check(len(replies)==len(requests), 'JSON-lines returns one response per Text direction request')
     reply={name:replies[index] for index,(name,_) in enumerate(steps)}
-    check(all(reply[name]['ok'] for name,_ in steps if name!='rejected_driven_edit'),
-        'Text direction API create/discovery/link/update/layout/unlink/Undo requests succeed')
+    check(all(reply[name]['ok'] for name,request in steps
+              if name!='rejected_driven_edit' and request['op']!='text_layout'),
+        'Text direction API create/discovery/link/update/unlink/Undo requests succeed')
+    for name,revision in (('horizontal_layout',2),('horizontal_source_layout',2),
+                          ('vertical_layout',3),('frozen_layout',4)):
+        check_text_projection_response(reply[name], revision)
     check(reply['resolve']['result']==ref_b,'JSON-lines resolve_name returns the stable Text direction Ref')
     check(reply['literal']['result']['type']=='enum' and reply['literal']['result']['choices']==['horizontal','vertical'] and
         reply['literal']['result']['authored']==dict(literal='vertical',driver=None) and reply['literal']['result']['link'] is True,
@@ -2909,12 +2966,13 @@ with tempfile.TemporaryDirectory() as tmp:
     check(reply['horizontal_linked']['result']['authored']==dict(literal='vertical',driver=dict(link=ref_a)) and
         reply['horizontal_linked']['result']['evaluated']=='horizontal' and reply['vertical_linked']['result']['evaluated']=='vertical',
         'JSON-lines get follows the source direction while preserving the target literal')
-    layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
-    horizontal_layout=reply['horizontal_layout']['result'];source_layout=reply['horizontal_source_layout']['result']
-    vertical_linked_layout=reply['vertical_layout']['result'];vertical_frozen_layout=reply['frozen_layout']['result']
-    check(all(horizontal_layout[field]==source_layout[field] for field in layout_fields) and
-        all(vertical_linked_layout[field]==vertical_frozen_layout[field] for field in layout_fields),
-        'Text layout consumes the evaluated direction and unlink freezes identical geometry, warnings and used fonts')
+    if sys.platform == 'win32':
+        layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
+        horizontal_layout=reply['horizontal_layout']['result'];source_layout=reply['horizontal_source_layout']['result']
+        vertical_linked_layout=reply['vertical_layout']['result'];vertical_frozen_layout=reply['frozen_layout']['result']
+        check(all(horizontal_layout[field]==source_layout[field] for field in layout_fields) and
+            all(vertical_linked_layout[field]==vertical_frozen_layout[field] for field in layout_fields),
+            'Text layout consumes the evaluated direction and unlink freezes identical geometry, warnings and used fonts')
     check(not reply['rejected_driven_edit']['ok'] and reply['rejected_driven_edit']['error']['code']=='DRIVEN_PROPERTY' and
         reply['rejected_driven_edit']['revision']==3 and
         next(obj for obj in reply['inspect_after_rejection']['result']['objects'] if obj['id']=='direction-b')['text']['direction_driver']==dict(link=ref_a),
@@ -2982,8 +3040,12 @@ with tempfile.TemporaryDirectory() as tmp:
     replies=[json.loads(line) for line in proc.stdout.splitlines()]
     check(len(replies)==len(requests),'JSON-lines returns one response per Text layout request')
     reply={name:replies[index] for index,(name,_) in enumerate(steps)}
-    check(all(reply[name]['ok'] for name,_ in steps if name!='rejected_driven_edit'),
+    check(all(reply[name]['ok'] for name,request in steps
+              if name!='rejected_driven_edit' and request['op']!='text_layout'),
         'Text layout API create/discovery/link/update/unlink/Undo requests succeed')
+    for name,revision in (('auto_layout',2),('auto_twin_layout',2),
+                          ('frame_layout',3),('frame_twin_layout',3)):
+        check_text_projection_response(reply[name], revision)
     check(reply['resolve']['result']==ref_b,'JSON-lines resolve_name returns the stable Text layout Ref')
     check(reply['literal']['result']['type']=='enum' and reply['literal']['result']['choices']==['auto','frame'] and
         reply['literal']['result']['authored']==dict(literal='frame',driver=None) and reply['literal']['result']['link'] is True,
@@ -2997,10 +3059,11 @@ with tempfile.TemporaryDirectory() as tmp:
     check(reply['auto_linked']['result']['authored']==dict(literal='frame',driver=dict(link=ref_a)) and
         reply['auto_linked']['result']['evaluated']=='auto' and reply['frame_linked']['result']['evaluated']=='frame',
         'JSON-lines get follows Text layout source edits while preserving the target literal')
-    layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
-    check(all(reply['auto_layout']['result'][field]==reply['auto_twin_layout']['result'][field] for field in layout_fields) and
-        all(reply['frame_layout']['result'][field]==reply['frame_twin_layout']['result'][field] for field in layout_fields),
-        'Text layout uses the evaluated enum and the target-owned frame geometry')
+    if sys.platform == 'win32':
+        layout_fields=('x','y','width','height','overflow','glyph_count','warnings','used_fonts')
+        check(all(reply['auto_layout']['result'][field]==reply['auto_twin_layout']['result'][field] for field in layout_fields) and
+            all(reply['frame_layout']['result'][field]==reply['frame_twin_layout']['result'][field] for field in layout_fields),
+            'Text layout uses the evaluated enum and the target-owned frame geometry')
     width_ref=dict(object='layout-b',point='',field='text.frame_width')
     height_ref=dict(object='layout-b',point='',field='text.frame_height')
     check(not reply['rejected_driven_edit']['ok'] and reply['rejected_driven_edit']['error']['code']=='DRIVEN_PROPERTY' and
@@ -3166,8 +3229,12 @@ with tempfile.TemporaryDirectory() as tmp:
     replies=[json.loads(line) for line in proc.stdout.splitlines()]
     check(len(replies)==len(requests),'Text locale JSON-lines returns one response per request')
     reply={name:replies[index] for index,(name,_) in enumerate(requests)}
-    check(all(reply[name]['ok'] for name,_ in requests if name!='rejected_edit'),
+    check(all(reply[name]['ok'] for name,request in requests
+              if name!='rejected_edit' and request['op']!='text_layout'),
         'Text locale API create/discovery/link/update/unlink/Undo requests succeed')
+    for name,revision in (('linked_layout',2),('arabic_twin_layout',2),
+                          ('linked_ja_layout',3),('japanese_twin_layout',3)):
+        check_text_projection_response(reply[name], revision)
     check(reply['resolve']['result']==ref_b,'resolve_name returns the stable Text locale Ref')
     check(reply['literal']['result']['type']=='string' and
         reply['literal']['result']['authored']==dict(literal='ja-JP',driver=None) and
@@ -3182,9 +3249,10 @@ with tempfile.TemporaryDirectory() as tmp:
         'Text locale discovery retains authored bytes while evaluating the source locale dynamically')
     def same_layout(left,right):
         return all(left[key]==right[key] for key in ('x','y','width','height','overflow','glyph_count','warnings','used_fonts'))
-    check(same_layout(reply['linked_layout']['result'],reply['arabic_twin_layout']['result']) and
-        same_layout(reply['linked_ja_layout']['result'],reply['japanese_twin_layout']['result']),
-        'Linked Arabic Text layout, used fonts and warnings equal same-document literal twins')
+    if sys.platform == 'win32':
+        check(same_layout(reply['linked_layout']['result'],reply['arabic_twin_layout']['result']) and
+            same_layout(reply['linked_ja_layout']['result'],reply['japanese_twin_layout']['result']),
+            'Linked Arabic Text layout, used fonts and warnings equal same-document literal twins')
     check(not reply['rejected_edit']['ok'] and reply['rejected_edit']['error']['code']=='DRIVEN_PROPERTY' and
         reply['rejected_edit']['revision']==3 and reply['frozen']['result']['authored']==dict(literal='ja-JP',driver=None) and
         reply['restored']['result']['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
@@ -3209,12 +3277,16 @@ with tempfile.TemporaryDirectory() as tmp:
         json.dumps(dict(op='inspect'))+'\n',capture_output=True,text=True,encoding='utf-8',timeout=20)
     cold_replies=[json.loads(line) for line in cold.stdout.splitlines()]
     cold_target=cold_replies[0]['result'];cold_doc=cold_replies[3]['result']
-    check(all(value['ok'] for value in cold_replies) and cold_target['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
-        cold_target['evaluated']=='ja-JP' and same_layout(json.loads(cold.stdout.splitlines()[1])['result'],
-        json.loads(cold.stdout.splitlines()[2])['result']) and
+    check_text_projection_response(cold_replies[1], 0)
+    check_text_projection_response(cold_replies[2], 0)
+    check(cold_replies[0]['ok'] and cold_replies[3]['ok'] and cold_target['authored']==dict(literal='ja-JP',driver=dict(link=ref_a)) and
+        cold_target['evaluated']=='ja-JP' and
         next(obj for obj in cold_doc['objects'] if obj['id']=='locale-b')['text']['locale_driver']==dict(link=ref_a) and
         path.read_bytes()==before,
-        'A separate JSON-lines cold open preserves locale source, Ref, evaluation, layout and exact native bytes')
+        'A separate JSON-lines cold open preserves locale source, Ref, evaluation and exact native bytes')
+    if sys.platform == 'win32':
+        check(same_layout(cold_replies[1]['result'],cold_replies[2]['result']),
+            'A separate Windows cold open preserves linked and literal-twin Text layout')
 
 # Fill rule uses a stable same-field operation Ref through the process Session.
 with tempfile.TemporaryDirectory() as tmp:
@@ -3808,9 +3880,11 @@ with tempfile.TemporaryDirectory(prefix='nect-g26-') as directory:
     replies=[json.loads(line) for line in response.stdout.splitlines()]
     check(response.returncode==0 and replies[0]['ok'] and replies[0]['revision']==1,'JSON-lines creates initialized Anchors in one atomic revision')
     created=replies[1]['result']
-    for oid,center in [('g26-path',(30,40)),('g26-ellipse',(70,90)),('g26-text',(110,70))]:
+    text_anchor=(110,70) if sys.platform=='win32' else (0,0)
+    for oid,center in [('g26-path',(30,40)),('g26-ellipse',(70,90)),('g26-text',text_anchor)]:
         obj=next(o for o in created['objects'] if o['id']==oid)
-        check(obj['anchor']==[dict(literal=center[0]),dict(literal=center[1])],'JSON-lines fresh '+oid+' has hand-specified local center')
+        check(obj['anchor']==[dict(literal=center[0]),dict(literal=center[1])],
+              'JSON-lines fresh '+oid+' has its exact platform-capability Anchor')
     check(replies[3]['result']==g26_base and replies[5]['result']==created,'Creation Undo/Redo retains exact native Anchor state')
     native=Path(directory)/'created.nect';native.write_text(json.dumps(created),encoding='utf-8');before=native.read_bytes()
     cold=subprocess.run([exe,'--serve',str(native)],input='{"op":"inspect"}\n',text=True,capture_output=True,timeout=10)

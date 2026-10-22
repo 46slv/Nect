@@ -30,7 +30,7 @@ Document text_fixture(){
 Bounds bounds(const Document& d,const Id& id){const auto v=evaluate(d);return *object_bounds(d,id,v,evaluate_transforms(d,v),true);}
 void apply(Session& s,AlignObjects c){s.apply({c},s.revision());}
 void apply(Session& s,DistributeObjects c){s.apply({c},s.revision());}
-void rejects(Session& s,AlignObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&s.revision()==revision,"Failure must be atomic");}
+void rejects(Session& s,AlignObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();const auto history=s.history();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&s.revision()==revision&&s.history()==history,"Failure must be atomic");}
 void rejects(Session& s,DistributeObjects c,const std::string& code){auto before=s.document();auto revision=s.revision();const auto history=s.history().states.size();try{apply(s,c);throw std::runtime_error("Expected failure: "+code);}catch(const Error& e){check(e.code==code,e.what());}check(s.document()==before&&s.revision()==revision&&s.history().states.size()==history,"Distribution failure must preserve document and history");}
 std::string api_code(const std::string& response){const auto start=response.find("\"code\":\"");if(start==std::string::npos)return {};const auto value=start+8;const auto end=response.find('"',value);return response.substr(value,end-value);}
 int main(){try{
@@ -175,6 +175,7 @@ int main(){try{
  rejects(cross_plane,AlignObjects{{"a"},"x","min",{},"artboard:art2"},"CROSS_COMPOSITION");
  rejects(cross_plane,AlignObjects{{"a"},"x","min",{},"grid:grid2"},"CROSS_COMPOSITION");
  rejects(cross_plane,AlignObjects{{"a"},"x","min",{},"guide:guide2"},"CROSS_COMPOSITION");
+#ifdef _WIN32
  // First-line baselines use DirectWrite metrics, not glyph-box bottoms.
  d=text_fixture();
  auto baseline=[&](const Document& document,const Id& id) {
@@ -195,7 +196,18 @@ int main(){try{
  near(baseline(baseline_key.document(),"text-a"),baseline(baseline_key.document(),"text-b"));
  d=text_fixture();d.objects.at("text-b").text->direction="vertical";Session vertical_text(d);
  rejects(vertical_text,AlignObjects{{"text-a","text-b"},"y","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
- rejects(baseline_key,AlignObjects{{"text-a","text-b"},"y","baseline",{},"grid:grid"},"UNSUPPORTED_BASELINE_REFERENCE");
+#else
+ // Baseline alignment needs real font metrics, but native Text and other layout
+ // contracts above remain portable. Unsupported projection must stay atomic.
+ Session baseline_selection(text_fixture());
+ rejects(baseline_selection,AlignObjects{{"text-a","text-b"},"y","baseline",{},"selection"},"TEXT_PLATFORM_UNSUPPORTED");
+ rejects(baseline_selection,AlignObjects{{"text-a","text-b"},"y","baseline",{},"key_object:text-b"},"TEXT_PLATFORM_UNSUPPORTED");
+#endif
+ // Reference/domain validation does not require glyph metrics on any platform.
+ Session baseline_reference(text_fixture());
+ rejects(baseline_reference,AlignObjects{{"text-a","text-b"},"y","baseline",{},"grid:grid"},"UNSUPPORTED_BASELINE_REFERENCE");
+ Session baseline_paths(fixture());
+ rejects(baseline_paths,AlignObjects{{"a","b"},"y","baseline",{},"selection"},"UNSUPPORTED_BASELINE");
  // No-op arrangement does not consume a revision/history state; stale commands are atomic.
  d=exact_fixture();Session no_op(d);AlignObjects guide_no_op{{"a"},"x","min",{},"guide:guide-x"};apply(no_op,guide_no_op);
  const auto no_op_revision=no_op.revision();const auto no_op_history=no_op.history().states.size();const auto no_op_document=no_op.document();apply(no_op,guide_no_op);
@@ -219,7 +231,13 @@ int main(){try{
  const auto alias_error=request(alias_conflict,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["a"],"axis":"x","alignment":"min","artboard":null,"reference":"selection"}]})");
  check(api_code(alias_error)=="INVALID_REFERENCE"&&alias_conflict.document()==alias_before&&alias_conflict.revision()==0,"JSON rejects simultaneous alias and explicit reference atomically");
  Session json_baseline(text_fixture());const auto baseline_api=request(json_baseline,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["text-a","text-b"],"axis":"y","alignment":"baseline","reference":"selection"}]})");
+#ifdef _WIN32
  check(json_ok(baseline_api)&&baseline_api.find("\"revision\":1")!=std::string::npos,"JSON API uses the actual baseline Session command");
+#else
+ check(api_code(baseline_api)=="TEXT_PLATFORM_UNSUPPORTED"&&json_baseline.revision()==0&&
+     json_baseline.document()==text_fixture()&&json_baseline.history().states.size()==1,
+     "JSON baseline reports unavailable font metrics without changing authored state or History");
+#endif
  Session guide_distribution(exact_fixture());const auto guide_error=request(guide_distribution,R"({"op":"apply","expected_revision":0,"commands":[{"type":"distribute_objects","objects":["a"],"axis":"x","reference":"guide:guide-x"}]})");
  check(api_code(guide_error)=="UNSUPPORTED_DISTRIBUTION_REFERENCE"&&guide_distribution.revision()==0,"JSON Guide Distribute has explicit unsupported error");
  Session stale_api(exact_fixture());const auto first_apply=request(stale_api,R"({"op":"apply","expected_revision":0,"commands":[{"type":"align_objects","objects":["a"],"axis":"x","alignment":"min","reference":"guide:guide-x"}]})");

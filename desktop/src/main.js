@@ -1,4 +1,5 @@
 import { installLayerReorder } from './layer-reorder.js';
+import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
 import { textWrapResizeContext, resizedTextWrapWidth } from './text-wrap-resize.js';
 import {
@@ -3620,6 +3621,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
+  graphPanJoystick?.destroy();
+  graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
@@ -4948,29 +4951,48 @@ const CANVAS_LIMITS = [0.00001, 8],
 function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
+let graphPanJoystick = null;
+function mountGraphPanJoystick() {
+  const container = document.querySelector('.graph-body'),
+    viewport = container?.querySelector('.graph-scroll');
+  if (!viewport || graphPanJoystick?.element.parentElement === container) return;
+  graphPanJoystick?.destroy();
+  let intent = null,
+    observed = null;
+  graphPanJoystick = createGraphPanJoystick({
+    container,
+    viewport,
+    canPan: () =>
+      !navigationBusy(false) &&
+      !documents.hasDraft() &&
+      !canvasTextEdit &&
+      !sourcePicker &&
+      !penDraft &&
+      !nameEdit &&
+      !variableAction &&
+      !editingControl(document.activeElement) &&
+      !document.querySelector('dialog[open], .node-context-menu, .command-menu[open]'),
+    pan(delta) {
+      const current = [viewport.scrollLeft, viewport.scrollTop];
+      if (!observed || current.some((value, axis) => value !== observed[axis])) intent = current;
+      // Content moves with the knob, so viewport scrolling has the opposite sign.
+      // Retain fractional intent even on browsers rounding native scroll offsets.
+      intent = intent.map((value, axis) => Math.max(0, value - delta[axis]));
+      if (
+        intent[0] + viewport.clientWidth > viewport.scrollWidth ||
+        intent[1] + viewport.clientHeight > viewport.scrollHeight
+      )
+        updateGraphBounds(intent);
+      viewport.scrollLeft = intent[0];
+      viewport.scrollTop = intent[1];
+      observed = [viewport.scrollLeft, viewport.scrollTop];
+      if (observed.some((value, axis) => value !== current[axis])) updateGraphOverview(false);
+    },
+    onLayout: () => updateGraphOverview(),
+  });
+}
 function updateNavigation() {
-  const toolbar = document.querySelector('.graph-toolbar');
-  if (toolbar && !toolbar.querySelector('.graph-pan-pad')) {
-    const pad = document.createElement('span');
-    pad.className = 'graph-pan-pad';
-    pad.setAttribute('role', 'group');
-    pad.setAttribute('aria-label', 'Pan node graph');
-    for (const [action, label, glyph] of [
-      ['graph-pan-up', 'Pan node graph up', '^'],
-      ['graph-pan-left', 'Pan node graph left', '<'],
-      ['graph-pan-right', 'Pan node graph right', '>'],
-      ['graph-pan-down', 'Pan node graph down', 'v'],
-    ]) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.dataset.action = action;
-      button.setAttribute('aria-label', label);
-      button.title = label;
-      button.textContent = glyph;
-      pad.append(button);
-    }
-    toolbar.querySelector('[data-action="graph-fit"]')?.before(pad);
-  }
+  mountGraphPanJoystick();
   updateGraphOverview();
   updateLayerDeletionControls();
   for (const [view, value, limits, prefix] of [
@@ -7419,29 +7441,6 @@ app.addEventListener('click', async (e) => {
           if (!navigationBusy()) {
             graphOverviewOpen = !graphOverviewOpen;
             updateGraphOverview();
-          }
-          break;
-        case 'graph-pan-up':
-        case 'graph-pan-down':
-        case 'graph-pan-left':
-        case 'graph-pan-right':
-          if (!navigationBusy()) {
-            const viewport = document.querySelector('.graph-scroll');
-            const amount = 80;
-            const delta = {
-              'graph-pan-up': [0, -amount],
-              'graph-pan-down': [0, amount],
-              'graph-pan-left': [-amount, 0],
-              'graph-pan-right': [amount, 0],
-            }[d.action];
-            const scroll = [
-              Math.max(0, viewport.scrollLeft + delta[0]),
-              Math.max(0, viewport.scrollTop + delta[1]),
-            ];
-            updateGraphBounds(scroll);
-            viewport.scrollTo(scroll[0], scroll[1]);
-            updateGraphOverview(false);
-            viewport.focus({ preventScroll: true });
           }
           break;
         case 'save-node-preset':
@@ -10069,8 +10068,9 @@ const editingControl = (target) =>
 function navigationExcluded(target) {
   return editingControl(target) || target.closest?.('.character-floating,.guides-panel,dialog');
 }
-function navigationBusy() {
+function navigationBusy(includeJoystick = true) {
   return !!(
+    (includeJoystick && graphPanJoystick?.active) ||
     keyerInputPicker ||
     drag ||
     wiring ||
@@ -10431,8 +10431,14 @@ function updateGraphOverview(remeasure = true) {
   toggle.setAttribute('aria-expanded', String(graphOverviewOpen));
   if (!graphOverviewOpen) return;
   const viewport = document.querySelector('.graph-scroll');
-  panel.style.width =
-    Math.max(0, Math.min(240, viewport.clientWidth - 48, (viewport.clientHeight - 16) * 2)) + 'px';
+  const joystick = graphPanJoystick?.layout || { size: 80, right: 24, bottom: 24 };
+  const overviewLayout = joystickOverviewLayout(
+    viewport.clientWidth,
+    viewport.clientHeight,
+    joystick,
+  );
+  panel.style.right = overviewLayout.right + 'px';
+  panel.style.width = overviewLayout.width + 'px';
   const geometry = graphOverviewGeometry(remeasure);
   const map = panel.querySelector('svg');
   if (!geometry) {
@@ -11045,7 +11051,10 @@ app.addEventListener('pointerdown', (e) => {
   );
   if (tool === 'select' && !dedicated) {
     if (document.querySelector('dialog[open]')) return;
-    const layerId = e.target.closest('[data-layer]')?.dataset.layer;
+    const layerId = e.target.closest('[data-layer]')?.dataset.layer,
+      // The event belongs to this artboard. Selection/render replaces its SVG
+      // and may expose different layout geometry before the next pointer move.
+      start = layerId ? canvasPoint(e) : null;
     stage.focus({ preventScroll: true });
     if (!layerId) {
       if (control || navigationBusy() || penDraft || session.hasGesture) return;
@@ -11088,7 +11097,7 @@ app.addEventListener('pointerdown', (e) => {
       target,
       selectionBefore: selectionSnapshot(),
       toggleOnClick: toggleOnClick ? layerId : null,
-      start: canvasPoint(e),
+      start,
       started: false,
       anchors: b.map((axis) => [...axis]),
       before: cloneDocument(history.doc),
@@ -13096,7 +13105,7 @@ document.addEventListener('keydown', (event) => {
     event.altKey ||
     !['a', 'c', 'v'].includes(key) ||
     navigationExcluded(event.target) ||
-    !event.target.closest?.('.graph-scroll,.graph-toolbar') ||
+    !event.target.closest?.('.graph-scroll,.graph-toolbar,.graph-pan-joystick') ||
     event.isComposing ||
     event.keyCode === 229 ||
     composing
@@ -13130,7 +13139,7 @@ document.addEventListener('keydown', (event) => {
     event.altKey ||
     event.key.toLowerCase() !== 'd' ||
     navigationExcluded(event.target) ||
-    !event.target.closest?.('.graph-scroll,.graph-toolbar')
+    !event.target.closest?.('.graph-scroll,.graph-toolbar,.graph-pan-joystick')
   )
     return;
   event.preventDefault();
@@ -13147,9 +13156,11 @@ document.addEventListener('keydown', (event) => {
 });
 document.addEventListener('keydown', (e) => {
   if (navigationExcluded(e.target) || e.isComposing || e.keyCode === 229 || composing) return;
-  const viewport = e.target.closest('.canvas-stage,.canvas-toolbar,.graph-scroll,.graph-toolbar');
+  const viewport = e.target.closest(
+    '.canvas-stage,.canvas-toolbar,.graph-scroll,.graph-toolbar,.graph-pan-joystick',
+  );
   if (!viewport) return;
-  const graph = viewport.matches('.graph-scroll,.graph-toolbar');
+  const graph = viewport.matches('.graph-scroll,.graph-toolbar,.graph-pan-joystick');
   const modifier = e.ctrlKey || e.metaKey;
   const fit = !modifier && e.shiftKey && (e.code === 'Digit1' || e.key === '1' || e.key === '!');
   const fitSelection =

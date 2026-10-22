@@ -319,16 +319,33 @@ void fresh_creation_anchor_contract() {
     auto child=path("fresh-child").contours;
     apply(session,{CreatePath{"fresh-composition","fresh-empty","fresh-child","Child",child}});
     near(evaluate(session.document()).at(tf("fresh-empty","anchor_x")),0,"Adding content does not center old empty Folder");
-#ifdef _WIN32
     auto text=default_text("fresh-text-source","");text.layout="frame";
     text.parameters.at("origin_x").literal=10;text.parameters.at("origin_y").literal=20;
     text.parameters.at("frame_width").literal=200;text.parameters.at("frame_height").literal=100;
     apply(session,{CreateText{"fresh-composition","","fresh-text","Text",text}});
+#ifdef _WIN32
     near(evaluate(session.document()).at(tf("fresh-text","anchor_x")),110,"Direct frame Text center X");
     near(evaluate(session.document()).at(tf("fresh-text","anchor_y")),70,"Direct frame Text center Y");
-    text.parameters.at("frame_width").literal=400;apply(session,{UpdateText{"fresh-text",text}});
-    near(evaluate(session.document()).at(tf("fresh-text","anchor_x")),110,"Text content/frame edits leave Anchor fixed");
+#else
+    near(evaluate(session.document()).at(tf("fresh-text","anchor_x")),0,"Portable Text creation retains its neutral authored Anchor X without font metrics");
+    near(evaluate(session.document()).at(tf("fresh-text","anchor_y")),0,"Portable Text creation retains its neutral authored Anchor Y without font metrics");
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)bounds(session.document(),"fresh-text");});
+    atomic_reject(session,"TEXT_PLATFORM_UNSUPPORTED",{CenterAnchor{"fresh-text"}});
 #endif
+    const auto text_anchor=session.document().objects.at("fresh-text").anchor;
+    text.parameters.at("frame_width").literal=400;apply(session,{UpdateText{"fresh-text",text}});
+    check(session.document().objects.at("fresh-text").anchor==text_anchor,"Text content/frame edits leave the authored Anchor fixed");
+    const auto text_created=session.document();session.undo(session.revision());session.undo(session.revision());
+    check(!session.document().objects.contains("fresh-text"),"Portable Text creation and update each have one Undo boundary");
+    session.redo(session.revision());session.redo(session.revision());
+    check(session.document()==text_created,"Text creation Redo restores the exact authored source and Anchor");
+    auto explicit_text=default_text("explicit-text-source","Explicit");
+    apply(session,{CreateText{"fresh-composition","","explicit-text","Explicit",explicit_text},
+        Set{tf("explicit-text","anchor_x"),37},Set{tf("explicit-text","anchor_y"),-12}});
+    near(evaluate(session.document()).at(tf("explicit-text","anchor_x")),37,"Same-batch explicit Text Anchor X is authoritative on every platform");
+    near(evaluate(session.document()).at(tf("explicit-text","anchor_y")),-12,"Same-batch explicit Text Anchor Y is authoritative on every platform");
+    atomic_reject(session,"MISSING_REFERENCE",{CreateText{"fresh-composition","","invalid-text","Invalid",default_text("invalid-text-source","Invalid")},
+        Set{tf("absent-text","anchor_x"),1}});
     Session reopened(decode(encode(session.document())));check(reopened.document()==session.document(),"Fresh Anchors reopen in native without a version change");
     auto forward=path("fresh-forward").contours;forward.front().points.front().y.literal=20;
     forward.front().points.back().x.literal=50;forward.front().points.back().y.literal=60;
@@ -552,11 +569,19 @@ void rigid_group_path_follow() {
         "Editing a child's authored transform does not rewrite relation membership");
     matrix_near(evaluate_transforms(session.document(),evaluate(session.document())).at("follow-text").world,
         expected_follow_world(session.document(),"follow-text"),"Child authored transform edit composes after derived frame");
+#ifdef _WIN32
     const auto text_bounds_before=bounds(session.document(),"follow-text");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)bounds(session.document(),"follow-text");});
+#endif
     auto edited_text=*session.document().objects.at("follow-text").text;
     edited_text.content="WWW WWW WWW Follow Content";
     apply(session,{UpdateText{"follow-text",edited_text}});
+#ifdef _WIN32
     const auto text_bounds_after=bounds(session.document(),"follow-text");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)bounds(session.document(),"follow-text");});
+#endif
     check(session.document().objects.at("follow-group").path_follow->items.contains("follow-text")&&
         evaluated_text_source(session.document(),"follow-text").content==edited_text.content,
         "Editing child B's Text content preserves stable Group relation membership and source readback");

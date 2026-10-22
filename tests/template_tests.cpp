@@ -63,17 +63,17 @@ const Artboard& board(const Document& document,const Id& id) {
     if(found==boards.end())throw std::runtime_error("Missing Artboard "+id);
     return *found;
 }
-EvaluatedScene scene(const Document& document) {
+SceneProjection projection(const Document& document) {
     const auto values=evaluate(document);
-    return evaluate_scene(document,"comp",values,evaluate_transforms(document,values));
+    return project_definition_instances(document,"comp",values,evaluate_transforms(document,values));
 }
-Id proxy_for(const EvaluatedScene& evaluated,const Id& instance,const Id& source) {
+Id proxy_for(const SceneProjection& evaluated,const Id& instance,const Id& source) {
     for(const auto& [proxy,owner]:evaluated.instance_owners)
         if(owner==instance&&evaluated.instance_sources.at(proxy)==source)return proxy;
     throw std::runtime_error("Missing R04 proxy for "+instance+" / "+source);
 }
-Ref proxy_fill_channel(const EvaluatedScene& evaluated,const Id& proxy,const std::string& channel) {
-    const auto& stack=evaluated.expanded_document->objects.at(proxy).stack;
+Ref proxy_fill_channel(const SceneProjection& evaluated,const Id& proxy,const std::string& channel) {
+    const auto& stack=evaluated.document->objects.at(proxy).stack;
     const auto fill=std::find_if(stack.begin(),stack.end(),[](const ProcessingEntry& operation) {
         return operation.type=="nect.paint.fill";
     });
@@ -391,13 +391,23 @@ void canonical_ab_logo_fixture_preserves_sources_and_local_overrides() {
     const auto grid_id=board(session.document(),"target-a").template_assignment->grid_id;
     near(std::get<double>(artboard_layout_property(session.document(),{grid_id,"","grid.column_gutter"}).evaluated),20,
         "A inherits source Grid gutter 20");
-    auto evaluated=scene(session.document());
+    auto evaluated=projection(session.document());
+    const auto scene_values=evaluate(session.document());
+    const auto scene_transforms=evaluate_transforms(session.document(),scene_values);
+#ifdef _WIN32
+    const auto rendered=evaluate_scene(session.document(),"comp",scene_values,scene_transforms);
+    check(rendered.shapes.contains(proxy_for(evaluated,"content-a","logo"))&&
+        rendered.shapes.contains(proxy_for(evaluated,"content-a","caption")),
+        "Windows renders the mixed Template scene through Path and DirectWrite Text geometry");
+#else
+    rejects("TEXT_PLATFORM_UNSUPPORTED",[&]{(void)evaluate_scene(session.document(),"comp",scene_values,scene_transforms);});
+#endif
     auto a_logo=proxy_for(evaluated,"content-a","logo");
     auto b_logo=proxy_for(evaluated,"content-b","logo");
-    near(evaluated.expanded_transforms->at(a_logo).world[4],390,"Only A's Logo X override changes X from 10 to 90");
-    near(evaluated.expanded_values->at({a_logo,"","generator.width"}),40,"A initially inherits Logo width 40");
-    near(evaluated.expanded_transforms->at(b_logo).world[4],1510,"B initially inherits Logo X 10");
-    near(evaluated.expanded_values->at(proxy_fill_channel(evaluated,b_logo,"r")),0.9,"A and B initially inherit source Fill A");
+    near(evaluated.transforms->at(a_logo).world[4],390,"Only A's Logo X override changes X from 10 to 90");
+    near(evaluated.values->at({a_logo,"","generator.width"}),40,"A initially inherits Logo width 40");
+    near(evaluated.transforms->at(b_logo).world[4],1510,"B initially inherits Logo X 10");
+    near(evaluated.values->at(proxy_fill_channel(evaluated,b_logo,"r")),0.9,"A and B initially inherit source Fill A");
 
     auto updated_source=board(session.document(),"source-art");
     updated_source.width=1200;
@@ -421,16 +431,16 @@ void canonical_ab_logo_fixture_preserves_sources_and_local_overrides() {
         "B preserves its local Margin left 60");
     near(std::get<double>(artboard_layout_property(session.document(),{grid_id,"","grid.column_gutter"}).evaluated),30,
         "A follows source Grid gutter 30");
-    evaluated=scene(session.document());
+    evaluated=projection(session.document());
     a_logo=proxy_for(evaluated,"content-a","logo");b_logo=proxy_for(evaluated,"content-b","logo");
-    near(evaluated.expanded_transforms->at(a_logo).world[4],390,"A keeps its sole local Logo X override at 90");
-    near(evaluated.expanded_values->at({a_logo,"","generator.width"}),60,"A follows source Logo width 60");
-    near(evaluated.expanded_values->at(proxy_fill_channel(evaluated,a_logo,"b")),0.9,"A follows source Fill B");
-    near(evaluated.expanded_transforms->at(b_logo).world[4],1520,"B follows source Logo X 20");
-    near(evaluated.expanded_values->at({b_logo,"","generator.width"}),60,"B follows source Logo width 60");
-    near(evaluated.expanded_values->at(proxy_fill_channel(evaluated,b_logo,"b")),0.9,"B follows source Fill B");
-    const auto a_bounds=object_bounds(*evaluated.expanded_document,a_logo,*evaluated.expanded_values,*evaluated.expanded_transforms,true);
-    const auto b_bounds=object_bounds(*evaluated.expanded_document,b_logo,*evaluated.expanded_values,*evaluated.expanded_transforms,true);
+    near(evaluated.transforms->at(a_logo).world[4],390,"A keeps its sole local Logo X override at 90");
+    near(evaluated.values->at({a_logo,"","generator.width"}),60,"A follows source Logo width 60");
+    near(evaluated.values->at(proxy_fill_channel(evaluated,a_logo,"b")),0.9,"A follows source Fill B");
+    near(evaluated.transforms->at(b_logo).world[4],1520,"B follows source Logo X 20");
+    near(evaluated.values->at({b_logo,"","generator.width"}),60,"B follows source Logo width 60");
+    near(evaluated.values->at(proxy_fill_channel(evaluated,b_logo,"b")),0.9,"B follows source Fill B");
+    const auto a_bounds=object_bounds(*evaluated.document,a_logo,*evaluated.values,*evaluated.transforms,true);
+    const auto b_bounds=object_bounds(*evaluated.document,b_logo,*evaluated.values,*evaluated.transforms,true);
     check(a_bounds.has_value()&&b_bounds.has_value(),"A and B produce fixed projected Logo geometry");
     near(a_bounds->right-a_bounds->left,60,"A projected Logo bounds read back as width 60");
     near(b_bounds->right-b_bounds->left,60,"B projected Logo bounds read back as width 60");
@@ -441,8 +451,8 @@ void canonical_ab_logo_fixture_preserves_sources_and_local_overrides() {
 
     apply(session,{DefinitionCommand{ResetInstanceOverride{"content-a",{"logo","","transform.tx"}}},
         ArtboardTemplateCommand{ResetArtboardTemplateOverride{"comp","target-b","layout.margin"}}});
-    evaluated=scene(session.document());a_logo=proxy_for(evaluated,"content-a","logo");b_logo=proxy_for(evaluated,"content-b","logo");
-    near(evaluated.expanded_transforms->at(a_logo).world[4],320,"Reset A Logo X restores source X 20");
+    evaluated=projection(session.document());a_logo=proxy_for(evaluated,"content-a","logo");b_logo=proxy_for(evaluated,"content-b","logo");
+    near(evaluated.transforms->at(a_logo).world[4],320,"Reset A Logo X restores source X 20");
     near(std::get<double>(artboard_layout_property(session.document(),{"target-b","","margin.left"}).evaluated),50,
         "Reset B Margin restores the current source left 50");
     check(!board(session.document(),"target-b").template_assignment->margin_overridden&&
@@ -466,7 +476,7 @@ void canonical_ab_logo_fixture_preserves_sources_and_local_overrides() {
         Set{{"logo","","generator.width"},70},Set{{"logo","","op.logo-fill.r"},0.9},
         Set{{"logo","","op.logo-fill.g"},0.2},Set{{"logo","","op.logo-fill.b"},0.1}});
     const auto after_source_change=session.document();
-    const auto detached_scene=scene(after_source_change);
+    const auto detached_scene=projection(after_source_change);
     const auto a_group=after_source_change.objects.at("content-a").children.front();
     const auto a_materialized_logo=after_source_change.objects.at(a_group).children.front();
     const auto after_values=evaluate(after_source_change);const auto after_transforms=evaluate_transforms(after_source_change,after_values);
@@ -484,9 +494,9 @@ void canonical_ab_logo_fixture_preserves_sources_and_local_overrides() {
     check(detached_fill!=detached_stack.end(),"Detached A retains its materialized Fill operation");
     near(after_values.at({a_materialized_logo,"","op."+detached_fill->id+".b"}),0.9,
         "Detached A keeps source Fill B after source changes");
-    near(detached_scene.expanded_transforms->at(after_b_logo).world[4],1525,"Assigned B follows the later source Logo X 25");
-    near(detached_scene.expanded_values->at({after_b_logo,"","generator.width"}),70,"Assigned B follows the later source width 70");
-    near(detached_scene.expanded_values->at(proxy_fill_channel(detached_scene,after_b_logo,"r")),0.9,
+    near(detached_scene.transforms->at(after_b_logo).world[4],1525,"Assigned B follows the later source Logo X 25");
+    near(detached_scene.values->at({after_b_logo,"","generator.width"}),70,"Assigned B follows the later source width 70");
+    near(detached_scene.values->at(proxy_fill_channel(detached_scene,after_b_logo,"r")),0.9,
         "Assigned B follows later source Fill A");
     near(std::get<double>(artboard_layout_property(after_source_change,{board(after_source_change,"target-b").template_assignment->grid_id,"","grid.column_gutter"}).evaluated),40,
         "Assigned B follows the later source Grid gutter 40");
@@ -505,50 +515,50 @@ void r04_descendant_overrides_project_geometry_and_guard_legacy_versions() {
     check(source_values.at({"logo","","transform.tx"})==5&&
         source_values.at({"logo","","generator.width"})==60,
         "Descendant Template overrides never rewrite source transform or Rectangle geometry");
-    auto projected=scene(session.document());
+    auto projected=projection(session.document());
     auto proxy_logo=proxy_for(projected,"content-a","logo");
-    near(projected.expanded_values->at({proxy_logo,"","generator.width"}),30,
+    near(projected.values->at({proxy_logo,"","generator.width"}),30,
         "The existing R04 override map projects a descendant Rectangle width override");
-    near(projected.expanded_transforms->at(proxy_logo).world[4],490,
+    near(projected.transforms->at(proxy_logo).world[4],490,
         "A descendant transform.tx override composes with the target occurrence position while source-root affine is ignored");
-    const auto bounds=object_bounds(*projected.expanded_document,proxy_logo,*projected.expanded_values,
-        *projected.expanded_transforms,true);
+    const auto bounds=object_bounds(*projected.document,proxy_logo,*projected.values,
+        *projected.transforms,true);
     check(bounds.has_value(),"Projected descendant Logo has concrete geometry");
     near(bounds->right-bounds->left,30,"Projected world bounds use the local Rectangle width override");
-    check(projected.expanded_document->objects.at(proxy_for(projected,"content-a","source-root")).visible,
+    check(projected.document->objects.at(proxy_for(projected,"content-a","source-root")).visible,
         "Source-root visibility remains ordinary R04 occurrence state and is not inherited by the Template Instance");
 
     apply(session,{Set{{"logo","","generator.width"},80},Set{{"logo","","transform.tx"},20},
         Set{{"logo","","op.logo-fill.r"},0.4}});
-    projected=scene(session.document());proxy_logo=proxy_for(projected,"content-a","logo");
+    projected=projection(session.document());proxy_logo=proxy_for(projected,"content-a","logo");
     const auto proxy_b=proxy_for(projected,"content-b","logo");
-    near(projected.expanded_values->at({proxy_logo,"","generator.width"}),30,
+    near(projected.values->at({proxy_logo,"","generator.width"}),30,
         "Source geometry updates preserve the selected local Rectangle override");
-    near(projected.expanded_values->at({proxy_b,"","generator.width"}),80,
+    near(projected.values->at({proxy_b,"","generator.width"}),80,
         "The unoverridden target follows live source Rectangle geometry");
-    near(projected.expanded_values->at(proxy_fill_channel(projected,proxy_logo,"r")),0.4,
+    near(projected.values->at(proxy_fill_channel(projected,proxy_logo,"r")),0.4,
         "Source paint changes continue flowing through a geometry override");
-    near(projected.expanded_transforms->at(proxy_logo).world[4],490,
+    near(projected.transforms->at(proxy_logo).world[4],490,
         "Source descendant transform changes do not replace an explicit Instance transform.tx override");
-    const auto updated_bounds=object_bounds(*projected.expanded_document,proxy_logo,*projected.expanded_values,
-        *projected.expanded_transforms,true);
+    const auto updated_bounds=object_bounds(*projected.document,proxy_logo,*projected.values,
+        *projected.transforms,true);
     check(updated_bounds.has_value(),"Updated projected Logo retains rendered geometry");
     near(updated_bounds->right-updated_bounds->left,30,"The live override keeps projected width at 30 after source updates");
 
     const auto native=encode(session.document());
-    auto reopened=decode(native);projected=scene(reopened);
+    auto reopened=decode(native);projected=projection(reopened);
     proxy_logo=proxy_for(projected,"content-a","logo");
-    const auto reopened_bounds=object_bounds(*projected.expanded_document,proxy_logo,*projected.expanded_values,
-        *projected.expanded_transforms,true);
+    const auto reopened_bounds=object_bounds(*projected.document,proxy_logo,*projected.values,
+        *projected.transforms,true);
     check(reopened==session.document()&&reopened_bounds.has_value(),
         "Current-writer cold reopen preserves exact Template ownership and projected geometry");
     near(reopened_bounds->right-reopened_bounds->left,30,"Cold reopened Template projection retains width 30");
 
     apply(session,{DefinitionCommand{ResetInstanceOverride{"content-a",{"logo","","generator.width"}}}});
-    projected=scene(session.document());proxy_logo=proxy_for(projected,"content-a","logo");
-    const auto reset_bounds=object_bounds(*projected.expanded_document,proxy_logo,*projected.expanded_values,
-        *projected.expanded_transforms,true);
-    near(projected.expanded_values->at({proxy_logo,"","generator.width"}),80,
+    projected=projection(session.document());proxy_logo=proxy_for(projected,"content-a","logo");
+    const auto reset_bounds=object_bounds(*projected.document,proxy_logo,*projected.values,
+        *projected.transforms,true);
+    near(projected.values->at({proxy_logo,"","generator.width"}),80,
         "Resetting the descendant width override restores live source width 80");
     check(reset_bounds.has_value(),"Reset projection retains concrete geometry");
     near(reset_bounds->right-reset_bounds->left,80,"Reset updates the projected world bounds to width 80");
@@ -814,12 +824,12 @@ void template_source_items_keep_stable_identity_through_delete_and_ordinary_deta
 
     apply(session,{Rename{"logo","Shared Item"},CreatePrimitive{"comp","source-root","logo-replacement","Shared Item",
         default_primitive("replacement-generator","nect.shape.rectangle")}});
-    auto projected=scene(session.document());
+    auto projected=projection(session.document());
     const auto original_proxy=proxy_for(projected,"content-a","logo");
     const auto replacement_proxy=proxy_for(projected,"content-a","logo-replacement");
     check(projected.instance_sources.at(original_proxy)=="logo"&&projected.instance_sources.at(replacement_proxy)=="logo-replacement"&&
-        projected.expanded_values->at({original_proxy,"","transform.tx"})==90&&
-        projected.expanded_values->at({replacement_proxy,"","transform.tx"})==0,
+        projected.values->at({original_proxy,"","transform.tx"})==90&&
+        projected.values->at({replacement_proxy,"","transform.tx"})==0,
         "Same-name replacement does not retarget the stable SourceItem Ref or inherit its local override");
     rejects_atomically(session,"DANGLING_OVERRIDE",[&]{apply(session,{DeleteObjects{{"logo"}}});},
         "Deleting a live overridden SourceItem cannot leave a dangling reference or retarget by name");

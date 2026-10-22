@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { activateCommand } from './command-menu-actions.js';
 import { downloadCommand } from './command-download.js';
+import { beginCurvePlacementTrace, curvePlacementTrace } from './helpers/curve-placement-trace.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -375,42 +376,9 @@ try {
     await page.locator('[data-pen-cancel]').click();
   }
 
-  // Bounded failure evidence distinguishes delivered pointer coordinates from
-  // model translation. This observes events only; it never changes app state.
-  const beginCurveTrace = () =>
-    page.evaluate(() => {
-      window.curvePointerTrace = [];
-      window.curveRequestedInput = {};
-      if (window.curveTraceInstalled) return;
-      window.curveTraceInstalled = true;
-      for (const capture of [true, false])
-        for (const type of ['pointerdown', 'pointermove', 'pointerup'])
-          document.addEventListener(
-            type,
-            (e) => {
-              if (!window.curvePointerTrace) return;
-              const matrix = document.querySelector('.artboard')?.getScreenCTM();
-              const world =
-                matrix && new DOMPoint(e.clientX, e.clientY).matrixTransform(matrix.inverse());
-              window.curvePointerTrace.push({
-                type,
-                capture,
-                x: e.clientX,
-                y: e.clientY,
-                buttons: e.buttons,
-                pointerId: e.pointerId,
-                altKey: e.altKey,
-                shiftKey: e.shiftKey,
-                ctrlKey: e.ctrlKey,
-                metaKey: e.metaKey,
-                world: world && [world.x, world.y],
-                matrix: matrix && [matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f],
-              });
-              if (window.curvePointerTrace.length > 80) window.curvePointerTrace.shift();
-            },
-            capture,
-          );
-    });
+  // Observe internal CTM reads as well as event boundaries. A render may
+  // replace the SVG during pointerdown without moving the final visible view.
+  const beginCurveTrace = () => page.evaluate(beginCurvePlacementTrace);
   const proveRigidPlacement = async (before, delta) => {
     const after = JSON.parse(await snapshot()),
       original = before.layers.at(-1).nodes[0].points,
@@ -419,10 +387,7 @@ try {
       p.position.value.map((v, axis) => v - original[i].position.value[axis]),
     );
     if (actual.some((xy) => xy.some((v, axis) => Math.abs(v - delta[axis]) >= 0.00001))) {
-      const evidence = await page.evaluate(() => ({
-        trace: window.curvePointerTrace || [],
-        requestedInput: window.curveRequestedInput || {},
-      }));
+      const evidence = await page.evaluate(curvePlacementTrace);
       console.error(
         'Curve placement mismatch',
         JSON.stringify({
@@ -444,10 +409,7 @@ try {
       );
       await page.screenshot({ path: 'test-results/pen-placement-failure.png', fullPage: true });
     } else if (delta[0] === 18.75 && delta[1] === -11.25) {
-      const evidence = await page.evaluate(() => ({
-        trace: window.curvePointerTrace || [],
-        requestedInput: window.curveRequestedInput || {},
-      }));
+      const evidence = await page.evaluate(curvePlacementTrace);
       const label = before.layers.at(-1).nodes[0].params.closed.value ? 'closed' : 'open';
       await fs.writeFile(
         `test-results/workflow-curve-placement-input-${label}.json`,

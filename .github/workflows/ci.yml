@@ -28,3 +28,80 @@ jobs:
 
       - name: Real-process smoke
         run: python3 scripts/smoke.py --exe build/nect
+
+  # Core-only edits must also exercise the real DirectWrite/WIC positive paths.
+  # The separate desktop workflow retains its Tauri/Rust/frontend verification.
+  windows-core:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      # The runner image provides Visual Studio, CMake and Python, but does not
+      # promise Boost headers. Fetch only the pinned official source archive;
+      # Boost.JSON is compiled by src/boost_json.cpp, so no Boost binary is needed.
+      - name: Prepare Boost headers
+        run: |
+          $deps = Join-Path $env:RUNNER_TEMP 'nect-core-deps'
+          New-Item -ItemType Directory -Force $deps | Out-Null
+          $archive = Join-Path $deps 'boost_1_83_0.zip'
+          Invoke-WebRequest 'https://archives.boost.io/release/1.83.0/source/boost_1_83_0.zip' -OutFile $archive
+          # Published checksum: https://archives.boost.io/release/1.83.0/source/boost_1_83_0.zip.json
+          $expected = 'c86bd9d9eef795b4b0d3802279419fde5221922805b073b9bd822edecb1ca28e'
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -cne $expected) {
+            throw 'Official Boost archive SHA256 mismatch'
+          }
+          7z x $archive "-o$deps" 'boost_1_83_0/boost/*' -r -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $headers = Join-Path $deps 'boost_1_83_0'
+          if (-not (Test-Path -LiteralPath (Join-Path $headers 'boost/json/src.hpp') -PathType Leaf)) {
+            throw 'Boost.JSON source headers are missing'
+          }
+          "NECT_BOOST_INCLUDE_DIR=$headers" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Provision Japanese text test capability
+        timeout-minutes: 10
+        run: ./desktop/scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing -EvidenceDirectory build-core/evidence
+
+      - name: Configure native core
+        id: configure
+        run: |
+          cmake -S . -B build-core -G 'Visual Studio 17 2022' -A x64 -DBUILD_TESTING=ON -DNECT_DESKTOP=OFF "-DBOOST_INCLUDE_DIR=$env:NECT_BOOST_INCLUDE_DIR" 2>&1 | Tee-Object -FilePath build-core/evidence/configure.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build native core and contracts
+        id: build
+        run: |
+          cmake --build build-core --config Debug --parallel 2 2>&1 | Tee-Object -FilePath build-core/evidence/build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Native core contract tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          ctest --test-dir build-core -C Debug --output-on-failure 2>&1 | Tee-Object -FilePath build-core/evidence/contracts.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Native core real-process smoke
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          python scripts/smoke.py --exe build-core/Debug/nect.exe 2>&1 | Tee-Object -FilePath build-core/evidence/smoke.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Preserve native core verification evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: nect-core-windows-verification-${{ github.sha }}
+          path: |
+            build-core/evidence/*
+            build-core/Testing/Temporary/LastTest.log
+            build-core/Testing/Temporary/LastTestsFailed.log
+          if-no-files-found: ignore
+          retention-days: 1

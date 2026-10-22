@@ -8049,7 +8049,12 @@ Document edited(const Document& document,const std::vector<Command>& commands,st
             Object object;object.id=c.id;object.name=c.name;object.kind=Kind::text;object.text=c.source;
             siblings(candidate,c.composition,c.parent).push_back(c.id);candidate.objects.emplace(c.id,std::move(object));
             add_default_paint(candidate,c.id,"nect.paint.fill");
+            // Authored Text is portable even when glyph measurement is not.
+            // Without DirectWrite retain the neutral (or explicitly edited)
+            // Anchor; explicit geometry operations still report unsupported.
+#ifdef _WIN32
             new_anchors[c.id]={true,true};
+#endif
         } else if constexpr(std::is_same_v<T,UpdateText>) {
             require(candidate.objects.contains(c.object),"MISSING_OBJECT",c.object);auto& o=candidate.objects.at(c.object);
             require(o.kind==Kind::text&&o.text.has_value(),"INVALID_TEXT","Select an editable Text object");

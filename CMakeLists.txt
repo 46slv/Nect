@@ -13,6 +13,10 @@ target_include_directories(nect_core PUBLIC include PRIVATE ${BOOST_INCLUDE_DIR}
 if(WIN32)
   target_link_libraries(nect_core PRIVATE dwrite windowscodecs bcrypt ole32)
 endif()
+if(MSVC)
+  # The shared Command variant also instantiates large objects in IO/tests.
+  target_compile_options(nect_core PUBLIC /bigobj)
+endif()
 
 add_library(nect_io src/io.cpp src/boost_json.cpp)
 target_include_directories(nect_io PRIVATE ${BOOST_INCLUDE_DIR})
