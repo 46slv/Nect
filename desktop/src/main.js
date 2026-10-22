@@ -13694,3 +13694,13 @@ document.addEventListener('keydown', (event) => {
     render();
   }
 });
+
+// Compile-time only. Vite removes this branch and module from ordinary builds.
+if (
+  typeof __NECT_RECOVERY_ACCEPTANCE_BUILD__ !== 'undefined' &&
+  __NECT_RECOVERY_ACCEPTANCE_BUILD__
+) {
+  void import('./recovery-acceptance-test.js').then(({ runRecoveryAcceptance }) =>
+    runRecoveryAcceptance(recovery, window.nect),
+  );
+}

@@ -1,3 +1,5 @@
+#[cfg(feature = "recovery-acceptance-test")]
+mod recovery_acceptance_gate;
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
 mod document_storage;
@@ -121,6 +123,8 @@ fn acceptance_window(
 
 fn run() -> Result<(), String> {
     let requested = std::env::var_os(acceptance_storage::ROOT_ENV);
+    #[cfg(feature = "recovery-acceptance-test")]
+    recovery_acceptance_gate::require_isolation(requested.is_some())?;
     let mut context = tauri::generate_context!();
     let window = acceptance_window(context.config_mut(), requested.is_some())?;
     let storage = RunStorage::prepare(requested, || {
@@ -192,9 +196,11 @@ fn run() -> Result<(), String> {
                     .as_ref()
                     .ok_or("Missing acceptance storage")?;
                 paths.check_directories()?;
-                tauri::WebviewWindowBuilder::from_config(app, &config)?
-                    .data_directory(paths.webview.clone())
-                    .build()?;
+                let builder = tauri::WebviewWindowBuilder::from_config(app, &config)?
+                    .data_directory(paths.webview.clone());
+                #[cfg(feature = "recovery-acceptance-test")]
+                let builder = builder.initialization_script("Object.defineProperty(window, '__NECT_RECOVERY_TEST_INSTANCE__', { value: true });");
+                builder.build()?;
             }
             Ok(())
         })
