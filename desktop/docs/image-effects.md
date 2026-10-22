@@ -17,15 +17,20 @@ image effects; transparent and outside pixels are not adopted. Driven fields use
 AI subject extraction, spill removal and video are not included.
 
 Add **Mask** after an Image, Keyer or **Composition Reference**. Connect a
-closed Path from Ellipse, Rectangle or another shape to **Shape**. Edit that
-shape's position/size normally. **Invert** cuts out its interior. Source
-paint, stroke order and alpha are retained. Open shapes are refused. The mask
-uses the Path's nonzero winding rule and ignores its paint. Limits are256
+closed Path or an Image/Keyer output to **Shape / image alpha**. Path inputs
+use nonzero winding and ignore paint; Image inputs use alpha only, ignoring
+RGB. Image position/size use the same document coordinates as the appearance.
+**Invert** complements coverage. Source paint, stroke order and alpha are
+retained. Open Path shapes are refused. Path limits are256
 contours and10000 points. **Feather σ (document units)** softens only the mask
 alpha, with Gaussian standard deviation from 0 to 256 at the Mask input.
-Zero keeps the original sharp mask and SVG. Invert complements the same
+Zero keeps the original sharp Path mask and SVG; Image alpha still uses its
+alpha-extraction filter, without Gaussian blur. Invert complements the same
 softened alpha. Later appearance transforms scale the source and mask together.
 See [Mask feather](mask-feather.md) for bounds, transforms and schema50.
+Image connections use schema51; old Path documents are not upgraded. See
+[Image alpha Mask](mask-image-alpha.md) and the
+[editable example](../examples/image-alpha-mask/README-ja.md).
 
 Mask returns **PaintedPath**. Click its **Use as output** to connect it. In an
 Image Output composition, this explicit action changes that Output to regular
