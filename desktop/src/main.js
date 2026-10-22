@@ -625,6 +625,8 @@ import {
   guideSettings,
   gridAnchors,
   resolveGridOrigin,
+  resolveGridBasis,
+  gridLineLayout,
   snapTranslation,
   collectSnapLayerBounds,
   pathBounds,
@@ -1560,9 +1562,9 @@ function numericControlTarget(input) {
   } else if (d.guidePosition) {
     command = 'set-guide';
     Object.assign(payload, { guideId: d.guidePosition, key: 'position' });
-  } else if (d.guideSetting === 'gridSize') {
+  } else if (['gridSize', 'gridAngle'].includes(d.guideSetting)) {
     command = 'set-guide-setting';
-    payload.key = 'gridSize';
+    payload.key = d.guideSetting;
   } else if (d.remap) {
     command = 'edit-remap';
     Object.assign(payload, {
@@ -3553,13 +3555,89 @@ function gridPanel() {
     )
     .join(
       '',
-    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div><label>Origin <select data-guide-setting="gridAnchor" aria-label="Grid origin">${gridAnchors.map((anchor) => `<option value="${anchor}" ${a.gridAnchor === anchor ? 'selected' : ''}>${anchor[0].toUpperCase() + anchor.slice(1).replaceAll('-', ' ')}</option>`).join('')}</select></label></div><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
+    )}</div><label>Grid spacing <input type="number" step="any" min="1" max="10000" data-guide-setting="gridSize" aria-label="Grid spacing" value="${a.gridSize}"></label><div><label>Origin <select data-guide-setting="gridAnchor" aria-label="Grid origin">${gridAnchors.map((anchor) => `<option value="${anchor}" ${a.gridAnchor === anchor ? 'selected' : ''}>${anchor[0].toUpperCase() + anchor.slice(1).replaceAll('-', ' ')}</option>`).join('')}</select></label></div><div><label>Angle ° <input type="number" min="-360" max="360" step="any" data-scrub-step="1" data-guide-setting="gridAngle" aria-label="Grid angle" value="${a.gridAngle}"></label></div><small data-grid-density ${resolveGridBasis(history.doc, a).angle === 0 || angledGridDisplay(history.doc, a).stride === 1 ? 'hidden' : ''}>${resolveGridBasis(history.doc, a).angle !== 0 && angledGridDisplay(history.doc, a).stride > 1 ? `Display every ${angledGridDisplay(history.doc, a).stride} lines` : ''}</small><label>Grid opacity <input type="range" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity" value="${a.gridOpacity * 100}"><input type="number" min="0" max="100" step="1" data-grid-opacity aria-label="Grid opacity percent" value="${a.gridOpacity * 100}">%</label><p>Grid snapping works even when hidden or transparent. Alt bypasses snapping.</p></section>`;
 }
 function gridOverlay() {
-  const a = guideSettings(history.doc);
+  const doc =
+    drag?.type === 'numeric' && drag.commandTarget?.payload?.key === 'gridAngle'
+      ? displayDocument()
+      : history.doc;
+  const a = guideSettings(doc);
   if (!a.gridVisible) return '';
+  if (resolveGridBasis(doc, a).angle !== 0) {
+    const layout = angledGridDisplay(doc, a);
+    return `<g data-grid-overlay data-grid-angle="${layout.basis.angle}" data-grid-stride="${layout.stride}" opacity="${gridOpacityDraft ?? a.gridOpacity}" pointer-events="none">${layout.markup}</g>`;
+  }
   const [x, y] = resolveGridOrigin(history.doc, a);
   return `<defs><pattern id="editing-grid" patternTransform="translate(${x} ${y})" width="${a.gridSize}" height="${a.gridSize}" patternUnits="userSpaceOnUse"><path d="M ${a.gridSize} 0 H 0 V ${a.gridSize}" class="editing-grid-line"/></pattern></defs><rect data-grid-overlay width="${history.doc.width}" height="${history.doc.height}" opacity="${gridOpacityDraft ?? a.gridOpacity}" fill="url(#editing-grid)" pointer-events="none"/>`;
+}
+let gridDisplayCache = null;
+let gridViewState = null;
+function angledGridDisplay(doc, settings) {
+  const view =
+    gridViewState?.sessionId === session.id &&
+    gridViewState.width === doc.width &&
+    gridViewState.height === doc.height &&
+    gridViewState.zoom === zoom &&
+    gridViewState.pan.every((v, i) => v === pan[i])
+      ? gridViewState.bounds
+      : [0, 0, doc.width, doc.height];
+  const key = JSON.stringify([
+    doc.width,
+    doc.height,
+    settings.gridSize,
+    settings.gridAnchor,
+    settings.gridAngle,
+    view,
+  ]);
+  if (gridDisplayCache?.key === key) return gridDisplayCache;
+  const layout = gridLineLayout(doc, settings, view);
+  const markup = layout.lines
+    .map(
+      (line) =>
+        `<path class="editing-grid-line" data-grid-axis="${line.axis}" data-grid-index="${line.index}" d="M ${line.segment[0].join(' ')} L ${line.segment[1].join(' ')}"/>`,
+    )
+    .join('');
+  return (gridDisplayCache = { key, ...layout, markup });
+}
+function updateAngledGridView(stage, svg) {
+  const doc = history.doc,
+    settings = guideSettings(doc);
+  if (!settings.gridVisible || resolveGridBasis(doc, settings).angle === 0) return;
+  // Called only by the existing view-update owner, never by pointermove snapping.
+  const rect = stage.getBoundingClientRect(),
+    inverse = svg.getScreenCTM()?.inverse();
+  if (!rect.width || !rect.height || !inverse) return;
+  const corners = [
+    [rect.left, rect.top],
+    [rect.right, rect.top],
+    [rect.right, rect.bottom],
+    [rect.left, rect.bottom],
+  ].map(([x, y]) => new DOMPoint(x, y).matrixTransform(inverse));
+  const bounds = [
+    Math.min(...corners.map((p) => p.x)),
+    Math.min(...corners.map((p) => p.y)),
+    Math.max(...corners.map((p) => p.x)),
+    Math.max(...corners.map((p) => p.y)),
+  ];
+  if (!bounds.every(Number.isFinite)) return;
+  gridViewState = {
+    sessionId: session.id,
+    width: doc.width,
+    height: doc.height,
+    zoom,
+    pan: [...pan],
+    bounds,
+  };
+  const layout = angledGridDisplay(doc, settings),
+    overlay = svg.querySelector('[data-grid-overlay][data-grid-angle]');
+  if (overlay && overlay.innerHTML !== layout.markup) overlay.innerHTML = layout.markup;
+  overlay?.setAttribute('data-grid-stride', layout.stride);
+  const density = app.querySelector('[data-grid-density]');
+  if (density) {
+    density.hidden = layout.stride === 1;
+    density.textContent = layout.stride > 1 ? `Display every ${layout.stride} lines` : '';
+  }
 }
 function previewGridOpacity(value) {
   gridOpacityDraft = value;
@@ -3602,11 +3680,15 @@ function guidesOverlay() {
           ? `<path class="snap-match" data-snap-kind="direction" d="${directionGuidePath(m)}" fill="none"/>`
           : m.kind === 'character-gap'
             ? `<path class="snap-match" data-snap-kind="character-gap" d="${characterGapGuidePath(m, canvasScale())}" fill="none"/>`
-            : guideLine(
-                m.axis ? 'y' : 'x',
-                m.position,
-                `class="snap-match" data-snap-kind="${m.kind}"`,
-              ),
+            : m.gridLine
+              ? m.line
+                ? `<path class="snap-match" data-snap-kind="grid" d="M ${m.line[0].join(' ')} L ${m.line[1].join(' ')}" fill="none"/>`
+                : ''
+              : guideLine(
+                  m.axis ? 'y' : 'x',
+                  m.position,
+                  `class="snap-match" data-snap-kind="${m.kind}"`,
+                ),
       )
       .join('')
   );
@@ -3658,7 +3740,7 @@ function snapped(
 ) {
   const scale = canvasScale();
   const result = snapDirectionTranslation(
-    (allowed, value, targetScale) =>
+    (allowed, value, targetScale, gridOptions) =>
       snapTranslation(
         history.doc,
         allowed,
@@ -3669,6 +3751,7 @@ function snapped(
         snapLayerBounds.guides,
         snapLayerBounds.artwork,
         drag?.type === 'character' ? drag.snapCandidates : [],
+        gridOptions,
       ),
     sources,
     delta,
@@ -3690,9 +3773,9 @@ function artworkDelta(sources, delta, event) {
     [event.clientX - drag.startClient[0], event.clientY - drag.startClient[1]],
     event.shiftKey,
   );
-  const allowed = sources.map((values, axis) =>
-    constraint.pending || (constraint.direction && !constraint.direction[axis]) ? [] : values,
-  );
+  // The direction adapter filters forbidden world axes. Retain paired source
+  // coordinates here so a rotated grid can intersect that constrained ray.
+  const allowed = constraint.pending ? sources.map(() => []) : sources;
   const movement = constraint.pending ? [0, 0] : constraint.delta.map((v, i) => v - offset[i]);
   return snapped(allowed, movement, event, null, constraint.direction);
 }
@@ -4533,6 +4616,7 @@ function fitCanvas() {
   // Compare CSSOM-normalized values so float serialization cannot turn a pan into a redraw.
   const scaleChanged = svg.style.width !== oldWidth || svg.style.height !== oldHeight;
   svg.style.transform = `translate(${pan[0]}px,${pan[1]}px)`;
+  updateAngledGridView(stage, svg);
   sizePositionHandle();
   positionCharacterFloating();
   positionCanvasTextEditor();
@@ -8730,14 +8814,13 @@ app.addEventListener('change', async (e) => {
     if (d.guideSetting)
       editGuides('set-guide-setting', {
         key: d.guideSetting,
-        value:
-          d.guideSetting === 'gridSize'
-            ? el.value.trim()
-              ? Number(el.value)
-              : NaN
-            : d.guideSetting === 'gridAnchor'
-              ? el.value
-              : el.checked,
+        value: ['gridSize', 'gridAngle'].includes(d.guideSetting)
+          ? el.value.trim()
+            ? Number(el.value)
+            : NaN
+          : d.guideSetting === 'gridAnchor'
+            ? el.value
+            : el.checked,
       });
     else
       editGuides('set-guide', {
