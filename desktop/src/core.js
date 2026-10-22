@@ -18,7 +18,12 @@ import {
   MAX_ACTIVE_KEYERS,
 } from './image-keyer.js';
 import { MAX_ACTIVE_IMAGE_DITHERS } from './image-dither.js';
-import { maskAppearance } from './appearance-mask.js';
+import {
+  maskAppearance,
+  maskFeather,
+  featherMaskSVG,
+  MASK_FEATHER_SCHEMA_VERSION,
+} from './appearance-mask.js';
 import { layerIsVisible } from './layer-visibility.js';
 import {
   validateCompositionReference,
@@ -1297,6 +1302,8 @@ export function parameters(n) {
       : n.type === 'Boolean'
         ? booleanInputKeys(n).map((key) => [key, n.params[key]])
         : Object.entries(n.params);
+  if (n.type === 'Mask' && !Object.hasOwn(n.params, 'feather'))
+    entries.push(['feather', p('Scalar', 0)]);
   for (const pt of n.points)
     for (const key of ['position', 'handleA', 'handleB'])
       entries.push([`${pt.id}.${key}`, pt[key]]);
@@ -2860,6 +2867,7 @@ export function evaluate(
         if (!source || !shape) throw Error('Connect appearance and closed shape to Mask');
         result = maskAppearance(source, shape, {
           invert: read('invert'),
+          feather: read('feather'),
           prefix: n.id,
           bounds: pathBounds(source),
         });
@@ -4319,6 +4327,8 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     key === booleanPendingInputKey &&
     !to.booleanInputOrder &&
     !Object.hasOwn(to.params, key);
+  const virtualMaskFeather =
+    to?.type === 'Mask' && key === 'feather' && !Object.hasOwn(to.params, key);
   if (!from || !q) throw Error('Missing socket');
   if (validating && pendingBooleanInput) throw Error('Invalid Boolean input order');
   if (q.locked && !validating) throw Error('Parameter is locked');
@@ -4356,6 +4366,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
     n.paintMode,
     Object.entries(n.params).map(([key, q]) => [key, q.type]),
   ]);
+  if (virtualMaskFeather) to.params[key] = q;
   if (pendingBooleanInput) {
     to.booleanInputOrder = ['a', 'b', key];
     to.params[key] = q;
@@ -4378,6 +4389,7 @@ export function connect(layer, sourceId, targetId, key, validating = false, sour
       delete to.params[key];
       delete to.booleanInputOrder;
     }
+    if (virtualMaskFeather) delete to.params[key];
     if (old) q.source = old;
     else delete q.source;
     if (oldPort !== undefined) q.sourcePort = oldPort;
@@ -4497,7 +4509,8 @@ export function validate(doc) {
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_EXPRESSION_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_OPERATIONS_SCHEMA_VERSION &&
-      doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION)
+      doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION &&
+      doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4839,12 +4852,20 @@ export function validate(doc) {
       const extraTransform = isTransform(n)
         ? Object.keys(n.params).filter((key) => Object.hasOwn(transformExtensions, key))
         : [];
+      const extraMaskFeather = n.type === 'Mask' && Object.hasOwn(n.params, 'feather');
+      if (extraMaskFeather) {
+        if (sourceSchemaVersion < MASK_FEATHER_SCHEMA_VERSION)
+          throw Error('Mask Feather requires schemaVersion 50');
+        param(n.params.feather, 'Scalar');
+        maskFeather(n.params.feather.value);
+      }
       if ((extraTransform.length || n.type === 'Vector Transform') && sourceSchemaVersion < 11)
         throw Error('Extended Transform requires schemaVersion 11');
       if (
         Object.keys(n.params).length !==
         Object.keys(definitions[n.type]).length +
           extraTransform.length +
+          (extraMaskFeather ? 1 : 0) +
           (n.type === 'Join Geometry' ? n.joinInputOrder.length - 2 : 0) +
           (n.type === 'Boolean' && n.booleanInputOrder ? n.booleanInputOrder.length - 2 : 0)
       )
@@ -5220,9 +5241,12 @@ export function renderElement(
       .join('');
     const mask = value.mask;
     const id = `${gradientId}-mask`;
-    const definition = mask
-      ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
-      : '';
+    const definition =
+      mask?.feather > 0
+        ? featherMaskSVG(mask, id, pathData(mask.shape, precision), precision)
+        : mask
+          ? `<defs><mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" style="mask-type:luminance" color-interpolation="sRGB">${mask.invert ? `<rect x="${formatSvgNumber(mask.region[0], precision)}" y="${formatSvgNumber(mask.region[1], precision)}" width="${formatSvgExtent(mask.region[2], precision)}" height="${formatSvgExtent(mask.region[3], precision)}" fill="white"/>` : ''}<path d="${escape(pathData(mask.shape, precision))}" fill="${mask.invert ? 'black' : 'white'}" fill-rule="nonzero"/></mask></defs>`
+          : '';
     // The mask and its source share the group's local coordinates. A later
     // appearance transform moves both, preserving nested masks and source alpha.
     const matrix = value.matrix.map((number) => formatSvgNumber(number, precision));
@@ -7427,6 +7451,21 @@ export class CommandSession {
     if (!target) throw Error('Missing composition');
     if (target.locked) throw Error('Composition is locked');
     const transformNode = target.nodes.find((n) => n.id === payload.nodeId);
+    if (
+      transformNode?.type === 'Mask' &&
+      payload.key === 'feather' &&
+      !Object.hasOwn(transformNode.params, 'feather')
+    ) {
+      const virtual = p('Scalar', 0);
+      if (
+        (['set-parameter', 'set-parameter-base'].includes(type) && payload.value === 0) ||
+        (type === 'set-parameter-lock' && payload.locked === false) ||
+        (type === 'set-parameter-expression' && payload.expression === '') ||
+        type === 'disconnect'
+      )
+        return { candidate, result: {} };
+      transformNode.params.feather = virtual;
+    }
     if (transformNode?.characterArrangement) {
       const check = evaluate(
         { ...target, output: transformNode.id },
@@ -8302,7 +8341,29 @@ export class CommandSession {
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, REPEATER_STROKE_SCHEMA_VERSION);
+    if (
+      candidate.layers.some((layer) =>
+        layer.nodes.some((n) => n.type === 'Mask' && Object.hasOwn(n.params, 'feather')),
+      )
+    )
+      candidate.schemaVersion = Math.max(candidate.schemaVersion, MASK_FEATHER_SCHEMA_VERSION);
     validate(candidate);
+    const featherMasks = target.nodes.filter(
+      (n) => n.type === 'Mask' && Object.hasOwn(n.params, 'feather'),
+    );
+    if (featherMasks.length) {
+      const evaluation = evaluate(
+        target,
+        resolveFonts(candidate, this.#fonts()),
+        candidate.imageAssets,
+        candidate,
+      );
+      for (const mask of featherMasks) {
+        const feather = maskFeather(evaluation.parameterValue(mask.id, 'feather'));
+        if (feather > 0 && !mask.bypassed && mask.params.path.source && mask.params.mask.source)
+          evaluation.run(mask.id);
+      }
+    }
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
       serialize(candidate);
     if (type === 'set-parameter-base')

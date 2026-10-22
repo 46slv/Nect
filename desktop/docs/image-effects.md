@@ -1,4 +1,4 @@
-# Image Keyer and shape Mask (schema35)
+# Image Keyer and shape Mask
 
 Add **Keyer** after an Image. Set **Key color**, **Range** and **Softness**.
 The key compares normalized Euclidean RGB distance in sRGB. Range removes
@@ -21,7 +21,11 @@ closed Path from Ellipse, Rectangle or another shape to **Shape**. Edit that
 shape's position/size normally. **Invert** cuts out its interior. Source
 paint, stroke order and alpha are retained. Open shapes are refused. The mask
 uses the Path's nonzero winding rule and ignores its paint. Limits are256
-contours and10000 points; feather is not included.
+contours and10000 points. **Feather σ (document units)** softens only the mask
+alpha, with Gaussian standard deviation from 0 to 256 at the Mask input.
+Zero keeps the original sharp mask and SVG. Invert complements the same
+softened alpha. Later appearance transforms scale the source and mask together.
+See [Mask feather](mask-feather.md) for bounds, transforms and schema50.
 
 Mask returns **PaintedPath**. Click its **Use as output** to connect it. In an
 Image Output composition, this explicit action changes that Output to regular
