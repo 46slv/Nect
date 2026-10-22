@@ -24,6 +24,8 @@ stale selections reject as a whole. One changed operation is one Undo; no-op
 preserves dirty/history/Redo. Input/change alone stages a transient value;
 only explicit apply buttons commit. Escape discards the staged value. No new
 shortcut, generic expressions, multisource or panel redesign.
+Successful apply retains the interval in both panel copies so repeating the
+same operation can be a no-op; the refreshed identity token still guards it.
 
 Focused acceptance: two/many points, ties, zero/fractional/invalid intervals,
 transforms, preserved geometry/identity, Undo/Redo/no-op and stale/guard rejection.

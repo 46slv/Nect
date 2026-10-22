@@ -149,7 +149,7 @@ test('numeric anchor spacing controls use stable snapshots and atomic Session co
       assert.equal(after.file.dirty, true);
       assert.deepEqual(ui().points, selection.points);
       assert.deepEqual(ui().focus, selection.focus);
-      stage('12.5');
+      assert.equal(input().value, '12.5');
       const noop = snapshot();
       act('x');
       assert.deepEqual(snapshot(), noop);

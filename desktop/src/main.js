@@ -2279,7 +2279,7 @@ function alignSelectedPoints(nodeId, token, action, type = 'align-points', spaci
     const scope = pointScopeIdentity(pointPanelSource(n), {});
     if (!samePointScope(record.scope, scope)) throw Error(`${label} cancelled: source changed`);
     cancelPointDelta();
-    commandChange(
+    const result = commandChange(
       type,
       {
         layerId: record.layerId,
@@ -2304,6 +2304,15 @@ function alignSelectedPoints(nodeId, token, action, type = 'align-points', spaci
       false,
       record.envelope,
     );
+    if (result && type === 'space-points') {
+      const input = [...document.querySelectorAll('[data-point-spacing]')].find(
+        (el) => el.dataset.pointSpacing === nodeId,
+      );
+      if (input) {
+        input.value = spacingValue;
+        stagePointSpacing(input);
+      }
+    }
   } catch (error) {
     notify(error.message, true);
   }
