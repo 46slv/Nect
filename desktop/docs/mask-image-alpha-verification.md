@@ -41,3 +41,13 @@ Not verified: native GUI for this feature, physical input, OS Open/Save/PNG
 dialogs and normal OS cold reopen. Arbitrary pre-Mask Image Transform routes
 remain outside current Image graph support; Image Position/Size and later
 appearance transforms are covered. No main merge, release or Library upload.
+
+## Native runtime follow-up
+
+The same EXE subsequently passed five dedicated native Tauri/WebView2 states,
+including Canvas-versus-SVG full RGBA, Image/Keyer alpha, Feather/Invert,
+Undo/Redo, document placement/appearance transform and JSON project reload.
+The dedicated process exited through one `finish_close` request after CLI saving
+the fixture; parent/browser PIDs and CDP listener were absent. See
+[native runtime acceptance](mask-native-runtime-verification.md). Physical/OS
+input, native file dialogs and normal Save/close/cold-reopen remain unverified.
