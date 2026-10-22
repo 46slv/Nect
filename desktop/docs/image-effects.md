@@ -10,8 +10,11 @@ The original embedded PNG is retained. Bypass restores the input image.
 Keyer accepts supported 8-bit, noninterlaced RGB/RGBA PNGs up to4 megapixels;
 the existing image import limit remains16 megapixels. The document and an
 effect chain allow at most8 active Keyers. Unsupported input returns an error.
-There is no AI subject extraction, spill removal, video or dedicated image
-texel eyedropper in this checkpoint.
+Key color's **Pick from input** opens a temporary preview of the input immediately
+before this Keyer. It picks a visible texel's straight RGB, including earlier
+image effects; transparent and outside pixels are not adopted. Driven fields use
+**Pick base from input**. See the [editable production example](keyer-mask-example.md).
+AI subject extraction, spill removal and video are not included.
 
 Add **Mask** after an Image, Keyer or **Composition Reference**. Connect a
 closed Path from Ellipse, Rectangle or another shape to **Shape**. Edit that
