@@ -46,6 +46,7 @@ import './style.css';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
+import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -1373,7 +1374,13 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   }
   const beforeDocument = history.doc,
     oldPast = history.past.at(-1),
-    pointUI = ['translate-points', 'align-points', 'delete-point', 'set-point-mode'].includes(type)
+    pointUI = [
+      'translate-points',
+      'align-points',
+      'distribute-points',
+      'delete-point',
+      'set-point-mode',
+    ].includes(type)
       ? selectionSnapshot(true)
       : null;
   let result = null;
@@ -2201,7 +2208,20 @@ function pointAlignmentFields(n) {
   }
   return `<div class="batch-edit" data-point-align-panel="${n.id}" role="group" aria-label="Align anchors in artboard coordinates"><p>Align anchors · Artboard</p><div class="point-panel-pages">${anchorAlignments.map(([action, label]) => `<button class="mini" data-point-align="${action}" data-point-align-node="${n.id}" data-point-align-token="${record?.token || ''}" ${reason ? 'disabled' : ''} title="${esc(reason || label + ' · Artboard coordinates')}" aria-label="Align anchors ${label}">${label}</button>`).join('')}</div>${reason ? `<output data-point-align-status>${esc(reason)}</output>` : ''}</div>`;
 }
-function alignSelectedPoints(nodeId, token, action) {
+function pointSpacingFields(n) {
+  const ids = selectedPointIds(n);
+  if (!ids.length) return '';
+  const record = pointAlignmentActions.get(n.id),
+    reason =
+      ids.length < 3
+        ? 'Select at least 3 anchors'
+        : record
+          ? ''
+          : 'Select editable, unlocked anchors';
+  return `<div class="batch-edit" data-point-distribute-panel="${n.id}" role="group" aria-label="Evenly space anchors in artboard coordinates"><p>Even spacing · Artboard</p><div class="point-panel-pages">${anchorDistributions.map(([action, label]) => `<button class="mini" data-point-distribute="${action}" data-point-align-node="${n.id}" data-point-align-token="${record?.token || ''}" ${reason ? 'disabled' : ''} title="${esc(reason || label + ' · Fixed endpoints')}" aria-label="Evenly space anchors ${label.toLowerCase()}">${label}</button>`).join('')}</div></div>`;
+}
+function alignSelectedPoints(nodeId, token, action, type = 'align-points') {
+  const label = type === 'distribute-points' ? 'Point spacing' : 'Point alignment';
   try {
     const record = pointAlignmentActions.get(nodeId),
       n = selectedNode(),
@@ -2221,7 +2241,7 @@ function alignSelectedPoints(nodeId, token, action) {
       record.envelope.expectedRevision !== envelope.expectedRevision ||
       JSON.stringify(record.pointIds) !== JSON.stringify(selectedPointIds(n))
     )
-      throw Error('Point alignment cancelled: selection or revision changed');
+      throw Error(`${label} cancelled: selection or revision changed`);
     if (
       navigationBusy() ||
       composing ||
@@ -2231,11 +2251,10 @@ function alignSelectedPoints(nodeId, token, action) {
     )
       throw Error('Finish the current edit before aligning anchors');
     const scope = pointScopeIdentity(pointPanelSource(n), {});
-    if (!samePointScope(record.scope, scope))
-      throw Error('Point alignment cancelled: source changed');
+    if (!samePointScope(record.scope, scope)) throw Error(`${label} cancelled: source changed`);
     cancelPointDelta();
     commandChange(
-      'align-points',
+      type,
       {
         layerId: record.layerId,
         nodeId,
@@ -2243,7 +2262,7 @@ function alignSelectedPoints(nodeId, token, action) {
         action,
         sourceKey: record.sourceKey,
       },
-      'Aligned selected anchors',
+      type === 'distribute-points' ? 'Evenly spaced selected anchors' : 'Aligned selected anchors',
       false,
       record.envelope,
     );
@@ -2515,7 +2534,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${pointAlignmentFields(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${pointAlignmentFields(n)}${pointSpacingFields(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -6370,6 +6389,18 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.pointDistribute) {
+    if (!b.disabled) {
+      b.blur();
+      alignSelectedPoints(
+        d.pointAlignNode,
+        d.pointAlignToken,
+        d.pointDistribute,
+        'distribute-points',
+      );
+    }
+    return;
+  }
   if (d.pointAlign) {
     if (!b.disabled) {
       b.blur();
