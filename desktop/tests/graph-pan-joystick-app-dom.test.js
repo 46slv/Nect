@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import { penMenuMutationObserver } from './helpers/pen-menu-mutation-observer.js';
 import { document as makeDoc, node, serialize } from '../src/core.js';
 
 test('shipped joystick preserves exact document/history and isolates editing through real event paths', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   t.after(() => win.happyDOM.abort());
+  // Retain Happy DOM's weak delivery callbacks just as the Pen/menu fixture does.
+  // Keep the real production observer responsible for building the menu.
+  win.MutationObserver = penMenuMutationObserver(win.MutationObserver);
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
     globalThis[key] = win[key];
@@ -222,7 +226,13 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   input.blur();
   // Native command menu and a document-capture context menu cannot be
   // dismissed first and then accidentally grant joystick movement.
+  await win.happyDOM.waitUntilComplete();
   const menu = $('.command-menu');
+  assert.ok(menu, 'The production observer builds menus before the joystick guard scenario');
+  assert.deepEqual(
+    [...document.querySelectorAll('.command-menu > summary')].map((summary) => summary.textContent),
+    ['Project', 'Import', 'Export'],
+  );
   menu.open = true;
   fire(element, 'pointerdown', 620, 240);
   assert.equal(win.joystickActive(), false);

@@ -5,7 +5,7 @@ import { PropertySymbol } from 'happy-dom';
  * stores its delivery callback only in a WeakRef, so GC during font loading or
  * a structural render can silently stop the real command-menu observer.
  * Retain those callbacks while observed, without replacing mutation delivery.
- * This workaround is confined to the Pen/menu test window.
+ * This workaround is confined to synthetic menu-test windows.
  */
 export function penMenuMutationObserver(NativeMutationObserver) {
   return class extends NativeMutationObserver {

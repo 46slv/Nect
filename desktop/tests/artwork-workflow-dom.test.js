@@ -296,6 +296,43 @@ test('Artwork creation and placement use independent layers and explicit, safe e
     },
   );
   await t.test(
+    'Canvas focus is required for direct and transformed artwork keyboard nudges',
+    () => {
+      for (const transform of [false, true]) {
+        const { d, ids } = fixture({ transform });
+        load(d);
+        click(`[data-select-layer="${ids.layerId}"]`);
+        const control = $(`[data-select-layer="${ids.layerId}"]`),
+          before = saved(),
+          origin = [...position(ids)];
+        control.focus();
+        assert.equal(document.activeElement, control);
+        assert.equal(key(document.activeElement, 'ArrowRight'), false);
+        assert.equal(key(document.activeElement, 'ArrowDown', { shiftKey: true }), false);
+        assert.equal(saved(), before, 'Layer-control arrows cannot silently nudge artwork');
+        assert.equal(ui().past, 0);
+        stage().focus();
+        assert.equal(document.activeElement, stage());
+        assert.equal(saved(), before, 'Focusing the Canvas is not an authored edit');
+        assert.equal(key(document.activeElement, 'ArrowRight'), true);
+        assert.deepEqual(
+          position(ids),
+          origin.map((value, axis) => value + [1, 0][axis]),
+        );
+        assert.equal(document.activeElement, stage(), 'A nudge keeps keyboard ownership on Canvas');
+        assert.equal(key(document.activeElement, 'ArrowDown', { shiftKey: true }), true);
+        assert.deepEqual(
+          position(ids),
+          origin.map((value, axis) => value + [1, 10][axis]),
+        );
+        assert.equal(ui().past, 2);
+        click('[data-action="undo"]');
+        click('[data-action="undo"]');
+        assert.equal(saved(), before);
+      }
+    },
+  );
+  await t.test(
     'canvas artwork hit moves its complete terminal Transform rather than unrelated Null or seed',
     () => {
       const { d, ids } = fixture({ transform: true });

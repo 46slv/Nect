@@ -199,6 +199,7 @@ try {
     await page.locator('[data-action="undo"]').click();
     assert.equal(await saved(), before);
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
+    await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Shift+ArrowDown');
     near(
@@ -226,6 +227,7 @@ try {
   // Capture ordinary final-artwork selection separately from the intentional handle-overlap fixture.
   const practical = await loadFixture();
   await page.locator(`[data-select-layer="${practical.first.layerId}"]`).click();
+  await page.locator('.canvas-stage').focus();
   await page.keyboard.press('ArrowRight');
   await page.locator('[data-action="undo"]').click();
   for (const viewport of [
@@ -247,6 +249,7 @@ try {
       await page.locator('.artwork-move-status').innerText(),
       /supported|Unlock|connected|connections/,
     );
+    await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
     await drag([200, 200], [30, 20]);
     assert.equal(await saved(), before, kind);
