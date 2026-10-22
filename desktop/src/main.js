@@ -45,6 +45,7 @@ import { selectedPointBounds } from './selected-point-bounds.js';
 import './style.css';
 import { artworkMarqueeIds } from './canvas-artwork-marquee.js';
 import { anchorMarqueeIds } from './direct-anchor-marquee.js';
+import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { ensureCommandMenus } from './command-menus.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
@@ -1372,7 +1373,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   }
   const beforeDocument = history.doc,
     oldPast = history.past.at(-1),
-    pointUI = ['translate-points', 'delete-point', 'set-point-mode'].includes(type)
+    pointUI = ['translate-points', 'align-points', 'delete-point', 'set-point-mode'].includes(type)
       ? selectionSnapshot(true)
       : null;
   let result = null;
@@ -1395,6 +1396,7 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   return result;
 }
 function resetTransient() {
+  pointAlignmentActions.clear();
   osTextDrafts.clear();
   gridOpacityDraft = null;
   closeNodeContextMenu();
@@ -2119,6 +2121,7 @@ const nodeGroupView = {
 };
 let renderNodeGroups = new Map();
 const pointScopeActions = new Map();
+const pointAlignmentActions = new Map();
 let pointScopeSerial = 0;
 const POINT_PANEL_PAGE_SIZE = 24;
 let pointDeltaDraft = null;
@@ -2152,6 +2155,101 @@ function pointDeltaMatches(nodeId, ids) {
     return false;
   const captured = new Set(pointDeltaDraft.pointIds);
   return ids.every((id) => captured.has(id));
+}
+function pointAlignmentFields(n) {
+  const ids = selectedPointIds(n);
+  if (!ids.length) return '';
+  let context,
+    scope,
+    reason = '';
+  try {
+    if (selected !== n.id || selection.size !== 1 || !selection.has(n.id) || artworkTarget)
+      throw Error('Select one source path');
+    scope = pointScopeIdentity(pointPanelSource(n), {});
+    context = pointAlignmentContext(history.doc, current().id, n.id, ids, {
+      fonts: resolveFonts(history.doc, activeFonts()),
+    });
+  } catch (error) {
+    reason = error.message;
+  }
+  let record = pointAlignmentActions.get(n.id);
+  const envelope = session.state;
+  if (reason) pointAlignmentActions.delete(n.id);
+  else if (
+    !record ||
+    record.envelope.sessionId !== envelope.sessionId ||
+    record.envelope.expectedRevision !== envelope.expectedRevision ||
+    record.layerId !== current().id ||
+    record.compositionId !== session.activeCompositionId ||
+    record.epoch !== sourceEpoch ||
+    record.sourceKey !== context.sourceKey ||
+    !samePointScope(record.scope, scope) ||
+    JSON.stringify(record.pointIds) !== JSON.stringify(ids)
+  ) {
+    record = {
+      envelope,
+      layerId: current().id,
+      nodeId: n.id,
+      compositionId: session.activeCompositionId,
+      epoch: sourceEpoch,
+      scope,
+      sourceKey: context.sourceKey,
+      pointIds: ids,
+      token: String(++pointScopeSerial),
+    };
+    pointAlignmentActions.set(n.id, record);
+  }
+  return `<div class="batch-edit" data-point-align-panel="${n.id}" role="group" aria-label="Align anchors in artboard coordinates"><p>Align anchors · Artboard</p><div class="point-panel-pages">${anchorAlignments.map(([action, label]) => `<button class="mini" data-point-align="${action}" data-point-align-node="${n.id}" data-point-align-token="${record?.token || ''}" ${reason ? 'disabled' : ''} title="${esc(reason || label + ' · Artboard coordinates')}" aria-label="Align anchors ${label}">${label}</button>`).join('')}</div>${reason ? `<output data-point-align-status>${esc(reason)}</output>` : ''}</div>`;
+}
+function alignSelectedPoints(nodeId, token, action) {
+  try {
+    const record = pointAlignmentActions.get(nodeId),
+      n = selectedNode(),
+      envelope = session.state;
+    if (
+      !record ||
+      record.token !== token ||
+      n?.id !== nodeId ||
+      selected !== nodeId ||
+      selection.size !== 1 ||
+      !selection.has(nodeId) ||
+      artworkTarget ||
+      record.layerId !== current().id ||
+      record.compositionId !== session.activeCompositionId ||
+      record.epoch !== sourceEpoch ||
+      record.envelope.sessionId !== envelope.sessionId ||
+      record.envelope.expectedRevision !== envelope.expectedRevision ||
+      JSON.stringify(record.pointIds) !== JSON.stringify(selectedPointIds(n))
+    )
+      throw Error('Point alignment cancelled: selection or revision changed');
+    if (
+      navigationBusy() ||
+      composing ||
+      penDraft ||
+      session.hasGesture ||
+      session.hasTextComposition
+    )
+      throw Error('Finish the current edit before aligning anchors');
+    const scope = pointScopeIdentity(pointPanelSource(n), {});
+    if (!samePointScope(record.scope, scope))
+      throw Error('Point alignment cancelled: source changed');
+    cancelPointDelta();
+    commandChange(
+      'align-points',
+      {
+        layerId: record.layerId,
+        nodeId,
+        pointIds: record.pointIds,
+        action,
+        sourceKey: record.sourceKey,
+      },
+      'Aligned selected anchors',
+      false,
+      record.envelope,
+    );
+  } catch (error) {
+    notify(error.message, true);
+  }
 }
 function ownedPointDeltaFields(n) {
   const ids = selectedPointIds(n);
@@ -2417,7 +2515,7 @@ function pointPanel(n, entries, renderRows, source = pointPanelSource(n)) {
     : view.unitId
       ? 'Browse unit points'
       : 'Browse all points';
-  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
+  return `<div class="point-panel" data-point-panel="${n.id}"><p class="point-panel-summary">${view.unitId || view.contourId ? `${scoped.entries.length} / ` : ''}${entries.length} points · ${chosenTotal} Canvas selected${chosen.length !== chosenTotal ? ` · ${chosen.length} selected in list` : ''}</p>${pointBoundsSummary(n)}${pointAlignmentFields(n)}${ownedPointDeltaFields(n)}${scopeControls}${pointScopeControls(n, source, view)}${!chosenTotal && !view.all ? '<p class="point-panel-hint">Select points on the Canvas to edit their values. Shift-click adds or removes points.</p>' : ''}<button class="mini" data-point-panel-mode="${n.id}">${view.all ? 'Show selected points' : browseLabel}</button>${candidates.length > POINT_PANEL_PAGE_SIZE ? `<div class="point-panel-pages"><button class="mini" data-point-panel-page="${n.id}" data-page="${page - 1}" ${page === 0 ? 'disabled' : ''}>Previous</button><span>Page ${page + 1} / ${pages}</span><button class="mini" data-point-panel-page="${n.id}" data-page="${page + 1}" ${page === pages - 1 ? 'disabled' : ''}>Next</button></div>` : ''}<div class="point-panel-rows">${renderRows(rows)}</div></div>`;
 }
 function ownedHandlePolarFields(n, pt, key, index) {
   const q = pt[key];
@@ -6272,6 +6370,13 @@ app.addEventListener('click', async (e) => {
   let b = e.target.closest('button');
   if (!b) return;
   const d = b.dataset;
+  if (d.pointAlign) {
+    if (!b.disabled) {
+      b.blur();
+      alignSelectedPoints(d.pointAlignNode, d.pointAlignToken, d.pointAlign);
+    }
+    return;
+  }
   if (d.nodeGroupAction) {
     if (!b.disabled) nodeGroupAction(b);
     return;
