@@ -27,7 +27,7 @@ export function keyerPickFixture() {
   };
   image.asset = 'image-pick';
   image.params.position.value = [20, 30];
-  image.params.size.value = [280, 120];
+  image.params.size.value = [284, 118];
   first.params.tolerance.value = 0;
   first.params.softness.value = 0;
   keyer.params.keyColor.value = { hex: '#ff00ff', alpha: 1 };

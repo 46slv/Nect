@@ -8,6 +8,8 @@ import {
 } from '../src/keyer-input-pick.js';
 import { keyerPreviewPoint } from '../src/keyer-input-picker.js';
 import { keyerPickFixture } from './fixtures/keyer-input-pick.js';
+import { encodeRgbaPng } from '../src/image-keyer.js';
+import { encodeImage } from '../src/images.js';
 
 test('input is immediately before selected Keyer, with earlier effects, straight RGB and immutable assets', () => {
   const f = keyerPickFixture(),
@@ -124,10 +126,10 @@ test('target/input/image replacement and locks reject before a common command ca
     assert.equal(JSON.stringify(f.doc), before);
   }
 });
-test('unsupported source and excessive decoding are rejected; placed image size does not alter intrinsic samples', () => {
+test('unsupported source is rejected; placed image size does not alter intrinsic samples', () => {
   const f = keyerPickFixture(),
     ctx = keyerInputPickContext(f.doc, f.layer.id, f.keyer.id);
-  assert.equal(ctx.input.size[0], 280);
+  assert.equal(ctx.input.size[0], 284);
   assert.equal(ctx.asset.width, 4);
   f.image.params.position.value = [-200, 300];
   f.image.params.size.value = [10, 500];
@@ -140,6 +142,18 @@ test('unsupported source and excessive decoding are rejected; placed image size 
   f.layer.nodes.push(node('Composition Reference'));
   f.keyer.params.path.source = f.layer.nodes.at(-1).id;
   assert.throws(() => keyerInputPickContext(f.doc, f.layer.id, f.keyer.id));
+});
+
+test('a valid same-dimension image reload invalidates captured pixels without touching the replacement', () => {
+  const f = keyerPickFixture(),
+    ctx = keyerInputPickContext(f.doc, f.layer.id, f.keyer.id);
+  f.doc.imageAssets['image-pick'] = {
+    ...f.doc.imageAssets['image-pick'],
+    data: encodeImage(encodeRgbaPng(4, 2, new Uint8Array(32).fill(255))),
+  };
+  const before = serialize(f.doc);
+  assert.throws(() => planKeyerInputPick(f.doc, ctx, [1, 0]), /input changed/);
+  assert.equal(serialize(f.doc), before);
 });
 test('preview screen CTM inverse supports rotated/nonuniform placement; singular/unavailable mappings reject', () => {
   const old = globalThis.DOMPoint;

@@ -21,7 +21,7 @@ export function openKeyerInputPicker({ context, title, isCurrent, onPick, onClos
     '<header><strong></strong><button data-keyer-pick-cancel>Cancel</button></header><p data-keyer-input-identity></p><svg data-keyer-input-preview tabindex="0" role="img" aria-label="Keyer input pixels" preserveAspectRatio="xMidYMid meet"><image x="0" y="0" preserveAspectRatio="none"/></svg><output aria-live="polite">Click a visible input pixel</output>';
   dialog.querySelector('strong').textContent = title;
   dialog.querySelector('[data-keyer-input-identity]').textContent =
-    `${context.node.name} · ${context.asset.name} · ${context.asset.width} × ${context.asset.height} input pixels`;
+    `Input: ${context.inputNode.name} [${context.inputNode.id.slice(-6)}] → ${context.node.name} [${context.node.id.slice(-6)}] · ${context.asset.name} · ${context.asset.width} × ${context.asset.height} input pixels`;
   const svg = dialog.querySelector('svg'),
     image = svg.querySelector('image'),
     status = dialog.querySelector('output');

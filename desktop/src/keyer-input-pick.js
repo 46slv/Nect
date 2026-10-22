@@ -18,6 +18,7 @@ function resolveInput(doc, layerId, nodeId, options) {
     original = doc.imageAssets[input.asset];
   return {
     node,
+    inputNode: layer.nodes.find((n) => n.id === node.params.path.source),
     color,
     input,
     asset,

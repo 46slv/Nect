@@ -41,7 +41,13 @@ try {
   await $('[data-action="graph-fit"]').click();
   await $(`.graph .node[data-id="${f.keyer.id}"] .node-head strong`).click();
   await $('#png-export-mode').selectOption('scale');
+  const exportMenu = () =>
+    page
+      .locator('header details.command-menu')
+      .filter({ has: page.locator('[data-action="export-png"]') });
+  await exportMenu().locator('summary').click();
   await $('#png-scale').selectOption('1');
+  await exportMenu().locator('summary').click();
   // The actual export button/rasterizer runs. Only native Save PNG is a test double;
   // return false (cancel), save captured bytes through the CLI and restore the bridge.
   await page.evaluate(() => {
@@ -59,11 +65,15 @@ try {
     };
   });
   const exportPNG = async (name) => {
+      if (!(await exportMenu().evaluate((menu) => menu.open)))
+        await exportMenu().locator('summary').click();
       const count = await page.evaluate(() => window.keyerPNG.length);
       await $('[data-action="export-png"]').click();
       await page.waitForFunction((n) => window.keyerPNG.length > n, count);
       const bytes = Buffer.from(await page.evaluate(() => window.keyerPNG.at(-1)));
       await fs.writeFile(path.join(output, name), bytes, { flag: 'wx' });
+      if (await exportMenu().evaluate((menu) => menu.open))
+        await exportMenu().locator('summary').click();
       return bytes;
     },
     pixels = async (input) =>
@@ -84,7 +94,7 @@ try {
   const before = await state(),
     beforePNG = await exportPNG('before.png'),
     beforeRGBA = await pngPixels(beforePNG);
-  assert.deepEqual(pixel(beforeRGBA, 125, 60), [12, 34, 56, 128]);
+  assert.deepEqual(pixel(beforeRGBA, 126, 59), [12, 34, 56, 128]);
   assert.deepEqual(await state(), before);
   await $('.inspector-body [data-keyer-pick]').click();
   await $('[data-keyer-input-picker]').waitFor();
@@ -115,8 +125,8 @@ try {
   const afterPNG = await exportPNG('picked.png'),
     afterRGBA = await pngPixels(afterPNG),
     afterSVG = await svgPixels(after.svg);
-  assert.deepEqual(pixel(afterRGBA, 125, 60), [0, 0, 0, 0]);
-  assert.deepEqual(pixel(afterRGBA, 265, 60), [255, 0, 0, 255]);
+  assert.deepEqual(pixel(afterRGBA, 126, 59), [0, 0, 0, 0]);
+  assert.deepEqual(pixel(afterRGBA, 268, 59), [255, 0, 0, 255]);
   assert.deepEqual(afterRGBA, afterSVG);
   await page.screenshot({ path: path.join(output, 'picked-canvas.png') });
   await $('[data-action="undo"]').click();
@@ -142,7 +152,7 @@ try {
   assert.deepEqual(errors, []);
   const receipt = {
     Input: 'Native Tauri/WebView2 CDP synthetic',
-    Source: '4x2 synthetic PNG; two Keyers; Image position[20,30], nonuniform size[280,120]',
+    Source: '4x2 synthetic PNG; two Keyers; Image position[20,30], nonuniform size[284,118]',
     Picked: { Pixel: [1, 0], RGB: '#0c2238', OriginalAlpha: 128, KeyedAlpha: 0 },
     UpstreamTransparentRejected: true,
     StartHoverDocumentNeutral: true,
