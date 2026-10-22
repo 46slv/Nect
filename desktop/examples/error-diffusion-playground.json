@@ -15,28 +15,19 @@
           "id": "error-diffusion-0:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                408,
-                156
-              ],
+              "value": [408, 156],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                816,
-                312
-              ],
+              "value": [816, 312],
               "expression": "",
               "locked": false
             }
@@ -52,10 +43,7 @@
           "id": "error-diffusion-0:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -87,10 +75,7 @@
           "id": "error-diffusion-0:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -123,19 +108,13 @@
           "id": "error-diffusion-1:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                40
-              ],
+              "value": [32, 40],
               "expression": "",
               "locked": false
             },
@@ -174,10 +153,7 @@
           "id": "error-diffusion-1:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -209,10 +185,7 @@
           "id": "error-diffusion-1:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -245,19 +218,13 @@
           "id": "error-diffusion-2:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                66
-              ],
+              "value": [32, 66],
               "expression": "",
               "locked": false
             },
@@ -296,10 +263,7 @@
           "id": "error-diffusion-2:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -331,10 +295,7 @@
           "id": "error-diffusion-2:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -367,28 +328,19 @@
           "id": "error-diffusion-3:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                128,
-                184
-              ],
+              "value": [128, 184],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -404,10 +356,7 @@
           "id": "error-diffusion-3:n1",
           "type": "Linear Gradient Fill",
           "name": "Linear Gradient Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -420,19 +369,13 @@
             },
             "start": {
               "type": "Vector2",
-              "value": [
-                32,
-                184
-              ],
+              "value": [32, 184],
               "expression": "",
               "locked": false
             },
             "end": {
               "type": "Vector2",
-              "value": [
-                224,
-                184
-              ],
+              "value": [224, 184],
               "expression": "",
               "locked": false
             },
@@ -466,10 +409,7 @@
           "id": "error-diffusion-3:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -502,19 +442,13 @@
           "id": "error-diffusion-4:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                106
-              ],
+              "value": [32, 106],
               "expression": "",
               "locked": false
             },
@@ -553,10 +487,7 @@
           "id": "error-diffusion-4:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -588,10 +519,7 @@
           "id": "error-diffusion-4:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -624,19 +552,13 @@
           "id": "error-diffusion-5:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                274
-              ],
+              "value": [32, 274],
               "expression": "",
               "locked": false
             },
@@ -675,10 +597,7 @@
           "id": "error-diffusion-5:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -710,10 +629,7 @@
           "id": "error-diffusion-5:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -746,28 +662,19 @@
           "id": "error-diffusion-6:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                408,
-                184
-              ],
+              "value": [408, 184],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -783,10 +690,7 @@
           "id": "error-diffusion-6:n1",
           "type": "Linear Gradient Fill",
           "name": "Linear Gradient Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -799,19 +703,13 @@
             },
             "start": {
               "type": "Vector2",
-              "value": [
-                312,
-                184
-              ],
+              "value": [312, 184],
               "expression": "",
               "locked": false
             },
             "end": {
               "type": "Vector2",
-              "value": [
-                504,
-                184
-              ],
+              "value": [504, 184],
               "expression": "",
               "locked": false
             },
@@ -845,10 +743,7 @@
           "id": "error-diffusion-6:n2",
           "type": "Ordered Dither",
           "name": "Ordered Dither",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -873,10 +768,7 @@
             },
             "gridOrigin": {
               "type": "Vector2",
-              "value": [
-                312,
-                120
-              ],
+              "value": [312, 120],
               "expression": "",
               "locked": false
             }
@@ -892,10 +784,7 @@
           "id": "error-diffusion-6:n3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            798,
-            56
-          ],
+          "position": [798, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -928,19 +817,13 @@
           "id": "error-diffusion-7:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                312,
-                106
-              ],
+              "value": [312, 106],
               "expression": "",
               "locked": false
             },
@@ -979,10 +862,7 @@
           "id": "error-diffusion-7:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1014,10 +894,7 @@
           "id": "error-diffusion-7:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1050,19 +927,13 @@
           "id": "error-diffusion-8:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                312,
-                274
-              ],
+              "value": [312, 274],
               "expression": "",
               "locked": false
             },
@@ -1101,10 +972,7 @@
           "id": "error-diffusion-8:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1136,10 +1004,7 @@
           "id": "error-diffusion-8:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1172,28 +1037,19 @@
           "id": "error-diffusion-9:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                688,
-                184
-              ],
+              "value": [688, 184],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -1209,10 +1065,7 @@
           "id": "error-diffusion-9:n1",
           "type": "Linear Gradient Fill",
           "name": "Linear Gradient Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1225,19 +1078,13 @@
             },
             "start": {
               "type": "Vector2",
-              "value": [
-                592,
-                184
-              ],
+              "value": [592, 184],
               "expression": "",
               "locked": false
             },
             "end": {
               "type": "Vector2",
-              "value": [
-                784,
-                184
-              ],
+              "value": [784, 184],
               "expression": "",
               "locked": false
             },
@@ -1271,10 +1118,7 @@
           "id": "error-diffusion-9:n2",
           "type": "Error Diffusion Dither",
           "name": "Error Diffusion Dither",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1299,10 +1143,7 @@
             },
             "gridOrigin": {
               "type": "Vector2",
-              "value": [
-                592,
-                120
-              ],
+              "value": [592, 120],
               "expression": "",
               "locked": false
             }
@@ -1318,10 +1159,7 @@
           "id": "error-diffusion-9:n3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            798,
-            56
-          ],
+          "position": [798, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1354,19 +1192,13 @@
           "id": "error-diffusion-10:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                592,
-                106
-              ],
+              "value": [592, 106],
               "expression": "",
               "locked": false
             },
@@ -1405,10 +1237,7 @@
           "id": "error-diffusion-10:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1440,10 +1269,7 @@
           "id": "error-diffusion-10:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1476,19 +1302,13 @@
           "id": "error-diffusion-11:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                592,
-                274
-              ],
+              "value": [592, 274],
               "expression": "",
               "locked": false
             },
@@ -1527,10 +1347,7 @@
           "id": "error-diffusion-11:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1562,10 +1379,7 @@
           "id": "error-diffusion-11:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {

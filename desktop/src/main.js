@@ -7,6 +7,7 @@ import {
   formatDocumentLength,
 } from './artboard-units.js';
 import { SVG_EXPORT_PRECISIONS } from './svg-number-format.js';
+import { formatParameterResult } from './parameter-result-format.js';
 import { applyExportPreset, loadExportPresets, saveExportPreset } from './export-presets.js';
 import { standardLigatureSupport, textFeatureReason } from './opentype-features.js';
 import { initialLayerId } from './initial-layer.js';
@@ -618,6 +619,7 @@ import {
   socketCompatibleFor,
   evaluate as evaluateCore,
   enableRemapPoint,
+  remapFingerprintMatches,
   pathData,
   signature,
   connect,
@@ -2125,7 +2127,7 @@ function field(n, key, q) {
     try {
       const effective = renderEvaluation.parameterValue(n.id, key);
       result = (q.type === 'Vector2' ? effective : [effective])
-        .map((v) => Number((v * factor).toFixed(3)))
+        .map((v) => formatParameterResult(v * factor))
         .join(', ');
     } catch {
       result = '— Cannot evaluate';
@@ -2720,7 +2722,7 @@ function remapFields(n, result, panelOnly = false) {
               })
               .join(
                 '',
-              )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && e.fingerprint !== input.fingerprint) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
+              )}${n.edits.some((e) => e.pointId === pt.id && e.params) ? '' : `<button class="mini" data-enable-remap="${pt.id}" data-node="${n.id}">Enable typed point controls</button>`}${n.edits.some((e) => e.pointId === pt.id && input.unstable && !remapFingerprintMatches(input, e.fingerprint)) ? `<button class="mini danger" data-rebind-remap="${pt.id}" data-node="${n.id}">Rebind retained edit to this point</button>` : ''}</details>`,
         )
         .join(''),
     pointPanelSource(n, input),
@@ -11292,7 +11294,7 @@ app.addEventListener('pointerdown', (e) => {
       pointId = pointTarget.pointId,
       key = pointTarget.key,
       existing = n.edits.find((e) => e.pointId === pointId);
-    if (existing && input.unstable && existing.fingerprint !== input.fingerprint) {
+    if (existing && input.unstable && !remapFingerprintMatches(input, existing.fingerprint)) {
       notify(
         'This edit is suspended. Use Rebind retained edit to this point before dragging.',
         true,
@@ -13217,7 +13219,8 @@ document.addEventListener('keydown', (e) => {
     return;
   if (
     penDraft &&
-    (e.key === 'Escape' || (e.key === 'Enter' && !e.target.closest('button,[role="button"],a')))
+    (e.key === 'Escape' ||
+      (e.key === 'Enter' && !e.target.closest('button,[role="button"],a,summary')))
   ) {
     e.preventDefault();
     finishPenDraft();

@@ -1474,6 +1474,51 @@ function vectorMathValue(operation, read) {
     })[operation](),
   );
 }
+// Evaluator-owned identities only: authored data and caller-supplied alias fields never
+// grant compatibility. The second identity reproduces the empty-expression-field era
+// from the same geometry, not from a second geometry evaluation.
+const evaluationFingerprints = new WeakMap();
+function evaluatedFingerprint(value, currentEra = false) {
+  const identity = value && evaluationFingerprints.get(value);
+  return currentEra && identity && identity.canonical === value.fingerprint
+    ? identity.current
+    : value?.fingerprint;
+}
+export function remapFingerprintMatches(input, retainedFingerprint) {
+  return (
+    retainedFingerprint === input.fingerprint ||
+    retainedFingerprint === evaluatedFingerprint(input, true)
+  );
+}
+function copyEvaluationIdentity(source, result) {
+  const identity = source && evaluationFingerprints.get(source);
+  if (
+    identity &&
+    identity.canonical === source.fingerprint &&
+    result.fingerprint === source.fingerprint
+  )
+    evaluationFingerprints.set(result, identity);
+  if (isPaintedGroup(source) && isPaintedGroup(result))
+    source.children.forEach((child, i) => copyEvaluationIdentity(child, result.children[i]));
+  return result;
+}
+const cloneEvaluated = (value) => copyEvaluationIdentity(value, clone(value));
+function evaluatedPaintedGroup(values, options) {
+  const result = paintedGroup(values, options);
+  values.forEach((value, i) => copyEvaluationIdentity(value, result.children[i]));
+  return result;
+}
+function setEvaluationFingerprint(result, preimage) {
+  result.fingerprint = fingerprint(JSON.stringify(preimage(false)));
+  const current = fingerprint(
+    JSON.stringify(preimage(true), function (key, value) {
+      return key === 'fingerprint' ? evaluatedFingerprint(this, true) : value;
+    }),
+  );
+  if (current !== result.fingerprint)
+    evaluationFingerprints.set(result, { canonical: result.fingerprint, current });
+  else evaluationFingerprints.delete(result);
+}
 export function enableRemapPoint(n, input, pointId) {
   if (
     n.type !== 'Path Remap' ||
@@ -1508,7 +1553,7 @@ export function translateRemapPoints(n, input, pointIds, delta) {
   const draft = clone(n);
   for (const pointId of new Set(pointIds)) {
     const existing = draft.edits.find((e) => e.pointId === pointId);
-    if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
+    if (existing && input.unstable && !remapFingerprintMatches(input, existing.fingerprint))
       throw Error('Selected edit is suspended; rebind explicitly first');
     const edit = enableRemapPoint(draft, input, pointId);
     const q = edit.params.position;
@@ -2584,11 +2629,15 @@ export function evaluate(
     }
   }
   // Source identities matter even when two graphs produce identical coordinates.
-  const provenances = new Map();
-  function provenance(id, port) {
+  const provenances = [new Map(), new Map()];
+  function provenance(id, port, currentEra = false) {
+    const identities = provenances[currentEra ? 1 : 0];
     const key = outputKey(id, port);
-    if (!provenances.has(key)) {
+    if (!identities.has(key)) {
       const n = byId.get(id),
+        expressions = (key !== id ? [['position', n.params.position]] : evaluatedParameters(n))
+          .filter(([, q]) => q.expression && !q.source)
+          .map(([input, q]) => [input, expressionReferences(q.expression)]),
         deps = (key !== id ? [['position', n.params.position]] : evaluatedParameters(n)).filter(
           ([, q]) => q.source,
         ),
@@ -2596,7 +2645,7 @@ export function evaluate(
       if (reference) deps.push(['reference', reference]);
       if (key === id && n.pathAttachment)
         deps.push(['textPath', { source: n.pathAttachment.nodeId }]);
-      provenances.set(
+      identities.set(
         key,
         fingerprint(
           JSON.stringify([
@@ -2604,20 +2653,21 @@ export function evaluate(
             n.type,
             ...(n.bypassed ? ['bypassed'] : []),
             key !== id ? 'position' : null,
-            (key !== id ? [['position', n.params.position]] : evaluatedParameters(n))
-              .filter(([, q]) => q.expression && !q.source)
-              .map(([input, q]) => [input, expressionReferences(q.expression)]),
+            // Reference-free expressions depend only on literals/base values, already
+            // represented by evaluated geometry/settings. Preserve their historical
+            // identity too, without dropping any real reference from either recipe.
+            ...(currentEra || expressions.some(([, refs]) => refs.length) ? [expressions] : []),
             deps.map(([input, q]) => [
               input,
               q.source,
               q.sourcePort,
-              provenance(q.source, q.sourcePort),
+              provenance(q.source, q.sourcePort, currentEra),
             ]),
           ]),
         ),
       );
     }
-    return provenances.get(key);
+    return identities.get(key);
   }
   const offsetComputations = new Set();
   // Separate shares one vector evaluation. Text's value output has its own cache entry
@@ -2789,7 +2839,7 @@ export function evaluate(
         const result =
           !n.bypassed && n.type === 'Closed Path Offset' && readParameter(n, 'amount') === 0
             ? readParameter(n, 'path')
-            : clone(existing.value);
+            : cloneEvaluated(existing.value);
         values.set(key, result);
         versions.set(key, existing.version);
         active.delete(id);
@@ -2802,16 +2852,22 @@ export function evaluate(
       const read = (key) => readParameter(n, key);
       let result;
       if (n.bypassed) {
-        result = clone(read(bypassInput(n)));
+        result = cloneEvaluated(read(bypassInput(n)));
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
-        if (n.type === 'Mask') result = paintedGroup([result], { prefix: n.id });
+        if (n.type === 'Mask') result = evaluatedPaintedGroup([result], { prefix: n.id });
         assertValue(outputType(n), result);
       } else if (n.type === 'Composition Reference') {
         const position = read('position');
-        result = paintedGroup([external.path], { matrix: [1, 0, 0, 1, ...position], prefix: n.id });
-        result.fingerprint = fingerprint(
-          JSON.stringify([n.compositionReference, n.id, position, external.path]),
-        );
+        result = evaluatedPaintedGroup([external.path], {
+          matrix: [1, 0, 0, 1, ...position],
+          prefix: n.id,
+        });
+        setEvaluationFingerprint(result, (currentEra) => [
+          n.compositionReference,
+          n.id,
+          position,
+          external.path,
+        ]);
       } else if (n.type === 'Reference') {
         result = clone(run(n.reference.nodeId, referencePort(n.reference)));
         assertValue('Vector2', result);
@@ -2894,6 +2950,7 @@ export function evaluate(
           prefix: n.id,
           bounds: pathBounds(source),
         });
+        copyEvaluationIdentity(source, result.children[0]);
       } else if (n.type === 'Curve')
         result = {
           contours: [
@@ -3059,13 +3116,16 @@ export function evaluate(
           .filter((key) => n.params[key].source)
           .map((key) => read(key));
         if (!inputs.length) throw Error('Connect a path to Join Geometry');
-        result = paintedGroup(inputs, { prefix: n.id });
-        result.fingerprint = fingerprint(JSON.stringify([n.id, inputs]));
+        result = evaluatedPaintedGroup(inputs, { prefix: n.id });
+        setEvaluationFingerprint(result, (currentEra) => [n.id, inputs]);
       } else if (n.type === 'Transform' && n.paintMode) {
         const source = read('path');
         if (!source) throw Error('Connect a PaintedPath input');
-        result = paintedGroup([source], { matrix: transformValues(n, read).matrix, prefix: n.id });
-        result.fingerprint = fingerprint(JSON.stringify([n.id, source, result.matrix]));
+        result = evaluatedPaintedGroup([source], {
+          matrix: transformValues(n, read).matrix,
+          prefix: n.id,
+        });
+        setEvaluationFingerprint(result, (currentEra) => [n.id, source, result.matrix]);
       } else if (n.type === 'Join Geometry') {
         const inputs = joinInputKeys(n)
           .filter((key) => n.params[key].source)
@@ -3184,14 +3244,12 @@ export function evaluate(
           'Canvas character editing is unavailable through Set Closure; edit the upstream Text',
         );
         result.unstable = true;
-        result.fingerprint = fingerprint(
-          JSON.stringify([
-            provenance(n.id),
-            closed,
-            source.fingerprint || signature(source),
-            signature(result),
-          ]),
-        );
+        setEvaluationFingerprint(result, (currentEra) => [
+          provenance(n.id, undefined, currentEra),
+          closed,
+          evaluatedFingerprint(source, currentEra) || signature(source),
+          signature(result),
+        ]);
       } else if (n.type === 'Reverse Path') {
         const source = read('path');
         result = reversePathGeometry(source, { prefix: fingerprint(n.id) });
@@ -3554,18 +3612,16 @@ export function evaluate(
           asset: source?.kind === 'image' ? imageAssetFor(source, imageAssets) : undefined,
         });
         result.unstable = true;
-        result.fingerprint = fingerprint(
-          JSON.stringify([
-            provenance(n.id),
-            source.fingerprint || null,
-            settings,
-            pitch,
-            invert,
-            gridOrigin,
-            tonePower,
-            result.contours,
-          ]),
-        );
+        setEvaluationFingerprint(result, (currentEra) => [
+          provenance(n.id, undefined, currentEra),
+          evaluatedFingerprint(source, currentEra) || null,
+          settings,
+          pitch,
+          invert,
+          gridOrigin,
+          tonePower,
+          result.contours,
+        ]);
       } else if (n.type === 'Luminance Instances') {
         if (!n.params.path.source || !n.params.motif.source)
           throw Error('Connect both Source fill and Motif inputs');
@@ -3625,21 +3681,19 @@ export function evaluate(
           'Canvas character editing is unavailable through Luminance Instances; edit the source Text',
         );
         result.unstable = true;
-        result.fingerprint = fingerprint(
-          JSON.stringify([
-            provenance(n.id),
-            source.fingerprint || null,
-            motif.fingerprint || null,
-            settings,
-            pitch,
-            invert,
-            gridOrigin,
-            ...(tonePower !== 1 ? [tonePower] : []),
-            cells,
-            signature(motif),
-            signature(result),
-          ]),
-        );
+        setEvaluationFingerprint(result, (currentEra) => [
+          provenance(n.id, undefined, currentEra),
+          evaluatedFingerprint(source, currentEra) || null,
+          evaluatedFingerprint(motif, currentEra) || null,
+          settings,
+          pitch,
+          invert,
+          gridOrigin,
+          ...(tonePower !== 1 ? [tonePower] : []),
+          cells,
+          signature(motif),
+          signature(result),
+        ]);
       } else if (n.type === 'Instance on Points') {
         if (!n.params.path.source || !n.params.points.source)
           throw Error('Connect both Source and Points Path inputs');
@@ -3695,16 +3749,14 @@ export function evaluate(
           'Canvas character editing is unavailable through Instance on Points; edit the source Text',
         );
         result.unstable = true;
-        result.fingerprint = fingerprint(
-          JSON.stringify([
-            provenance(n.id),
-            source.fingerprint || null,
-            signature(source),
-            alignTangent,
-            targets.contours.flatMap((contour) => contour.points.map((point) => point.position)),
-            signature(result),
-          ]),
-        );
+        setEvaluationFingerprint(result, (currentEra) => [
+          provenance(n.id, undefined, currentEra),
+          evaluatedFingerprint(source, currentEra) || null,
+          signature(source),
+          alignTangent,
+          targets.contours.flatMap((contour) => contour.points.map((point) => point.position)),
+          signature(result),
+        ]);
       } else if (
         ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
       ) {
@@ -3806,26 +3858,24 @@ export function evaluate(
           result.fill = { hex: '#000000', alpha: 1 };
         }
         result.unstable = true;
-        result.fingerprint = fingerprint(
-          JSON.stringify([
-            provenance(n.id),
-            mode,
-            ...(mode === 'lines' ? [orientation] : []),
-            pitch,
-            invert,
-            // Preserve schema-14 provenance when the migrated default is unchanged.
-            // Non-default origins participate so downstream edits invalidate correctly.
-            ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
-            ...(tonePower !== 1 ? [tonePower] : []),
-            ...dotFingerprint(dots, pitch),
-            source.fill,
-            source.fingerprint || null,
-            source.kind === 'image'
-              ? JSON.stringify([source.kind, source.asset, source.position, source.size])
-              : signature(source),
-            signature(result),
-          ]),
-        );
+        setEvaluationFingerprint(result, (currentEra) => [
+          provenance(n.id, undefined, currentEra),
+          mode,
+          ...(mode === 'lines' ? [orientation] : []),
+          pitch,
+          invert,
+          // Preserve schema-14 provenance when the migrated default is unchanged.
+          // Non-default origins participate so downstream edits invalidate correctly.
+          ...(gridOrigin[0] || gridOrigin[1] ? [gridOrigin] : []),
+          ...(tonePower !== 1 ? [tonePower] : []),
+          ...dotFingerprint(dots, pitch),
+          source.fill,
+          evaluatedFingerprint(source, currentEra) || null,
+          source.kind === 'image'
+            ? JSON.stringify([source.kind, source.asset, source.position, source.size])
+            : signature(source),
+          signature(result),
+        ]);
         result.characterOccurrences = routeCharacters(
           source,
           n.id,
@@ -3835,23 +3885,18 @@ export function evaluate(
       } else if (n.type === 'Convert to Path') {
         const source = read('path');
         if (!source) throw Error('Connect a Path or PaintedPath input');
-        result = isPaintedGroup(source) ? groupGeometry(source) : clone(source);
+        result = isPaintedGroup(source) ? groupGeometry(source) : cloneEvaluated(source);
         if (
           outputType(byId.get(n.params.path.source), n.params.path.sourcePort) === 'PaintedPath'
         ) {
           delete result.fill;
           delete result.stroke;
-          result.fingerprint = fingerprint(
-            JSON.stringify([
-              'painted-path-geometry',
-              provenance(n.id),
-              signature(result),
-              result.contours.map((contour) => [
-                contour.id,
-                contour.points.map((point) => point.id),
-              ]),
-            ]),
-          );
+          setEvaluationFingerprint(result, (currentEra) => [
+            'painted-path-geometry',
+            provenance(n.id, undefined, currentEra),
+            signature(result),
+            result.contours.map((contour) => [contour.id, contour.points.map((point) => point.id)]),
+          ]);
         }
       } else if (n.type === 'Closed Path Offset') {
         const source = read('path');
@@ -3866,17 +3911,15 @@ export function evaluate(
             ? offsetGroupedClosedPathDetailed(source, amount, options, OFFSET_EDITOR_LIMITS).path
             : offsetClosedPath(source, amount, options, OFFSET_EDITOR_LIMITS);
           result.unstable = true;
-          result.fingerprint = fingerprint(
-            JSON.stringify([
-              provenance(n.id),
-              amount,
-              n.operation,
-              miterLimit,
-              source.fingerprint,
-              source.contours,
-              signature(result),
-            ]),
-          );
+          setEvaluationFingerprint(result, (currentEra) => [
+            provenance(n.id, undefined, currentEra),
+            amount,
+            n.operation,
+            miterLimit,
+            evaluatedFingerprint(source, currentEra),
+            source.contours,
+            signature(result),
+          ]);
           result.characterOccurrences = routeCharacters(
             source,
             n.id,
@@ -3939,7 +3982,7 @@ export function evaluate(
       else {
         result = read('path');
         if (!result) throw Error(`Connect a ${n.params.path.type} input`);
-        result = clone(result);
+        result = cloneEvaluated(result);
         if (isPaintedGroup(result) && n.type !== 'Output')
           throw Error('Edit paint in the source Composition, or use Convert to Path');
         if (n.type === 'Fill') result.fill = read('color');
@@ -3969,7 +4012,7 @@ export function evaluate(
             for (const pt of contour.points) pt.position = pt.position.map((v, i) => v + offset[i]);
           for (const edit of n.edits) {
             let pt = result.contours.flatMap((c) => c.points).find((p) => p.id === edit.pointId);
-            if (!pt || (result.unstable && edit.fingerprint !== result.fingerprint)) {
+            if (!pt || (result.unstable && !remapFingerprintMatches(result, edit.fingerprint))) {
               result.remapSuspended = true;
               warnings.push(
                 `${n.name}: vertex edit suspended because its source changed. Rebind explicitly.`,
@@ -4001,6 +4044,7 @@ export function evaluate(
           transformed.unstable = result.unstable;
           transformed.remapSuspended = result.remapSuspended;
           transformed.fingerprint = result.fingerprint;
+          copyEvaluationIdentity(result, transformed);
           result = transformed;
           obj.remove();
         }
@@ -4046,7 +4090,7 @@ export function evaluate(
         font: cacheFont,
         styleFonts,
         imageAsset,
-        value: clone(result),
+        value: cloneEvaluated(result),
         version,
         warnings: warnings.slice(warningStart),
         textLayout: !positionOutput && textLayouts.has(id) ? clone(textLayouts.get(id)) : undefined,
@@ -5938,7 +5982,7 @@ export class CommandSession {
           for (const pointId of pointIds) {
             const existing = node.edits.find((e) => e.pointId === pointId);
             const original = existing && perPoint ? clone(existing) : null;
-            if (existing && input.unstable && existing.fingerprint !== input.fingerprint)
+            if (existing && input.unstable && !remapFingerprintMatches(input, existing.fingerprint))
               throw Error('Retained edit is suspended; rebind before dragging');
             const edit = enableRemapPoint(node, input, pointId);
             const delta = perPoint ? pointMoves.get(pointId) : update.delta;

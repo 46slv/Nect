@@ -1,0 +1,281 @@
+{
+  "schemaVersion": 36,
+  "name": "Untitled composition",
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-d475f5dc-201e-461d-8164-2228bdae5758",
+      "name": "Composition 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "vector-rect",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [8, 8],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [16, 16],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "vector-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "vector-rect"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#000000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "vector-effect",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "vector-fill"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "dotSize": {
+              "type": "Scalar",
+              "value": 16,
+              "expression": "",
+              "locked": false
+            },
+            "dotSides": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dotRotation": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "starInnerRatio": {
+              "type": "Scalar",
+              "value": 0.25,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "tonePower": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "vector-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "saved-paint"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "saved-convert",
+          "type": "Convert to Path",
+          "name": "Convert to Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "vector-effect"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "saved-remap",
+          "type": "Path Remap",
+          "name": "Path Remap",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "saved-convert"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [
+            {
+              "pointId": "sha256:b408740ce9fb2cb337047a1e8e9c9ff6b12b8871efbb81839a4411cd5eda146f:c0:p0",
+              "fingerprint": "sha256:4a5832532092c75c01672edf7c3c2a1ef78ae4a3062dc593452db202a0a5bcf0",
+              "params": {
+                "position": {
+                  "type": "Vector2",
+                  "value": [3, 5],
+                  "expression": "",
+                  "locked": false
+                },
+                "handleA": {
+                  "type": "Vector2",
+                  "value": [0, 0],
+                  "expression": "",
+                  "locked": false
+                },
+                "handleB": {
+                  "type": "Vector2",
+                  "value": [0, 0],
+                  "expression": "",
+                  "locked": false
+                }
+              }
+            }
+          ],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "saved-paint",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "saved-remap"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#36434e",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "vector-output"
+    }
+  ]
+}

@@ -253,10 +253,7 @@ test('all project Composition imports remap IDs/assets and commit as one Undo/Re
     after = owner.projectSnapshot(),
     imported = after.compositions.filter((item) => importedIds.includes(item.id)),
     serializedAfter = serializeCompositionProject(after);
-  assert.deepEqual(importedIds, [
-    firstId + '-import-1',
-    secondId + '-import-1',
-  ]);
+  assert.deepEqual(importedIds, [firstId + '-import-1', secondId + '-import-1']);
   assert.equal(after.compositions.length, 4);
   assert.equal(owner.activeCompositionId, importedIds[0]);
   assert.equal(owner.projectRevision, beforeRevision + 1);
@@ -268,7 +265,10 @@ test('all project Composition imports remap IDs/assets and commit as one Undo/Re
       ['Tall', 320, 960],
     ],
   );
-  assert.deepEqual(imported[0].layers.map((item) => item.name), ['Artwork', 'Reference source']);
+  assert.deepEqual(
+    imported[0].layers.map((item) => item.name),
+    ['Artwork', 'Reference source'],
+  );
   assert.equal(
     imported[0].layers[0].nodes[0].compositionReference.compositionId,
     imported[0].layers[1].id,
@@ -308,7 +308,10 @@ test('session-compatible History views stay stable across project edits and Comp
   assert.strictEqual(history.past.at(-1), secondDocument);
   assert.equal(history.past.at(-1).width, 320);
   assert.equal(owner.activeCompositionId, secondId);
-  assert.equal(owner.projectSnapshot().compositions.find((item) => item.id === firstId).width, 1280);
+  assert.equal(
+    owner.projectSnapshot().compositions.find((item) => item.id === firstId).width,
+    1280,
+  );
 });
 
 test('prepared edits enter project History and variable-aware Undo restores the project snapshot', async () => {
@@ -401,9 +404,15 @@ test('Composition create, rename, resize and delete are project Undo steps', () 
     ],
   );
   owner.deleteComposition(added);
-  assert.deepEqual(owner.projectSnapshot().compositions.map(({ id }) => id), [original]);
+  assert.deepEqual(
+    owner.projectSnapshot().compositions.map(({ id }) => id),
+    [original],
+  );
   send(owner, 'undo');
-  assert.deepEqual(owner.projectSnapshot().compositions.map(({ id }) => id), [original, added]);
+  assert.deepEqual(
+    owner.projectSnapshot().compositions.map(({ id }) => id),
+    [original, added],
+  );
   assert.equal(owner.projectSnapshot().compositions[1].name, 'Phone');
   assert.equal(owner.projectSnapshot().compositions[1].width, 390);
 });

@@ -101,7 +101,8 @@ test('PNG samples drive scale/angle; partial cells excluded, transparent pixels 
   assert.ok(Math.abs(a[1].position[0] - a[0].position[0] - 1.6) < 1e-12);
   assert.ok(Math.abs(b[1].position[1] - b[0].position[1] - 8) < 1e-12);
   const reopened = deserialize(serialize(doc));
-  assert.equal(reopened.schemaVersion, 21);
+  assert.equal(reopened.schemaVersion, Math.max(doc.schemaVersion, 21));
+  assert.deepEqual(reopened, doc);
   assert.deepEqual(evaluate(reopened.layers[0], {}, reopened.imageAssets).run(effect.id), result);
   image.params.size.value = [20, 16];
   assert.equal(run().contours.length, 1);

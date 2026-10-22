@@ -15,19 +15,13 @@
           "id": "sample-node-0-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                55,
-                62
-              ],
+              "value": [55, 62],
               "expression": "",
               "locked": false
             },
@@ -66,10 +60,7 @@
           "id": "sample-node-0-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -101,10 +92,7 @@
           "id": "sample-node-0-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -137,19 +125,13 @@
           "id": "sample-node-1-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                55,
-                94
-              ],
+              "value": [55, 94],
               "expression": "",
               "locked": false
             },
@@ -188,10 +170,7 @@
           "id": "sample-node-1-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -223,10 +202,7 @@
           "id": "sample-node-1-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -259,10 +235,7 @@
           "id": "sample-node-2-0",
           "type": "Curve",
           "name": "Curve",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -278,28 +251,19 @@
               "id": "sample-point-2-0-0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  115,
-                  175
-                ],
+                "value": [115, 175],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -309,28 +273,19 @@
               "id": "sample-point-2-0-1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  175,
-                  290
-                ],
+                "value": [175, 290],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -340,28 +295,19 @@
               "id": "sample-point-2-0-2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  120,
-                  245
-                ],
+                "value": [120, 245],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -378,10 +324,7 @@
           "id": "sample-node-2-1",
           "type": "Mirror",
           "name": "Mirror",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -394,10 +337,7 @@
             },
             "center": {
               "type": "Vector2",
-              "value": [
-                190,
-                230
-              ],
+              "value": [190, 230],
               "expression": "",
               "locked": false
             },
@@ -425,10 +365,7 @@
           "id": "sample-node-2-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -460,10 +397,7 @@
           "id": "sample-node-2-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -496,19 +430,13 @@
           "id": "sample-node-3-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                65,
-                345
-              ],
+              "value": [65, 345],
               "expression": "",
               "locked": false
             },
@@ -547,10 +475,7 @@
           "id": "sample-node-3-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -582,10 +507,7 @@
           "id": "sample-node-3-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -618,19 +540,13 @@
           "id": "sample-node-4-0",
           "type": "Star",
           "name": "Star",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                230
-              ],
+              "value": [540, 230],
               "expression": "",
               "locked": false
             },
@@ -670,10 +586,7 @@
           "id": "sample-node-4-1",
           "type": "Corner Round",
           "name": "Corner Round",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -702,10 +615,7 @@
           "id": "sample-node-4-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -737,10 +647,7 @@
           "id": "sample-node-4-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -773,19 +680,13 @@
           "id": "sample-node-5-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                345
-              ],
+              "value": [415, 345],
               "expression": "",
               "locked": false
             },
@@ -824,10 +725,7 @@
           "id": "sample-node-5-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -859,10 +757,7 @@
           "id": "sample-node-5-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -895,28 +790,19 @@
           "id": "sample-node-6-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                230
-              ],
+              "value": [890, 230],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -932,10 +818,7 @@
           "id": "sample-node-6-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -964,10 +847,7 @@
           "id": "sample-node-6-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -999,10 +879,7 @@
           "id": "sample-node-6-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1035,19 +912,13 @@
           "id": "sample-node-7-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                345
-              ],
+              "value": [765, 345],
               "expression": "",
               "locked": false
             },
@@ -1086,10 +957,7 @@
           "id": "sample-node-7-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1121,10 +989,7 @@
           "id": "sample-node-7-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1157,28 +1022,19 @@
           "id": "sample-node-8-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                190,
-                490
-              ],
+              "value": [190, 490],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -1194,10 +1050,7 @@
           "id": "sample-node-8-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1226,10 +1079,7 @@
           "id": "sample-node-8-2",
           "type": "Roughen",
           "name": "Roughen",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1270,10 +1120,7 @@
           "id": "sample-node-8-3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1305,10 +1152,7 @@
           "id": "sample-node-8-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1341,19 +1185,13 @@
           "id": "sample-node-9-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                65,
-                605
-              ],
+              "value": [65, 605],
               "expression": "",
               "locked": false
             },
@@ -1392,10 +1230,7 @@
           "id": "sample-node-9-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1427,10 +1262,7 @@
           "id": "sample-node-9-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1463,28 +1295,19 @@
           "id": "sample-node-10-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                490
-              ],
+              "value": [540, 490],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -1500,10 +1323,7 @@
           "id": "sample-node-10-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1532,10 +1352,7 @@
           "id": "sample-node-10-2",
           "type": "Roughen",
           "name": "Roughen",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1576,10 +1393,7 @@
           "id": "sample-node-10-3",
           "type": "Smooth Path",
           "name": "Smooth Path",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1620,10 +1434,7 @@
           "id": "sample-node-10-4",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1655,10 +1466,7 @@
           "id": "sample-node-10-5",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1540,
-            60
-          ],
+          "position": [1540, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1691,19 +1499,13 @@
           "id": "sample-node-11-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                605
-              ],
+              "value": [415, 605],
               "expression": "",
               "locked": false
             },
@@ -1742,10 +1544,7 @@
           "id": "sample-node-11-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1777,10 +1576,7 @@
           "id": "sample-node-11-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1813,28 +1609,19 @@
           "id": "sample-node-12-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                490
-              ],
+              "value": [890, 490],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -1850,10 +1637,7 @@
           "id": "sample-node-12-1",
           "type": "Trim Path",
           "name": "Trim Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1888,10 +1672,7 @@
           "id": "sample-node-12-2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1942,10 +1723,7 @@
           "id": "sample-node-12-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1978,19 +1756,13 @@
           "id": "sample-node-13-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                605
-              ],
+              "value": [765, 605],
               "expression": "",
               "locked": false
             },
@@ -2029,10 +1801,7 @@
           "id": "sample-node-13-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2064,10 +1833,7 @@
           "id": "sample-node-13-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2100,10 +1866,7 @@
           "id": "sample-node-14-0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -2118,10 +1881,7 @@
           "id": "sample-node-14-1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2173,10 +1933,7 @@
           "id": "sample-node-14-2",
           "type": "Expand Stroke",
           "name": "Expand Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2199,10 +1956,7 @@
           "id": "sample-node-14-3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2234,10 +1988,7 @@
           "id": "sample-node-14-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2270,19 +2021,13 @@
           "id": "sample-node-15-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                65,
-                865
-              ],
+              "value": [65, 865],
               "expression": "",
               "locked": false
             },
@@ -2321,10 +2066,7 @@
           "id": "sample-node-15-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2356,10 +2098,7 @@
           "id": "sample-node-15-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2392,28 +2131,19 @@
           "id": "sample-node-16-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                750
-              ],
+              "value": [540, 750],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -2429,10 +2159,7 @@
           "id": "sample-node-16-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2461,10 +2188,7 @@
           "id": "sample-node-16-2",
           "type": "Simplify Path",
           "name": "Simplify Path",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2493,10 +2217,7 @@
           "id": "sample-node-16-3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2528,10 +2249,7 @@
           "id": "sample-node-16-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2564,19 +2282,13 @@
           "id": "sample-node-17-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                865
-              ],
+              "value": [415, 865],
               "expression": "",
               "locked": false
             },
@@ -2615,10 +2327,7 @@
           "id": "sample-node-17-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2650,10 +2359,7 @@
           "id": "sample-node-17-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2686,28 +2392,19 @@
           "id": "sample-node-18-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                750
-              ],
+              "value": [890, 750],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -2723,10 +2420,7 @@
           "id": "sample-node-18-1",
           "type": "Dash Path",
           "name": "Dash Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2767,10 +2461,7 @@
           "id": "sample-node-18-2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2821,10 +2512,7 @@
           "id": "sample-node-18-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2857,19 +2545,13 @@
           "id": "sample-node-19-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                865
-              ],
+              "value": [765, 865],
               "expression": "",
               "locked": false
             },
@@ -2908,10 +2590,7 @@
           "id": "sample-node-19-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2943,10 +2622,7 @@
           "id": "sample-node-19-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2979,10 +2655,7 @@
           "id": "sample-node-20-0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -2997,10 +2670,7 @@
           "id": "sample-node-20-1",
           "type": "Subdivide Path",
           "name": "Subdivide Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3029,10 +2699,7 @@
           "id": "sample-node-20-2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3082,10 +2749,7 @@
           "id": "sample-node-20-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3118,19 +2782,13 @@
           "id": "sample-node-21-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                65,
-                1125
-              ],
+              "value": [65, 1125],
               "expression": "",
               "locked": false
             },
@@ -3169,10 +2827,7 @@
           "id": "sample-node-21-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3204,10 +2859,7 @@
           "id": "sample-node-21-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3240,28 +2892,19 @@
           "id": "sample-node-22-0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                1010
-              ],
+              "value": [540, 1010],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                105,
-                105
-              ],
+              "value": [105, 105],
               "expression": "",
               "locked": false
             }
@@ -3277,10 +2920,7 @@
           "id": "sample-node-22-1",
           "type": "Pucker & Bloat",
           "name": "Pucker & Bloat",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3305,10 +2945,7 @@
             },
             "center": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -3324,10 +2961,7 @@
           "id": "sample-node-22-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3359,10 +2993,7 @@
           "id": "sample-node-22-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3395,19 +3026,13 @@
           "id": "sample-node-23-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                1125
-              ],
+              "value": [415, 1125],
               "expression": "",
               "locked": false
             },
@@ -3446,10 +3071,7 @@
           "id": "sample-node-23-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3481,10 +3103,7 @@
           "id": "sample-node-23-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3517,10 +3136,7 @@
           "id": "sample-node-24-0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -3535,10 +3151,7 @@
           "id": "sample-node-24-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3567,10 +3180,7 @@
           "id": "sample-node-24-2",
           "type": "Wave Points",
           "name": "Wave Points",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3617,10 +3227,7 @@
           "id": "sample-node-24-3",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3670,10 +3277,7 @@
           "id": "sample-node-24-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3706,19 +3310,13 @@
           "id": "sample-node-25-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                1125
-              ],
+              "value": [765, 1125],
               "expression": "",
               "locked": false
             },
@@ -3757,10 +3355,7 @@
           "id": "sample-node-25-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3792,10 +3387,7 @@
           "id": "sample-node-25-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3828,28 +3420,19 @@
           "id": "sample-node-26-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                180,
-                1270
-              ],
+              "value": [180, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -3865,10 +3448,7 @@
           "id": "sample-node-26-1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3918,10 +3498,7 @@
           "id": "sample-node-26-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -3954,28 +3531,19 @@
           "id": "sample-node-27-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                180,
-                1270
-              ],
+              "value": [180, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -3991,10 +3559,7 @@
           "id": "sample-node-27-1",
           "type": "Trim Path",
           "name": "Trim Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4029,10 +3594,7 @@
           "id": "sample-node-27-2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4083,10 +3645,7 @@
           "id": "sample-node-27-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4119,19 +3678,13 @@
           "id": "sample-node-28-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                55,
-                1385
-              ],
+              "value": [55, 1385],
               "expression": "",
               "locked": false
             },
@@ -4170,10 +3723,7 @@
           "id": "sample-node-28-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4205,10 +3755,7 @@
           "id": "sample-node-28-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4241,28 +3788,19 @@
           "id": "sample-node-29-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                1270
-              ],
+              "value": [540, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -4278,10 +3816,7 @@
           "id": "sample-node-29-1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4331,10 +3866,7 @@
           "id": "sample-node-29-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4367,28 +3899,19 @@
           "id": "sample-node-30-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                540,
-                1270
-              ],
+              "value": [540, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -4404,10 +3927,7 @@
           "id": "sample-node-30-1",
           "type": "Reverse Path",
           "name": "Reverse Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4430,10 +3950,7 @@
           "id": "sample-node-30-2",
           "type": "Trim Path",
           "name": "Trim Path",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4468,10 +3985,7 @@
           "id": "sample-node-30-3",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4522,10 +4036,7 @@
           "id": "sample-node-30-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4558,19 +4069,13 @@
           "id": "sample-node-31-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                1385
-              ],
+              "value": [415, 1385],
               "expression": "",
               "locked": false
             },
@@ -4609,10 +4114,7 @@
           "id": "sample-node-31-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4644,10 +4146,7 @@
           "id": "sample-node-31-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4680,28 +4179,19 @@
           "id": "sample-node-32-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                1270
-              ],
+              "value": [890, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -4717,10 +4207,7 @@
           "id": "sample-node-32-1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4770,10 +4257,7 @@
           "id": "sample-node-32-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4806,28 +4290,19 @@
           "id": "sample-node-33-0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                1270
-              ],
+              "value": [890, 1270],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                140,
-                110
-              ],
+              "value": [140, 110],
               "expression": "",
               "locked": false
             }
@@ -4843,10 +4318,7 @@
           "id": "sample-node-33-1",
           "type": "Set Path Start",
           "name": "Set Path Start",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4875,10 +4347,7 @@
           "id": "sample-node-33-2",
           "type": "Trim Path",
           "name": "Trim Path",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4913,10 +4382,7 @@
           "id": "sample-node-33-3",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -4967,10 +4433,7 @@
           "id": "sample-node-33-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5003,19 +4466,13 @@
           "id": "sample-node-34-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                1385
-              ],
+              "value": [765, 1385],
               "expression": "",
               "locked": false
             },
@@ -5054,10 +4511,7 @@
           "id": "sample-node-34-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5089,10 +4543,7 @@
           "id": "sample-node-34-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5125,19 +4576,13 @@
           "id": "sample-node-35-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                92,
-                1545
-              ],
+              "value": [92, 1545],
               "expression": "",
               "locked": false
             },
@@ -5176,10 +4621,7 @@
           "id": "sample-node-35-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5211,10 +4653,7 @@
           "id": "sample-node-35-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5247,19 +4686,13 @@
           "id": "sample-node-36-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                55,
-                1645
-              ],
+              "value": [55, 1645],
               "expression": "",
               "locked": false
             },
@@ -5298,10 +4731,7 @@
           "id": "sample-node-36-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5333,10 +4763,7 @@
           "id": "sample-node-36-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5369,19 +4796,13 @@
           "id": "sample-node-37-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                452,
-                1545
-              ],
+              "value": [452, 1545],
               "expression": "",
               "locked": false
             },
@@ -5420,10 +4841,7 @@
           "id": "sample-node-37-1",
           "type": "Taper",
           "name": "Taper",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5452,10 +4870,7 @@
           "id": "sample-node-37-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5487,10 +4902,7 @@
           "id": "sample-node-37-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5523,19 +4935,13 @@
           "id": "sample-node-38-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                1645
-              ],
+              "value": [415, 1645],
               "expression": "",
               "locked": false
             },
@@ -5574,10 +4980,7 @@
           "id": "sample-node-38-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5609,10 +5012,7 @@
           "id": "sample-node-38-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5645,19 +5045,13 @@
           "id": "sample-node-39-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                802,
-                1545
-              ],
+              "value": [802, 1545],
               "expression": "",
               "locked": false
             },
@@ -5696,10 +5090,7 @@
           "id": "sample-node-39-1",
           "type": "Bend Points",
           "name": "Bend Points",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5728,10 +5119,7 @@
           "id": "sample-node-39-2",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5763,10 +5151,7 @@
           "id": "sample-node-39-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5799,19 +5184,13 @@
           "id": "sample-node-40-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                1645
-              ],
+              "value": [765, 1645],
               "expression": "",
               "locked": false
             },
@@ -5850,10 +5229,7 @@
           "id": "sample-node-40-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5885,10 +5261,7 @@
           "id": "sample-node-40-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5921,10 +5294,7 @@
           "id": "sample-node-41-0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -5939,10 +5309,7 @@
           "id": "sample-node-41-1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -5992,10 +5359,7 @@
           "id": "sample-node-41-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6028,19 +5392,13 @@
           "id": "sample-node-42-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                55,
-                1905
-              ],
+              "value": [55, 1905],
               "expression": "",
               "locked": false
             },
@@ -6079,10 +5437,7 @@
           "id": "sample-node-42-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6114,10 +5469,7 @@
           "id": "sample-node-42-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6150,10 +5502,7 @@
           "id": "sample-node-43-0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -6168,10 +5517,7 @@
           "id": "sample-node-43-1",
           "type": "Set Closure",
           "name": "Set Closure",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6200,10 +5546,7 @@
           "id": "sample-node-43-2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6253,10 +5596,7 @@
           "id": "sample-node-43-3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6289,19 +5629,13 @@
           "id": "sample-node-44-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                415,
-                1905
-              ],
+              "value": [415, 1905],
               "expression": "",
               "locked": false
             },
@@ -6340,10 +5674,7 @@
           "id": "sample-node-44-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6375,10 +5706,7 @@
           "id": "sample-node-44-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6411,19 +5739,13 @@
           "id": "sample-node-45-0",
           "type": "Star",
           "name": "Star",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                890,
-                1790
-              ],
+              "value": [890, 1790],
               "expression": "",
               "locked": false
             },
@@ -6463,10 +5785,7 @@
           "id": "sample-node-45-1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6495,10 +5814,7 @@
           "id": "sample-node-45-2",
           "type": "Twist Points",
           "name": "Twist Points",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6527,10 +5843,7 @@
           "id": "sample-node-45-3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            940,
-            60
-          ],
+          "position": [940, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6562,10 +5875,7 @@
           "id": "sample-node-45-4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            60
-          ],
+          "position": [1240, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6598,19 +5908,13 @@
           "id": "sample-node-46-0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                765,
-                1905
-              ],
+              "value": [765, 1905],
               "expression": "",
               "locked": false
             },
@@ -6649,10 +5953,7 @@
           "id": "sample-node-46-1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            340,
-            60
-          ],
+          "position": [340, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -6684,10 +5985,7 @@
           "id": "sample-node-46-2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            640,
-            60
-          ],
+          "position": [640, 60],
           "width": 264,
           "collapsed": false,
           "params": {

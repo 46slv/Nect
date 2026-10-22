@@ -147,7 +147,8 @@ test('Resample zero-length and empty paths remain finite', () => {
 test('Resample defaults to Count and spacing mode distributes maximum gaps per contour', () => {
   const { l, r } = scene('M0 0L100 0 M0 30L200 30');
   assert.equal(r.operation, 'count');
-  const session = new CommandSession(layersDoc(l));
+  const input = layersDoc(l),
+    session = new CommandSession(input);
   session.dispatch({
     ...session.state,
     type: 'set-operation',
@@ -156,7 +157,7 @@ test('Resample defaults to Count and spacing mode distributes maximum gaps per c
   const doc = session.snapshot(),
     nodeAfter = doc.layers[0].nodes.find((n) => n.id === r.id),
     path = evaluate(doc.layers[0]).run(r.id);
-  assert.equal(doc.schemaVersion, 12);
+  assert.equal(doc.schemaVersion, Math.max(input.schemaVersion, 12));
   assert.deepEqual(
     activeParameters(nodeAfter).map(([key]) => key),
     ['path', 'spacing'],
@@ -303,7 +304,7 @@ test('Resample preserves dormant fields and ignores dormant expressions until ac
   const restored = session.snapshot().layers[0].nodes.find((n) => n.id === f.r.id);
   assert.deepEqual(restored.params, before);
   assert.equal(restored.operation, 'count');
-  assert.equal(session.snapshot().schemaVersion, 12);
+  assert.equal(session.snapshot().schemaVersion, Math.max(f.doc.schemaVersion, 12));
 });
 
 function layersDoc(layer) {

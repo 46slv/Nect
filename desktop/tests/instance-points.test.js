@@ -237,7 +237,8 @@ test('Align Tangent defaults off and maps source +X to outgoing, reversed incomi
 });
 
 test('old Instance on Points JSON backfills Align Tangent false and migrates its schema safely', () => {
-  const f = scene(),
+  // Keep schema-12 input free of today's expandable Join metadata.
+  const f = orientationScene(),
     legacy = structuredClone(f.doc);
   legacy.schemaVersion = 12;
   delete legacy.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent;
@@ -410,7 +411,7 @@ test('JSON roundtrip preserves both inputs and direct Text character editing is 
     serialized = serialize(f.doc),
     reopened = deserialize(serialized),
     path = evaluate(reopened.layers[0]).run(f.effect.id);
-  assert.equal(reopened.schemaVersion, 13);
+  assert.equal(reopened.schemaVersion, Math.max(f.doc.schemaVersion, 13));
   assert.equal(
     reopened.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent.value,
     true,
@@ -490,7 +491,7 @@ test('Align Tangent setting has transactional validation, locks, undo, redo, ser
 });
 
 test('invalid serialized Align Tangent values are rejected', () => {
-  const f = scene(),
+  const f = orientationScene(),
     invalid = structuredClone(f.doc);
   invalid.schemaVersion = 13;
   invalid.layers[0].nodes.find((node) => node.id === f.effect.id).params.alignTangent.value = 1;

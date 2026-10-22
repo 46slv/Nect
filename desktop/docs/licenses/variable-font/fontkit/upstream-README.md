@@ -4,16 +4,16 @@ Fontkit is an advanced font engine for Node and the browser, used by [PDFKit](ht
 
 ## Features
 
-* Supports TrueType (.ttf), OpenType (.otf), WOFF, WOFF2, TrueType Collection (.ttc), and Datafork TrueType (.dfont) font files
-* Supports mapping characters to glyphs, including support for ligatures and other advanced substitutions (see below)
-* Supports reading glyph metrics and laying out glyphs, including support for kerning and other advanced layout features (see below)
-* Advanced OpenType features including glyph substitution (GSUB) and positioning (GPOS)
-* Apple Advanced Typography (AAT) glyph substitution features (morx table)
-* Support for getting glyph vector paths and converting them to SVG paths, or rendering them to a graphics context
-* Supports TrueType (glyf) and PostScript (CFF) outlines
-* Support for color glyphs (e.g. emoji), including Apple’s SBIX table, and Microsoft’s COLR table
-* Support for AAT variation glyphs, allowing for nearly infinite design control over weight, width, and other axes.
-* Font subsetting support - create a new font including only the specified glyphs
+- Supports TrueType (.ttf), OpenType (.otf), WOFF, WOFF2, TrueType Collection (.ttc), and Datafork TrueType (.dfont) font files
+- Supports mapping characters to glyphs, including support for ligatures and other advanced substitutions (see below)
+- Supports reading glyph metrics and laying out glyphs, including support for kerning and other advanced layout features (see below)
+- Advanced OpenType features including glyph substitution (GSUB) and positioning (GPOS)
+- Apple Advanced Typography (AAT) glyph substitution features (morx table)
+- Support for getting glyph vector paths and converting them to SVG paths, or rendering them to a graphics context
+- Supports TrueType (glyf) and PostScript (CFF) outlines
+- Support for color glyphs (e.g. emoji), including Apple’s SBIX table, and Microsoft’s COLR table
+- Support for AAT variation glyphs, allowing for nearly infinite design control over weight, width, and other axes.
+- Font subsetting support - create a new font including only the specified glyphs
 
 ## Installation
 
@@ -36,7 +36,7 @@ var svg = run.glyphs[0].path.toSVG();
 
 // create a font subset
 var subset = font.createSubset();
-run.glyphs.forEach(function(glyph) {
+run.glyphs.forEach(function (glyph) {
   subset.includeGlyph(glyph);
 });
 
@@ -65,33 +65,33 @@ There are several different types of font objects that are returned by fontkit d
 
 The following properties are strings (or null if the font does not contain strings for them) describing the font, as specified by the font creator.
 
-* `postscriptName`
-* `fullName`
-* `familyName`
-* `subfamilyName`
-* `copyright`
-* `version`
+- `postscriptName`
+- `fullName`
+- `familyName`
+- `subfamilyName`
+- `copyright`
+- `version`
 
 ### Metrics
 
 The following properties describe the general metrics of the font. See [here](http://www.freetype.org/freetype2/docs/glyphs/glyphs-3.html) for a good overview of how all of these properties relate to one another.
 
-* `unitsPerEm` - the size of the font’s internal coordinate grid
-* `ascent` - the font’s [ascender](http://en.wikipedia.org/wiki/Ascender_(typography))
-* `descent` - the font’s [descender](http://en.wikipedia.org/wiki/Descender)
-* `lineGap` - the amount of space that should be included between lines
-* `underlinePosition` - the offset from the normal underline position that should be used
-* `underlineThickness` - the weight of the underline that should be used
-* `italicAngle` - if this is an italic font, the angle the cursor should be drawn at to match the font design
-* `capHeight` - the height of capital letters above the baseline. See [here](http://en.wikipedia.org/wiki/Cap_height) for more details.
-* `xHeight`- the height of lower case letters. See [here](http://en.wikipedia.org/wiki/X-height) for more details.
-* `bbox` - the font’s bounding box, i.e. the box that encloses all glyphs in the font
+- `unitsPerEm` - the size of the font’s internal coordinate grid
+- `ascent` - the font’s [ascender](<http://en.wikipedia.org/wiki/Ascender_(typography)>)
+- `descent` - the font’s [descender](http://en.wikipedia.org/wiki/Descender)
+- `lineGap` - the amount of space that should be included between lines
+- `underlinePosition` - the offset from the normal underline position that should be used
+- `underlineThickness` - the weight of the underline that should be used
+- `italicAngle` - if this is an italic font, the angle the cursor should be drawn at to match the font design
+- `capHeight` - the height of capital letters above the baseline. See [here](http://en.wikipedia.org/wiki/Cap_height) for more details.
+- `xHeight`- the height of lower case letters. See [here](http://en.wikipedia.org/wiki/X-height) for more details.
+- `bbox` - the font’s bounding box, i.e. the box that encloses all glyphs in the font
 
 ### Other properties
 
-* `numGlyphs` - the number of glyphs in the font
-* `characterSet` - an array of all of the unicode code points supported by the font
-* `availableFeatures` - an array of all [OpenType feature tags](https://www.microsoft.com/typography/otspec/featuretags.htm) (or mapped AAT tags) supported by the font (see below for a description of this)
+- `numGlyphs` - the number of glyphs in the font
+- `characterSet` - an array of all of the unicode code points supported by the font
+- `availableFeatures` - an array of all [OpenType feature tags](https://www.microsoft.com/typography/otspec/featuretags.htm) (or mapped AAT tags) supported by the font (see below for a description of this)
 
 ### Character to glyph mapping
 
@@ -181,13 +181,13 @@ You do not create glyph objects directly. They are created by various methods on
 
 ### Properties
 
-* `id` - the glyph id in the font
-* `name` - the glyph name in the font
-* `codePoints` - an array of unicode code points that are represented by this glyph. There can be multiple code points in the case of ligatures and other glyphs that represent multiple visual characters.
-* `path` - a vector Path object representing the glyph
-* `bbox` - the glyph’s bounding box, i.e. the rectangle that encloses the glyph outline as tightly as possible.
-* `cbox` - the glyph’s control box. This is often the same as the bounding box, but is faster to compute. Because of the way bezier curves are defined, some of the control points can be outside of the bounding box. Where `bbox` takes this into account, `cbox` does not. Thus, `cbox` is less accurate, but faster to compute. See [here](http://www.freetype.org/freetype2/docs/glyphs/glyphs-6.html#section-2) for a more detailed description.
-* `advanceWidth` - the glyph’s advance width.
+- `id` - the glyph id in the font
+- `name` - the glyph name in the font
+- `codePoints` - an array of unicode code points that are represented by this glyph. There can be multiple code points in the case of ligatures and other glyphs that represent multiple visual characters.
+- `path` - a vector Path object representing the glyph
+- `bbox` - the glyph’s bounding box, i.e. the rectangle that encloses the glyph outline as tightly as possible.
+- `cbox` - the glyph’s control box. This is often the same as the bounding box, but is faster to compute. Because of the way bezier curves are defined, some of the control points can be outside of the bounding box. Where `bbox` takes this into account, `cbox` does not. Thus, `cbox` is less accurate, but faster to compute. See [here](http://www.freetype.org/freetype2/docs/glyphs/glyphs-6.html#section-2) for a more detailed description.
+- `advanceWidth` - the glyph’s advance width.
 
 ### `glyph.render(ctx, size)`
 

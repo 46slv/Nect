@@ -173,7 +173,7 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
   assert.ok(Math.abs(record.offsets[record.units[1].id][0] - 4) < 1e-8);
   assert.ok(Math.abs(record.offsets[record.units[1].id][1] - 3) < 1e-8);
   assert.deepEqual(get().params.position.value, [100, 180]);
-  assert.equal(win.nect.document.schemaVersion, 3);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 3));
   const completed = JSON.stringify(win.nect.document);
   for (const cancel of ['Escape', 'pointercancel', 'blur', 'lostpointercapture']) {
     const p = pos(1);
@@ -358,27 +358,47 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
   select(1);
   document.querySelector('[data-character-reset="selected"]').click();
   assert.equal(get().characterPositions, undefined);
-  // Changing tools during a drag cancels the gesture before the new tool's edit.
+  // Text activation cannot steal an active edit. An ordinary tool switch still
+  // cancels the character drag before a later, explicit Text placement.
   const toolPoint = pos(1);
   pointer(stage(), 'pointerdown', ...toolPoint);
   pointer(document, 'pointermove', toolPoint[0] + 10, toolPoint[1] + 8);
   key(stage(), 't');
   const countText = () =>
     win.nect.document.layers.flatMap((l) => l.nodes).filter((n) => n.type === 'Text').length;
-  assert.equal(countText(), 2);
+  assert.equal(countText(), 1, 'Text shortcut does not author during a character drag');
+  assert.equal(document.querySelector('[data-tool="Text"]').getAttribute('aria-pressed'), 'false');
+  key(stage(), 'v');
   pointer(document, 'pointermove', toolPoint[0] + 20, toolPoint[1] + 20);
   pointer(document, 'pointerup', toolPoint[0] + 20, toolPoint[1] + 20);
-  assert.equal(countText(), 2, 'late pointer events cannot roll back the newly added Text');
-  assert.equal(
-    get().characterPositions,
-    undefined,
-    'old character drag was cancelled before tool edit',
+  assert.equal(countText(), 1, 'late pointer events do not commit the cancelled drag');
+  assert.equal(get().characterPositions, undefined, 'old character drag was cancelled by Select');
+  const beforeText = JSON.stringify(win.nect.document);
+  key(stage(), 't');
+  assert.equal(document.querySelector('[data-tool="Text"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(JSON.stringify(win.nect.document), beforeText, 'Text activation is view-only');
+  stage().getBoundingClientRect = () => ({ left: 0, top: 0, right: 960, bottom: 540 });
+  pointer(stage(), 'pointerdown', 80, 90, { isPrimary: true });
+  assert.equal(countText(), 1, 'Canvas press waits for release');
+  pointer(document, 'pointerup', 80, 90, { isPrimary: true });
+  assert.equal(countText(), 2, 'Canvas release creates one independent Text');
+  assert.deepEqual(
+    win.nect.document.layers.at(-1).nodes.find((n) => n.type === 'Text').params.position.value,
+    [80, 90],
+    'new Text uses the explicit Canvas placement',
   );
+  pointer(document, 'pointermove', 100, 110);
+  pointer(document, 'pointerup', 100, 110);
+  assert.equal(countText(), 2, 'late pointer events cannot roll back or duplicate the new Text');
   undo();
   assert.equal(countText(), 1);
+  assert.equal(
+    JSON.stringify(win.nect.document),
+    beforeText,
+    'one Undo restores the whole document',
+  );
   assert.equal(get().characterPositions, undefined);
   const replacement = structuredClone(doc);
-  replacement.schemaVersion = 3;
   replacement.layers[0].nodes[0].characterPositions = setCharacterOffsets('ABA', undefined, {
     c2: [9, -4],
   });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { document as newDocument, node, serialize } from '../src/core.js';
+import { DITHER_SCHEMA_VERSION } from '../src/dither-controls.js';
 
 const onePixelPng =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
@@ -79,7 +80,7 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   selector.value = image.id;
   selector.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
-  assert.equal(win.nect.document.schemaVersion, 21);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, DITHER_SCHEMA_VERSION));
   assert.equal(
     win.nect.document.layers[0].nodes.find((item) => item.id === effect.id).params.path.source,
     image.id,
@@ -108,7 +109,7 @@ test('Inspector exposes Image only for luminance inputs and wires/exports the sa
   converterSelector.value = effect.id;
   converterSelector.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
-  assert.equal(win.nect.document.schemaVersion, 21);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, DITHER_SCHEMA_VERSION));
   assert.equal(
     win.nect.document.layers[0].nodes.find((item) => item.id === converter.id).params.path.source,
     effect.id,

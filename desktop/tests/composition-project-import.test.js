@@ -26,14 +26,18 @@ function destination() {
         name: 'Current A',
         width: 200,
         height: 100,
-        layers: [{ id: 'layer-one', name: 'Existing A', nodes: [{ id: 'node-one', type: 'Output' }] }],
+        layers: [
+          { id: 'layer-one', name: 'Existing A', nodes: [{ id: 'node-one', type: 'Output' }] },
+        ],
       },
       {
         id: 'comp-two',
         name: 'Current B',
         width: 320,
         height: 960,
-        layers: [{ id: 'layer-two', name: 'Existing B', nodes: [{ id: 'node-two', type: 'Output' }] }],
+        layers: [
+          { id: 'layer-two', name: 'Existing B', nodes: [{ id: 'node-two', type: 'Output' }] },
+        ],
       },
     ],
     {
@@ -71,7 +75,11 @@ function source() {
               { id: 'image-node', type: 'Image', asset: 'image-shared' },
             ],
           },
-          { id: 'layer-two', name: 'Reference source', nodes: [{ id: 'source-node', type: 'Output' }] },
+          {
+            id: 'layer-two',
+            name: 'Reference source',
+            nodes: [{ id: 'source-node', type: 'Output' }],
+          },
         ],
       },
       {
@@ -106,23 +114,29 @@ test('imports all complete outer Compositions with dimensions, layers, reference
   assert.equal(logo.id, 'comp-one-import-1');
   assert.equal(logo.name, 'Imported logo');
   assert.deepEqual([logo.width, logo.height], [777, 333]);
-  assert.deepEqual(logo.layers.map(({ name }) => name), ['Artwork', 'Reference source']);
-  assert.deepEqual(logo.layers.map(({ id }) => id), ['layer-one-import-1', 'layer-two-import-1']);
+  assert.deepEqual(
+    logo.layers.map(({ name }) => name),
+    ['Artwork', 'Reference source'],
+  );
+  assert.deepEqual(
+    logo.layers.map(({ id }) => id),
+    ['layer-one-import-1', 'layer-two-import-1'],
+  );
   assert.equal(logo.layers[0].nodes[0].id, 'node-one-import-1');
   assert.equal(logo.layers[0].nodes[0].compositionReference.compositionId, logo.layers[1].id);
   assert.equal(portrait.id, 'comp-two-import-1');
   assert.equal(portrait.name, 'Imported portrait');
   assert.deepEqual([portrait.width, portrait.height], [640, 480]);
-  assert.deepEqual(portrait.layers.map(({ name }) => name), ['Portrait stack']);
+  assert.deepEqual(
+    portrait.layers.map(({ name }) => name),
+    ['Portrait stack'],
+  );
   assert.equal(importedProject.fontAssets['font-shared'].data, 'destination-font');
   assert.equal(importedProject.fontAssets['font-shared-import-1'].data, 'source-font');
   assert.equal(importedProject.imageAssets['image-shared'].data, 'destination-image');
   assert.equal(importedProject.imageAssets['image-shared-import-1'].data, 'source-image');
   assert.equal(logo.layers[0].nodes[1].font, 'font-shared-import-1');
-  assert.equal(
-    logo.layers[0].nodes[1].characterPositions.styles[0].font,
-    'font-shared-import-1',
-  );
+  assert.equal(logo.layers[0].nodes[1].characterPositions.styles[0].font, 'font-shared-import-1');
   assert.equal(logo.layers[0].nodes[2].asset, 'image-shared-import-1');
 });
 

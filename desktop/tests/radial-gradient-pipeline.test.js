@@ -157,12 +157,97 @@ test('linear and radial fills replace one another without leaking stale paint se
   assert.deepEqual(artwork(importSVG(exportSVG(doc), Parser)), artwork(doc));
 });
 
+test('radial gradient retains independent paint and local geometry through Join and Transform', () => {
+  const { doc, l, shape, gradient, out } = scene(),
+    stroke = append(l, 'Stroke', shape),
+    join = node('Join Geometry'),
+    transform = node('Transform');
+  stroke.params.color.value = { hex: '#00ff00', alpha: 0.4 };
+  stroke.params.width.value = 6;
+  gradient.params.center.value = [10, 20];
+  gradient.params.radius.value = 37.5;
+  gradient.params.startColor.value = { hex: '#ff0000', alpha: 0 };
+  gradient.params.endColor.value = { hex: '#0000ff', alpha: 0.625 };
+  connect(l, stroke.id, gradient.id, 'path');
+  const before = evaluate(l),
+    painted = structuredClone(before.run(gradient.id)),
+    stroked = structuredClone(before.run(stroke.id)),
+    appearances = structuredClone([painted, stroked]);
+  // Group children carry appearance, not aggregate editing provenance.
+  for (const appearance of appearances) delete appearance.characterOccurrences;
+  l.nodes.push(join, transform);
+  connect(l, gradient.id, join.id, 'a');
+  connect(l, stroke.id, join.id, 'b');
+  connect(l, join.id, transform.id, 'path');
+  transform.params.offset.value = [17, -23];
+  transform.params.scale.value = 2;
+  connect(l, transform.id, out.id, 'path');
+  doc.schemaVersion = 31;
+  assert.doesNotThrow(() => validate(doc));
+  for (const [target, keys] of [
+    [join, ['a', 'b']],
+    [transform, ['path']],
+  ]) {
+    assert.equal(target.paintMode, true);
+    assert.equal(outputType(target), 'PaintedPath');
+    for (const key of keys) assert.equal(target.params[key].type, 'PaintedPath');
+  }
+  const result = evaluate(l),
+    joined = result.run(join.id);
+  assert.equal(result.error, null);
+  assert.equal(joined.kind, 'painted-group');
+  assert.deepEqual(joined.children, appearances);
+  assert.deepEqual(pathBounds(joined), pathBounds(painted));
+  assert.equal(result.path.kind, 'painted-group');
+  assert.deepEqual(result.path.children[0].children, appearances);
+  assert.deepEqual(
+    result.path.matrix.map((v) => (v === 0 ? 0 : v)),
+    [2, 0, 0, 2, 17, -23],
+  );
+  assert.deepEqual(
+    pathBounds(result.path),
+    pathBounds(painted).map((axis, i) => axis.map((value) => value * 2 + [17, -23][i])),
+  );
+  assert.deepEqual(result.run(gradient.id), painted);
+  assert.deepEqual(result.run(stroke.id), stroked);
+  const svg = exportSVG(doc),
+    dom = xml(svg),
+    paint = dom.querySelector('radialGradient'),
+    paths = [...dom.querySelectorAll('path')];
+  assert.equal(dom.querySelector('g').getAttribute('transform'), 'matrix(2 0 0 2 17 -23)');
+  for (const [key, value] of Object.entries({
+    gradientUnits: 'userSpaceOnUse',
+    cx: '10',
+    cy: '20',
+    r: '37.5',
+    fx: '10',
+    fy: '20',
+    fr: '0',
+  }))
+    assert.equal(paint.getAttribute(key), value, key);
+  assert.equal(dom.querySelectorAll('radialGradient').length, 1);
+  assert.deepEqual(
+    [...paint.querySelectorAll('stop')].map((stop) => [
+      stop.getAttribute('stop-color'),
+      stop.getAttribute('stop-opacity'),
+    ]),
+    [
+      ['#ff0000', '0'],
+      ['#0000ff', '0.625'],
+    ],
+  );
+  assert.equal(paths.length, 2);
+  assert.equal(paths[0].getAttribute('d'), pathData(painted));
+  assert.equal(paths[0].getAttribute('fill'), `url(#${paint.id})`);
+  assert.equal(paths[1].getAttribute('fill'), 'none');
+  for (const path of paths) assert.equal(path.getAttribute('stroke'), '#00ff00');
+  assert.equal(exportSVG(deserialize(serialize(doc))), svg);
+});
+
 test('radial socket boundaries accept paths and reject incompatible geometry and value types', () => {
   const { doc, l, shape, gradient, out } = scene();
   for (const type of [
     'Boolean',
-    'Join Geometry',
-    'Transform',
     'Path Remap',
     'Text to Path',
     'Geometry Repeater',
@@ -170,7 +255,7 @@ test('radial socket boundaries accept paths and reject incompatible geometry and
   ]) {
     const n = node(type);
     l.nodes.push(n);
-    const key = ['Boolean', 'Join Geometry'].includes(type) ? 'a' : 'path';
+    const key = type === 'Boolean' ? 'a' : 'path';
     assert.throws(
       () => connect(l, gradient.id, n.id, key),
       /PaintedPath to Path/,

@@ -253,19 +253,22 @@ test('Vector UI: opt-in position handle, exact source values, shared snap/drag/h
   up();
   assert.deepEqual(pos(), [338, 230]);
   undo();
-  // Exactly six screen pixels, independent of canvas scale.
+  // Exactly six screen pixels, independent of canvas scale. Keep the motion
+  // near-horizontal so the automatic 45-degree attraction cannot win instead.
   for (const scale of [0.5, 2]) {
     matrix.a = matrix.d = scale;
     load();
     p = start();
-    move(p, 20 - 5.9 / scale, 20, {});
+    move(p, 20 - 5.9 / scale, 2, {});
     up();
     assert.equal(pos()[0], 320);
+    assert.equal(pos()[1], 252);
     undo();
     p = start();
-    move(p, 20 - 6.1 / scale, 20, {});
+    move(p, 20 - 6.1 / scale, 2, {});
     up();
     assert.ok(Math.abs(pos()[0] - (320 - 6.1 / scale)) < 1e-10);
+    assert.equal(pos()[1], 252);
     undo();
   }
   // Full inverse affine mapping, with a fractional source and out-and-back no-op.

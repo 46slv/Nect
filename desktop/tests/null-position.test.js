@@ -94,7 +94,11 @@ test('Null persists defaults, named identity and connections; malformed files an
     mutate(bad);
     assert.throws(() => deserialize(JSON.stringify(bad)));
   }
-  assert.equal(deserialize(serialize(document())).schemaVersion, 2);
+  const current = document();
+  assert.deepEqual(deserialize(serialize(current)), current, 'current factory is not downgraded');
+  const legacy = document();
+  legacy.schemaVersion = 2;
+  assert.equal(deserialize(serialize(legacy)).schemaVersion, 2);
   const sample = deserialize(fs.readFileSync('examples/null-position-reuse.json', 'utf8'));
   assert.deepEqual(evaluate(sample.layers[0]).run('null-origin'), [250, 200]);
   assert.deepEqual(evaluate(sample.layers[0]).run('null-offset'), [250, 310]);

@@ -129,7 +129,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
   await edit(0);
   assert.deepEqual(read().characterPositions.kerningPairs, { 'c1:c2': 0 });
   assert.equal(field().value, '0');
-  assert.equal(win.nect.document.schemaVersion, 9);
+  assert.equal(win.nect.document.schemaVersion, Math.max(fixture.schemaVersion, 9));
   const zero = saved();
   undo();
   assert.equal(saved(), initial);

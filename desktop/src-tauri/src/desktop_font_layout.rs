@@ -679,6 +679,23 @@ pub async fn shape_desktop_text(request: DesktopTextRequest) -> Result<DesktopOu
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
+    fn required_meiryo(faces: &[DesktopFace]) -> &DesktopFace {
+        faces
+            .iter()
+            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Required acceptance face family=Meiryo weight=400 style=0 missing from {} \
+                     DirectWrite faces. No fallback permitted. Check \
+                     windows-japanese-font-capability.json for \
+                     Language.Fonts.Jpan~~~und-JPAN~0.0.1.0 state. Family labels use \
+                     en-US when available. Exact face catalog (family/name/weight/style/\
+                     stretch/format/color):\n{}",
+                    faces.len(),
+                    serde_json::to_string_pretty(faces).unwrap()
+                )
+            })
+    }
     fn request(face: DesktopFace, text: &str) -> DesktopTextRequest {
         DesktopTextRequest {
             face,
@@ -698,11 +715,8 @@ mod tests {
     }
     #[test]
     fn actual_os_japanese_basic_wrap_vertical_and_boundaries() {
-        let face = installed()
-            .unwrap()
-            .into_iter()
-            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
-            .unwrap();
+        let faces = installed().unwrap();
+        let face = required_meiryo(&faces).clone();
         let mut req = request(
             face,
             "日本語の「折り返し」、小さいぁと長音ー。 Latin words\n次の段落です。",
@@ -819,11 +833,8 @@ mod tests {
     }
     #[test]
     fn actual_os_horizontal_wrap_preserves_text_and_refuses_vertical_or_bad_width() {
-        let face = installed()
-            .unwrap()
-            .into_iter()
-            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
-            .expect("Meiryo acceptance font");
+        let faces = installed().unwrap();
+        let face = required_meiryo(&faces).clone();
         let mut req = request(
             face.clone(),
             "日本語の折返しと文字間隔を確認します。 Latin words AV office\n次の段落です。",
@@ -1037,10 +1048,7 @@ mod tests {
     #[test]
     fn japanese_vertical_keeps_upright_shapes_rotates_latin_and_flows_right_to_left() {
         let faces = installed().unwrap();
-        let face = faces
-            .iter()
-            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
-            .unwrap();
+        let face = required_meiryo(&faces);
         let vertical = |text: &str| {
             let mut r = request(face.clone(), text);
             r.axes = Some(Default::default());
@@ -1224,10 +1232,7 @@ mod tests {
                 outputs.push(result);
             }
         }
-        let meiryo = faces
-            .iter()
-            .find(|f| f.family == "Meiryo" && f.weight == 400 && f.style == 0)
-            .unwrap();
+        let meiryo = required_meiryo(&faces);
         let mut req = request(meiryo.clone(), "日本語かな\nText ABC");
         outputs.push(prepare(req.clone()).unwrap());
         req.text = "日本語の編集\n新しい Text".into();

@@ -155,7 +155,26 @@ test('Text Position UI: typed sockets, source labels, cancellation, snap ownersh
   assert.deepEqual(position(b.id), [500, 300]);
   assert.equal(get(b.id).params.position.sourcePort, 'position');
   assert.match(field(b.id, 'position').textContent, /Master Position.*connected value/);
-  assert.equal(field(b.id, 'position').querySelector('[data-value]').disabled, true);
+  const followerBase = (axis) =>
+    field(b.id, 'position').querySelector(`[data-base][data-axis="${axis}"]`);
+  const followerResult = () => field(b.id, 'position').querySelector('output.parameter-result');
+  assert.equal(field(b.id, 'position').querySelector('[data-value]'), null);
+  assert.equal(followerBase(0).disabled, false);
+  assert.equal(followerBase(1).disabled, false);
+  assert.equal(followerBase(0).value, '100');
+  assert.equal(followerBase(1).value, '200');
+  assert.match(followerResult().textContent, /Connected result · 500, 300/);
+  assert.match(field(b.id, 'position').textContent, /Expression paused by connection/);
+  const connectedFollower = JSON.stringify(win.nect.document);
+  await change(followerBase(0), '130');
+  assert.deepEqual(get(b.id).params.position.value, [130, 200]);
+  assert.equal(get(b.id).params.position.expression, '110; 210');
+  assert.deepEqual(position(b.id), [500, 300]);
+  assert.match(followerResult().textContent, /Connected result · 500, 300/);
+  undo();
+  assert.equal(JSON.stringify(win.nect.document), connectedFollower);
+  assert.equal(followerBase(0).value, '100');
+  assert.deepEqual(position(b.id), [500, 300]);
   field(b.id, 'position').querySelector('[data-connect-menu]').click();
   const menu = document.querySelector('dialog select');
   assert.ok([...menu.options].some((o) => o.value === JSON.stringify([a.id, 'position'])));
@@ -175,6 +194,9 @@ test('Text Position UI: typed sockets, source labels, cancellation, snap ownersh
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   assert.deepEqual(position(b.id), [110, 210]);
+  assert.deepEqual(get(b.id).params.position.value, [100, 200]);
+  assert.match(followerResult().textContent, /^Result · 110, 210$/);
+  assert.doesNotMatch(field(b.id, 'position').textContent, /Expression paused by connection/);
   undo();
   assert.deepEqual(position(b.id), [500, 300]);
   redo();

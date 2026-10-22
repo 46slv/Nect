@@ -19,6 +19,7 @@ import {
   validate,
 } from '../src/core.js';
 import { parseFont } from '../src/fonts.js';
+import { DITHER_SCHEMA_VERSION, hasDotControls } from '../src/dither-controls.js';
 
 const fontData = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
 const fonts = {
@@ -68,6 +69,16 @@ test('Path inputs keep Convert to Path identity behavior and old documents stay 
   assert.equal(socketCompatibleFor(shape, converter, 'path'), true);
   assert.equal(outputType(converter), 'Path');
   assert.deepEqual(result, source);
+  const initialSchemaVersion = doc.schemaVersion;
+  assert.equal(
+    validate(doc).schemaVersion,
+    initialSchemaVersion,
+    'current schema is not downgraded',
+  );
+  // Center-anchored editor grids did not exist in schema 2 or 17.
+  delete doc.editor;
+  delete layer.allowEmptyOutput;
+  doc.schemaVersion = 2;
   assert.equal(validate(doc).schemaVersion, 2);
   doc.schemaVersion = 17;
   assert.equal(validate(doc).schemaVersion, 17, 'legacy Path identity edge is not promoted');
@@ -108,9 +119,14 @@ test('Fill, Stroke and gradients convert to unpainted geometry without mutating 
       sourceBefore,
       `${paintType} source is untouched`,
     );
+    const initialSchemaVersion = f.doc.schemaVersion;
     validate(f.doc);
-    assert.equal(f.doc.schemaVersion, 18, `${paintType} edge records schema 18`);
-    assert.equal(deserialize(serialize(f.doc)).schemaVersion, 18);
+    assert.equal(
+      f.doc.schemaVersion,
+      Math.max(initialSchemaVersion, 23),
+      `${paintType} conversion preserves the current schema and expandable Join minimum`,
+    );
+    assert.deepEqual(deserialize(serialize(f.doc)), f.doc);
   }
 });
 
@@ -157,20 +173,46 @@ test('all luminance outputs convert as PaintedPath geometry', () => {
     assert.equal(Object.hasOwn(converted, 'fill'), false, `${type} fill is dropped`);
     assert.equal(Object.hasOwn(converted, 'stroke'), false, `${type} stroke is dropped`);
     assert.match(converted.fingerprint, /^sha256:/, `${type} geometry has a fingerprint`);
+    const initialSchemaVersion = doc.schemaVersion,
+      minimumSchemaVersion = hasDotControls(type) ? DITHER_SCHEMA_VERSION : 21;
     validate(doc);
-    assert.equal(doc.schemaVersion, 21, `${type} conversion schema`);
+    assert.equal(doc.schemaVersion, Math.max(initialSchemaVersion, minimumSchemaVersion), type);
+    assert.deepEqual(deserialize(serialize(doc)), doc);
   }
 });
 
-test('PaintedPath acceptance is only for Convert to Path; direct Image and other Path consumers stay strict', () => {
+test('PaintedPath routes through Transform, Join and Convert to Path; geometry-only consumers stay strict', () => {
   const f = curveFixture('Fill');
   assert.equal(socketCompatibleFor(f.paint, f.converter, 'path'), true);
-  assert.equal(socketCompatibleFor(f.paint, node('Transform'), 'path'), false);
+  const source = structuredClone(evaluate(f.layer).run(f.paint.id)),
+    appearance = structuredClone(source);
+  // Painted group children retain appearance, not aggregate editing provenance.
+  delete appearance.characterOccurrences;
+  for (const [type, key] of [
+    ['Transform', 'path'],
+    ['Join Geometry', 'a'],
+  ]) {
+    const target = node(type);
+    f.layer.nodes.push(target);
+    assert.equal(socketCompatibleFor(f.paint, target, key), true, type);
+    connect(f.layer, f.paint.id, target.id, key);
+    assert.equal(target.paintMode, true, type);
+    assert.equal(target.params[key].type, 'PaintedPath', type);
+    assert.equal(outputType(target), 'PaintedPath', type);
+    const routed = evaluate(f.layer).run(target.id);
+    assert.equal(routed.kind, 'painted-group', type);
+    assert.deepEqual(routed.children, [appearance], `${type} preserves the painted source`);
+    assert.deepEqual(
+      routed.matrix.map((value) => (value === 0 ? 0 : value)),
+      [1, 0, 0, 1, 0, 0],
+      `${type} identity placement (signed zero is equivalent)`,
+    );
+    assert.deepEqual(evaluate(f.layer).run(f.paint.id), source, `${type} leaves source intact`);
+  }
   assert.equal(socketCompatibleFor(f.paint, node('Path Remap'), 'path'), false);
   assert.equal(socketCompatibleFor(f.paint, node('Text to Path'), 'path'), false);
   assert.equal(socketCompatibleFor(f.paint, node('Boolean'), 'a'), false);
   for (const [type, key] of [
-    ['Transform', 'path'],
     ['Path Remap', 'path'],
     ['Text to Path', 'path'],
     ['Boolean', 'a'],
@@ -255,13 +297,20 @@ test('locks, bypass refusal, failed-edge rollback, history and schema-18 round-t
   assert.throws(() => setNodeBypassed(layer, converter.id, true), /cannot be bypassed/);
   assert.equal(converter.bypassed, undefined);
 
-  const invalidBypass = structuredClone(f.doc),
+  const legacy = structuredClone(f.doc),
+    legacyLayer = legacy.layers[0];
+  delete legacy.editor;
+  delete legacyLayer.allowEmptyOutput;
+  legacyLayer.nodes = legacyLayer.nodes.filter((n) => n.id !== f.join.id);
+  legacyLayer.nodes.find((n) => n.id === f.paint.id).params.path.source = f.curve.id;
+
+  const invalidBypass = structuredClone(legacy),
     invalidConverter = invalidBypass.layers[0].nodes.find((n) => n.id === converter.id);
   invalidBypass.schemaVersion = 10;
   invalidConverter.bypassed = true;
   assert.throws(() => validate(invalidBypass), /Cannot bypass Convert to Path/);
 
-  const oldSchema17 = structuredClone(f.doc);
+  const oldSchema17 = structuredClone(legacy);
   oldSchema17.schemaVersion = 17;
   assert.equal(validate(oldSchema17).schemaVersion, 18);
 
@@ -279,10 +328,10 @@ test('locks, bypass refusal, failed-edge rollback, history and schema-18 round-t
     'painted edge does not replace bypass input',
   );
 
-  const historyDoc = structuredClone(f.doc),
+  const historyDoc = structuredClone(legacy),
     historyLayer = historyDoc.layers[0],
     historyConverter = historyLayer.nodes.find((n) => n.id === converter.id);
-  connect(historyLayer, f.join.id, historyConverter.id, 'path');
+  connect(historyLayer, f.curve.id, historyConverter.id, 'path');
   historyDoc.schemaVersion = 17;
   validate(historyDoc);
   const history = new History(historyDoc),

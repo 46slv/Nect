@@ -2,11 +2,6 @@
 
 ## Scope
 
-Independent copy and branch `codex/toggle-list-scroll-20261019` start at
-`e8c9db5225f6e26e36b0d69d3acb3320829b9fb0` (Draft PR28). The previous
-source worktrees, user artwork and existing Chrome localhost:5199 tab/server
-were left untouched. This copy used localhost:5201 with disposable content.
-
 The existing node picker had a category select and a flat list, with no
 expand-to-top behavior. Its empty-query/all-categories view now has one category
 level, with Create initially expanded. Clicking a category heading or pressing
@@ -42,18 +37,18 @@ Repeated browsing preserves the exact document, dirty flag, graph selection,
 history depth and Viewer state. The existing standalone picker DOM harness also
 needed its window's MutationObserver exposed for the context-menu integration.
 
-Actual SS-Note-ROG Chrome observations:
+Recorded Chrome observations:
 
-| Operation | Result |
-| --- | --- |
-| Expand final built-in Value category | Heading delta from list top 0.09 px; list scrollTop 718; page and dialog scrollTop 0 |
-| Search `transform` while both relevant categories are closed | Transform, Vector Transform in alphabetic order; ArrowDown selects the latter |
-| Search Japanese alias `角丸`, Enter, Undo | Corner Round found; graph node counts 1 -> 2 -> 1; one Undo restores the initial graph |
-| Expand categories after Undo | Graph remains one node; Undo remains disabled |
-| Short-tail fixture, initially no overflow | Last heading delta -0.41 px; list scrollTop 108; 268.203 px of trailing space |
-| Select Gamma in short-tail fixture | list scrollTop remains 108; page scrollTop 0 |
-| Native Left/Right after opening Last | list scrollTop 108 -> 108 -> 108; page and dialog stay 0 |
-| Chrome warn/error query on final app tab | Empty list |
+| Operation                                                    | Result                                                                                 |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| Expand final built-in Value category                         | Heading delta from list top 0.09 px; list scrollTop 718; page and dialog scrollTop 0   |
+| Search `transform` while both relevant categories are closed | Transform, Vector Transform in alphabetic order; ArrowDown selects the latter          |
+| Search Japanese alias `角丸`, Enter, Undo                    | Corner Round found; graph node counts 1 -> 2 -> 1; one Undo restores the initial graph |
+| Expand categories after Undo                                 | Graph remains one node; Undo remains disabled                                          |
+| Short-tail fixture, initially no overflow                    | Last heading delta -0.41 px; list scrollTop 108; 268.203 px of trailing space          |
+| Select Gamma in short-tail fixture                           | list scrollTop remains 108; page scrollTop 0                                           |
+| Native Left/Right after opening Last                         | list scrollTop 108 -> 108 -> 108; page and dialog stay 0                               |
+| Chrome warn/error query on final app tab                     | Empty list                                                                             |
 
 The short-tail check exposed a real initial defect: scrollHeight is at least
 clientHeight, so it cannot measure the actual content end of an underfilled list.
@@ -81,12 +76,3 @@ Screenshots were captured from the actual browser, not a simulated renderer.
 Physical Japanese IME, native WebView2 and actual Ctrl+C/V were not tested. The
 composition guards are synthetic DOM coverage; typing Japanese text through the
 browser is not physical IME acceptance. No full suite, release or merge claim.
-No authentication or permission settings were changed. No denied/pending action
-remains. A requested parent progress message returned `thread not found` and did
-not deliver; the delegated final response is the reliable handoff route.
-
-Local review followed the shared coding review/Git owners and project UI skill.
-External consultation gate: **not-required**, zero submissions; local tests and
-browser measurements resolved the decisions (one local repair/verification cycle
-for the short-list geometry). Learning gate: PASS, `NO_REUSABLE_DELTA`; the
-project-specific geometry finding and reproduction live here and in the fixture.

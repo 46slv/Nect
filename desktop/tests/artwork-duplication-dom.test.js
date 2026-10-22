@@ -148,6 +148,7 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
         assert.equal(duplicate().textContent, 'Duplicate in place');
         assert.equal($('.artwork-duplicate-status').textContent, '');
         assert.ok(duplicate().closest('.inspector-body'));
+        click('.canvas-toolbar [data-action="align-panel"]');
         assert.ok(
           $('.alignment-panel [data-align-artwork]'),
           'alignment remains pinned outside the inspector',

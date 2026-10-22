@@ -1,12 +1,5 @@
 # Named node presets — REQ-23 bounded first phase
 
-Source: https://app.notion.com/p/3e0fd279a6f381a3bc71eb08c627bec7
-Base: ca376c67529364a4518bdf06b6893bd3c8896392 (PR31).
-Development branch: `codex/req23-named-presets-20261019`.
-Remote-verified implementation: `88c4b257df92c4bbe9199e39697be96a6781f1f3`.
-[Draft PR32](https://github.com/46slv/Nect/pull/32), stacked on PR31.
-No CI checks or external reviews are reported at this checkpoint.
-
 The document stores named snapshots of selected source/effect nodes. Applying a
 preset appends ordinary editable nodes in any Composition of the same document.
 It never replaces Output, its connections, existing nodes or the renderer.
@@ -40,11 +33,11 @@ UI and automation dispatch these same CommandSession commands.
 Macro public controls, external preset files, shared libraries and effect-stack
 redesign are excluded. This is partial REQ-23 coverage, not overall completion.
 
-## Bounded verification (SS-Note-ROG)
+## Bounded verification
 
 - Focused tests: **35/35 PASS** with `node --test tests/named-presets.test.js
-  tests/node-clipboard.test.js tests/repeater-ae.test.js
-  tests/opentype-features.test.js tests/command-session.test.js`.
+tests/node-clipboard.test.js tests/repeater-ae.test.js
+tests/opentype-features.test.js tests/command-session.test.js`.
 - Production `npm run build`: **PASS**, 126 modules. Existing large-chunk warning
   remains. No dependency or lockfile changes.
 - Actual Chrome **155.0.8059.80**, disposable profile and fixture documents:
@@ -60,17 +53,10 @@ redesign are excluded. This is partial REQ-23 coverage, not overall completion.
   snapshot reload, internal expression/Reference and Curve/Multi Path identity
   remapping, embedded Text font, unchanged-update no-op, stale envelope,
   active gesture, locked destination and retained schema floors/backfills.
-- `git diff --check`: **PASS**. Scope-only local diff review found no unresolved
-  material decision. External consultation gate **not-required**, zero messages;
-  current source, focused contracts and browser evidence supplied the checks.
-  Mandatory learning gate **PASS / NO_REUSABLE_DELTA**; fixture selection assertions
-  and project-specific admission semantics remain in these focused tests.
+- `git diff --check`: **PASS**.
 
 Budgets: at most 100 presets, 1–1999 nodes per snapshot, 2,000 nodes per target
 Composition, existing 50 MB project limit (including saved asset records). Invalid
-commands preserve revision and Undo/Redo state. The browser fixture uses synthetic
-artwork only; existing worktrees, user documents and old local app servers are
-untouched. Notion is read-only in this task.
+commands preserve revision and Undo/Redo state. The browser fixture uses synthetic artwork only.
 
-Native Tauri/EXE and physical IME remain **unverified**. No global full-suite audit,
-merge, release/distribution or authentication/permission change was performed.
+Native Tauri/EXE and physical IME remain **unverified**. No global full-suite or release acceptance is claimed.

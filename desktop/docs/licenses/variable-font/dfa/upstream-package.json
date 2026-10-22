@@ -22,21 +22,12 @@
     "type": "git",
     "url": "git+ssh://git@github.com/devongovett/dfa.git"
   },
-  "keywords": [
-    "state",
-    "machine",
-    "compiler"
-  ],
+  "keywords": ["state", "machine", "compiler"],
   "author": "Devon Govett <devongovett@gmail.com>",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/devongovett/dfa/issues"
   },
   "homepage": "https://github.com/devongovett/dfa#readme",
-  "files": [
-    "index.js",
-    "index.js.map",
-    "compile.js",
-    "compile.js.map"
-  ]
+  "files": ["index.js", "index.js.map", "compile.js", "compile.js.map"]
 }

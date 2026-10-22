@@ -8,7 +8,8 @@ import { document as makeDocument, blankLayer, node, serialize } from '../src/co
 test('node header context actions through real DOM handlers', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'MutationObserver'])
+    globalThis[key] = win[key];
   globalThis.requestAnimationFrame = () => 0;
   globalThis.DOMPoint = class {
     constructor(x, y) {

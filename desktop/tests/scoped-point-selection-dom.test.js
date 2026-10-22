@@ -326,7 +326,11 @@ test('scoped point selection is view-only, complete and stable across paging', a
         c.points.map((p) => p.id),
       );
       assert.equal(state().focus.pointId, c.points[0].id);
-      assert.match($(`.graph .node[data-id="${id}"] .batch-edit`).textContent, /1 batch checked/);
+      assert.match(
+        $(`.graph .node[data-id="${id}"] [data-apply-batch="${id}"]`).closest('.batch-edit')
+          .textContent,
+        /1 batch checked/,
+      );
       act(id, 'invert');
       assert.deepEqual(state().points, []);
       act(id, 'invert');

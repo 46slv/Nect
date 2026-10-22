@@ -188,7 +188,7 @@ test('open-path width multipliers change geometry and retain undo, redo, and ser
     after.layers[0].nodes.find((n) => n.id === expand.id).params.endWidthMultiplier.value,
     2,
   );
-  assert.equal(after.schemaVersion, 16);
+  assert.equal(after.schemaVersion, Math.max(before.schemaVersion, 16));
   assert.deepEqual(deserialize(serialize(after)), after);
   send('undo');
   assert.deepEqual(session.snapshot(), midpoint);

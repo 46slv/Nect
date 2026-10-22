@@ -10,9 +10,7 @@
       "license": "Apache-2.0",
       "browserInputPresent": true,
       "directory": "@swc--helpers",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -23,9 +21,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "base64-js",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -55,9 +51,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "clone",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -68,9 +62,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "dfa",
-      "notices": [
-        "LICENSE-DECLARATION.txt"
-      ],
+      "notices": ["LICENSE-DECLARATION.txt"],
       "fullLicenseIncludedUpstream": false,
       "upstreamGitHead": "3f5e603e5082caedabefefdf53e8a6ca3111e966",
       "releaseStatus": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
@@ -84,9 +76,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "fast-deep-equal",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -97,9 +87,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "fontkit",
-      "notices": [
-        "LICENSE-DECLARATION.txt"
-      ],
+      "notices": ["LICENSE-DECLARATION.txt"],
       "fullLicenseIncludedUpstream": false,
       "upstreamGitHead": "fbf3b9ef21eebd219eb73e666faed573af0fba09",
       "releaseStatus": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
@@ -113,9 +101,7 @@
       "license": "MIT",
       "browserInputPresent": false,
       "directory": "pako",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -126,9 +112,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "restructure",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -139,9 +123,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "tiny-inflate",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -152,10 +134,7 @@
       "license": "0BSD",
       "browserInputPresent": true,
       "directory": "tslib",
-      "notices": [
-        "LICENSE.txt",
-        "CopyrightNotice.txt"
-      ],
+      "notices": ["LICENSE.txt", "CopyrightNotice.txt"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -166,9 +145,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "unicode-properties",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     },
     {
@@ -179,9 +156,7 @@
       "license": "MIT",
       "browserInputPresent": true,
       "directory": "unicode-trie",
-      "notices": [
-        "LICENSE"
-      ],
+      "notices": ["LICENSE"],
       "fullLicenseIncludedUpstream": true
     }
   ],
@@ -390,10 +365,6 @@
     }
   ],
   "releaseStatus": "BUNDLING_NOTICE_REVIEW",
-  "missingAuthoritativeNotices": [
-    "fontkit@2.0.4",
-    "dfa@1.2.0",
-    "brotli@1.3.3"
-  ],
+  "missingAuthoritativeNotices": ["fontkit@2.0.4", "dfa@1.2.0", "brotli@1.3.3"],
   "interpretation": "Packages explicitly declare MIT; full project notices absent. Not a finding of absent licensing or a legal prohibition."
 }

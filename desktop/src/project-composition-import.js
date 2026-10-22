@@ -11,7 +11,9 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   const source = deserialize(sourceText);
   const selected = source.layers.find((layer) => layer.id === compositionId);
   if (!selected)
-    throw Object.assign(Error('Missing source Composition'), { code: 'COMPOSITION_SOURCE_MISSING' });
+    throw Object.assign(Error('Missing source Composition'), {
+      code: 'COMPOSITION_SOURCE_MISSING',
+    });
   const layers = new Map(source.layers.map((layer) => [layer.id, layer]));
   const needed = new Set();
   const visit = (id) => {
@@ -31,12 +33,7 @@ export function prepareCompositionImport(current, sourceText, compositionId) {
   const selectedLayers = [...needed].map((id) => layers.get(id));
   const copiedLayers = remapIds(selectedLayers, collectIds(selectedLayers), collectIds(current));
   const references = collectAssetReferences(copiedLayers);
-  const fonts = mergeAssetRegistry(
-    references.fonts,
-    source.fontAssets,
-    current.fontAssets,
-    'font',
-  );
+  const fonts = mergeAssetRegistry(references.fonts, source.fontAssets, current.fontAssets, 'font');
   const images = mergeAssetRegistry(
     references.images,
     source.imageAssets,

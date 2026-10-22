@@ -112,7 +112,7 @@ test('character shape UI: mixed absolute edits, separate resets, history, draft 
   assert.equal(document.querySelectorAll('[data-character-pivot="c2"]').length, 1);
   await edit('rotation', 30);
   assert.deepEqual(get().characterPositions.transforms, { c2: { rotation: 30, scale: 1 } });
-  assert.equal(win.nect.document.schemaVersion, 4);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 4));
   const rotated = saved();
   undo();
   assert.equal(saved(), initial);
@@ -161,7 +161,7 @@ test('character shape UI: mixed absolute edits, separate resets, history, draft 
     const stage = document.querySelector('.canvas-stage');
     pointer(stage, 'pointerdown', ...p, { altKey: true });
     pointer(document, 'pointermove', p[0] + 18, p[1] + 12, { altKey: true });
-    assert.equal(win.nect.document.schemaVersion, 4);
+    assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 4));
     assert.deepEqual(get().characterPositions.transforms.c2, { rotation: 30, scale: 1.5 });
     if (cancel === 'Escape') key(document.querySelector('.canvas-stage'), 'Escape');
     else if (cancel === 'blur') win.dispatchEvent(new win.Event('blur'));
@@ -178,7 +178,7 @@ test('character shape UI: mixed absolute edits, separate resets, history, draft 
   x.value = '12';
   x.dispatchEvent(new win.Event('change', { bubbles: true }));
   await tick();
-  assert.equal(win.nect.document.schemaVersion, 4);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 4));
   assert.deepEqual(get().characterPositions.offsets.c2, [12, 0]);
   const withXY = saved();
   document.querySelector('.inspector-body [data-character-shape-reset]').click();

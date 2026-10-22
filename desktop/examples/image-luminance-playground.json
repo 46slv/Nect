@@ -15,28 +15,19 @@
           "id": "image-luma-0:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                520,
-                156
-              ],
+              "value": [520, 156],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                1040,
-                312
-              ],
+              "value": [1040, 312],
               "expression": "",
               "locked": false
             }
@@ -52,10 +43,7 @@
           "id": "image-luma-0:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -87,10 +75,7 @@
           "id": "image-luma-0:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -123,19 +108,13 @@
           "id": "image-luma-1:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                40
-              ],
+              "value": [32, 40],
               "expression": "",
               "locked": false
             },
@@ -174,10 +153,7 @@
           "id": "image-luma-1:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -209,10 +185,7 @@
           "id": "image-luma-1:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -245,19 +218,13 @@
           "id": "image-luma-2:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                66
-              ],
+              "value": [32, 66],
               "expression": "",
               "locked": false
             },
@@ -296,10 +263,7 @@
           "id": "image-luma-2:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -331,10 +295,7 @@
           "id": "image-luma-2:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -367,28 +328,19 @@
           "id": "image-luma-3:n0",
           "type": "Image",
           "name": "Image",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                120
-              ],
+              "value": [32, 120],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -405,10 +357,7 @@
           "id": "image-luma-3:n1",
           "type": "Image Output",
           "name": "Image Output",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -441,19 +390,13 @@
           "id": "image-luma-4:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                106
-              ],
+              "value": [32, 106],
               "expression": "",
               "locked": false
             },
@@ -492,10 +435,7 @@
           "id": "image-luma-4:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -527,10 +467,7 @@
           "id": "image-luma-4:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -563,19 +500,13 @@
           "id": "image-luma-5:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                274
-              ],
+              "value": [32, 274],
               "expression": "",
               "locked": false
             },
@@ -614,10 +545,7 @@
           "id": "image-luma-5:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -649,10 +577,7 @@
           "id": "image-luma-5:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -685,28 +610,19 @@
           "id": "image-luma-6:n0",
           "type": "Image",
           "name": "Image",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                288,
-                120
-              ],
+              "value": [288, 120],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -723,10 +639,7 @@
           "id": "image-luma-6:n1",
           "type": "Halftone",
           "name": "Halftone",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -751,10 +664,7 @@
             },
             "gridOrigin": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -770,10 +680,7 @@
           "id": "image-luma-6:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -806,19 +713,13 @@
           "id": "image-luma-7:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                288,
-                106
-              ],
+              "value": [288, 106],
               "expression": "",
               "locked": false
             },
@@ -857,10 +758,7 @@
           "id": "image-luma-7:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -892,10 +790,7 @@
           "id": "image-luma-7:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -928,19 +823,13 @@
           "id": "image-luma-8:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                288,
-                274
-              ],
+              "value": [288, 274],
               "expression": "",
               "locked": false
             },
@@ -979,10 +868,7 @@
           "id": "image-luma-8:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1014,10 +900,7 @@
           "id": "image-luma-8:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1050,28 +933,19 @@
           "id": "image-luma-9:n0",
           "type": "Image",
           "name": "Image",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                544,
-                120
-              ],
+              "value": [544, 120],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -1088,10 +962,7 @@
           "id": "image-luma-9:n1",
           "type": "Ordered Dither",
           "name": "Ordered Dither",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1116,10 +987,7 @@
             },
             "gridOrigin": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -1135,10 +1003,7 @@
           "id": "image-luma-9:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1171,19 +1036,13 @@
           "id": "image-luma-10:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                544,
-                106
-              ],
+              "value": [544, 106],
               "expression": "",
               "locked": false
             },
@@ -1222,10 +1081,7 @@
           "id": "image-luma-10:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1257,10 +1113,7 @@
           "id": "image-luma-10:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1293,19 +1146,13 @@
           "id": "image-luma-11:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                544,
-                274
-              ],
+              "value": [544, 274],
               "expression": "",
               "locked": false
             },
@@ -1344,10 +1191,7 @@
           "id": "image-luma-11:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1379,10 +1223,7 @@
           "id": "image-luma-11:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1415,28 +1256,19 @@
           "id": "image-luma-12:n0",
           "type": "Image",
           "name": "Image",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                800,
-                120
-              ],
+              "value": [800, 120],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                192,
-                128
-              ],
+              "value": [192, 128],
               "expression": "",
               "locked": false
             }
@@ -1453,10 +1285,7 @@
           "id": "image-luma-12:n1",
           "type": "Line Screen",
           "name": "Line Screen",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1481,10 +1310,7 @@
             },
             "gridOrigin": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -1500,10 +1326,7 @@
           "id": "image-luma-12:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1536,19 +1359,13 @@
           "id": "image-luma-13:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                800,
-                106
-              ],
+              "value": [800, 106],
               "expression": "",
               "locked": false
             },
@@ -1587,10 +1404,7 @@
           "id": "image-luma-13:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1622,10 +1436,7 @@
           "id": "image-luma-13:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1658,19 +1469,13 @@
           "id": "image-luma-14:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            48,
-            56
-          ],
+          "position": [48, 56],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                800,
-                274
-              ],
+              "value": [800, 274],
               "expression": "",
               "locked": false
             },
@@ -1709,10 +1514,7 @@
           "id": "image-luma-14:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            298,
-            56
-          ],
+          "position": [298, 56],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1744,10 +1546,7 @@
           "id": "image-luma-14:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            548,
-            56
-          ],
+          "position": [548, 56],
           "width": 264,
           "collapsed": false,
           "params": {

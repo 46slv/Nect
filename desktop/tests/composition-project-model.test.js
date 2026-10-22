@@ -71,10 +71,7 @@ test('migrates a legacy frame into one outer Composition without changing its co
   assert.equal(migrated.compositions[0].layers[0].nodes[0].asset, 'image-asset-1');
   assert.equal(migrated.compositions[0].layers[0].nodes[0].font, 'font-asset-1');
   assert.equal(migrated.compositions[0].layers[0].id, source.layers[0].id);
-  assert.equal(
-    migrated.compositions[0].layers[0].nodes[0].id,
-    source.layers[0].nodes[0].id,
-  );
+  assert.equal(migrated.compositions[0].layers[0].nodes[0].id, source.layers[0].nodes[0].id);
   assert.notStrictEqual(migrated.compositions[0].layers, source.layers, 'output is detached');
 });
 
@@ -84,10 +81,7 @@ test('uses source dimensions and allocates a collision-free Composition ID', () 
 
   const migrated = migrateLegacyDocumentToCompositionProject(source);
 
-  assert.deepEqual(
-    [migrated.compositions[0].width, migrated.compositions[0].height],
-    [1280, 720],
-  );
+  assert.deepEqual([migrated.compositions[0].width, migrated.compositions[0].height], [1280, 720]);
   assert.equal(migrated.compositions[0].id, 'legacy-composition-2');
   assert.equal(migrated.compositions[0].layers[0].id, 'legacy-composition-1');
 });
@@ -96,10 +90,7 @@ test('rejects applying the legacy migration twice without mutating the migrated 
   const migrated = migrateLegacyDocumentToCompositionProject(legacyDocument()),
     before = JSON.stringify(migrated);
 
-  assert.throws(
-    () => migrateLegacyDocumentToCompositionProject(migrated),
-    /more than once/,
-  );
+  assert.throws(() => migrateLegacyDocumentToCompositionProject(migrated), /more than once/);
   assert.equal(JSON.stringify(migrated), before);
   assert.equal(migrated.compositions.length, 1);
 });
@@ -193,10 +184,7 @@ test('keeps legacy Layer-graph references within one outer Composition', () => {
 
   source.nodes[source.nodes.length - 1].compositionReference.compositionId =
     project.compositions[1].layers[0].id;
-  assert.throws(
-    () => validateCompositionProject(project),
-    /cannot cross outer Compositions/,
-  );
+  assert.throws(() => validateCompositionProject(project), /cannot cross outer Compositions/);
 });
 
 test('legacy JSON is migrated once on read and new JSON is validated without remigration', () => {
@@ -206,10 +194,7 @@ test('legacy JSON is migrated once on read and new JSON is validated without rem
     reopened = deserializeCompositionProject(serializeCompositionProject(migrated));
 
   assert.equal(migrated.compositions.length, 1);
-  assert.deepEqual(
-    [migrated.compositions[0].width, migrated.compositions[0].height],
-    [417, 263],
-  );
+  assert.deepEqual([migrated.compositions[0].width, migrated.compositions[0].height], [417, 263]);
   assert.equal(reopened.compositions.length, 1);
   assert.equal(reopened.compositions[0].id, compositionId);
   assert.deepEqual(reopened.compositions[0].editor, legacy.editor);
@@ -276,8 +261,8 @@ test('invalid active IDs and edited data fail without mutating the source projec
   );
   const invalidSize = structuredClone(validEdit);
   invalidSize.width = 0;
-  assert.throws(
-    () => applyActiveCompositionDocument(project, project.compositions[0].id, invalidSize),
+  assert.throws(() =>
+    applyActiveCompositionDocument(project, project.compositions[0].id, invalidSize),
   );
   const duplicateId = structuredClone(validEdit);
   duplicateId.layers[0].nodes[0].id = project.compositions[1].layers[0].id;

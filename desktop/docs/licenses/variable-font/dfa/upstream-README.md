@@ -47,6 +47,7 @@ for (let [startIndex, endIndex] of stateMachine.match([0, 1, 2, 3, 0, 4, 6]) {
 ```
 
 Output:
+
 ```
 match: 1 3
 match: 5 6
@@ -65,7 +66,7 @@ A subset of common regular expression syntax is supported. A list of operators a
 precedence is below. Operators with the same precedence are evaluated left to right.
 
 | Precedence | Syntax     | Type          | Meaning                                    |
-| ---------- | ---------- | --------------| ------------------------------------------ |
+| ---------- | ---------- | ------------- | ------------------------------------------ |
 | 1          | `a \| b`   | Alternation   | Matches either `a` or `b`                  |
 | 2          | `a b`      | Concatenation | Matches `a` followed by `b`                |
 | 3          | `a*`       | Repetition    | Matches zero or more occurrences of `a`    |

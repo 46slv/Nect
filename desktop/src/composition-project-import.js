@@ -23,12 +23,12 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
   const requested = new Set(selectedIds),
     sourceCompositions = sourceProject.compositions.filter((item) => requested.has(item.id));
   if (sourceCompositions.length !== requested.size)
-    throw Object.assign(Error('Missing source Composition'), { code: 'COMPOSITION_SOURCE_MISSING' });
+    throw Object.assign(Error('Missing source Composition'), {
+      code: 'COMPOSITION_SOURCE_MISSING',
+    });
 
   const occupied = collectIds(current),
-    compositions = sourceCompositions.map((item) =>
-      remapIds(item, collectIds(item), occupied),
-    );
+    compositions = sourceCompositions.map((item) => remapIds(item, collectIds(item), occupied));
   const references = collectAssetReferences(compositions);
   const fonts = mergeAssetRegistry(
     references.fonts,

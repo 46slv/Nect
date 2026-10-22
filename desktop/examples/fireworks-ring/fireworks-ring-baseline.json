@@ -30,10 +30,7 @@
           "id": "fireworks-diamond",
           "type": "Curve",
           "name": "Diamond 12 × 28",
-          "position": [
-            40,
-            60
-          ],
+          "position": [40, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -49,28 +46,19 @@
               "id": "fireworks-vertex-0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  300,
-                  166
-                ],
+                "value": [300, 166],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -80,28 +68,19 @@
               "id": "fireworks-vertex-1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  306,
-                  180
-                ],
+                "value": [306, 180],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -111,28 +90,19 @@
               "id": "fireworks-vertex-2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  300,
-                  194
-                ],
+                "value": [300, 194],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -142,28 +112,19 @@
               "id": "fireworks-vertex-3",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  294,
-                  180
-                ],
+                "value": [294, 180],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -180,10 +141,7 @@
           "id": "fireworks-repeater",
           "type": "Geometry Repeater",
           "name": "24 copies · 15° · radius 120",
-          "position": [
-            350,
-            60
-          ],
+          "position": [350, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -202,19 +160,13 @@
             },
             "step": {
               "type": "Vector2",
-              "value": [
-                60,
-                0
-              ],
+              "value": [60, 0],
               "expression": "",
               "locked": false
             },
             "center": {
               "type": "Vector2",
-              "value": [
-                480,
-                270
-              ],
+              "value": [480, 270],
               "expression": "",
               "locked": false
             },
@@ -238,28 +190,19 @@
             },
             "anchor": {
               "type": "Vector2",
-              "value": [
-                300,
-                180
-              ],
+              "value": [300, 180],
               "expression": "",
               "locked": false
             },
             "position": {
               "type": "Vector2",
-              "value": [
-                31.05828541230249,
-                4.0889008453118025
-              ],
+              "value": [31.05828541230249, 4.0889008453118025],
               "expression": "",
               "locked": false
             },
             "scale": {
               "type": "Vector2",
-              "value": [
-                100,
-                100
-              ],
+              "value": [100, 100],
               "expression": "",
               "locked": false
             },
@@ -335,10 +278,7 @@
           "id": "fireworks-fill",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            60
-          ],
+          "position": [660, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -370,10 +310,7 @@
           "id": "fireworks-stroke",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            970,
-            60
-          ],
+          "position": [970, 60],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -423,10 +360,7 @@
           "id": "fireworks-output",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1280,
-            60
-          ],
+          "position": [1280, 60],
           "width": 264,
           "collapsed": false,
           "params": {

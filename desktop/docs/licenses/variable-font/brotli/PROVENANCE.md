@@ -30,7 +30,7 @@ It contains “Copyright (c) 2009, 2010, 2013-2016 by the Brotli Authors.” Thi
 attribution for that vendor source, not an invented grant for the JavaScript port.
 
 `DECODER-NOTICES.txt` retains verbatim distinct Apache-2.0 source headers from
-installed 1.3.3 dec/*.js, including the original Google 2013 copyright notices.
+installed 1.3.3 dec/\*.js, including the original Google 2013 copyright notices.
 `Apache-2.0.txt` retains the full terms, originally copied from the identical
 license in @swc/helpers. These decoder headers likewise do not supply a complete
 project-level notice for unheaded port/wrapper files.

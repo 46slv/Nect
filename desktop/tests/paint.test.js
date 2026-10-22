@@ -73,7 +73,7 @@ test('bare geometry is unpainted; Fill and Stroke preserve independent channels 
   assert.equal(evaluate(l).path.stroke.width, 0);
   assert.deepEqual(evaluate(l).path.fill, fill2.params.color.value);
 });
-test('paint order permits geometry then paint; typed compatibility is shared, and geometry rejects PaintedPath', () => {
+test('paint routing preserves appearance through Transform and Join; geometry-only inputs reject PaintedPath', () => {
   const { l, shape, out } = scene();
   const transform = append(l, 'Transform', shape),
     stroke = append(l, 'Stroke', transform),
@@ -81,9 +81,28 @@ test('paint order permits geometry then paint; typed compatibility is shared, an
   assert.equal(outputType(fill), 'PaintedPath');
   assert.equal(socketCompatible('Path', 'PaintedPath'), true);
   assert.equal(socketCompatible('PaintedPath', 'Path'), false);
-  for (const type of ['Transform', 'Path Remap', 'Text to Path', 'Boolean']) {
+  const source = structuredClone(evaluate(l).run(fill.id)),
+    appearance = structuredClone(source);
+  delete appearance.characterOccurrences;
+  for (const [type, key] of [
+    ['Transform', 'path'],
+    ['Join Geometry', 'a'],
+  ]) {
     const n = node(type);
     l.nodes.push(n);
+    assert.equal(socketCompatibleFor(fill, n, key), true, type);
+    connect(l, fill.id, n.id, key);
+    assert.equal(outputType(n), 'PaintedPath', type);
+    assert.equal(n.params[key].type, 'PaintedPath', type);
+    const result = evaluate(l).run(n.id);
+    assert.equal(result.kind, 'painted-group', type);
+    assert.deepEqual(result.children, [appearance], `${type} retains both fill and stroke`);
+    assert.deepEqual(evaluate(l).run(fill.id), source, `${type} does not mutate its input`);
+  }
+  for (const type of ['Path Remap', 'Text to Path', 'Boolean']) {
+    const n = node(type);
+    l.nodes.push(n);
+    assert.equal(socketCompatibleFor(stroke, n, type === 'Boolean' ? 'a' : 'path'), false);
     assert.throws(
       () => connect(l, stroke.id, n.id, type === 'Boolean' ? 'a' : 'path'),
       /Cannot connect PaintedPath to Path/,

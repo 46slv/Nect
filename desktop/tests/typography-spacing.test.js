@@ -226,6 +226,7 @@ test('vertical auto leading accounts for cross-axis shift and width, manual colu
 });
 test('leading and new style features require schema6, reject malformed data and invalidate geometry cache only', () => {
   const { doc, t, layer } = scene();
+  doc.schemaVersion = 5;
   t.leading = { mode: 'manual', value: 70 };
   assert.throws(() => validate(doc), /schemaVersion 6/);
   doc.schemaVersion = 6;

@@ -29,9 +29,17 @@ export function transformHandleGeometry(state, bounds, screenScale = 1) {
     radius = 100;
   }
   const sign = scale < 0 ? -1 : 1;
-  const transformed = state.matrix ? transformCharacterPoint([...state.matrix.slice(0, 4), 0, 0], vector) : null;
+  const transformed = state.matrix
+    ? transformCharacterPoint([...state.matrix.slice(0, 4), 0, 0], vector)
+    : null;
   const magnitude = transformed ? Math.hypot(...transformed) : 0;
-  const axis = transformed && magnitude > 1e-8 ? transformed.map(v => v / magnitude) : transformCharacterPoint(characterTransform([0, 0], [0, 0], sign / radius, rotation), vector);
+  const axis =
+    transformed && magnitude > 1e-8
+      ? transformed.map((v) => v / magnitude)
+      : transformCharacterPoint(
+          characterTransform([0, 0], [0, 0], sign / radius, rotation),
+          vector,
+        );
   const distance = Math.max(40 / screenScale, transformed ? magnitude : radius * Math.abs(scale));
   const point = (d) => pivot.map((v, i) => v + axis[i] * d);
   const geometry = {

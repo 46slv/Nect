@@ -1,139 +1,224 @@
-# Desktop source and adoption
+# Desktop integration and shared editing contract
 
-Imported from 46slv/Nect-SVG107a154e8d5a887f4bc551ab7bcafbc88773da87 by the predecessor. The retained source-107a154.tar is a local provenance artifact excluded from Git. Imported licenses and lockfiles are retained. Parent CURRENT_GOAL.md owns the adopted Brief and single active checkpoint.
+The desktop editor was adopted from `46slv/Nect-SVG` at
+`107a154e8d5a887f4bc551ab7bcafbc88773da87`. Imported licenses and lockfiles
+are retained. Tauri/WebView2 hosts the editor; the DOM-free JavaScript Session
+owns authored graph state, stable identities, commands and Undo/Redo. Rust owns
+native file bindings, not a second editing history. Legacy C++/Qt formats remain
+separate references rather than an implicit import or compatibility promise.
 
-Tauri/WebView2 displays the editor; a DOM-free JS Session will own shared commands, authored graph, stable IDs and Undo. Rust owns file bindings, not a second editor history. Imported direct UI mutations remain an explicit staged migration obligation. Legacy C++/Qt and file formats remain separate preserved references.
+## Document lifecycle
 
-Document UI contract: retain the Canvas/Graph/Inspector working surface, expose filename/dirty/saving state and distinct Save / Save As. New/Open/Close share Save, Discard, Cancel. Conflicts and failed writes preserve current edits. Finish/cancel active gesture, Pen or IME before transitions. Normal close is the current target; forced kill/crash recovery is not implied.
+The Canvas/Graph/Inspector surface exposes filename, dirty and saving state,
+with distinct Save and Save As. New, Open and normal Close share Save, Discard
+and Cancel. Conflicts and failed writes preserve current edits. Active gestures,
+Pen paths and IME composition must finish or cancel before document transitions.
+Normal-close checks do not establish forced-kill or crash recovery.
 
-External disk checks detect observed byte changes; checking before replacement is not an interprocess compare-and-swap guarantee against noncooperating writers.
+External disk checks detect observed byte changes. Checking before replacement
+is not an interprocess compare-and-swap guarantee against noncooperating writers.
 
-## Shared command migration
+## One command and history model
 
-`core.js` CommandSession owns one History. Its typed connect/disconnect/set-operation commands use private candidates, shared validation and Closed Offset/Text Path protection. Envelopes bind Session identity and monotonic History revision; stale/foreign requests and active gestures refuse before mutation. Detached snapshots, Undo/Redo and `window.nect.dispatch` expose the same state. GUI socket dropdowns/dialogs, wire drop/disconnect, context disconnect and operation controls now call this dispatcher. Creation-time internal linking remains part of the legacy creation transaction.
+`core.js` `CommandSession` owns one History. Commands resolve stable IDs and
+validate private candidates before committing. Session identity and monotonic
+History revision reject foreign or stale requests. Invalid commands preserve
+authored state, revision and the redo branch; caller payloads are copied.
 
-Property controls now dispatch `set-parameter`, `set-parameter-expression` and `set-parameter-lock` for numeric/Boolean/vector/color values, expressions and locks. The core checks typed values, numeric expression syntax/results, connected/driven and locked targets, domain limits and existing Closed Offset/Text Path guards on a private candidate. Stable point/handle keys remain IDs. Invalid commands preserve revision and the redo branch; payload values are copied. GUI and headless tests compare the same numeric edit, one-step Undo/Redo, expression rejection and locks. Focused command/core25 tests, affected property DOM6 tests and browser parity passed; the Web build passed. Numeric scrubs/canvas gestures remain part of the later gesture migration.
+GUI controls and `window.nect.dispatch` use the same command entry points:
 
-Text content now uses `set-text-content` or Session-private `begin/stage/commit/cancel-text-draft` commands. `text-draft.js` owns reconciled character maps and up to100 native-input snapshots, with separate draft revisions. UI adapters submit observed UTF-16 ranges, text and composition events; returned metadata contains no authored map. Composition captures the initial range and reconciles once at completion. Known native textarea Undo/Redo restores only Session-owned snapshots; unknown/ambiguous edits retain the existing suspended identity behavior. Document Undo/Redo uses the same command entry and refuses active composition. Stale/foreign drafts and legacy-debug changes to target text/maps reject without replacing current work. Same-string replacements remain real edits when identities change; no-op commits preserve document redo.
+- Graph wiring and operation changes use typed connect/disconnect commands and
+  retain Closed Offset/Text Path protections.
+- Parameters, expressions and locks use `set-parameter`,
+  `set-parameter-expression` and `set-parameter-lock`, with typed values, domain
+  limits, connected/driven checks and expression validation.
+- Artwork creation, deletion, ordering, duplication, translation, alignment and
+  distribution use atomic commands. Each selected layer is re-resolved by ID;
+  a late invalid member cannot leave partial movement. Independent creation
+  remains possible beside an existing locked layer.
+- Names, layer/document state, node creation/duplication/deletion/preview,
+  bypass, references and node settings use typed commands. Deleting a source
+  preserves fallback values and diagnosed dangling-reference identity. Failed
+  preview creation does not leave a provisional Fill.
+- Character offsets, absolute transform patches, pair kerning, scoped/full
+  resets, Guide settings/layout and discrete Curve/Remap actions share the same
+  candidate validation and history boundary.
 
-`set-text-settings` shares wrapping, path attachment, leading, alignment, kerning, font references and horizontal/vertical writing. `set-character-style` shares selected typography; numeric/canvas gestures and per-character transforms/kerning still have legacy mutation paths. `adopt-font` prepares raw bounded bytes, atomically adds the asset/default or range reference, preflights lazy outlines and validates whole-project size. Async font UI retains the pre-read Session/revision envelope in addition to request/selection/source checks, so Undo back to equal bytes cannot admit an old result. Existing20 MB/font,32 MB total, eight-font and50 MB project bounds are unchanged.
+The UI owns selection and view state, not a second authored writer. Selection
+restoration is associated with the actual stored History snapshot. Visibility
+and unlock controls remain available on locked layers; protected authored edits
+still refuse. Stable point and handle keys are identities, not array positions.
 
-Text ownership design was adopted from read-only Astra High consultation01a144f3-ed0c-7be3-bff4-3bf1d72f90cb at baseabea0a292a6516fc1a1f49e60ea8c41716075e1c. Parent independently verified its session turn_context gpt-6-astra/high; the child completed and was interrupted. Compact adoption: C:/Users/shiro/.codex/visualizations/2026/10/16/01a144e5-5000-73d1-b371-5d49efed4a01/astra-text-design.md (SHA256 54200C1F64E89EECDBC4D7EEAABDBE0B3DBFD9DFBBCF7F4A1F5B7430E54A96D3). Brief r1 and Goal unchanged.
+## Text drafts and asset adoption
 
-Validation after the Text migration: JS suite659/659; real browser graph/property/Text command parity, one-step Undo/API Redo and composition exclusion; browser Japanese OTF/TTF loading, vertical/horizontal text, JSON reload/re-edit and browser/headless SVG equality; Web and offline native builds. The suite exposed a typed-value-before-scrub regression: pending numeric pointer reservation is now distinct from a started authored gesture, allowing the typed edit to commit before the drag baseline. The original numeric/character scrub tests and the final complete suite passed. Full log: ignored desktop/test-results/session-migration-suite-final.log. These are synthetic composition/browser results, not physical Windows IME acceptance.
+Text uses `set-text-content` or Session-private
+`begin/stage/commit/cancel-text-draft` commands. `text-draft.js` owns reconciled
+character maps and up to 100 native-input snapshots, with a separate draft
+revision. UI adapters supply observed UTF-16 ranges, text and composition events;
+returned metadata cannot install an authored character map.
 
-Discrete artwork operations now use `create-artwork`, `create-blank-layer`, `create-demo-layer`, `delete-layer`, `order-layer` and `duplicate-artworks`. `translate-artworks` handles focused-artboard nudges; `align-artworks`, `distribute-artworks` and `distribute-artwork-gaps` re-resolve every selected stable layer ID against a private candidate. Existing pure artwork helpers retain their eligibility, geometry, capacity and no-op behavior. The UI still owns selection/view snapshots; one command owns the document History entry. Independent creation remains possible beside an existing locked layer.
+Composition captures the initial range and reconciles once at completion.
+Known native textarea Undo/Redo restores Session-owned snapshots; ambiguous
+edits retain suspended identity rather than inventing mappings. Document
+Undo/Redo refuses active composition. Stale or foreign drafts cannot replace
+current work. Same-string replacements are real edits when identities change;
+no-op commits preserve document redo.
 
-`adopt-image` receives canonical PNG bytes as base64 and a name, derives dimensions and bounds in core, creates its own asset/layer/node identities and commits the asset/reference together. The browser adapter retains PNG/JPEG decoding and PNG normalization. Its async request captures the pre-read Session/revision plus the existing source/request checks. Malformed/over-budget PNG, stale requests and failed late members leave the current document/History intact. No new codec/dependency is introduced.
+`set-text-settings` covers wrapping, path attachment, leading, alignment,
+kerning, font references and writing direction. `set-character-style` covers
+selected typography. `adopt-font` prepares bounded raw bytes, preflights outlines
+and atomically adopts the asset and default/range reference. Its asynchronous
+adapter retains the pre-read Session/revision and source/request/selection
+checks, so Undo back to equal bytes does not admit an old result. The documented
+bounds are 20 MB per font, 32 MB total, eight fonts and a 50 MB project.
 
-Artwork validation: new Session integration tests plus existing creation/deletion/blank/duplication/order/Image and multi-artwork placement tests passed. The focused groups were16,40 and43 tests (overlapping groups, not an additive total). Real browser Image roundtrip/PNG export, measured alignment, center distribution and equal-gap distribution passed. Browser test harnesses now handle the document-lifetime Discard prompt and verify that reopened documents start a fresh History. These checks extend the Text checkpoint's659-test suite; they are not a claim that the entire current candidate ran a new full suite.
+`adopt-image` accepts canonical PNG bytes and a name. Core derives dimensions,
+allocates fresh asset/layer/node IDs and commits the asset/reference together.
+The browser retains PNG/JPEG decoding and PNG normalization. Malformed or
+over-budget data, stale reads and late failures leave document and History
+unchanged; no second codec or persistence format is introduced.
 
-Discrete identity and metadata now dispatch `rename`, `set-layer-state`, `set-document-settings`, `create-node`, `duplicate-nodes`, `delete-node`, `preview-node`, `set-node-bypassed`, `set-reference` and `set-node-settings`. The Session allocates identities, resolves targets by stable IDs, validates private candidates and preserves one History. Deletion retains fallback values and diagnosed dangling Reference identity; failed preview does not leave its provisional Fill. Visibility and lock changes remain available on locked layers; guide/name/graph changes refuse. Node settings cover collapse, Vector canvas handles, position reference and Stroke style. Graph pointer positions/width remain part of the gesture migration.
+## Exclusive gesture drafts
 
-Metadata qualification: focused command/metadata and existing names/bypass/Reference/Stroke/position-reference DOM tests14/14 passed. Real Chromium command parity covers GUI rename against headless, bypass, locked-layer visibility/unlock, creation/preview/delete, one-step Undo and API Redo. Existing names/bypass browser test passed actual double-click/F2/blur/cancel, synthetic composition, graph drag regression, visibility SVG/PNG and serialized/cold CLI export. Web build passed. These are bounded browser/semantic checks, not latest native or physical IME acceptance.
+`begin/update/commit/cancel-gesture` uses one exclusive Session-private typed
+draft. Begin fixes stable targets and a baseline. Every update derives from that
+baseline, runs shared candidate validation and returns an output-only detached
+preview. Preview revision is separate from document revision. Invalid updates
+retain the last valid preview; ordinary commands and text drafts are excluded
+while a gesture owns the slot.
 
-Character offset, absolute transform patch, pair kerning and scoped/full resets now share typed Session commands. Core retains the character map, mixed unpatched values and schema version; unknown IDs/late invalid members cannot partially commit. Guide settings/create/position/lock/delete/layout generation and discrete Curve point/Remap actions also use private candidates. UI retains temporary layout preview and selection; generated IDs come from core. The generic UI `change(callback)` writer has been removed. Remaining numeric scrubs and pointer edits still use their legacy preview path.
+Commit revalidates and records one History entry. A no-op preserves redo and
+stored document identity. Exact baseline guards detect out-of-band edits even
+without a revision change. Exact-token cancellation remains available after a
+stale revision without overwriting committed work. Save and export read committed
+state, never an intermediate preview.
 
-Validation for this slice: focused groups29 and18 tests (overlapping, not additive), character UI/scrub regressions10/10 before the guide changes, and real Chromium character-transform, pair-kerning, guides and layout-guides flows passed. Character browser coverage includes horizontal/vertical/Japanese, reset, JSON/SVG/PNG; Guide flows preserve manual guides, lock semantics, cancellation, Undo/Redo and export isolation. Physical Windows IME remains separate.
+Graph position/width, numeric and typography scrubs, artwork/node translation,
+shape/Transform handles, position controllers, character movement, Guide
+positioning and Curve/Remap point edits follow this model. Relative Curve
+handles, Remap enable/fingerprint checks, mixed values and sparse inheritance
+are preserved. A zero delta does not allocate retained edits or consume redo.
+Wire drops keep their opening Session/revision envelope.
 
-Gesture ownership design is adopted from read-only Astra consultation01a14524-83a5-70c2-af81-9a054b9bfcac at basee05e2a4fdb41e18e8ea4916d1f72fdb9829a4599. Parent verified the child's own turn_context line21 (after inherited contexts): gpt-6-astra/high, danger-full-access/never. Completed child was interrupted. Output: C:/Users/shiro/.codex/visualizations/2026/10/16/01a1451b-309c-7a33-b352-3d30f449ef0f/astra-gesture-design.md (SHA256 ABF6FEDF90E6D95F4FBCC791D14408A26BC32CA537A57ADC3027CE658D083792). Adopt one exclusive Session-private typed draft, output-only detached preview, fixed stable targets, independent preview revision, exact baseline guards, one commit/no-op/cancel; renderer/selection/snap stay UI-owned. Do not install caller snapshots or mutation callbacks. Begin with graph position/width, then numeric/text scrubs and canvas families, finally Pen. Preserve pressed-point cancellation separately from whole Pen draft cancellation. No initial Brief redesign.
+Pen uses the same draft slot. Core allocates layer/node/point IDs and owns the
+pressed-point handles, accept/cancel, whole-path cancel and finish. Pointer
+interruption cancels only the pressed point; Enter/Escape finishes released
+points; short paths discard without History. Mutating a detached preview cannot
+inject authored identities. Save during an active Pen draft refuses until
+Finish or Cancel.
 
-Graph translation/width and property/Text numeric scrubs now use `begin/update/commit/cancel-gesture`. Session fixes the stable target at begin, derives each update from a private baseline, validates it with the same internal command candidate generator and returns detached previews. Preview revision is separate from document revision; invalid updates retain the last valid preview. Text offsets/transforms/typography/kerning/leading/wrap keep mixed values and sparse inheritance at origin. Commit revalidates and records once; no-op preserves redo and the document object's selection-history identity. Exact baseline comparison detects legacy edits without revision changes; exact-token cancellation remains available after stale revision and never overwrites committed state. Text staging and ordinary commands are excluded during an owned gesture. DocumentLifecycle includes `hasGesture`; Save/export still read committed state. UI renders graph DOM positions and Canvas from output-only projections, without installing them in History.
+SVG import lowers browser-parsed XML to portable syntax data. The DOM-free
+Session validates the supported subset and constructs fresh IDs/graph in one
+undoable document replacement, retiring the old source binding. Unsupported
+syntax preserves current work.
 
-Qualification after this slice: complete bounded-concurrency JS suite677/677 passed (ignored test-results/session-gesture-suite-final.log). Real Chromium graph navigation/edge-autopan/capture/zoom/cancel/history/JSON; numeric scrub; character numeric scrub; pair kerning including path-overflow rollback and browser/CLI parity; names/bypass/SVG/PNG regressions passed. Tests now explicitly assert that mid-drag committed snapshots remain unchanged while the displayed/input preview changes. Full-suite failure exposed a no-op document replacement that detached live references; preserving the original object for no-op fixed it, and the final complete suite passed. Web build and offline locked custom-protocol native build passed. Latest executable SHA256 B6564D012D2C7FCF5AB2209CA7997EA26DAC093E0DDF2470889B846D51B3ADAD; this is a build result, not a new native GUI/IME/save/reopen acceptance. Pair-kerning CLI checks now use unique output filenames so reruns preserve earlier ignored outputs.
+## Read-only public projections
 
-Canvas artwork/node translation, shape/Transform handles, position controllers, character translation, Guide positioning and Curve/Remap point gestures now use private Session candidates. Curve handle coupling and Remap enable/fingerprint checks run in core; a zero delta does not allocate retained edits or consume redo. UI renders detached previews while snapshots/export remain committed. Wire drops retain their starting Session/revision envelope. Artwork selection History is attached to the actual stored History snapshot, preserving selection after Undo.
+`historyView` exposes frozen states and copied/frozen History arrays while
+retaining the object identity required for selection restoration.
+`window.nect.document` is a detached committed snapshot. Debug evaluation uses
+its own snapshot so caller changes cannot poison renderer caches. Validation
+checks existing graph/socket structure without rewriting it. Shared asset
+metadata is deeply frozen. Public snapshots, previews and results cannot install
+caller-authored maps or mutation callbacks.
 
-Pen now uses the same exclusive draft slot. Core allocates layer/node/point IDs and owns pressed-point handles, accept/cancel, whole-path cancel and finish. Pointer interruption cancels only the pressed point; Enter/Escape finishes released points; short paths discard without History. Detached preview mutation cannot inject authored IDs. SVG import now lowers browser-parsed XML to portable syntax data, then the DOM-free Session validates the existing supported subset and constructs fresh IDs/graph in one command. It remains an undoable document replacement and retires the source binding; unsupported syntax preserves current work. No parser dependency or persistence format was added.
+## Search, font browsing and alignment
 
-Qualification: JS685/685 passed (ignored test-results/canvas-pen-svg-suite.log). Real Chromium Shift-axis/controller/point/Remap/character, Transform handles and Pen workflows passed, including one-path Undo/Redo, pressed-point cancellation, JSON cold reload, SVG/PNG pixels and the existing Curve128/129 movement bound. Radial Gradient browser checks passed actual SVG reopen, hostile-input rejection, JSON/SVG/PNG and RGBA parity. Save during an active Pen draft explicitly refuses until Finish/Cancel; the browser harness now follows that existing lifecycle rule. These are browser/semantic results, not latest native GUI or physical Windows IME acceptance.
+Ctrl+Space and Add node expose the same searchable insertion list. Text fields,
+composition, dialogs and active edits retain their shortcuts. Enter adds one
+node with one Undo; Escape or no match adds nothing. The opening Session,
+revision and layer remain captured until submission.
 
-The live History escape is removed. `historyView` exposes frozen states and copied/frozen History arrays, retaining stable object identity for UI selection restoration. `window.nect.document` is a detached committed snapshot; debug evaluation runs against its own snapshot so caller changes cannot poison renderer caches. All supported GUI authored edits now use typed Session commands. Validation no longer rewrites existing socket sources: it checks frozen graph structure without mutation. Public snapshots, previews and command results cannot install caller-authored maps or callbacks.
+Font browsing previews the selected Text on the actual Canvas through a private
+font gesture. It fixes source and stable character IDs, retains one candidate
+and leaves committed save/export unchanged. Cancel/no-op preserves document and
+redo. Invalid faces preserve the last valid preview. Enter during a pending
+load waits for that exact request; stale asynchronous results cannot commit.
+Favorites use face names and local UI storage rather than catalog indices.
 
-Qualification after read-only adapters: JS687/687 passed (ignored shared-session-readonly-final.log); read-only-session.e2e.js verified actual Chromium output mutation isolation, evaluation cache isolation, GUI/headless parity and shared Undo/Redo/stale refusal. Web/offline native build passed. The debug custom-protocol executable SHA256917BCECEF9FBC4B1BEBF2A18C8AF3D2FC534FDC58B321E0912D81815AC99278D produced the native r5/r6 lifecycle evidence below. This closes the identified shared editing migration, not the whole production Mission.
+Compact alignment controls remain available beside Layers and the independently
+scrolling Inspector. Help is optional; errors, unavailable reasons and
+saving/dirty state remain visible when relevant. The panel reuses
+`align-artworks`, `distribute-artworks` and `distribute-artwork-gaps`:
 
-Subsequent native stabilization parented file/unsaved dialogs and named Save/Discard/Cancel using the existing rfd feature set (Rust21/21). The UI adapter caches one current immutable state's serialization, not all historical states; focused JS25/25, real browser lifecycle/storage IPC and native r9 Boolean/Undo/Redo/same-file Save passed. A final core guard deeply freezes shared asset metadata, including previously shallow-frozen asset objects; focused JS36/36 and Web/offline native builds passed. Current executable SHA256BE77511B4531E381D35BB0BC13DC912D8400F2A02A1B9CB38D0AF916A7ED9A9A. Detailed native receipts and the remaining physical IME/Shiro acceptance rows are in document-lifecycle.md. Prior native lifecycle/export/dialog evidence remains producer-bound; the final core guard has no new native GUI run.
+- Alignment supports Selection bounds or Artboard, including one artwork against
+  Artboard. Distribution fixes endpoints and supports leading/center/trailing
+  positions on each axis.
+- Auto gaps retain both physical outer edges. A numeric gap fixes the leading
+  artwork and places later artwork at that gap. Invalid routes, locks, values
+  or ordering refuse atomically. No-op preserves redo.
+- Panel visibility/reference/spacing are UI preferences outside the document.
+  Updating a spacing field must not replace a pressed action target before its
+  click is received.
 
-Evidence: command-session.test.js proves fallback/stable IDs, shared Undo/Redo, no-op revisions, foreign/stale/cycle/operation/lock refusal and gesture exclusion. command-session.e2e.js compares a real GUI operation control against the same headless command, then checks shared UI Undo/API Redo/stale refusal. Existing wiring.e2e.js exercises real browser wire interaction and one-step history. Relevant command/core/gradient tests25/25 and browser parity/wiring passed. This does not establish native IME or all remaining UI command routes.
+[Compolign](https://github.com/46slv/Compolign/tree/3bd4d2ad6bd5fd85e5faf12828833970b6790bb9)
+provides a comparison for compact controls and explicit reference selection.
+Its grid Walk/Dock and Group/Each behaviors are distinct from Nect distribution
+and are not implied by these controls. No After Effects-specific parent-layer,
+rotation or 3D restrictions are imported.
 
-## First trial feedback — 2026-10-17
+## Graph selection and direct text editing
 
-Shiro began using the distributed8d50d0d Windows trial on the notebook. The concrete feedback is keyboard node search, live font browsing/search/favorites, less permanent explanation and an always-available compact alignment tool. Brief r1, the single Owner and the document schema remain unchanged.
+Empty-graph drag selects intersecting cards in either direction; Shift adds.
+A four-CSS-pixel threshold separates click from marquee. Escape, blur, pointer
+cancellation or capture loss restores starting selection without changing
+Session revision or Undo/Redo. Wiring retains pointer capture and edge autopan;
+completion/cancellation stops the loop and resolves drop targets at their current
+screen positions.
 
-Design contract: keep Canvas/Graph/Inspector as the working surface. Ctrl+Space accelerates node insertion; the Add node control exposes the same searchable list. Font browsing changes the selected Text on the actual Canvas before committing. Search, arrows, loading/failure, favorites, Enter and Esc are explicit states. Keep the font picker beside the Canvas, and pin compact alignment controls between Layers and the independently scrolling Inspector. Preserve the surrounding pane layout, neutral palette and thin separators; avoid permanent instructional paragraphs.
+Selected supported graph outputs resolve to artwork or Vector2 translation
+targets rather than moving graph cards. Source/Fill/Output selections deduplicate,
+shared position owners move once, and Curve handles stay relative. Mixed Text,
+shape, Curve, Transform, Vector and Null selections use the supported common
+translation candidates. Driven, locked, independent or unsafe routes refuse the
+whole command visibly. Distribution remains artwork-scoped.
 
-Node search submits existing create-node commands with the opening Session/revision/layer envelope. Text fields, composition, dialogs and active edits retain their own shortcuts. Enter adds one node/Undo; Esc or no matches adds nothing. Normal font-control pointer/keyboard browsing opens the searchable list. Native change events retain the existing typed discrete entry.
+Canvas Text double-click resolves displayed glyph geometry to its Text source;
+ambiguous sources do not choose arbitrarily. A transparent native textarea
+receives editing while SVG owns visible glyphs, caret and range selection.
+Session draft projections synchronize Canvas, Graph and Inspector without
+replacing the focused input. Mixed metrics, horizontal/vertical writing,
+downstream transforms, zoom and pan feed the geometry. Composition remains at
+the last accepted text until completion. Commit is one history operation;
+Escape cancels exactly. Unchanged editing preserves original CRLF bytes; real
+edits may normalize newlines, and Undo restores the original source.
 
-The new text-font private gesture fixes layer/node/stable character IDs at begin. Each candidate starts from the committed baseline and uses existing font adoption/typography validation. Browsing retains only one candidate, includes no intermediate History writes and does not alter committed export/save output. Commit retains exactly the private candidate's asset IDs; cancel/no-op preserve document/redo. The picker can open even if the current face lacks a glyph. Incompatible preview faces reject without replacing the last valid candidate. Async results check the current picker/request/Session; Enter during a pending load waits for that exact candidate. Favorites use face names rather than volatile catalog indices and live in local UI storage.
+## Verification boundaries
 
-The alignment panel reuses align-artworks, distribute-artworks and distribute-artwork-gaps. Alignment supports selection bounds or the Artboard, including a single artwork against the Artboard. Distribution supports all six leading/center/trailing edges with endpoints fixed. Auto gaps preserve both physical outer edges; a numeric gap fixes the leading artwork and places following artworks at that gap. Route/lock/value/ordering checks are atomic; no-op keeps redo. Visibility, reference and spacing preferences persist outside the document. Controls retain stale-selection and active-edit guards.
+Historical migration checks included complete JavaScript suites at specific
+intermediate revisions (659, 677, 685, 687 and 694 passing tests), focused repair
+runs, production Web builds and offline Windows builds. Chromium flows covered
+GUI/headless parity, Undo/Redo, stale refusal, gesture preview isolation,
+composition exclusion, graph/wiring, Japanese fonts, JSON reload and SVG/PNG.
+Later UI repairs were checked with focused tests rather than relabeling an
+earlier aggregate as a new full-suite run.
 
-The reference image was actually viewed from the supplied WS file and SHA2568B77C4CB3DD81DD15AA4A8A23C631B28EB8FE2BA96A7DF6A14E1A9AB1CBB6F39 verified. It shows the compact Illustrator Align panel with6 alignment icons,6 distribution icons and numeric spacing/reference controls.
+The later direct-text/Vector repair check passed 53 focused tests and scoped
+Chromium flows, not a rerun of its earlier 703-test aggregate. A bounded native
+WebView2 check then exercised the binary with SHA-256
+`A0AD15F43EE8B33213D1AB529E21BECDD3C24C89FF877FE5A3D6E778643EE2E7`,
+using synthetic CDP input and inspected native screenshots. It covered point/mixed
+alignment, output deduplication, atomic refusal, caret/ranges, typing/deletion,
+newlines, transformed/vertical text, CRLF preservation and exact Undo/Redo.
+Normal Close/Discard of a disposable document exited successfully. These are
+native-application checks, not physical input, physical Japanese IME, or general
+production acceptance, and do not qualify the current tree automatically.
+Earlier lifecycle/save evidence remains bound to its
+original binary and does not automatically qualify later core or UI changes.
 
-After Shiro uploaded the old tool, Compolign provenance was established by direct GitHub connector reads of README.md, docs/DESIGN.md and src/Compolign.jsx at46slv/Compolign commit3bd4d2ad6bd5fd85e5faf12828833970b6790bb9 (DESIGN blob84b82baece8656b018eee46957d2d5f5975dba9c; JSX blob054f6a54ae2e3b1704858248b9aaae1a88c90446). Focused source read included buildWalkUI, getControllerOperation, directionalButtonClick, alignSelectionWithoutGrid and the boundary-candidate generators. The source was not executed.
+Subsequent Transform/Remap/numeric extension work required separate verification:
+legacy JSON must not gain optional fields on load; absolute Position and legacy
+Offset must compose correctly; explicit Anchor editing materializes Position;
+independent scaling, driven fields, locks, typed-percent-to-drag continuity,
+screen-sized point hit targets and cursor-centered Alt-wheel zoom must retain
+Undo/cancel behavior. An early extension snapshot had focused tests only, not
+combined browser/native/cold-reopen/export/build/package acceptance. See
+[editing refinement](editing-refinement.md) for the feature-specific contract.
 
-Adopted for this finite feedback checkpoint: compact permanent action controls, explicit Selection/Artboard references without a single-selection fallback, and low-frequency grid configuration kept separate in the existing Guides surface. Compolign's3×3 Walk advances to saved cell boundaries/centers; Shift docks to the whole Grid. Its Group preserves relative positions; Each resolves targets individually. These semantics differ from distributing artwork centers/edges or gaps. Walk/Dock, the Group/Each control and full Grid-settings migration are deferred from this ordinary alignment checkpoint rather than silently substituted with Distribute. No AE-specific rotation/3D restrictions or non-atomic parent-layer writes were imported. Existing Nect free placement and atomic shared Session commands remain intact.
-
-Applied shiro-operational-ui0.4 and the requested stop-describing-ui. The latter was installed, without overwriting a prior skill, using the standard skill-installer download helper from artouc/stop-describing-ui ref251a859f6e40645030e1ae69fa4b501c851eac9c, path skills/stop-describing-ui. Only SKILL.md was installed at C:/Users/shiro/.codex/skills/stop-describing-ui/SKILL.md. Full local readback succeeded; SHA256D6AFE89AEFF632CAAC201130C794EA79787580DDF63F6B0EC862337728797111. Local Git blob0b9d8d4096d0b379440f1ef628647539858f9b71 matches the pinned GitHub contents readback. No upstream install/package script was executed.
-
-| Before | After |
-| --- | --- |
-| Permanent typography, geometry and font-storage paragraphs | Optional Help in each editing region |
-| Permanent navigation instructions below Canvas/Graph | Existing tooltips and accessible shortcut descriptions |
-| Repeated explanations of bypass and duplication | Action/state controls, with refusal reasons retained |
-| Selection-dependent textual alignment sections inside Inspector | Pinned icon groups, selection count, reference and spacing controls |
-
-Errors, saving/dirty state, unavailable-font reasons and required cancellation/confirmation remain visible when relevant. Prior native lifecycle/export proofs retain their original producer bounds; this feedback slice has scoped browser and semantic verification plus an offline Windows build. It does not supply physical IME or a new native-dialog result.
-
-Verification: full JS694/694 passed (trial-feedback-suite-final-pass.log). A subsequent direct-pointer check exposed a blur/render swallowing the first gap-button click after typing. Spacing now updates preference/eligibility in place, including enabling two-artwork fixed spacing, without replacing the pressed target. This final UI delta passed23/23 related tests (trial-feedback-spacing-final.log) and the direct-click/browser flow (trial-feedback-browser-click-final.log); the earlier full suite is not relabeled as a new full run after that delta. Scoped browser process restart proved font favorites plus panel visibility/reference/spacing persistence. Existing measured alignment/center/gap and viewport navigation browser flows passed, including1280/1600 layouts. The Inspector scroll owner changed from the whole sidebar to its own region; tests retain scroll/focus/history assertions against that real scroll container.
-
-Final Web build and offline locked custom-protocol Windows build passed (trial-feedback-{web,native}-delivery.log). The dedicated debug EXE is12831744 bytes, SHA256FC90B210B0FA001DDBFBAB45D831F796ABD29F30142D1B14D5BED7BD5A362A0F at desktop/src-tauri/target/feedback-20261017/debug/nect-svg-desktop.exe. The separate target preserved the user-owned running8d50d0d EXE and previous trial ZIP. No native GUI input was performed while the Resolve GUI owner was active. Actual Windows font-catalog browsing and physical IME on this updated binary remain for the next human trial.
-
-
-## Second trial feedback, 2026-10-17
-
-Six review requests from 18:03-18:13 UTC are implemented by the same sole Owner, based on a7f5ec98fd767cf7174074487f4d8fdb99a13233. The supplied Text Inspector, node-output Align and live-text screenshots were viewed directly from the parent-materialized WS reference files before their corresponding changes.
-
-- Empty graph drag selects intersecting cards in either direction; Shift adds. A four-pixel threshold separates a click from a marquee. Escape, blur, pointer cancellation and capture loss restore the starting selection. Coordinates use graph zoom/scroll; selection leaves Session revision and Undo/Redo intact.
-- Wiring shares node edge velocity/autopan. Pointer capture keeps release observable outside the viewport; drop ports use current screen hit testing. Completion/cancellation/capture loss stop the loop. Existing opening Session/revision and typed connect/disconnect protect authored state.
-- Text draft projections come from CommandSession.textDraftSnapshot, validate stable source/revision and return detached data. Canvas redraw and sibling text fields update without replacing the focused input. Composition stays at the last accepted text until compositionend. Commit remains one history operation; Escape restores the authored value. Projections never survive a different document revision.
-- Actual Canvas double-pointer clicks resolve displayed character geometry to its Text source. The local overlay editor reuses the same draft, synchronizes Graph/Inspector and preserves font/position/format; Ctrl+Enter or blur commits and Escape cancels. Ambiguous sources do not choose an arbitrary Text node.
-- Text Inspector writing, main/cross-axis position references and bounds mode have compact buttons, selected/disabled/focus states, accessible names and tooltips. Default position/size/tracking/leading fields use symbolic labels. Position reference is not paragraph justification; no new typesetting modes were invented.
-- Selected graph members of the supported final artwork route resolve that output to existing Align commands. Source/Fill/Output selections deduplicate to one artwork; graph boxes never move. Multiple artwork layers retain the existing multi-selection commands. Unsupported or independent graph routes refuse visibly instead of guessing a source or moving several coupled nodes twice.
-
-Verification: the initial full JS run recorded693/695, with one failed child plus its parent aggregate caused by duplicate movement resolution during render (review-feedback-suite.log). Reusing the same synchronous resolution repaired it; affected tests36/36 passed (review-feedback-delta.log). Final navigation/focus/document-lifetime tests11/11 passed (review-feedback-final-dom.log). New real Chromium pointer/text flows pass in graph-interaction-delivery.log and text-feedback-delivery.log, including outside-viewport release, offscreen wiring at two scales, focused live preview, one Undo, composition boundary, node-output dedup, double click/sync/reload/SVG and1280/1600 layouts. Existing graph navigation, wiring, Japanese font/text, reference, creation, Text Position OUT and transformed character browser flows passed with the visible icon controls. Composition events here include synthetic dispatch; they are not physical Windows IME evidence.
-
-Final Web and offline locked Windows custom-protocol builds passed (review-feedback-{web,windows}-delivery.log) in the separate feedback target. No new native GUI/physical IME proof is claimed. The user's original EXE and both previous private trial ZIPs remain preserved. Parent owns Dot/user notification; after its explicit instruction, the refused background report was not retried using foreground or another route. The initial trial and a7f5ec9 links were already acknowledged/announced in Dot.
-
-## Vector alignment and in-place Text — 2026-10-17
-
-Selected Vector/Null outputs now align as Vector2 points, and editable shape/Text/Curve/Transform outputs reuse common translation candidates. Mixed selection uses Artboard or Selection bounds, collapses selected upstream/downstream routes and groups shared position owners so they move once. Curve handles stay relative; graph boxes do not move. Driven, locked, unsupported or unsafe outputs refuse the whole command with a visible reason. One typed Session command owns the complete atomic change and Undo/Redo. Distribution remains scoped to artwork selections.
-
-Canvas Text double-click now places caret and selection at evaluated glyph geometry. A transparent textarea receives native editing while SVG owns visible glyphs, caret and selection; there is no floating editor window. Geometry follows mixed character metrics, horizontal/vertical layout, downstream transforms, zoom and pan. Pointer range selection, typing/deletion, newline, Escape, node synchronization and one final Undo reuse the private Text draft. FontFace uses existing local font bytes; no dependency or persisted format was added. Textarea CRLF normalization is isolated from authored source: unchanged editing preserves exact original line endings, real edits accept normalized input and Undo restores the original bytes.
-
-Verification: initial full JS703 recorded682 passes and21 failures (third-review-suite.log). These exposed legacy data-URL adapter imports, a changed character golden record, and synthetic DOM hit testing; the fixes keep the import bridge and character records stable and preserve explicit event targets when the test host has no pixel hit test. All affected files plus the new geometry/alignment/text-session tests pass53/53 (third-review-repaired-final.log). Final real Chromium node-output alignment, direct in-place editing including CRLF, and prior Text-feedback flows pass (third-review-node-final.log, in-place-crlf-after.log, third-review-text-final.log). Web and offline locked Windows custom-protocol builds pass; EXE SHA256 A0AD15F43EE8B33213D1AB529E21BECDD3C24C89FF877FE5A3D6E778643EE2E7. This is focused repair evidence, not a full-suite rerun.
-
-The distributed858049b executable separately completed isolated native review of marquee, actual WebView2 Shift/wiring, focused text, old overlay editing and output alignment. Its owned process/profile closed and foreground returned to Resolve at19:12:38 UTC. That producer does not qualify the new in-place/Vector implementation. Updated native GUI, physical Japanese IME and Shiro hands-on acceptance remain open. The new direct user instruction authorizes a new private Drive trial and completion report to Dot; earlier notification restrictions are superseded only for that delivery. No main merge, public release or sharing-policy change is authorized.
-
-
-Native delta qualification on2026-10-17: the exact distributed d6223e9 EXE (SHA256 A0AD15F43EE8B33213D1AB529E21BECDD3C24C89FF877FE5A3D6E778643EE2E7) ran in fresh isolated profile native-review-d6223e9-r1/nect-svg-acceptance-review-r1, PID40676/HWND49356962. Resolve release05:14:52 JST was fresh-read from its formal final message before launch. Prepared owned fixtures were loaded through the debug adapter; actual packaged WebView2 pointer/keyboard/select actions used trusted CDP input, with separate native Cua screenshots visually inspected. This is native-application evidence, not physical-input or standalone-browser proof.
-
-PASS: Vector/Null point alignment; Text+Vector Selection and Artboard references; source/Fill/Output dedup; unchanged graph positions; Curve relative handles; visible atomic unsupported refusal; exact Undo/Redo. Direct editing passed rendered caret/range with no floating window, pointer and keyboard selection, typing/delete/newline/empty reinsertion, private live projection and Graph synchronization, Escape exact cancel and single Undo/Redo. Transformed and vertical text followed zoom/pan; CRLF no-op and exact Undo restoration passed. Renderer page errors were empty. A temporary validation-harness binding reset was reconciled against the owned exact fixture/Undo/Redo before continuing; no product defect or source repair resulted.
-
-Normal titlebar Close and Discard of only the owned scratch exited with code0. PID40676 and9437 disappeared; user Nect83520, installed SVG99756, Qt84564 and Resolve89112 remained. Foreground release05:28:03 JST was formally sent to the same Resolve owner. Exact local receipt: native-review-d6223e9-r1/native-result.json with per-case JSON and native captures. Physical Japanese IME conversion/candidate/commit/cancel and Shiro actual production review remain OPEN. No upload, notification, full-suite or old lifecycle replay was performed for this delta.
-
-## WIP finite extension stopped for handoff — 2026-10-17
-
-User approved AE-style Transform, then added Remap screen controls, Alt-wheel Canvas zoom and numeric drag consistency. User subsequently requested an early safe stop for Dot takeover. This WIP is incomplete; no new build or distribution exists.
-
-- transform-affine.js/core.js: optional schema11 parameters, shared Path/character affine and typed Vector Transform. Existing Path sockets and scalar scale/offset are retained; no new fields are inserted on old JSON load. Position is an absolute base pivot plus legacy Offset. Explicit Anchor UI editing materializes Position first. Review driven-anchor virtual defaults and the signed matrix before adoption. AE order is unverified.
-- main.js/transform-handles.js/artwork-move-target.js/node-output-alignment.js: provisional percent UI, optional fields/typed parameter candidates, shared handle geometry and alignment. Verify direct text caret/selection, old sources/expressions/locks, absolute Position, Uniform toggling and independent scaling.
-- point-controls.js/main.js/style.css: screen-pixel marker/hit separation, nearest hit, coincident-point refusal and focused/hover handles. Dense transformed text, hover/capture, drag/Undo/cancel and legacy DOM integration remain unverified.
-- Alt-wheel joins existing cursor-centered Canvas zoom. Real Chromium before/after scale confirmed the fix; normal/Remap/shortcut/numeric interaction coverage is unfinished.
-- Numeric integration is unfinished. Existing parameter gestures now carry Transform intent and percent factor; extra private numeric-command adapters cover document dimensions, guide/grid values, raw Remap fields and Text-on-Path start. Layout/batch/alignment values remain their existing view/draft inputs until Apply. Check pointerup/commit/cancel, all adapters and typing-before-drag; the remaining `expected = Number(text)` comparison in the generic numeric movement branch must be reviewed for factor100 display values. No claim that all numeric controls are complete.
-
-Evidence: relevant earlier unit13/13; final transform-affine/anchor/handles/numeric-scrub17/17. An initial cwd/font-path failure and null-hit assertion failure are retained in local logs and were reconciled before the passing runs. New combined DOM/browser/native/cold-reopen/export/build/package checks have not run. Earlier d6223e9 qualification does not apply to these changes.
-
-Adobe primary source: https://helpx.adobe.com/after-effects/desktop/apply-effects-and-animation-presets/list-of-effects/distort-effects.html (Transform section). It names Skew/Axis but does not specify signed matrix order. AE2026 is installed; attempts produced no accessible Cua UI, parameter metadata or comparison raster. Observed launch command was only `AfterFX.exe -r`; later launchers reconciled to original owned PID87612 rather than a second project. CloseMainWindow returned true, but PID87612 remains with MainWindowHandle113581104 and no usable Cua snapshot. No preference/security changes, known user-project writes or force termination. Reconcile this pending owned AE cleanup before a new comparison; do not claim AE parity.
-
-Owned headless Chromium closed and Vite5184 exited via Ctrl+C. No new native Nect process or child writer/build/test is in flight. Existing user83520/installed99756/Qt84564 and Resolve are excluded. Foreground return discloses the remaining AE process. CURRENT_GOAL is the minimal handoff; exact WIP SHA/ref and effective source RELEASED state are in local TRANSFORM_REMAP_WRITER_RELEASE.json. No successor exists; old owner must remain stopped after that receipt.
+[Adobe's Transform effect documentation](https://helpx.adobe.com/after-effects/desktop/apply-effects-and-animation-presets/list-of-effects/distort-effects.html)
+names Skew and Skew Axis but does not establish the signed matrix order. No
+comparison raster or parameter oracle established numerical After Effects
+parity. Physical IME, subjective interaction quality and any unexecuted native
+file-dialog/cold-reopen checks remain explicit separate acceptance obligations.
+The documentation-only update does not rerun or expand any of these product
+verification claims.

@@ -15,28 +15,19 @@
           "id": "instance-demo-0:n0",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                400,
-                180
-              ],
+              "value": [400, 180],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                800,
-                360
-              ],
+              "value": [800, 360],
               "expression": "",
               "locked": false
             }
@@ -52,10 +43,7 @@
           "id": "instance-demo-0:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -87,10 +75,7 @@
           "id": "instance-demo-0:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -123,19 +108,13 @@
           "id": "instance-demo-1:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                40
-              ],
+              "value": [32, 40],
               "expression": "",
               "locked": false
             },
@@ -174,10 +153,7 @@
           "id": "instance-demo-1:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -209,10 +185,7 @@
           "id": "instance-demo-1:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -245,19 +218,13 @@
           "id": "instance-demo-2:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                32,
-                67
-              ],
+              "value": [32, 67],
               "expression": "",
               "locked": false
             },
@@ -296,10 +263,7 @@
           "id": "instance-demo-2:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -331,10 +295,7 @@
           "id": "instance-demo-2:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -367,10 +328,7 @@
           "id": "instance-demo-3:n0",
           "type": "Curve",
           "name": "Curve",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -386,28 +344,19 @@
               "id": "instance-demo-3:n0:p0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  325,
-                  205
-                ],
+                "value": [325, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -417,28 +366,19 @@
               "id": "instance-demo-3:n0:p1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  308.25317547305485,
-                  247
-                ],
+                "value": [308.25317547305485, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -448,28 +388,19 @@
               "id": "instance-demo-3:n0:p2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  262.5,
-                  277.74613391789285
-                ],
+                "value": [262.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -479,28 +410,19 @@
               "id": "instance-demo-3:n0:p3",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  200,
-                  289
-                ],
+                "value": [200, 289],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -510,28 +432,19 @@
               "id": "instance-demo-3:n0:p4",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  137.50000000000003,
-                  277.74613391789285
-                ],
+                "value": [137.50000000000003, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -541,28 +454,19 @@
               "id": "instance-demo-3:n0:p5",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  91.74682452694516,
-                  247
-                ],
+                "value": [91.74682452694516, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -572,28 +476,19 @@
               "id": "instance-demo-3:n0:p6",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  75,
-                  205
-                ],
+                "value": [75, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -603,28 +498,19 @@
               "id": "instance-demo-3:n0:p7",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  91.74682452694515,
-                  163.00000000000003
-                ],
+                "value": [91.74682452694515, 163.00000000000003],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -634,28 +520,19 @@
               "id": "instance-demo-3:n0:p8",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  137.49999999999994,
-                  132.25386608210715
-                ],
+                "value": [137.49999999999994, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -665,28 +542,19 @@
               "id": "instance-demo-3:n0:p9",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  199.99999999999997,
-                  121
-                ],
+                "value": [199.99999999999997, 121],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -696,28 +564,19 @@
               "id": "instance-demo-3:n0:p10",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  262.5,
-                  132.25386608210715
-                ],
+                "value": [262.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -727,28 +586,19 @@
               "id": "instance-demo-3:n0:p11",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  308.2531754730548,
-                  162.99999999999997
-                ],
+                "value": [308.2531754730548, 162.99999999999997],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -765,10 +615,7 @@
           "id": "instance-demo-3:n1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -818,10 +665,7 @@
           "id": "instance-demo-3:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -854,10 +698,7 @@
           "id": "instance-demo-4:n0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -872,10 +713,7 @@
           "id": "instance-demo-4:n1",
           "type": "Curve",
           "name": "Curve",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -891,28 +729,19 @@
               "id": "instance-demo-4:n1:p0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  325,
-                  205
-                ],
+                "value": [325, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -922,28 +751,19 @@
               "id": "instance-demo-4:n1:p1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  308.25317547305485,
-                  247
-                ],
+                "value": [308.25317547305485, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -953,28 +773,19 @@
               "id": "instance-demo-4:n1:p2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  262.5,
-                  277.74613391789285
-                ],
+                "value": [262.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -984,28 +795,19 @@
               "id": "instance-demo-4:n1:p3",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  200,
-                  289
-                ],
+                "value": [200, 289],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1015,28 +817,19 @@
               "id": "instance-demo-4:n1:p4",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  137.50000000000003,
-                  277.74613391789285
-                ],
+                "value": [137.50000000000003, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1046,28 +839,19 @@
               "id": "instance-demo-4:n1:p5",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  91.74682452694516,
-                  247
-                ],
+                "value": [91.74682452694516, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1077,28 +861,19 @@
               "id": "instance-demo-4:n1:p6",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  75,
-                  205
-                ],
+                "value": [75, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1108,28 +883,19 @@
               "id": "instance-demo-4:n1:p7",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  91.74682452694515,
-                  163.00000000000003
-                ],
+                "value": [91.74682452694515, 163.00000000000003],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1139,28 +905,19 @@
               "id": "instance-demo-4:n1:p8",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  137.49999999999994,
-                  132.25386608210715
-                ],
+                "value": [137.49999999999994, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1170,28 +927,19 @@
               "id": "instance-demo-4:n1:p9",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  199.99999999999997,
-                  121
-                ],
+                "value": [199.99999999999997, 121],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1201,28 +949,19 @@
               "id": "instance-demo-4:n1:p10",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  262.5,
-                  132.25386608210715
-                ],
+                "value": [262.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1232,28 +971,19 @@
               "id": "instance-demo-4:n1:p11",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  308.2531754730548,
-                  162.99999999999997
-                ],
+                "value": [308.2531754730548, 162.99999999999997],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1270,10 +1000,7 @@
           "id": "instance-demo-4:n2",
           "type": "Instance on Points",
           "name": "Instance on Points",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1309,10 +1036,7 @@
           "id": "instance-demo-4:n3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            720,
-            64
-          ],
+          "position": [720, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1344,10 +1068,7 @@
           "id": "instance-demo-4:n4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            960,
-            64
-          ],
+          "position": [960, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1380,19 +1101,13 @@
           "id": "instance-demo-5:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                50,
-                108
-              ],
+              "value": [50, 108],
               "expression": "",
               "locked": false
             },
@@ -1431,10 +1146,7 @@
           "id": "instance-demo-5:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1466,10 +1178,7 @@
           "id": "instance-demo-5:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1502,19 +1211,13 @@
           "id": "instance-demo-6:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                50,
-                330
-              ],
+              "value": [50, 330],
               "expression": "",
               "locked": false
             },
@@ -1553,10 +1256,7 @@
           "id": "instance-demo-6:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1588,10 +1288,7 @@
           "id": "instance-demo-6:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1624,10 +1321,7 @@
           "id": "instance-demo-7:n0",
           "type": "Curve",
           "name": "Curve",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1643,28 +1337,19 @@
               "id": "instance-demo-7:n0:p0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  725,
-                  205
-                ],
+                "value": [725, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1674,28 +1359,19 @@
               "id": "instance-demo-7:n0:p1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  708.2531754730549,
-                  247
-                ],
+                "value": [708.2531754730549, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1705,28 +1381,19 @@
               "id": "instance-demo-7:n0:p2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  662.5,
-                  277.74613391789285
-                ],
+                "value": [662.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1736,28 +1403,19 @@
               "id": "instance-demo-7:n0:p3",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  600,
-                  289
-                ],
+                "value": [600, 289],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1767,28 +1425,19 @@
               "id": "instance-demo-7:n0:p4",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  537.5,
-                  277.74613391789285
-                ],
+                "value": [537.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1798,28 +1447,19 @@
               "id": "instance-demo-7:n0:p5",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  491.74682452694515,
-                  247
-                ],
+                "value": [491.74682452694515, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1829,28 +1469,19 @@
               "id": "instance-demo-7:n0:p6",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  475,
-                  205
-                ],
+                "value": [475, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1860,28 +1491,19 @@
               "id": "instance-demo-7:n0:p7",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  491.74682452694515,
-                  163.00000000000003
-                ],
+                "value": [491.74682452694515, 163.00000000000003],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1891,28 +1513,19 @@
               "id": "instance-demo-7:n0:p8",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  537.5,
-                  132.25386608210715
-                ],
+                "value": [537.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1922,28 +1535,19 @@
               "id": "instance-demo-7:n0:p9",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  600,
-                  121
-                ],
+                "value": [600, 121],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1953,28 +1557,19 @@
               "id": "instance-demo-7:n0:p10",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  662.5,
-                  132.25386608210715
-                ],
+                "value": [662.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -1984,28 +1579,19 @@
               "id": "instance-demo-7:n0:p11",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  708.2531754730549,
-                  162.99999999999997
-                ],
+                "value": [708.2531754730549, 162.99999999999997],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2022,10 +1608,7 @@
           "id": "instance-demo-7:n1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2075,10 +1658,7 @@
           "id": "instance-demo-7:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2111,10 +1691,7 @@
           "id": "instance-demo-8:n0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -2129,10 +1706,7 @@
           "id": "instance-demo-8:n1",
           "type": "Curve",
           "name": "Curve",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2148,28 +1722,19 @@
               "id": "instance-demo-8:n1:p0",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  725,
-                  205
-                ],
+                "value": [725, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2179,28 +1744,19 @@
               "id": "instance-demo-8:n1:p1",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  708.2531754730549,
-                  247
-                ],
+                "value": [708.2531754730549, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2210,28 +1766,19 @@
               "id": "instance-demo-8:n1:p2",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  662.5,
-                  277.74613391789285
-                ],
+                "value": [662.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2241,28 +1788,19 @@
               "id": "instance-demo-8:n1:p3",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  600,
-                  289
-                ],
+                "value": [600, 289],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2272,28 +1810,19 @@
               "id": "instance-demo-8:n1:p4",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  537.5,
-                  277.74613391789285
-                ],
+                "value": [537.5, 277.74613391789285],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2303,28 +1832,19 @@
               "id": "instance-demo-8:n1:p5",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  491.74682452694515,
-                  247
-                ],
+                "value": [491.74682452694515, 247],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2334,28 +1854,19 @@
               "id": "instance-demo-8:n1:p6",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  475,
-                  205
-                ],
+                "value": [475, 205],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2365,28 +1876,19 @@
               "id": "instance-demo-8:n1:p7",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  491.74682452694515,
-                  163.00000000000003
-                ],
+                "value": [491.74682452694515, 163.00000000000003],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2396,28 +1898,19 @@
               "id": "instance-demo-8:n1:p8",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  537.5,
-                  132.25386608210715
-                ],
+                "value": [537.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2427,28 +1920,19 @@
               "id": "instance-demo-8:n1:p9",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  600,
-                  121
-                ],
+                "value": [600, 121],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2458,28 +1942,19 @@
               "id": "instance-demo-8:n1:p10",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  662.5,
-                  132.25386608210715
-                ],
+                "value": [662.5, 132.25386608210715],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2489,28 +1964,19 @@
               "id": "instance-demo-8:n1:p11",
               "position": {
                 "type": "Vector2",
-                "value": [
-                  708.2531754730549,
-                  162.99999999999997
-                ],
+                "value": [708.2531754730549, 162.99999999999997],
                 "expression": "",
                 "locked": false
               },
               "handleA": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
               "handleB": {
                 "type": "Vector2",
-                "value": [
-                  0,
-                  0
-                ],
+                "value": [0, 0],
                 "expression": "",
                 "locked": false
               },
@@ -2527,10 +1993,7 @@
           "id": "instance-demo-8:n2",
           "type": "Instance on Points",
           "name": "Instance on Points",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2566,10 +2029,7 @@
           "id": "instance-demo-8:n3",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            720,
-            64
-          ],
+          "position": [720, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2601,10 +2061,7 @@
           "id": "instance-demo-8:n4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            960,
-            64
-          ],
+          "position": [960, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2637,19 +2094,13 @@
           "id": "instance-demo-9:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                450,
-                108
-              ],
+              "value": [450, 108],
               "expression": "",
               "locked": false
             },
@@ -2688,10 +2139,7 @@
           "id": "instance-demo-9:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2723,10 +2171,7 @@
           "id": "instance-demo-9:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2759,19 +2204,13 @@
           "id": "instance-demo-10:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            0,
-            64
-          ],
+          "position": [0, 64],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                450,
-                330
-              ],
+              "value": [450, 330],
               "expression": "",
               "locked": false
             },
@@ -2810,10 +2249,7 @@
           "id": "instance-demo-10:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            240,
-            64
-          ],
+          "position": [240, 64],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -2845,10 +2281,7 @@
           "id": "instance-demo-10:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            480,
-            64
-          ],
+          "position": [480, 64],
           "width": 264,
           "collapsed": false,
           "params": {

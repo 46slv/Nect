@@ -80,7 +80,7 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   const before = saved(),
     flatSVG = win.nect.export();
   await change('text-path', JSON.stringify([c.id, c.id]));
-  assert.equal(win.nect.document.schemaVersion, 7);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 7));
   assert.equal(text().pathAttachment.nodeId, c.id);
   assert.notEqual(win.nect.export(), flatSVG);
   const attached = saved();

@@ -62,8 +62,7 @@ async function temp(t) {
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   return dir;
 }
-const run = (input, output) =>
-  exec(process.execPath, [cli, input, output], { timeout: 15000 });
+const run = (input, output) => exec(process.execPath, [cli, input, output], { timeout: 15000 });
 
 test('cold CLI prepares real weight/width axes exactly and exits; repeated export is deterministic', async (t) => {
   const dir = await temp(t),

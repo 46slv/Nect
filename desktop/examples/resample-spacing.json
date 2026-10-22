@@ -15,10 +15,7 @@
           "id": "resample-example-count:n0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -33,10 +30,7 @@
           "id": "resample-example-count:n1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -71,10 +65,7 @@
           "id": "resample-example-count:n2",
           "type": "Path Remap",
           "name": "Path Remap",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -87,10 +78,7 @@
             },
             "offset": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -106,10 +94,7 @@
           "id": "resample-example-count:n3",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -159,10 +144,7 @@
           "id": "resample-example-count:n4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -195,10 +177,7 @@
           "id": "resample-example-spacing:n0",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -213,10 +192,7 @@
           "id": "resample-example-spacing:n1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -251,10 +227,7 @@
           "id": "resample-example-spacing:n2",
           "type": "Path Remap",
           "name": "Path Remap",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -267,10 +240,7 @@
             },
             "offset": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -286,10 +256,7 @@
           "id": "resample-example-spacing:n3",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -339,10 +306,7 @@
           "id": "resample-example-spacing:n4",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {

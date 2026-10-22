@@ -1,6 +1,17 @@
 const REF_KEYS = new Set([
-  'id', 'source', 'nodeId', 'compositionId', 'output', 'reference',
-  'parent', 'layerId', 'targetId', 'sourceId', 'path', 'contourId', 'pointId',
+  'id',
+  'source',
+  'nodeId',
+  'compositionId',
+  'output',
+  'reference',
+  'parent',
+  'layerId',
+  'targetId',
+  'sourceId',
+  'path',
+  'contourId',
+  'pointId',
 ]);
 const NON_ID_KEYS = new Set(['name', 'label', 'text', 'data', 'mime', 'kind', 'type']);
 
@@ -32,7 +43,12 @@ export function remapIds(value, ids, occupied) {
   }
   const copy = structuredClone(value);
   walk(copy, (owner, key, current) => {
-    if (typeof current === 'string' && !NON_ID_KEYS.has(key) && REF_KEYS.has(key) && mapping.has(current))
+    if (
+      typeof current === 'string' &&
+      !NON_ID_KEYS.has(key) &&
+      REF_KEYS.has(key) &&
+      mapping.has(current)
+    )
       owner[key] = mapping.get(current);
   });
   return copy;
@@ -56,7 +72,9 @@ export function mergeAssetRegistry(references, sourceAssets, destinationAssets, 
   for (const id of references) {
     const sourceAsset = sourceAssets?.[id];
     if (!sourceAsset || typeof sourceAsset !== 'object')
-      throw Object.assign(Error('Missing ' + label + ' asset: ' + id), { code: 'IMPORT_ASSET_MISSING' });
+      throw Object.assign(Error('Missing ' + label + ' asset: ' + id), {
+        code: 'IMPORT_ASSET_MISSING',
+      });
     let target = id;
     if (
       Object.hasOwn(assets, target) &&

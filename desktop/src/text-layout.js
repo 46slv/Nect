@@ -235,8 +235,15 @@ export function layoutText(
     throw Error('Unsupported writing mode');
   if (text.length > 10000) throw Error('Text exceeds 10000 characters');
   const featureOptions = textFeatureOptions(font, {
-    type: 'Text', text, writingMode, textWrap, pathAttachment, characterArrangement,
-    characterPositions, variation, fontFeatures,
+    type: 'Text',
+    text,
+    writingMode,
+    textWrap,
+    pathAttachment,
+    characterArrangement,
+    characterPositions,
+    variation,
+    fontFeatures,
   });
   if (font.nectVariable)
     return layoutPreparedVariable(font, text, {

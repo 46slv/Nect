@@ -44,8 +44,7 @@ function cloneJson(value) {
 }
 
 function assertText(value, label) {
-  if (typeof value !== 'string' || value.length > MAX_TEXT_LENGTH)
-    throw Error(`Invalid ${label}`);
+  if (typeof value !== 'string' || value.length > MAX_TEXT_LENGTH) throw Error(`Invalid ${label}`);
 }
 
 function assertId(value, label) {
@@ -159,8 +158,7 @@ function assertLayerReferenceScope(project) {
       for (const node of layer.nodes)
         if (node.type === 'Composition Reference') {
           const targetId = node.compositionReference?.compositionId;
-          if (!layerOwners.has(targetId))
-            throw Error('Composition Reference target is missing');
+          if (!layerOwners.has(targetId)) throw Error('Composition Reference target is missing');
           if (layerOwners.get(targetId) !== composition.id)
             throw Error('Composition Reference cannot cross outer Compositions');
         }
@@ -186,9 +184,7 @@ export function deserializeCompositionProject(text, deserializeLegacyDocument = 
   )
     return validateCompositionProject(parsed);
   const legacy =
-    typeof deserializeLegacyDocument === 'function'
-      ? deserializeLegacyDocument(text)
-      : parsed;
+    typeof deserializeLegacyDocument === 'function' ? deserializeLegacyDocument(text) : parsed;
   return migrateLegacyDocumentToCompositionProject(legacy);
 }
 
@@ -202,8 +198,7 @@ function legacyIds(document) {
     }
   }
   for (const guide of document.editor?.guides || []) assertUniqueId(guide.id, 'Guide', ids);
-  for (const preset of document.nodePresets || [])
-    assertUniqueId(preset.id, 'Node preset', ids);
+  for (const preset of document.nodePresets || []) assertUniqueId(preset.id, 'Node preset', ids);
   return ids;
 }
 

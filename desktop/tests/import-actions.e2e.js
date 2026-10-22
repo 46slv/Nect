@@ -2,7 +2,8 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath:
+    process.env.CHROMIUM_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
@@ -16,11 +17,16 @@ try {
   await importMenu.locator('summary').click();
   assert.equal(await importMenu.locator('button[data-action="import-svg"]').isVisible(), true);
   assert.equal(await importMenu.locator('button[data-action="import-image"]').isVisible(), true);
-  assert.equal(await importMenu.locator('button[data-action="import-composition"]').isVisible(), true);
+  assert.equal(
+    await importMenu.locator('button[data-action="import-composition"]').isVisible(),
+    true,
+  );
 
   const svgChooser = page.waitForEvent('filechooser');
   await importMenu.locator('button[data-action="import-svg"]').click();
-  await (await svgChooser).setFiles({
+  await (
+    await svgChooser
+  ).setFiles({
     name: 'fixture.svg',
     mimeType: 'image/svg+xml',
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>'),

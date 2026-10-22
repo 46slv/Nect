@@ -165,25 +165,62 @@ test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint r
   assert.equal(document.querySelector(`dialog option[value="${c.id}"]`), null);
   document.querySelector('dialog select').value = v.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(input('start').disabled, true);
-  assert.equal(input('start').value, '40');
-  assert.equal(val('start')[0], 125);
+  const startBase = (axis) => field('start').querySelector(`[data-base][data-axis="${axis}"]`);
+  const startResult = () => field('start').querySelector('output.parameter-result');
+  assert.equal(startBase(0).disabled, false);
+  assert.equal(startBase(1).disabled, false);
+  assert.equal(startBase(0).value, '125');
+  assert.equal(startBase(1).value, '250');
+  assert.match(startResult().textContent, /Connected result · 40, 80/);
+  assert.deepEqual(val('start'), [125, 250]);
+  assert.deepEqual(win.nect.evaluate().path.fill.start, [40, 80]);
+  const connectedStart = saved();
+  await change(startBase(0), '126');
+  assert.deepEqual(val('start'), [126, 250]);
+  assert.deepEqual(win.nect.evaluate().path.fill.start, [40, 80]);
+  assert.match(startResult().textContent, /Connected result · 40, 80/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedStart);
+  assert.equal(startBase(0).value, '125');
+  assert.deepEqual(win.nect.evaluate().path.fill.start, [40, 80]);
   field('start')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(input('start').value, '125');
+  assert.deepEqual(win.nect.evaluate().path.fill.start, [125, 250]);
+  assert.equal(startResult(), null);
   field('endColor').querySelector('[data-connect-menu]').click();
   assert.equal(document.querySelector(`dialog option[value="${v.id}"]`), null);
   document.querySelector('dialog select').value = c.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(field('endColor').querySelector('[data-color="alpha"]').disabled, true);
+  const endColorBase = () =>
+    field('endColor').querySelector('[data-color-base][data-color="alpha"]');
+  const endColorResult = () => field('endColor').querySelector('output.parameter-result');
+  assert.equal(endColorBase().disabled, false);
+  assert.equal(endColorBase().value, '1');
+  assert.equal(
+    field('endColor').querySelector('[data-color-base][data-color="hex"]').value,
+    '#6554c0',
+  );
+  assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
+  assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);
+  const connectedColor = saved();
+  await change(endColorBase(), '0.75');
+  assert.equal(val('endColor').alpha, 0.75);
+  assert.deepEqual(win.nect.evaluate().path.fill.endColor, { hex: '#00ff00', alpha: 0.25 });
+  assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedColor);
+  assert.equal(endColorBase().value, '1');
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);
   field('endColor')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 1);
+  assert.deepEqual(win.nect.evaluate().path.fill.endColor, { hex: '#6554c0', alpha: 1 });
+  assert.equal(endColorResult(), null);
   field('start').querySelector('[data-lock]').click();
   assert.equal(input('start').disabled, true);
   document.querySelector('[data-action="undo"]').click();
@@ -218,14 +255,23 @@ test('Linear Gradient Fill controls, typed sources, fallback, invalid endpoint r
   assert.notEqual(imported, json);
   assert.ok(win.nect.document.layers[0].nodes.some((n) => n.type === 'Linear Gradient Fill'));
   assert.equal(win.nect.export(), svg);
-  for (const invalid of [
-    svg.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
-    svg.replace('</svg>', '<rect onload="alert(1)"/></svg>'),
-    svg.replace('<linearGradient ', '<linearGradient href="#loop" '),
-    svg.replace('url(#nect-gradient-0)', 'url(#missing)'),
+  for (const [invalid, reason] of [
+    [
+      svg.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
+      'Unsupported gradient: require a local ID, userSpaceOnUse, pad and sRGB',
+    ],
+    [svg.replace('</svg>', '<rect onload="alert(1)"/></svg>'), 'Unsupported SVG attribute: onload'],
+    [
+      svg.replace('<linearGradient ', '<linearGradient href="#loop" '),
+      'Unsupported SVG attribute: href',
+    ],
+    [svg.replace('url(#nect-gradient-0)', 'url(#missing)'), 'Missing local gradient definition'],
   ]) {
     await importFile(invalid);
-    assert.match(document.querySelector('.status .message').textContent, /Open rejected/);
+    assert.equal(
+      document.querySelector('.status .message').textContent,
+      `SVG import rejected; current document preserved: ${reason}`,
+    );
     assert.equal(saved(), imported);
   }
   document.querySelector('[data-action="undo"]').click();

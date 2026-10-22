@@ -26,8 +26,7 @@ function viewerState(value, document, fallback) {
         binding = slot?.binding,
         layer = layers.get(binding?.layerId),
         node = layer?.nodes.find((entry) => entry.id === binding?.nodeId),
-        validBinding =
-          layer && node && typeof binding.port === 'string' && binding.port.length > 0,
+        validBinding = layer && node && typeof binding.port === 'string' && binding.port.length > 0,
         view = slot?.view;
       return {
         binding: validBinding ? structuredClone(binding) : null,
@@ -55,9 +54,7 @@ export function sanitizeCompositionViewState(value, document, defaults) {
     active = layers.find((layer) => layer.id === activeLayer) || layers[0],
     nodeIds = new Set(active?.nodes.map((node) => node.id) || []),
     selection = [...new Set(ids(value.selection).filter((id) => nodeIds.has(id)))],
-    selected = nodeIds.has(value.selected)
-      ? value.selected
-      : selection.at(-1) || null,
+    selected = nodeIds.has(value.selected) ? value.selected : selection.at(-1) || null,
     artworkSelection = [...new Set(ids(value.artworkSelection).filter((id) => layerIds.has(id)))],
     artworkTarget = layerIds.has(value.artworkTarget)
       ? value.artworkTarget

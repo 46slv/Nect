@@ -2,7 +2,8 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+  executablePath:
+    process.env.CHROMIUM_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
   headless: true,
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
@@ -24,7 +25,8 @@ try {
     return n.id;
   });
   const viewport = page.locator('.graph-scroll');
-  const position = () => page.locator(`.node[data-id="${nodeId}"]`).evaluate((el) => [el.offsetLeft, el.offsetTop]);
+  const position = () =>
+    page.locator(`.node[data-id="${nodeId}"]`).evaluate((el) => [el.offsetLeft, el.offsetTop]);
   const scroll = () => viewport.evaluate((el) => [el.scrollLeft, el.scrollTop]);
   const original = await position();
   for (const action of ['graph-pan-right', 'graph-pan-down', 'graph-pan-left', 'graph-pan-up']) {
@@ -43,7 +45,11 @@ try {
     assert.ok((await scroll())[0] >= before[0], `${zoomStep} right pan is bounded`);
     assert.deepEqual(await position(), original, `${zoomStep} pan keeps node geometry`);
   }
-  assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true, 'pan does not create undo');
+  assert.equal(
+    await page.locator('[data-action="undo"]').isDisabled(),
+    true,
+    'pan does not create undo',
+  );
   console.log('Graph pan pad: directions, zoom limits, geometry and undo passed');
 } finally {
   await browser.close();

@@ -1,11 +1,7 @@
 # Image mask Luminance mode
 
-Parent-selected production slice from PR72 HEAD
-`8ab305a33ecf9f8dade2742ec082dbaa2fce0373`. Current Mask supported Image/Keyer
-alpha only. No other active Nect source writer was found. This lane owns
-appearance-mask/core/main and focused verification. Existing checkout is preserved;
-C had 0 bytes free, so a new remote-backed checkout, copied installed dependencies,
-build/output and process TEMP/TMP are on D. No guard or global setting changed.
+This bounded extension adds luminance coverage to the existing Image/Keyer
+alpha-mask pipeline.
 
 The existing Mask gains Image mode: Alpha (default) / Luminance. A virtual
 Boolean `luminance=false` leaves old JSON untouched. Actual authorship uses
@@ -30,7 +26,8 @@ paint stay outside that filter. Canvas/SVG/PNG share the same renderer and units
 Alpha-mode SVG and old Path SVG remain byte-identical. Existing finite sigma,
 filter bounds, cycle/depth and asset guards remain.
 
-Primary sources (consulted for this implementation):
+References:
+
 - [Filter Effects 1, feColorMatrix and color-interpolation-filters](https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement)
 - [CSS Masking 1, mask processing](https://www.w3.org/TR/css-masking-1/#MaskValues)
 
@@ -40,21 +37,17 @@ old golden documents, Undo/no-op/locks/stale/invalid input/cycles. Add a small
 editable Alpha/Luminance comparison. Focused model/DOM and production-Web
 headless Canvas/SVG/PNG checks. Previous completed native checks are not rerun;
 Luminance-specific native/physical/OS file-dialog/cold-reopen acceptance is separate.
-No normal production document or Recovery, main merge, release or Library upload.
 
 The existing image-luminance-field dither sampler uses linear-light color
 composited on white for dot density. That is a different operation from SVG mask
 coverage (transparent material must give zero before Invert). It is not reused
 or changed here; the new Image mode explicitly identifies sRGB in its option.
 
-The [G8 R09 baseline](https://app.notion.com/p/3eafd279a6f38107820ce7516e17ae36)
-was checked at its Alpha/Luma and first-profile sections. This bounded Image
-slice preserves existing geometric Path coverage, explicitly selects Alpha/Luma,
+This bounded Image slice preserves existing geometric Path coverage, explicitly selects Alpha/Luma,
 and fixes schema52's Image Luminance profile to 8-bit sRGB Canvas. SVG explicitly
 declares sRGB; the UI names it. Tests verify the default Canvas context reports
 sRGB/unorm8 and returns Uint8ClampedArray. There is no linear, ICC/color-managed
 or AE-equivalence claim. A future profile requires explicit versioning.
-DEC-53 (Proposed) and REQ-241 (Candidate) do not expand this scope.
 
 Extra oracle: RGB[94,148,30] and RGB[162,108,226] both have exact integer weighted
 numerator1,280,000, i.e. luminance128/255. With material alpha255/128 they yield
@@ -68,7 +61,7 @@ unorm8 and Uint8ClampedArray. Both equal-luminance colors yielded128 opaque
 and64 at half alpha. Bright transparent white (Feather0) yielded0, then255
 under Invert. All weighted-color oracle values matched exactly; Invert complement
 error was zero. Partial source/material alpha was64 in Alpha and32 in Luminance.
-The D frontend build passed. Native compilation is a separate recorded stage.
+The frontend build passed. Native compilation is a separate recorded stage.
 
 21 prior JSON/SVG fixtures remained byte-identical; all183 files in the PR71,
 PR72 and native-verification sealed artifacts matched their manifests. No prior

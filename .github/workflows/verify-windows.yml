@@ -40,6 +40,12 @@ jobs:
       - name: Install desktop dependencies
         id: dependencies
         run: npm ci
+      - name: Provision Japanese acceptance font capability
+        id: japanese-font-capability
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: ./scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing
       # Report each validation failure without suppressing the native build.
       - name: Check acceptance Rust formatting
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
@@ -122,6 +128,8 @@ jobs:
             desktop/test-results/japanese-*.svg
             desktop/test-results/native-isolation-rust.log
             desktop/test-results/native-acceptance-build.json
+            desktop/test-results/windows-japanese-font-capability.json
+            desktop/test-results/windows-japanese-font-capability-dism.log*
             desktop/tests/fixtures/fonts/OFL.txt
             desktop/tests/fixtures/fonts/README.md
             desktop/src-tauri/Cargo.lock

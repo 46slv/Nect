@@ -125,9 +125,11 @@ test('Trim Path keeps finite degenerate contours and start equal to end is empty
   let result = evaluate(layer).run(trim.id);
   assert.equal(result.contours.length, 1);
   assert.equal(result.contours[0].closed, false);
-  assert.ok(result.contours[0].points.every((point) =>
-    [...point.position, ...point.handleA, ...point.handleB].every(Number.isFinite),
-  ));
+  assert.ok(
+    result.contours[0].points.every((point) =>
+      [...point.position, ...point.handleA, ...point.handleB].every(Number.isFinite),
+    ),
+  );
   trim.params.end.value = 0.2;
   result = evaluate(layer).run(trim.id);
   assert.deepEqual(result.contours, []);
@@ -226,14 +228,18 @@ test('Trim Path resolves tiny-scale curves without Paper getTimeAt absolute-tole
   assert.equal(points.length, 2);
   assert.ok(points[0].position[1] > 0);
   assert.ok(points[1].position[1] > 0);
-  assert.ok(points.every((point) =>
-    [...point.position, ...point.handleA, ...point.handleB].every(Number.isFinite),
-  ));
+  assert.ok(
+    points.every((point) =>
+      [...point.position, ...point.handleA, ...point.handleB].every(Number.isFinite),
+    ),
+  );
 });
 
 test('Trim Path marks direct canvas character editing unavailable while retaining Text provenance', () => {
   const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
-    font = opentype.parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+    font = opentype.parse(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    ),
     doc = document(),
     layer = doc.layers[0],
     text = node('Text'),
@@ -242,6 +248,9 @@ test('Trim Path marks direct canvas character editing unavailable while retainin
   connect(layer, text.id, trim.id, 'path');
   const path = evaluate(layer, { default: font }).run(trim.id);
   assert.equal(path.characterOccurrences.length, 1);
-  assert.match(path.characterOccurrences[0].reason, /Canvas character editing is unavailable through Trim Path/);
+  assert.match(
+    path.characterOccurrences[0].reason,
+    /Canvas character editing is unavailable through Trim Path/,
+  );
   assert.equal(path.characterOccurrences[0].source, text.id);
 });

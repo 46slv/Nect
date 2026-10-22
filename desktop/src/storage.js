@@ -5,7 +5,8 @@ export const beginRecovery = () => invoke('begin_recovery');
 export const writeRecovery = (copy) => invoke('write_recovery', copy).catch(nativeError);
 export const listRecovery = () => invoke('list_recovery').catch(nativeError);
 export const readRecovery = (id) => invoke('read_recovery', { id }).catch(nativeError);
-export const acknowledgeRecovery = (id) => invoke('acknowledge_recovery', { id }).catch(nativeError);
+export const acknowledgeRecovery = (id) =>
+  invoke('acknowledge_recovery', { id }).catch(nativeError);
 const nativeError = (error) => {
   throw error instanceof Error ? error : Error(String(error));
 };

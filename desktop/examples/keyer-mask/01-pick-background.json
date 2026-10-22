@@ -31,28 +31,19 @@
           "id": "example-image",
           "type": "Image",
           "name": "Source image",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": true,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                80,
-                80
-              ],
+              "value": [80, 80],
               "expression": "",
               "locked": false
             }
@@ -69,10 +60,7 @@
           "id": "example-keyer",
           "type": "Keyer",
           "name": "Remove green",
-          "position": [
-            350,
-            40
-          ],
+          "position": [350, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -116,28 +104,19 @@
           "id": "example-mask-shape",
           "type": "Rectangle",
           "name": "Mask rectangle",
-          "position": [
-            40,
-            360
-          ],
+          "position": [40, 360],
           "width": 264,
           "collapsed": true,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                40,
-                40
-              ],
+              "value": [40, 40],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                56,
-                56
-              ],
+              "value": [56, 56],
               "expression": "",
               "locked": false
             }
@@ -153,10 +132,7 @@
           "id": "example-mask",
           "type": "Mask",
           "name": "Shape mask",
-          "position": [
-            660,
-            40
-          ],
+          "position": [660, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -192,10 +168,7 @@
           "id": "example-output",
           "type": "Output",
           "name": "Masked output",
-          "position": [
-            970,
-            40
-          ],
+          "position": [970, 40],
           "width": 264,
           "collapsed": true,
           "params": {

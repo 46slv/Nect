@@ -156,13 +156,38 @@ test('Closed Path Offset controls, failure rollback, scrubbing, typed inputs, lo
   assert.equal(document.querySelector(`dialog option[value="${vector.id}"]`), null);
   document.querySelector('dialog select').value = value.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(input('amount').disabled, true);
+  const amountBase = () => field('amount').querySelector('[data-base][data-axis="0"]');
+  const amountResult = () => field('amount').querySelector('output.parameter-result');
+  assert.equal(input('amount'), null, 'connected fields separate Base from their result');
+  assert.equal(amountBase().disabled, false);
+  assert.equal(amountBase().value, '-10');
+  assert.match(amountResult().textContent, /Connected result · -10/);
   assert.equal(val('amount'), -10);
+  assert.equal(win.nect.evaluate().parameterValue(offset.id, 'amount'), -10);
+  const connectedAmount = saved(),
+    connectedSvg = win.nect.export();
+  await change(amountBase(), '-12');
+  assert.equal(val('amount'), -12, 'Base remains editable while the source takes priority');
+  assert.equal(win.nect.evaluate().parameterValue(offset.id, 'amount'), -10);
+  assert.equal(win.nect.export(), connectedSvg);
+  assert.match(amountResult().textContent, /Connected result · -10/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedAmount);
+  assert.equal(amountBase().value, '-10');
+  assert.equal(win.nect.evaluate().parameterValue(offset.id, 'amount'), -10);
   field('amount')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(input('amount').disabled, false);
+  assert.equal(input('amount').value, '-10');
+  assert.equal(amountResult(), null);
+  assert.equal(win.nect.evaluate().parameterValue(offset.id, 'amount'), -10);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedAmount);
+  assert.equal(amountBase().disabled, false);
+  document.querySelector('[data-action="redo"]').click();
+  assert.equal(input('amount').value, '-10');
   field('amount').querySelector('[data-lock]').click();
   assert.equal(input('amount').disabled, true);
   document.querySelector('[data-action="undo"]').click();

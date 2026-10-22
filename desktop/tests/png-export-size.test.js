@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  displayLengthToDocumentUnits,
-  svgRootSizeAttributes,
-} from '../src/artboard-units.js';
+import { displayLengthToDocumentUnits, svgRootSizeAttributes } from '../src/artboard-units.js';
 import { pngDimensions } from '../src/raster.js';
 
 const mm = (value) => displayLengthToDocumentUnits(value, 'mm');

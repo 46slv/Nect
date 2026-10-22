@@ -244,7 +244,8 @@ export class CompositionSessionOwner {
     this.#assertCurrentCommand(command);
     this.#assertQuiescent();
     const candidate = (direction === 'undo' ? this.#history.past : this.#history.future).at(-1);
-    if (!candidate) return { ...this.state, changed: false, projectRevision: this.#history.revision };
+    if (!candidate)
+      return { ...this.state, changed: false, projectRevision: this.#history.revision };
     validateCompositionProject(candidate);
     const activeCompositionId = candidate.compositions.some(
       (entry) => entry.id === this.#activeCompositionId,
@@ -504,11 +505,7 @@ export class CompositionSessionOwner {
     try {
       const result = session.dispatch(command);
       if (session.state.expectedRevision !== revision) {
-        const candidate = projectWithDocument(
-          this.#history.doc,
-          compositionId,
-          session.snapshot(),
-        );
+        const candidate = projectWithDocument(this.#history.doc, compositionId, session.snapshot());
         this.#applyProjectEdit((history) => {
           replaceRecord(history, candidate);
         });
@@ -596,10 +593,6 @@ export class CompositionSessionOwner {
       this.#activeCompositionId === compositionId
         ? compositions[Math.min(index, compositions.length - 1)].id
         : this.#activeCompositionId;
-    this.#commitProject(
-      { ...current, compositions },
-      nextActiveId,
-      'delete-composition',
-    );
+    this.#commitProject({ ...current, compositions }, nextActiveId, 'delete-composition');
   }
 }

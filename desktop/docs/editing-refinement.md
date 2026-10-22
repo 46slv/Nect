@@ -6,7 +6,7 @@ Slant editable text without rotating it, select dense path points, zoom naturall
 and adjust every editable numeric control consistently. Existing artwork must keep
 its appearance and authored graph connections when opened.
 
-## Approved scope
+## Defined scope
 
 - Extend the existing Transform: Anchor XY, Position XY, uniform/independent width
   and height scale (100% UI), Skew, Skew Axis and Rotation. Preserve legacy relative
@@ -42,10 +42,9 @@ Transform handles, numeric gestures, Remap vertex operations and document guards
 They do not establish physical IME, exact AE skew parity, Alt-wheel interaction feel
 or all tangent-handle affordances. These remain explicit acceptance obligations.
 
-On 2026-10-17 09:16 JST Shiro reopened independent dot-side fixes and Brief work.
-Inspect every editable numeric control category against drag/typing/Undo/cancel
-semantics and repair demonstrated gaps. Do not wait for subjective trial feedback
-before such independent repairs. Do not infer acceptance of deferred legacy features.
+Every editable numeric control category needs drag/typing/Undo/cancel acceptance.
+These checks are independent of subjective interaction review and do not establish
+acceptance of deferred legacy features.
 
 A practical production checkpoint is editable horizontal/vertical text plus vector
 artwork, with transform/paint/alignment, save/cold reopen/re-edit and SVG/PNG export.
@@ -76,7 +75,7 @@ trial remains 7496aee; subsequent source fixes have not been packaged into a new
 
 ## Stroke presets — 2026-10-17
 
-The requested dotted/dashed appearance already existed in Stroke's dash pattern,
+Dotted/dashed appearance already existed in Stroke's dash pattern,
 cap and SVG/PNG path. A named Solid / Dashed / Dotted selector now exposes it in
 both graph and inspector. Dashed sets 12 px / 6 px with butt caps; Dotted sets
 0 px / 8 px with round caps. Solid clears the dash pattern, retaining the cap.
@@ -87,11 +86,9 @@ is awaiting clarification; no deformation node has been added in this slice.
 
 ## Non-destructive modifier expansion (2026-10-17)
 
-Shiro requested more Illustrator-like editing including Mirror, then explicitly authorized
-repeating research and additions with Blender modifiers as inspiration. There is no fixed
-modifier-count ceiling. Each addition must have an actual vector-art use, searchable naming,
-editable parameters, bypass, atomic common commands, focused verification and bounded output.
-This does not expand merge/release or account permissions.
+Modifier additions use Illustrator-like vector editing and Blender modifiers as design
+references. Each addition needs an actual vector-art use, searchable naming, editable
+parameters, bypass, atomic common commands, focused verification and bounded output.
 
 ### Closed Path Offset — explicit group inputs
 
@@ -164,8 +161,8 @@ modifiers in coherent slices instead of duplicating nodes or inventing a generic
   [Blender Solidify](https://docs.blender.org/manual/en/5.3/modeling/modifiers/generate/solidify.html)
   motivates converting thickness into geometry. Need a bounded open/closed offset contract.
 
-These are an evolving implementation sequence under Shiro's explicit research/addition
-instruction, not a reason to rebuild existing Repeater/Offset/Mirror or run full audits.
+This is an evolving implementation sequence, not a requirement to rebuild existing
+Repeater/Offset/Mirror behavior or perform a repository-wide audit.
 
 ### Resample Path
 
@@ -233,9 +230,8 @@ It intentionally may shrink geometry; it will not claim topology preservation or
 - Bounds: 10000 contours,100000 points,2,000,000 point-iteration operations; finite results
   and stable convex interpolation even for large finite coordinates.
 - Focused evidence: helper6/6, graph+Session2/2, DOM1/1 and Roughen graph regression2/2;
-  Web build passed. A worker accidentally invoked a broader test command; its final outcome
-  was not captured, so it is not counted as an aggregate pass. Future helper lanes must run
-  only their exact assigned test file; no npm test or full-suite command.
+  Web build passed. The outcome of a separate broader test invocation was not captured,
+  so it is not counted as an aggregate pass.
 
 ### Trim Path
 
@@ -313,7 +309,7 @@ See [modifier catalog](modifiers.md) for current controls, recipes and limitatio
   - DOM1, total22/22, Web build pass. Common bypass/history/locks and editable JSON/SVG apply.
 - Modifier Playground now contains nine examples in20 evaluated editable layers. The actual SVG
   raster was inspected for labels, clipping and shape output. Native application acceptance remains
-  unverified. The earlier seven-example proof sent in chat is preserved as that historical image.
+  unverified. An earlier seven-example proof is preserved as a historical image.
 
 Subdivide Path is the next completed addition below: it adds Bézier anchors without converting the
 curve to a polyline. See its exact per-edge contract, bounds and focused evidence.
@@ -341,8 +337,6 @@ curve to a polyline. See its exact per-edge contract, bounds and focused evidenc
 
 ### Pucker & Bloat
 
-- Selected under Shiro's broad repeated-modifier-addition instruction. The earlier ambiguous
-  word “パンク” has not been separately confirmed; this does not invent an answer to that question.
 - Inspired by [Adobe Pucker & Bloat's described direction](https://helpx.adobe.com/illustrator/using/reshaping-objects-effects.html),
   with an explicit Nect cubic-control contract, not claimed numerical parity: for t=Amount/100,
   anchors scale by (1−t) around Center and absolute Bézier controls by (1+t). Relative handles
@@ -526,7 +520,7 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - Strength0..1 (default1). Interior/closed tangent is next−previous; paired handle length is Strength × min(adjacent chord lengths)/3. Open endpoints use a one-sided edge vector/3 and an unused zero handle. Closed contours wrap neighbors; duplicate chords/zero tangents produce zero handles. Empty/singleton inputs are finite. Strength0 clears handles; same-type bypass restores original geometry.
 - O(points),10000-contour/100000-point limit, immutable clones, deterministic IDs, finite coordinate/absolute-endpoint guards, unstable fingerprint and upstream Text edit restriction. Acute turns may overshoot or self-intersect; this is not topology repair or exact Blender parity. The [Blender automatic-handle category](https://docs.blender.org/manual/en/latest/modeling/curves/structure.html) is a reference, not the numeric formula.
 - Final focused evidence: helper9 + core/Session2 + DOM1 + disconnected validation1 + bypass42 =55/55 pass; Webbuild passes with existing large-chunk warning. No native GUI/full-suite claim.
-- User's curve-to-angular question was answered with actual core output in an8-layer editable comparison: original circle and24/8/4-point Resample variants. Inkscape rendered the SVG on white for the delivered PNG. Catalog19, main playground still18/47layers; this comparison is not a new production asset count.
+- A curve-to-angular comparison uses actual core output in an eight-layer editable comparison: original circle and24/8/4-point Resample variants. Inkscape rendered the SVG on white for the delivered PNG. Catalog19, main playground still18/47layers; this comparison is not a new production asset count.
 
 ### Instance on Points
 
@@ -722,7 +716,6 @@ Resample spacing example: two serialized/reopened editable layers are verified t
 - This target-scoped edge lets Halftone, Ordered Dither and Line Screen output feed Path Remap and ordinary Path modifiers without export/reimport. Convert to Path does not accept Image directly, and other PaintedPath-to-Path consumers remain incompatible. Because this edge changes the output contract, validation promotes only documents that contain it to schema 18; older Path-only documents retain their version and serialized shape.
 - PaintedPath conversion is intentionally not bypassable: passing the input through would return PaintedPath where the node promises Path. Bypass remains available for the existing Path-source identity case. The converted geometry receives a deterministic fingerprint over its contour geometry, stable IDs and graph provenance, independent of source paint; downstream Transform, Remap and repainting continue to use ordinary Path semantics.
 - Focused acceptance covers paint removal and source immutability, compatibility boundaries, a real embedded Image→Halftone→Convert to Path→Transform→Fill composition, serialization, locks, Undo/Redo, bypass refusal and downstream Path edits. This does not add automatic tracing of arbitrary images.
-
 
 ### Error Diffusion Dither — bounded Floyd–Steinberg, schema 19
 

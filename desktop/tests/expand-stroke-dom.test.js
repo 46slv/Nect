@@ -84,6 +84,7 @@ test('Expand Stroke is searchable and explains geometry conversion', async () =>
     await change(document.querySelector('#add-node'), type);
     return win.nect.document.layers[0].nodes.at(-1).id;
   };
+  const initialSchemaVersion = win.nect.document.schemaVersion;
   const expand = await add('Expand Stroke');
   assert.equal(win.nect.document.layers[0].nodes.at(-1).type, 'Expand Stroke');
   const help = document.querySelector('.inspector-body').textContent;
@@ -117,6 +118,6 @@ test('Expand Stroke is searchable and explains geometry conversion', async () =>
       .value,
     2.5,
   );
-  assert.equal(win.nect.document.schemaVersion, 16);
+  assert.equal(win.nect.document.schemaVersion, Math.max(initialSchemaVersion, 16));
   win.happyDOM.abort();
 });

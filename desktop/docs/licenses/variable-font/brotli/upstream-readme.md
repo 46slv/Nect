@@ -1,7 +1,7 @@
 # Brotli.js
 
 Brotli.js is port of the [Brotli](http://tools.ietf.org/html/draft-alakuijala-brotli-01) compression algorithm (as used in the [WOFF2](http://www.w3.org/TR/WOFF2/) font format) to JavaScript. The decompressor is hand ported, and the compressor is ported
-with Emscripten.  The original C++ source code can be found [here](http://github.com/google/brotli).
+with Emscripten. The original C++ source code can be found [here](http://github.com/google/brotli).
 
 ## Installation and usage
 
@@ -52,7 +52,7 @@ brotli.compress(fs.readFileSync('myfile.bin'));
 brotli.compress(fs.readFileSync('myfile.bin'), {
   mode: 0, // 0 = generic, 1 = text, 2 = font (WOFF2)
   quality: 11, // 0 - 11
-  lgwin: 22 // window size
+  lgwin: 22, // window size
 });
 ```
 

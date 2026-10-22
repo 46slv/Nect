@@ -4,7 +4,7 @@
 
 ## Delivered evidence
 
-Artifacts: `/workspace/shared/nect-variable-font-probe/` contains source scripts, pinned isolated npm lock, unchanged licensed fixture, recorded output, sample commands, current Nect cubic contour JSON, and browser bundle evidence. Reproduction is in its README. Only this documentation file was added inside Nect; no source/package/lock/schema/parser changes.
+The isolated probe produced source scripts, a pinned npm lock, an unchanged licensed fixture, output records, Nect cubic contour JSON and browser bundle measurements. These historical probe artifacts are not included by this page; commands below describe that probe, not standalone reproduction from this checkout. The probe did not change application source, packages, lockfiles, schema or parser.
 
 - `harfbuzzjs` **1.6.3**, npm registry latest observed at execution; its `versionString()` is **HarfBuzz 14.6.0**. Package MIT license; preserve upstream notices when shipping. No runtime dependency installation scripts executed.
 - Official Google Fonts Roboto variable TTF, **488,584 bytes**, SHA256 `d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134`. Unmodified bytes and full SIL OFL 1.1 notice retained; provenance has URLs and license hash. No system installation.
@@ -12,12 +12,12 @@ Artifacts: `/workspace/shared/nect-variable-font-probe/` contains source scripts
 
 `node probe.mjs` passes explicit assertions:
 
-| Coordinates | “office AV” advance (font units) | Commands |
-| --- | ---: | ---: |
-| wght=100, wdth=100 | 7690 | 195 |
-| wght=400, wdth=100 | 8135 | 195 |
-| wght=900, wdth=100 | 8492 | 195 |
-| wght=400, wdth=75 | 7171 | 195 |
+| Coordinates        | “office AV” advance (font units) | Commands |
+| ------------------ | -------------------------------: | -------: |
+| wght=100, wdth=100 |                             7690 |      195 |
+| wght=400, wdth=100 |                             8135 |      195 |
+| wght=900, wdth=100 |                             8492 |      195 |
+| wght=400, wdth=75  |                             7171 |      195 |
 
 Outline hashes at wght 100/900 differ independently of the coordinate metadata. Twenty new-instance reruns produce identical full record/outline hashes. Invalid/NaN/unknown axes and a one-command output budget reject. Independent fontTools 4.61.1 static instances give A advances 1223/1336/1395 at weights 100/400/900; HarfBuzz matches all three exactly (`verify-metrics.py`, `verify-metrics.mjs`). This oracle checks metrics, not every outline point or intermediate coordinate.
 
@@ -59,19 +59,19 @@ No complete bidi algorithm, script itemization, UAX #29 segmentation, paragraph 
 
 ## App-specific gate review and narrowed integration recommendation
 
-Read-only follow-up inspected `src-tauri/tauri.conf.json`, core.js, fonts.js, main.js and cli/export.js. **The above configured bundle is an experiment, not approved production packaging.**
+Read-only follow-up inspected `src-tauri/tauri.conf.json`, core.js, fonts.js, main.js and cli/export.js. **The configured bundle is experimental, not validated production packaging.**
 
-### Actual CSP blocker; separate permission required
+### WebAssembly CSP compatibility boundary
 
-Tauri currently sets `default-src 'self'; script-src 'self'` with no `wasm-unsafe-eval`. core.js explicitly documents keeping script-src free of unsafe-eval. Standard CSP therefore blocks WebAssembly compilation ([MDN script-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src)). Actual packaged-host enforcement remains untested, so do not infer a host exception. A local worker does not authorize circumventing this policy.
+Tauri currently sets `default-src 'self'; script-src 'self'` with no `wasm-unsafe-eval`. core.js explicitly documents keeping script-src free of unsafe-eval. Standard CSP therefore blocks WebAssembly compilation ([MDN script-src](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src)). Actual packaged-host enforcement remains untested, so do not infer a host exception. A local worker does not change the host CSP.
 
-Adding the narrower `wasm-unsafe-eval` would authorize WASM compilation while leaving JavaScript eval prohibited, but it is still a security-policy change requiring separate action-time user approval before editing that configuration. No such change was made or assumed approved. Do not add broad `unsafe-eval`, remote loaders/CDNs, blob exceptions, or a less-restricted worker to evade the existing policy. Until that decision, continue the adapter design/probe or evaluate a pure-JS alternative; do not advertise variable fonts in the app.
+The narrower `wasm-unsafe-eval` directive permits WASM compilation while leaving JavaScript eval prohibited, but it changes the security policy. This probe leaves that policy unchanged. Broad `unsafe-eval`, remote loaders/CDNs, blob exceptions or less-restricted workers are not substitutes for compatible production packaging. The pure-JS comparison below avoids this WASM requirement.
 
 ### Browser packaging is still a gate, not solved by externals
 
 `--external:module` merely permits bundling: the resulting file retains `import("module")` and the Node createRequire/fs branch. Emscripten's environment guard normally skips it in browsers, but this is **not acceptable as the final browser-only runtime** under the no-hidden-Node-fallback requirement. A further `--define:process=undefined` trial also retained the dead guarded import; files/logs record this rather than claiming removal.
 
-Required next packaging proof: upstream-supported browser-only Emscripten build/loader, or a small audited deterministic build-time transform of the pinned loader that removes Node branches (with source integrity tests). Produce separate CLI and browser artifacts, assert the browser artifact has no Node imports/createRequire/fs fallback, and execute it under the intended production CSP after any necessary approval. Do not use a fake Node-module shim or rely on runtime failure of the branch. Existing bundling byte counts remain feasibility measurements, not final ship sizes.
+Required next packaging proof: upstream-supported browser-only Emscripten build/loader, or a small audited deterministic build-time transform of the pinned loader that removes Node branches (with source integrity tests). Produce separate CLI and browser artifacts, assert the browser artifact has no Node imports/createRequire/fs fallback, and execute it under the intended production CSP. Do not use a fake Node-module shim or rely on runtime failure of the branch. Existing bundling byte counts remain feasibility measurements, not final ship sizes.
 
 ### Smallest variable-only slice, without global shaping migration
 
@@ -92,7 +92,6 @@ Two levels must remain distinct:
 
 The second option is more than initialization wiring and requires a deliberately scoped preparation gate around load/import/text/axis mutations and export. If that cost is rejected, a main-thread initialized adapter is only a bounded trusted-fixture prototype, not the promised resource-safe general-font implementation. Decide this interface before touching the application parser or UI.
 
-
 ## Final comparison: pure-JS fontkit succeeds under the unchanged policy
 
 Following the app gate review, installed **fontkit 2.0.4** only in the isolated probe and exercised the exact same official Roboto fixture. Package exports explicitly select `dist/browser-module.mjs` for browser ESM; esbuild metadata confirms that entry was selected. Browser build command used `--platform=browser --format=esm --target=es2022 --minify` with **no external-module exceptions, no Node shims and no dependency source edits**.
@@ -100,6 +99,7 @@ Following the app gate review, installed **fontkit 2.0.4** only in the isolated 
 `browser-build/fontkit.mjs` is **365,930 bytes; 149,085 gzip**. Its metafile records zero external imports. Source/bundle checks find no Node imports, createRequire/fs loader, eval or Function construction. This package bundles its browser-compatible binary utilities; it requires no host Buffer global. The exact bundle was evaluated via `vm.SourceTextModule` in a fresh browser-like realm, with external imports rejected, no process/require/Buffer/fetch/DOM globals, WebAssembly explicitly undefined, and both string and WASM code generation disabled. That is stronger than a successful build but is still not a real browser/CSP/Tauri execution test.
 
 `node --experimental-vm-modules fontkit-probe.mjs` passes:
+
 - Real outline differences at weights 100/900, variable total advances 7690/8135/8492 at 100/400/900, and width-75 total 7171.000000000001.
 - Independent fontTools A advances exactly 1223/1336/1395.
 - Twenty identical instance result reruns; invalid axes/NaN/range rejection; bounded adapter output rejection.
@@ -117,11 +117,11 @@ Fontkit `GlyphRun` publicly exposes glyphs/positions; each glyph has codePoints,
 
 Path extraction also differs: `glyph.path.commands` materializes the glyph before the adapter can cap emitted commands. The output cap does not prevent that allocation. Preserve input/table/glyph bounds and use worker timeout/teardown; no claim of parser safety follows from the fixture. CFF2 code exists in this package but remains untested and must stay blocked in the first integration.
 
-**No security-policy approval is needed for this demonstrated pure-JS route, and no CSP change is proposed for the next slice.** Real production bundle/offline/CSP and worker host acceptance still precede shipping. If a future cluster stage chooses HarfBuzz, separately resolve the browser-only loader and explicitly approve the minimal WASM policy change described above; do not bundle those changes into ordinary font development.
+**The demonstrated pure-JS route requires no CSP change.** Production bundle/offline/CSP and worker-host acceptance remain separate requirements. A future HarfBuzz integration must resolve its browser-only loader and explicitly document any required security-policy change rather than hiding it inside a font adapter.
 
 Reproduction additions: `fontkit-check.mjs` is a host-independent assertion body; `fontkit-probe.mjs` runs the no-Node/no-codegen realm; `fontkit-results.json`, `fontkit-run.log`, `fontkit-browser-meta.json`, `fontkit-sample-outline.json`, `fontkit-cubic-path.json` retain the evidence. Run `node bridge.mjs fontkit-sample-outline.json fontkit-cubic-path.json` for the cubic bridge.
 
-## Ready-to-assign integration contract (fontkit 2.0.4)
+## Integration requirements (fontkit 2.0.4)
 
 - **Dependency/import:** propose exact `fontkit: "2.0.4"` in the future app package, with its lockfile integrity, MIT license and bundled third-party notices. Use the documented `import { create } from 'fontkit'` from a browser-targeted adapter; package conditional exports resolve to `dist/browser-module.mjs`. Do not import `src/node.js`, open/openSync or the Node `dist/module.mjs` in the renderer. Keep Node file IO in the CLI boundary. Add a build assertion that the renderer uses the browser entry and has zero Node builtins/external loader imports. This probe changed only its own package/lock, not the app's.
 - **Font bytes:** retain one immutable full-byte asset per existing byte deduplication rule. Sliders never instantiate a new embedded asset or subset. Derive axis metadata/named-instance display metadata from the validated asset; names are not identity. Cache parsed base fonts separately from ephemeral instances.
@@ -131,4 +131,4 @@ Reproduction additions: `fontkit-check.mjs` is a host-independent assertion body
 - **First acceptance:** real glyf/gvar min/default/max/intermediate and width values; composite glyphs; bounded metadata/axes; font bytes stable across repeated previews; exact cancel/undo/redo; persistence/reopen and CLI output equality at identical instance keys; unchanged static corpus geometry; one-to-one rejection retained; no implicit fallback. Browser production bundle plus offline WebView2 execution under unchanged CSP remains mandatory host acceptance. The VM proof is not WebView2 or GUI evidence.
 - **Deferred:** CFF2, variable vertical/VVAR/MVAR, arbitrary complex clusters/RTL/bidi, automatic fallback, WOFF decoders and collection import. Do not relax their guards because fontkit recognizes the formats.
 
-The next packet can implement the adapter and pure tests first, with separate ownership for persistence/GUI/host tests. No application changes were made by this research packet.
+Adapter, persistence, GUI and host acceptance require separate verification. This probe did not change the application.

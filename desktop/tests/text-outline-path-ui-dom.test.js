@@ -272,13 +272,19 @@ test('Text outline conversion, contained units and Alt handles through DOM', asy
       await new Promise((resolve) => setTimeout(resolve, 30));
       assert.deepEqual(state().points, [id]);
       assert.ok(
-        card(remap.id).querySelector('.batch-edit').textContent.includes('1 batch checked'),
+        card(remap.id)
+          .querySelector(`[data-apply-batch="${remap.id}"]`)
+          .closest('.batch-edit')
+          .textContent.includes('1 batch checked'),
       );
       const button = panel(remap.id).querySelector('[data-select-panel-point]');
       button.dispatchEvent(new win.MouseEvent('click', { bubbles: true, shiftKey: true }));
       assert.equal(rows(remap.id).length, 0);
       assert.ok(
-        card(remap.id).querySelector('.batch-edit').textContent.includes('1 batch checked'),
+        card(remap.id)
+          .querySelector(`[data-apply-batch="${remap.id}"]`)
+          .closest('.batch-edit')
+          .textContent.includes('1 batch checked'),
       );
     },
   );

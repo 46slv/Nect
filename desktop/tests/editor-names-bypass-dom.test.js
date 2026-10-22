@@ -165,7 +165,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
     beforeSVG = win.nect.export();
   query('[data-bypass="name-effect"]').click();
   assert.equal(get(effect.id).bypassed, true);
-  assert.equal(win.nect.document.schemaVersion, 10);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 10));
   assert.deepEqual(get(effect.id).params, effect.params);
   assert.notEqual(win.nect.export(), beforeSVG);
   assert.equal(query('[data-bypass="name-effect"]').getAttribute('aria-pressed'), 'true');

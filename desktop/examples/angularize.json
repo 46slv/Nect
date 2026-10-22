@@ -15,28 +15,19 @@
           "id": "angular-0:n0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                125,
-                115
-              ],
+              "value": [125, 115],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                145,
-                145
-              ],
+              "value": [145, 145],
               "expression": "",
               "locked": false
             }
@@ -52,10 +43,7 @@
           "id": "angular-0:n1",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -105,10 +93,7 @@
           "id": "angular-0:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -141,19 +126,13 @@
           "id": "angular-1:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                50,
-                235
-              ],
+              "value": [50, 235],
               "expression": "",
               "locked": false
             },
@@ -192,10 +171,7 @@
           "id": "angular-1:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -227,10 +203,7 @@
           "id": "angular-1:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -263,28 +236,19 @@
           "id": "angular-2:n0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                375,
-                115
-              ],
+              "value": [375, 115],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                145,
-                145
-              ],
+              "value": [145, 145],
               "expression": "",
               "locked": false
             }
@@ -300,10 +264,7 @@
           "id": "angular-2:n1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -338,10 +299,7 @@
           "id": "angular-2:n2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -391,10 +349,7 @@
           "id": "angular-2:n3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -427,19 +382,13 @@
           "id": "angular-3:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                300,
-                235
-              ],
+              "value": [300, 235],
               "expression": "",
               "locked": false
             },
@@ -478,10 +427,7 @@
           "id": "angular-3:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -513,10 +459,7 @@
           "id": "angular-3:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -549,28 +492,19 @@
           "id": "angular-4:n0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                625,
-                115
-              ],
+              "value": [625, 115],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                145,
-                145
-              ],
+              "value": [145, 145],
               "expression": "",
               "locked": false
             }
@@ -586,10 +520,7 @@
           "id": "angular-4:n1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -624,10 +555,7 @@
           "id": "angular-4:n2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -677,10 +605,7 @@
           "id": "angular-4:n3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -713,19 +638,13 @@
           "id": "angular-5:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                550,
-                235
-              ],
+              "value": [550, 235],
               "expression": "",
               "locked": false
             },
@@ -764,10 +683,7 @@
           "id": "angular-5:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -799,10 +715,7 @@
           "id": "angular-5:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -835,28 +748,19 @@
           "id": "angular-6:n0",
           "type": "Ellipse",
           "name": "Ellipse",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                875,
-                115
-              ],
+              "value": [875, 115],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                145,
-                145
-              ],
+              "value": [145, 145],
               "expression": "",
               "locked": false
             }
@@ -872,10 +776,7 @@
           "id": "angular-6:n1",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -910,10 +811,7 @@
           "id": "angular-6:n2",
           "type": "Stroke",
           "name": "Stroke",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -963,10 +861,7 @@
           "id": "angular-6:n3",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -999,19 +894,13 @@
           "id": "angular-7:n0",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                800,
-                235
-              ],
+              "value": [800, 235],
               "expression": "",
               "locked": false
             },
@@ -1050,10 +939,7 @@
           "id": "angular-7:n1",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1085,10 +971,7 @@
           "id": "angular-7:n2",
           "type": "Output",
           "name": "Output",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {

@@ -2,15 +2,7 @@
   "name": "fontkit",
   "version": "2.0.4",
   "description": "An advanced font engine for Node and the browser",
-  "keywords": [
-    "opentype",
-    "font",
-    "typography",
-    "subset",
-    "emoji",
-    "glyph",
-    "layout"
-  ],
+  "keywords": ["opentype", "font", "typography", "subset", "emoji", "glyph", "layout"],
   "scripts": {
     "test": "run-s build mocha",
     "mocha": "mocha",
@@ -65,10 +57,7 @@
       }
     }
   },
-  "files": [
-    "src",
-    "dist"
-  ],
+  "files": ["src", "dist"],
   "author": "Devon Govett <devongovett@gmail.com>",
   "license": "MIT",
   "repository": {

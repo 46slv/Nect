@@ -15,19 +15,13 @@
           "id": "node-29c349a8-48ea-4681-b4a1-02b2a2dcac20",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                70,
-                50
-              ],
+              "value": [70, 50],
               "expression": "",
               "locked": false
             },
@@ -66,10 +60,7 @@
           "id": "node-4a4dc857-afc1-45c7-a721-5f0fe47af473",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -101,10 +92,7 @@
           "id": "node-b4bc7031-51e4-4795-98a3-02896781f23f",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -137,19 +125,13 @@
           "id": "node-60601b39-3d4d-4f19-9a71-507cb8c871b7",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                520,
-                50
-              ],
+              "value": [520, 50],
               "expression": "",
               "locked": false
             },
@@ -188,10 +170,7 @@
           "id": "node-e4a56656-e344-4005-86ff-32a11dcf5834",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -223,10 +202,7 @@
           "id": "node-3952a3d1-74c6-4f2a-97f6-99e0b11658a1",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -259,19 +235,13 @@
           "id": "node-7c499275-9956-4065-a57f-e8b415b77463",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                70,
-                210
-              ],
+              "value": [70, 210],
               "expression": "",
               "locked": false
             },
@@ -310,10 +280,7 @@
           "id": "node-407e61fc-bf1f-401b-a375-bda513c2d478",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -345,10 +312,7 @@
           "id": "node-513840b7-a6e0-4b99-8df3-11210c07014d",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -381,19 +345,13 @@
           "id": "node-66ed412b-f1e4-4515-bbd1-bd53659e281e",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                520,
-                210
-              ],
+              "value": [520, 210],
               "expression": "",
               "locked": false
             },
@@ -432,10 +390,7 @@
           "id": "node-b3dc21b7-15a6-4222-96da-7f3f3356a5c1",
           "type": "Corner Round",
           "name": "Corner Round",
-          "position": [
-            350,
-            50
-          ],
+          "position": [350, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -464,10 +419,7 @@
           "id": "node-3d22eb49-3d3e-41a3-bdd8-1191382f1fd6",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -499,10 +451,7 @@
           "id": "node-a9c65495-aee8-41e4-942a-69b0b8cfb940",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -535,19 +484,13 @@
           "id": "node-e367cb6b-67b2-48bc-b68f-3d08b64c9b22",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                70,
-                360
-              ],
+              "value": [70, 360],
               "expression": "",
               "locked": false
             },
@@ -586,10 +529,7 @@
           "id": "node-0a2c7c79-1ea0-48ac-b0cf-a7d2074ffdf5",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -621,10 +561,7 @@
           "id": "node-aed77333-e880-4776-bc47-d3a1bbaa3525",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -657,19 +594,13 @@
           "id": "node-19e59f11-d813-426d-b9ba-3c8e78824a54",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                520,
-                360
-              ],
+              "value": [520, 360],
               "expression": "",
               "locked": false
             },
@@ -708,10 +639,7 @@
           "id": "node-4303f1c9-12ea-463d-a2c7-2ead26348aaf",
           "type": "Corner Round",
           "name": "Corner Round",
-          "position": [
-            350,
-            50
-          ],
+          "position": [350, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -740,10 +668,7 @@
           "id": "node-bde4e347-2ce0-4bda-8761-9cb0f86510dd",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -775,10 +700,7 @@
           "id": "node-3e59df86-ad0a-4c83-af6c-fe590a6303ad",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -811,19 +733,13 @@
           "id": "node-44e753bf-5d34-4926-98f0-650aa4416586",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                70,
-                510
-              ],
+              "value": [70, 510],
               "expression": "",
               "locked": false
             },
@@ -862,10 +778,7 @@
           "id": "node-b14adc85-7c53-4efd-a4e4-02c21d4a651f",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -897,10 +810,7 @@
           "id": "node-ac8c4f23-08a5-4b2d-87eb-366b80699150",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -933,19 +843,13 @@
           "id": "node-8f587fe4-fb44-4cb0-abcf-75223294156a",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                520,
-                510
-              ],
+              "value": [520, 510],
               "expression": "",
               "locked": false
             },
@@ -984,10 +888,7 @@
           "id": "node-10123e72-c3bb-48d1-9ad2-7e12d3fbee07",
           "type": "Corner Round",
           "name": "Corner Round",
-          "position": [
-            350,
-            50
-          ],
+          "position": [350, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1016,10 +917,7 @@
           "id": "node-fb6342c1-de00-4efa-b73d-558b767ea5ae",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1051,10 +949,7 @@
           "id": "node-251e60bb-9c70-4679-88c3-9ff1692ea005",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1087,19 +982,13 @@
           "id": "node-8bc2c4cc-6214-4112-9761-639a64f7664a",
           "type": "Text",
           "name": "Text",
-          "position": [
-            40,
-            50
-          ],
+          "position": [40, 50],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                70,
-                615
-              ],
+              "value": [70, 615],
               "expression": "",
               "locked": false
             },
@@ -1138,10 +1027,7 @@
           "id": "node-6d2e0ee1-38d0-4a0c-adbb-35fcb36269b5",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            660,
-            50
-          ],
+          "position": [660, 50],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -1173,10 +1059,7 @@
           "id": "node-3e2479c8-6491-4c74-b0d9-56184350d06e",
           "type": "Output",
           "name": "Output",
-          "position": [
-            970,
-            50
-          ],
+          "position": [970, 50],
           "width": 264,
           "collapsed": false,
           "params": {

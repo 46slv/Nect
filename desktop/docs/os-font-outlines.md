@@ -44,7 +44,7 @@ passed. Family naming now uses the complete English LANGID, not a neutral primar
 language identifier. Existing ZIPs remain frozen; this source checkpoint is not
 yet a new native distribution.
 
-- SS-Note-ROG public native API: DIN Alternate / OS Regular, 377 native points,
+- Windows public native API: DIN Alternate / OS Regular, 377 native points,
   15 contours / 172 Nect vertices. Geometry-only JSON reload, SVG output and
   exact Undo/Redo passed; zero font assets were added.
 - 41 focused JS checks passed; the final six OS geometry/picker checks include
@@ -66,12 +66,8 @@ staged trial. Actual WebView2 picker/IME/DPI/save-restart hands-on acceptance is
 open. DIN Alternate's activation provider and underlying file format were not
 inspected; no Adobe cache was extracted, embedded, copied or uploaded.
 
-Independent-check gate: `chatgpt-web-double-check` invoked; external consultation
-`not-required` after local review of public API contracts, atomic Session/codec
-boundaries, real native output and focused/UI tests. No unresolved format or
-cross-owner design decision remained; external submissions: zero.
-
 Public API references:
-- [GraphicsPath::AddString](https://learn.microsoft.com/en-us/windows/win32/api/gdipluspath/nf-gdipluspath-graphicspath-addstring(constwchar_int_constfontfamily_int_real_constpointf__conststringformat))
+
+- [GraphicsPath::AddString](<https://learn.microsoft.com/en-us/windows/win32/api/gdipluspath/nf-gdipluspath-graphicspath-addstring(constwchar_int_constfontfamily_int_real_constpointf__conststringformat)>)
 - [GraphicsPath functions and data](https://learn.microsoft.com/en-us/windows/win32/gdiplus/-gdiplus-graphicspath-flat)
 - [Path point types and markers](https://learn.microsoft.com/en-us/windows/win32/api/gdiplusenums/ne-gdiplusenums-pathpointtype)

@@ -1,22 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod acceptance_storage;
+mod desktop_font_layout;
+mod document_storage;
+mod os_font_outlines;
 #[cfg(feature = "recovery-acceptance-test")]
 mod recovery_acceptance_gate;
-mod acceptance_storage;
-mod document_storage;
-mod desktop_font_layout;
-mod os_font_outlines;
-use desktop_font_layout::{list_desktop_font_faces, list_desktop_font_axes, shape_desktop_text};
-use os_font_outlines::{list_os_outline_fonts, outline_os_text};
+use desktop_font_layout::{list_desktop_font_axes, list_desktop_font_faces, shape_desktop_text};
 use document_storage::{
     choose_unsaved, enable_close_guard, finish_close, open_project, release_project, save_project,
     CloseGuard, Documents,
 };
+use os_font_outlines::{list_os_outline_fonts, outline_os_text};
 use tauri::Manager;
 #[rustfmt::skip]
 mod system_fonts;
 use acceptance_storage::RunStorage;
 mod recovery_storage;
-use recovery_storage::{Recovery, begin_recovery, write_recovery, list_recovery, read_recovery, acknowledge_recovery};
+use recovery_storage::{
+    acknowledge_recovery, begin_recovery, list_recovery, read_recovery, write_recovery, Recovery,
+};
 use system_fonts::{list_system_fonts, read_system_font, Catalog};
 
 #[tauri::command]

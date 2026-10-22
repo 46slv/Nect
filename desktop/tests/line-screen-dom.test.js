@@ -100,14 +100,14 @@ test('Line Screen picker, direction, luminance fields and guidance are available
   );
   await change(direction(), 'vertical');
   assert.equal(savedNode().operation, 'vertical');
-  assert.equal(win.nect.document.schemaVersion, 21);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 21));
   await change(field('pitch').querySelector('[data-value]'), '8');
   assert.equal(savedNode().params.pitch.value, 8);
   const originInputs = field('gridOrigin').querySelectorAll('input[data-value]');
   await change(originInputs[0], '8');
   await change(field('gridOrigin').querySelectorAll('input[data-value]')[1], '-4');
   assert.deepEqual(savedNode().params.gridOrigin.value, [8, -4]);
-  assert.equal(win.nect.document.schemaVersion, 21);
+  assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 21));
   const invert = field('invert').querySelector('[data-value]');
   invert.checked = true;
   invert.dispatchEvent(new win.Event('change', { bubbles: true }));

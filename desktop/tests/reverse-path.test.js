@@ -91,14 +91,20 @@ test('Reverse Path changes the first half selected by Trim Path', () => {
     forward = evaluate(layer).run(trimForward.id).contours[0],
     reversed = evaluate(layer).run(trimReverse.id).contours[0];
 
-  assert.deepEqual(forward.points.map(({ position }) => position), [
-    [0, 0],
-    [50, 0],
-  ]);
-  assert.deepEqual(reversed.points.map(({ position }) => position), [
-    [100, 0],
-    [50, 0],
-  ]);
+  assert.deepEqual(
+    forward.points.map(({ position }) => position),
+    [
+      [0, 0],
+      [50, 0],
+    ],
+  );
+  assert.deepEqual(
+    reversed.points.map(({ position }) => position),
+    [
+      [100, 0],
+      [50, 0],
+    ],
+  );
 });
 
 test('Reverse Path preserves the exact closed curve and its original seam anchor', () => {
@@ -110,7 +116,13 @@ test('Reverse Path preserves the exact closed curve and its original seam anchor
   assert.deepEqual(result.points[0].position, original.points[0].position);
   assert.deepEqual(
     result.points.map(({ position }) => position),
-    [original.points[0].position, ...original.points.slice(1).reverse().map(({ position }) => position)],
+    [
+      original.points[0].position,
+      ...original.points
+        .slice(1)
+        .reverse()
+        .map(({ position }) => position),
+    ],
   );
   assert.deepEqual(
     cubicSegments(result),
@@ -159,14 +171,19 @@ test('Reverse Path participates in Session add, bypass, Undo/Redo, input locks, 
   send('set-parameter-lock', { nodeId: reverseId, key: 'path', locked: true });
   const locked = serialize(session.snapshot()),
     lockedState = session.state;
-  assert.throws(() => send('disconnect', { nodeId: reverseId, key: 'path' }), /Parameter is locked/);
+  assert.throws(
+    () => send('disconnect', { nodeId: reverseId, key: 'path' }),
+    /Parameter is locked/,
+  );
   assert.equal(serialize(session.snapshot()), locked);
   assert.deepEqual(session.state, lockedState);
 });
 
 test('Reverse Path retains Text provenance and suspends direct canvas character editing', () => {
   const bytes = fs.readFileSync(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)),
-    font = opentype.parse(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)),
+    font = opentype.parse(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    ),
     doc = document(),
     layer = doc.layers[0],
     text = node('Text'),

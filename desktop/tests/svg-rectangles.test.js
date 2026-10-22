@@ -9,6 +9,7 @@ import {
   deserialize,
   CommandSession,
   blankDocument,
+  pathBounds,
 } from '../src/core.js';
 import { readSVGSource } from '../src/svg-tree.js';
 const Parser = new Window().DOMParser;
@@ -19,8 +20,33 @@ test('percentage rectangle background, rounded modules and opaque batches import
   const svg = syntheticGrid(),
     d = importSVG(svg, Parser);
   assert.ok(d.layers.length >= 2 && d.layers.length < 12);
-  assert.equal(d.width, 40);
-  assert.equal(d.layers[0].nodes[0].params.size.value[0], 40);
+  assert.equal(d.width, 1200, 'root viewport width is retained');
+  assert.equal(d.height, 1200, 'root viewport height is retained');
+  assert.deepEqual(
+    d.layers[0].nodes[0].params.size.value,
+    [40, 40],
+    'percentages use viewBox units',
+  );
+  assert.deepEqual(pathBounds(evaluate(d.layers[0]).path), [
+    [0, 600, 1200],
+    [0, 600, 1200],
+  ]);
+  for (const l of d.layers) {
+    const transforms = l.nodes.filter((n) => n.name === 'SVG viewport mapping');
+    assert.equal(transforms.length, 1, 'one viewport mapping per imported paint batch');
+    const transform = transforms[0],
+      out = l.nodes.find((n) => n.id === l.output);
+    assert.equal(transform.type, 'Transform');
+    assert.equal(transform.paintMode, true);
+    assert.equal(out.params.path.source, transform.id, 'mapping is the final output stage');
+    assert.deepEqual(
+      evaluate(l)
+        .run(transform.id)
+        .matrix.map((value) => (value === 0 ? 0 : value)),
+      [30, 0, 0, 30, 0, 0],
+      '40 viewBox units map to 1200 viewport pixels without translation',
+    );
+  }
   const views = d.layers.slice(1).map((l) => evaluate(l));
   for (const r of views) assert.equal(r.error, null);
   assert.equal(
@@ -28,7 +54,10 @@ test('percentage rectangle background, rounded modules and opaque batches import
     900,
   );
   for (const l of d.layers.slice(1)) {
-    assert.equal(l.nodes.length, 4);
+    assert.deepEqual(
+      l.nodes.map((n) => n.type),
+      ['Imported Path', 'Path Remap', 'Fill', 'Transform', 'Output'],
+    );
     assert.ok(l.nodes[0].rawPath.length < 100000);
   }
   const output = exportSVG(d);

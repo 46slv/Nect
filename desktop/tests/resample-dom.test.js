@@ -84,6 +84,7 @@ test('Resample Path mode exposes bounded draggable controls with undo', async ()
     await change(document.querySelector('#add-node'), type);
     return win.nect.document.layers[0].nodes.at(-1).id;
   };
+  const initialSchemaVersion = win.nect.document.schemaVersion;
   const resample = await add('Resample Path');
   const count = () =>
     document.querySelector(`.graph .field[data-node="${resample}"][data-key="count"] [data-value]`);
@@ -104,7 +105,7 @@ test('Resample Path mode exposes bounded draggable controls with undo', async ()
   assert.equal(mode().value, 'count');
   await change(mode(), 'spacing');
   assert.equal(read().operation, 'spacing');
-  assert.equal(win.nect.document.schemaVersion, 12);
+  assert.equal(win.nect.document.schemaVersion, Math.max(initialSchemaVersion, 12));
   assert.equal(count(), null);
   assert.ok(spacing().hasAttribute('data-scrub-step'));
   assert.equal(spacing().min, '0.0001');

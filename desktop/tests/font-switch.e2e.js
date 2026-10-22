@@ -88,7 +88,10 @@ try {
     svg: window.nect.export(),
     revision: window.nect.commandState.expectedRevision,
   }));
-  await page.locator('.inspector-body').getByRole('button', { name: 'Use DejaVu Sans', exact: true }).click();
+  await page
+    .locator('.inspector-body')
+    .getByRole('button', { name: 'Use DejaVu Sans', exact: true })
+    .click();
   assert.match(await page.locator('.status').innerText(), /OS font retained:.*Missing glyphs/);
   assert.deepEqual(
     await page.evaluate(() => ({
@@ -104,7 +107,10 @@ try {
     doc: JSON.stringify(window.nect.document),
     svg: window.nect.export(),
   }));
-  await page.locator('.inspector-body').getByRole('button', { name: 'Use DejaVu Sans', exact: true }).click();
+  await page
+    .locator('.inspector-body')
+    .getByRole('button', { name: 'Use DejaVu Sans', exact: true })
+    .click();
   assert.equal(
     await page.evaluate(
       (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont,

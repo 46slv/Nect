@@ -184,38 +184,92 @@ test('Radial Gradient Fill controls, typed sources, fallback, invalid radius rol
   assert.equal(document.querySelector(`dialog option[value="${v.id}"]`), null);
   document.querySelector('dialog select').value = scalar.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(radiusInput().value, '0.0001');
-  assert.equal(radiusInput().disabled, true);
+  const radiusBase = () => field('radius').querySelector('[data-base][data-axis="0"]');
+  const radiusResult = () => field('radius').querySelector('output.parameter-result');
+  assert.equal(radiusInput(), null);
+  assert.equal(radiusBase().value, '0.0001');
+  assert.equal(radiusBase().disabled, false);
+  assert.match(radiusResult().textContent, /^Connected result ·/);
+  assert.equal(win.nect.evaluate().path.fill.radius, 0.0001);
+  const connectedRadius = saved(),
+    radiusResultText = radiusResult().textContent;
+  await change(radiusBase(), '0.0002');
+  assert.equal(val('radius'), 0.0002);
+  assert.equal(win.nect.evaluate().path.fill.radius, 0.0001);
+  assert.equal(radiusResult().textContent, radiusResultText);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedRadius);
+  assert.equal(radiusBase().value, '0.0001');
+  assert.equal(win.nect.evaluate().path.fill.radius, 0.0001);
   field('radius')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(radiusInput().value, '0.0001');
+  assert.equal(win.nect.evaluate().path.fill.radius, 0.0001);
+  assert.equal(radiusResult(), null);
   win.nect.load(before);
   // Source connection menus only list Vector2 for center and Color for stops.
   field('center').querySelector('[data-connect-menu]').click();
   assert.equal(document.querySelector(`dialog option[value="${c.id}"]`), null);
   document.querySelector('dialog select').value = v.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(input('center').disabled, true);
-  assert.equal(input('center').value, '40');
-  assert.equal(val('center')[0], 125);
+  const centerBase = (axis) => field('center').querySelector(`[data-base][data-axis="${axis}"]`);
+  const centerResult = () => field('center').querySelector('output.parameter-result');
+  assert.equal(centerBase(0).disabled, false);
+  assert.equal(centerBase(1).disabled, false);
+  assert.equal(centerBase(0).value, '125');
+  assert.equal(centerBase(1).value, '250');
+  assert.match(centerResult().textContent, /Connected result · 40, 80/);
+  assert.deepEqual(val('center'), [125, 250]);
+  assert.deepEqual(win.nect.evaluate().path.fill.center, [40, 80]);
+  const connectedCenter = saved();
+  await change(centerBase(0), '126');
+  assert.deepEqual(val('center'), [126, 250]);
+  assert.deepEqual(win.nect.evaluate().path.fill.center, [40, 80]);
+  assert.match(centerResult().textContent, /Connected result · 40, 80/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedCenter);
+  assert.equal(centerBase(0).value, '125');
+  assert.deepEqual(win.nect.evaluate().path.fill.center, [40, 80]);
   field('center')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(input('center').value, '125');
+  assert.deepEqual(win.nect.evaluate().path.fill.center, [125, 250]);
+  assert.equal(centerResult(), null);
   field('endColor').querySelector('[data-connect-menu]').click();
   assert.equal(document.querySelector(`dialog option[value="${v.id}"]`), null);
   document.querySelector('dialog select').value = c.id;
   document.querySelector('dialog [data-confirm]').click();
-  assert.equal(field('endColor').querySelector('[data-color="alpha"]').disabled, true);
+  const endColorBase = () =>
+    field('endColor').querySelector('[data-color-base][data-color="alpha"]');
+  const endColorResult = () => field('endColor').querySelector('output.parameter-result');
+  assert.equal(endColorBase().disabled, false);
+  assert.equal(endColorBase().value, '1');
+  assert.equal(
+    field('endColor').querySelector('[data-color-base][data-color="hex"]').value,
+    '#d94862',
+  );
+  assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
+  assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);
+  const connectedColor = saved();
+  await change(endColorBase(), '0.75');
+  assert.equal(val('endColor').alpha, 0.75);
+  assert.deepEqual(win.nect.evaluate().path.fill.endColor, { hex: '#00ff00', alpha: 0.25 });
+  assert.match(endColorResult().textContent, /Connected result #00ff00\s+alpha 0\.25/);
+  document.querySelector('[data-action="undo"]').click();
+  assert.equal(saved(), connectedColor);
+  assert.equal(endColorBase().value, '1');
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 0.25);
   field('endColor')
     .querySelector('.input')
     .dispatchEvent(new win.MouseEvent('contextmenu', { bubbles: true }));
   await tick();
   assert.equal(win.nect.evaluate().path.fill.endColor.alpha, 1);
+  assert.deepEqual(win.nect.evaluate().path.fill.endColor, { hex: '#d94862', alpha: 1 });
+  assert.equal(endColorResult(), null);
   field('center').querySelector('[data-lock]').click();
   assert.equal(input('center').disabled, true);
   document.querySelector('[data-action="undo"]').click();
@@ -250,14 +304,23 @@ test('Radial Gradient Fill controls, typed sources, fallback, invalid radius rol
   assert.notEqual(imported, json);
   assert.ok(win.nect.document.layers[0].nodes.some((n) => n.type === 'Radial Gradient Fill'));
   assert.equal(win.nect.export(), svg);
-  for (const invalid of [
-    svg.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
-    svg.replace('</svg>', '<rect onload="alert(1)"/></svg>'),
-    svg.replace('<radialGradient ', '<radialGradient href="#loop" '),
-    svg.replace('url(#nect-gradient-0)', 'url(#missing)'),
+  for (const [invalid, reason] of [
+    [
+      svg.replace('spreadMethod="pad"', 'spreadMethod="reflect"'),
+      'Unsupported gradient: require a local ID, userSpaceOnUse, pad and sRGB',
+    ],
+    [svg.replace('</svg>', '<rect onload="alert(1)"/></svg>'), 'Unsupported SVG attribute: onload'],
+    [
+      svg.replace('<radialGradient ', '<radialGradient href="#loop" '),
+      'Unsupported SVG attribute: href',
+    ],
+    [svg.replace('url(#nect-gradient-0)', 'url(#missing)'), 'Missing local gradient definition'],
   ]) {
     await importFile(invalid);
-    assert.match(document.querySelector('.status .message').textContent, /Open rejected/);
+    assert.equal(
+      document.querySelector('.status .message').textContent,
+      `SVG import rejected; current document preserved: ${reason}`,
+    );
     assert.equal(saved(), imported);
   }
   document.querySelector('[data-action="undo"]').click();

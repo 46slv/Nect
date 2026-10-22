@@ -5,9 +5,7 @@ import { createCompositionViewStateStore } from '../src/composition-view-state.j
 function documentWith(suffix) {
   return {
     editor: { guides: [{ id: `guide-${suffix}` }] },
-    layers: [
-      { id: `layer-${suffix}`, nodes: [{ id: `node-${suffix}`, type: 'Output' }] },
-    ],
+    layers: [{ id: `layer-${suffix}`, nodes: [{ id: `node-${suffix}`, type: 'Output' }] }],
   };
 }
 
@@ -96,7 +94,10 @@ test('restore drops missing and cross-Composition Layer, Node, Guide and Viewer 
   assert.deepEqual(restored.artworkSelection, []);
   assert.equal(restored.selectedGuide, null);
   assert.equal(restored.viewerState.mode, 'viewers');
-  assert.deepEqual(restored.viewerState.slots.map((slot) => slot.binding), [null, null]);
+  assert.deepEqual(
+    restored.viewerState.slots.map((slot) => slot.binding),
+    [null, null],
+  );
 });
 
 test('deleted Composition snapshots are pruned and project replacement clears all state', () => {

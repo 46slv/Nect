@@ -15,10 +15,7 @@
           "id": "master-ring-path",
           "type": "Imported Path",
           "name": "Imported Path",
-          "position": [
-            30,
-            30
-          ],
+          "position": [30, 30],
           "width": 264,
           "collapsed": false,
           "params": {},
@@ -33,10 +30,7 @@
           "id": "master-ring-fill",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            300,
-            30
-          ],
+          "position": [300, 30],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -68,10 +62,7 @@
           "id": "master-ring-output",
           "type": "Output",
           "name": "Output",
-          "position": [
-            580,
-            30
-          ],
+          "position": [580, 30],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -104,19 +95,13 @@
           "id": "placed-part-a",
           "type": "Composition Reference",
           "name": "Composition Reference",
-          "position": [
-            30,
-            30
-          ],
+          "position": [30, 30],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             }
@@ -135,19 +120,13 @@
           "id": "placed-part-b",
           "type": "Composition Reference",
           "name": "Composition Reference",
-          "position": [
-            30,
-            350
-          ],
+          "position": [30, 350],
           "width": 264,
           "collapsed": false,
           "params": {
             "position": {
               "type": "Vector2",
-              "value": [
-                40,
-                0
-              ],
+              "value": [40, 0],
               "expression": "",
               "locked": false
             }
@@ -166,10 +145,7 @@
           "id": "placed-parts-join",
           "type": "Join Geometry",
           "name": "Join Paths",
-          "position": [
-            330,
-            30
-          ],
+          "position": [330, 30],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -194,11 +170,7 @@
               "locked": false
             }
           },
-          "joinInputOrder": [
-            "a",
-            "b",
-            "input_spare"
-          ],
+          "joinInputOrder": ["a", "b", "input_spare"],
           "points": [],
           "operation": "subtract",
           "edits": [],
@@ -211,10 +183,7 @@
           "id": "placed-parts-output",
           "type": "Output",
           "name": "Output",
-          "position": [
-            650,
-            30
-          ],
+          "position": [650, 30],
           "width": 264,
           "collapsed": false,
           "params": {

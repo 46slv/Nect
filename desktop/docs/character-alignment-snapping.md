@@ -1,106 +1,135 @@
-# Character ink alignment snapping: bounded implementation contract
+# Character ink alignment and equal-gap snapping
 
-Status: transient implementation and focused source/DOM verification completed, 2026-10-17. Browser/native pointer acceptance remains unrun. Scope: dragging characters inside one Text, aligning visible ink edges/centers and adjacent equal gaps with guides. Persistent spacing after typography edits is still a separate, unimplemented contract. The observed-gap and proposed-API sections below preserve the original design rationale; see implemented evidence immediately below.
+Transient snapping is implemented for character dragging within one Text and
+one supported output occurrence. It aligns visible ink edges/centers and
+adjacent equal gaps. It does not persist an arrangement after font/size edits,
+perform optical kerning, or align characters from other Text nodes.
 
-## Implemented behavior and verification
+## Geometry and identity
 
-- `src/character-snapping.js` snapshots true transformed Paper curve bounds from each eligible evaluated glyph outline. Whitespace selection cells, empty paths, suspended/unsupported/singular occurrences, and moving IDs never become stationary targets. Sources and targets are sorted by stable character ID and anchor order. No core/schema/font-metric edits were required.
-- `src/main.js` captures this geometry once after accepted character selection, uses it only for that drag, keeps the existing artboard delta → inverse occurrence → session character gesture, and validates selection/route/matrix before subsequent moves. It explicitly leaves direct canvas text editing/contenteditable controls alone.
-- `src/guides.js` accepts an optional final candidate list in the existing solver. At exact-distance ties: explicit user guide, character edge/center, character gap, guide layer, artboard, artwork. Grid remains fallback. Within character alignment, stable source ID/anchor then stable target ID/anchor determines ties; equal-gap construction order is between-neighbors, preceding pair, following pair. Global Snap, Alt bypass, six-CSS-pixel tolerance and axis exclusion apply to every candidate.
-- Equal-gap candidates use one selected contiguous block within one evaluated source-index line/column, require ordered nonoverlapping ink intervals, and reject crossed/interleaved runs. There are at most three candidates: between immediate neighbors, match the immediately preceding stationary pair, or match the immediately following stationary pair. This intentionally does not search arbitrary pairs. The physical gap axis is the dominant displayed axis of the occurrence's writing-direction vector (X wins an exact diagonal tie); reflected order is supported. Other lines/columns cannot supply gap templates. A winning spacing candidate renders two short dimension brackets in artboard coordinates, with cross-axis placement based on the final snapped moving bounds.
-- Completed offsets are ordinary character XY offsets. A new drag rebuilds from fresh evaluated typography; changing font/size does not automatically maintain an old equal-gap arrangement. These are geometric ink gaps, with no optical-spacing claim.
+`src/character-snapping.js` snapshots exact artboard-space Paper curve bounds
+from evaluated glyph outlines after local character and downstream affine
+transforms. Transforming the corners of a local axis-aligned box is not an exact
+ink bound under rotation or shear; Bézier extrema are required. The existing
+outline serialization uses five decimals, so numerical checks allow the
+corresponding tolerance rather than rounding every drag delta.
 
-Focused command (21/21 passing):
+Whitespace selection cells remain useful for hit testing but never become ink
+anchors. Empty/nonfinite paths, suspended mappings, hidden layers, unsupported
+routes and singular transforms supply no candidates. `sourceIndex` is a
+normalized layout-unit index, not a UTF-16 offset or an identity. Character IDs
+and occurrence provenance must come from the evaluated mapping. No IDs are
+inferred from glyph order, contour count or spatial sorting.
 
-`node --test tests/character-snap-math.test.js tests/character-snapping-dom.test.js tests/axis-drag-dom.test.js tests/guides.test.js tests/artwork-snap-dom.test.js`
+Selected visible glyphs provide left/center/right and top/center/bottom anchors.
+Unselected glyphs in the same Text and chosen occurrence provide fixed targets.
+All moving IDs are excluded. Other displayed occurrences of the same Text are
+also excluded because changing source offsets moves them too. One correction
+moves the whole selection rigidly; selected characters never snap independently.
 
-The new tests exercise exact transformed cubic extrema (141.421356… versus the incorrect transformed-box bound 175), edges/centers, deterministic ties, 5.9/6.1 CSS-pixel threshold, global/Alt bypass, forbidden axes, between/either-end gaps, rigid multi-selection, vertical columns, excluded whitespace/other lines/overlap/mapping, fresh typography snapshots, mixed fonts and sizes, rotated/sheared/reflected affine transforms, DOM guides at 50/100/200% plus pan, bottom alignment of a descender, paired brackets, locking, one Undo/Redo and Escape/pointercancel rollback. Existing axis-drag and artwork-snap DOM tests pass.
+## Solver and gesture contract
 
-Actual source-bound comparison from the two-font math fixture (DejaVu Sans and Nect JP Fixture, 40/70px, moving glyph rotation 17°, scale 1.2, downstream matrix `[1.2, 0.5, -0.4, -1.8, 80, 30]`, initial source offset `[11,40]`):
+`src/main.js` captures geometry once after character selection is accepted and
+focused text drafts are resolved. Subsequent moves validate selection, route
+and matrix. There is no per-move font loading, fresh layout evaluation or Paper
+candidate rebuild. A new drag after a typography change uses fresh geometry.
 
-- Horizontal `Ag`: raw Y 31.433332091939 → snapped Y 29.433332091939; final source offset `[4.9931975323,21.9795925968]`; target/guide bottom −219.552727; freshly reevaluated moved ink bottom −219.55273810136.
-- Vertical `A、`: raw Y 104.529456 → snapped Y 102.529456; final source offset `[-9.9243787755,-22.7731363265]`; target/guide bottom −287.48633; freshly reevaluated moved ink bottom −287.486337.
-- Residuals are below 0.000012 document units, consistent with the existing five-decimal outline serialization. Tests allow 0.00005; they do not substitute a transformed local AABB.
-- Equal-gap fixture: stationary bounds `[0,10]` and `[70,100]`, moving `[25,45]`, raw translation 3 → snapped translation 5. Resulting paired marks `[10,30]` and `[50,70]` both measure 20.
+`src/guides.js` accepts an optional final candidate list in its existing solver.
+Character candidates participate in the same nearest-correction search as other
+targets, never a second snapping pass. Exact-distance precedence is explicit
+user guide, character edge/center, character gap, guide layer, artboard, artwork;
+grid is fallback. Within character alignment, stable source ID/anchor followed
+by stable target ID/anchor breaks ties. Gap construction order is between
+neighbors, preceding pair, following pair.
 
-One `npm run build` passed (88 modules); only the existing large-chunk advisory and npm proxy-config warning were printed. No full suite, native build, browser automation or real native pointer QA was run. A separately attempted legacy `character-position-dom.test.js` stops at its pre-existing schema expectation (3 versus current 23); that test was not changed or counted as passing. The current focused DOM test is schema-independent.
+Movement remains initial artboard pointer delta → snap correction →
+`inverseCharacterDelta` → Session `character-translate` gesture against original
+offsets. This preserves pointer anchoring, nonzero offsets, rigid multi-selection
+and downstream rotation/reflection/nonuniform scale. The tolerance is
+`6 / canvasScale()` document units, equal to six CSS pixels at every zoom.
+Global Snap, Alt bypass and forbidden axes apply to every candidate. Character
+targets do not depend on the unrelated Snap artwork preference.
 
+Physical X/Y remain the alignment axes in horizontal and vertical writing.
+Evaluated vertical substitutions, punctuation and sideways Latin provide their
+actual outlines. Baseline, advance, leading, font metrics, kerning, size and
+position-reference settings are not changed by snapping.
 
-## Original observed gap and reproduction (before implementation)
+The existing three-CSS-pixel drag threshold, Shift-click membership, Shift-drag
+axis lock, overlap chooser, stage focus, pointer capture, locks and visibility
+checks remain. Stale or unsupported provenance cancels instead of applying stale
+geometry. One completed Session gesture gives one Undo. Escape, pointercancel,
+route invalidation or target loss restores the base and clears guides. Clicks,
+no-ops and cancelled gestures add no History entry. Text input/contenteditable
+and composition retain their caret/range/IME ownership; this helper does not
+intercept direct text editing, pan or outline editing.
 
-The character pointerdown branch in `src/main.js` captures `next.selected`, the chosen occurrence `route` / `matrix`, original stable IDs and offsets, and anchors made from `characterBoxPoints`. The pointermove `drag.type === 'character'` branch already calls `artworkDelta`, then `inverseCharacterDelta`, then the session `character-translate` gesture. Therefore character dragging does have general canvas snapping today.
+## Bounded equal-gap assistance
 
-However `collectSnapLayerBounds` in `src/guides.js` excludes the entire edited layer, deliberately avoiding moving followers. Neither it nor `snapTranslation` builds sibling-character targets. Even enabling Snap artwork does not add other characters of the same Text. This is the missing behavior, rather than a missing general drag solver.
+The selected glyphs must form a contiguous rigid block in one evaluated
+source-index line/column. Ink intervals must be ordered and nonoverlapping;
+crossed/interleaved runs suppress gap candidates but not ordinary edge/center
+alignment. The gap axis is the dominant displayed axis of the occurrence's
+writing-direction vector, with X winning a diagonal tie. Reflected order is
+supported. Whitespace, other lines/columns and other occurrences cannot provide
+gap templates.
 
-Source-bound reproduction: enable global Snap, disable guide/artboard/grid/artwork targets, and move one visible character's bottom to within 3 CSS pixels of another unselected character's bottom. Current snapTranslation receives no target and returns the raw delta with no matches. A narrow executable test in `tests/character-snap-math.test.js` proves that missing-target behavior and the existing threshold/transform primitives; it does not claim the new feature passes.
+For moving interval `[m0,m1]` between stationary neighbors `[l0,l1]` and
+`[r0,r1]`, the centering translation is `(l1 + r0 - m0 - m1) / 2`; both final
+gaps must be nonnegative. An adjacent stationary-pair gap `g` can also be
+matched at either end: `t1 + g - m0` after a neighbor, or `t0 - g - m1` before it.
+Candidates must preserve the intended adjacency. At most three candidates are
+built: between immediate neighbors, immediately preceding stationary pair, and
+immediately following stationary pair. Arbitrary glyph-pair searching is not
+part of this contract.
 
-Manual reproduction for later acceptance: create mixed-height text such as `Ag`, enter character editing, offset one character, then drag it near the other's ink bottom, top and center. Repeat at 50%, 100%, 200%, with Snap enabled and unrelated snap targets disabled. The current code has no same-Text candidate. Baseline alignment is not evidence of ink-bottom alignment: `g` descends below the baseline while `A` does not.
+A winning gap candidate draws two short dimension brackets in artboard
+coordinates, positioned from the final ink bounds. These transient paired marks
+distinguish spacing from ordinary full-length alignment guides and never enter
+exported SVG or authored geometry. Global off, Alt, end and cancel clear them.
+Geometrically equal ink gaps are not a claim of optically equal spacing.
 
-## Authoritative geometry and identity
+## Focused verification
 
-- `text-layout.js` creates each character's actual outline after font choice, size, width/height, baseline shift, layout, per-character rotation/scale and XY offsets. `characters[].path` is this outline; `bounds` is its local ink box except for `whitespace`, where it is a synthetic selection cell. Preserve that useful hit-testing behavior, but never use a whitespace cell as an ink snap source/target.
-- `sourceIndex` is a normalized layout-unit index, not a UTF-16 textarea offset. Reuse `characters[].id` and `characterPositions` mapping. Never construct IDs from an array position, glyph number, contour count, or sourceOffset. Mapping failure produces `layout.reason` / unavailable characters. Keep that guard; do not make inferred identities to enable snapping.
-- `characterContext` selects source-matching output occurrences and validates invertibility through `inverseCharacterDelta`; `routeCharacters` carries downstream affine provenance. Use the chosen route and matrix. Shape-changing/unknown routes, suspended mapping, hidden layers, unavailable Type on Path dragging, and singular transforms must stay unavailable.
-- For rotated/sheared downstream occurrences, transforming the corners of a precomputed local axis-aligned box is only a conservative bound. It is not the visible outline's exact artboard top/bottom. Compute extrema from the transformed glyph outline, including Bézier extrema. Use the existing Paper path parsing/bounds machinery behind a small dedicated runtime helper, or transform layout commands before OpenType bounding-box calculation. Do not write a new layout engine. `parsePath` and `pathBounds` in core show the established geometry facilities; no exported generic affine-path helper was found, so this seam needs an explicit implementation, not an assumed API.
-- Avoid rounding deltas on every move; retain the established inverse helper's numerical policy. `characters[].path` is currently rounded to 5 decimals, so outline-bound assertions need a corresponding numerical tolerance. A future runtime commands field could avoid that serialization, but is not needed for this bounded change.
+The recorded implementation check passed 21/21 focused tests from `desktop/`:
 
-## Proposed minimal APIs (new, not existing)
+```sh
+node --test tests/character-snap-math.test.js tests/character-snapping-dom.test.js tests/axis-drag-dom.test.js tests/guides.test.js tests/artwork-snap-dom.test.js
+```
 
-1. Add a pure/runtime helper, for example `collectCharacterSnapGeometry({ characters, selectedIds, occurrence, boundsForOutline })`, returning `{ sources: [xs, ys], targets }`. `boundsForOutline(path, matrix)` returns finite artboard-space `[left, top, right, bottom]`, or null for unknown/empty geometry. Reject an invalid occurrence as a whole rather than silently substituting identity.
-2. Build source anchors from each selected visible glyph's true artboard bounds (left/center/right, top/center/bottom), retaining source ID metadata for deterministic ties. The same single correction is applied to the entire selection; never independently snap and deform it. If only whitespace is selected, there are no ink anchors and the normal free drag remains available.
-3. Build fixed targets from unselected visible glyphs of the same Text and chosen occurrence only. Exclude all moved IDs, not merely the hit glyph. Other displayed occurrences of the same Text also move when its source offsets change, so exclude them rather than treating them as stationary. Filter whitespace, invalid/empty paths and nonfinite bounds. Stable IDs plus anchor order provide deterministic ties.
-4. Extend `snapTranslation` with a final optional `extraCandidates` argument or a compatible options object. Entries should carry `{ axis, position, kind: 'character', sourceId, targetId, anchor }` as appropriate. Integrate these in the same per-axis nearest-correction search as existing candidates. Do not snap once to guides and then again to characters, which can overwrite an earlier alignment and leave contradictory guides.
-5. Gate character targets with global Snap and Alt bypass, independently of the unrelated Snap artwork setting. Keep ordinary candidate behavior unchanged. On exact-distance ties, explicit user guides win, then character targets, then the existing remaining ordering; use stable target/source IDs and anchor order within the new class. Grid remains fallback only. Document this policy in tests.
-6. Capture bounds and targets once at accepted pointerdown, after focused text drafts commit and after overlap choice / selection resolution. Store on the existing character drag. Forward the extra candidates through `artworkDelta` / `snapped` only for this drag. No Paper allocation, font loading, fresh evaluation or candidate rebuilding per pointermove.
-7. Retain `artworkDelta` axis restriction before searching. Empty source arrays on a forbidden/pending axis must suppress character candidates too. Return the existing `{ delta, matches }` shape with numeric `axis`, artboard `position`, and kind `character`; provenance fields can be additional. `guidesOverlay` already renders `snapMatches` using this frame, so its full-artboard guide lines are a sufficient first implementation. Do not use graph-view overlay coordinates.
+Coverage includes transformed cubic extrema (141.421356… rather than the
+incorrect transformed-box bound 175), deterministic ties, 5.9/6.1-CSS-pixel
+threshold, global/Alt bypass, axis exclusion, rigid selections, between/either-end
+gaps, vertical columns, excluded whitespace/other lines/overlap/mapping, fresh
+typography, mixed fonts/sizes, rotated/sheared/reflected transforms, zoom/pan
+guides, descenders, paired brackets, locks, Undo/Redo and rollback.
 
-## Movement, constraints, and transaction contract
+The DejaVu Sans/Nect JP Fixture comparison used 40/70 px text, 17° local rotation,
+1.2 local scale and downstream `[1.2, 0.5, -0.4, -1.8, 80, 30]`. Reevaluated
+horizontal `Ag` and vertical `A、` ink-bottom residuals were below 0.000012
+document units; the tests allow 0.00005. A gap fixture with stationary
+`[0,10]` / `[70,100]` and moving `[25,45]` snaps translation 3 to 5, yielding
+two gaps of 20.
 
-Pointer movement remains `canvasPoint(event) - drag.start`, measured from the initial pointer rather than a recentered glyph origin. Snap in artboard coordinates with tolerance `6 / canvasScale()` document units, equivalent to 6 CSS screen pixels regardless of zoom. Then pass the complete snapped artboard delta through `inverseCharacterDelta(drag.matrix, displayed)`. The core `character-translate` gesture applies it to original offsets from its base snapshot. This preserves pointer anchoring, shared selection movement, accumulated offsets, and downstream rotation/reflection/nonuniform scale without double-transforming character scale or rotation.
+The corresponding Web build passed (88 modules). No full suite, native build,
+browser automation or physical/native pointer acceptance was run for that
+implementation check. A separately attempted legacy
+`character-position-dom.test.js` stopped at a pre-existing schema expectation
+(3 versus then-current 23); it was not changed or counted as passing. The focused
+snapping DOM test is schema-independent. This documentation update does not
+rerun those product checks.
 
-Writing direction does not change the coordinate contract: visible left/right/center and top/bottom/center remain physical artboard axes for both horizontal and vertical text. Do not swap X/Y merely because writingMode is vertical. Vertical glyph substitutions, rotated punctuation and sideways Latin must be taken from their evaluated paths. Baseline/advance/line-leading/font metrics are never edited by this feature. No kerning, Position reference, glyph size or referenceBounds changes occur.
+## Separate future behavior: maintained spacing
 
-Maintain the existing 3-CSS-pixel drag threshold, Shift-click membership toggle, Shift-drag axis lock, Alt bypass, overlapping-character chooser, stage focus, pointer capture, and current lock/visibility checks. Revalidate gesture identity/route if document or selection changes; stale or unsupported provenance cancels rather than applying stale geometry. Existing session `begin/update/commit/cancel-gesture` ownership gives one Undo per completed drag. Escape, pointer cancellation, route invalidation, locking or losing the target rolls back the base and clears guides. A click, no-op, or cancelled gesture creates no new history entry.
+A completed snap authors ordinary XY offsets. It does not maintain gaps when
+font family/style/size/width changes. Persistent spacing would require an
+explicit stable-ID arrangement intent, fresh bounds after layout, a defined
+anchor and clear precedence with manual offsets. Each arrangement or later
+typography edit would still need one atomic Undo and JSON round-trip support.
 
-Text-editing gesture priority is unchanged: textarea/input/contenteditable and `.canvas-text-editor` controls retain caret/range/IME behavior; composition blocks character selection. Do not bind generic canvas text pointer events to this helper. Double-click entry to text editing, pan gestures and outline/Bezier editing must retain their current ownership. Coordinate with the active main.js writer before editing shared handlers.
-
-## Focused acceptance for the next writer
-
-- Pure geometry: asymmetric curved glyph under rotation/shear uses transformed curve extrema, not transformed local AABB. Existing per-glyph rotate/scale and downstream affine are applied exactly once. Empty/whitespace/nonfinite/unknown cases return no ink candidates.
-- Solver: top/top, bottom/bottom, center/center and horizontal equivalents; nearest eligible target; exact ties deterministic; global off and Alt yield raw delta; 5.9 vs 6.1 CSS-pixel threshold at 0.5/1/2 zoom; no forbidden-axis correction under Shift; character target independent of Snap artwork.
-- Selection/identity: multi-character move keeps relative offsets; selected characters never target each other; repeated letters use their actual stable IDs; normalization/emoji/combining or unsupported mapping never invent IDs; other instances of the same source are excluded.
-- Typography: `Ag` verifies ink bottom versus baseline, mixed fonts/sizes and baseline shifts align actual ink; spaces/newlines do not attract; vertical Japanese punctuation and Latin align physical visible bounds. Font metrics/advance/leading remain byte-for-byte unchanged.
-- Gesture: initial pointer offset is preserved, existing nonzero offsets remain additive, rotated/reflected/nonuniform transformed output tracks the pointer, singular transforms cannot start, locks/hidden layers do not mutate, stale route cancels. One Undo/Redo restores exactly; Escape and pointercancel restore with no extra history; guides clear after end/cancel.
-- DOM: same-Text target demonstrably snaps with other target kinds disabled, visible guide uses artboard position at zoom/pan, typing/IME/range selection and Shift-click still work. Keep tests focused; browser visual/native/full-suite checks are separate later acceptance, not claimed here.
-
-Non-goals: baseline snapping mode, optical alignment heuristics, stroke/paint extents, paragraph reflow, new text shaping, cross-Text targets, outline baking, and graph snapping changes. Do not reuse `snapGraphNodes` directly: it clamps against the graph origin and uses graph rectangles, Ctrl/Cmd bypass, and a different guide schema.
-
-## Added request: equal-gap guides and typography changes
-
-The 12:36:23 UTC request adds equal-spacing assistance and uniform arrangement after font/size changes. These are two different behaviors and must not be conflated. All geometric gaps below are between visible ink edges, excluding stroke and whitespace hit cells. Equal geometric gaps need not look optically equal: curved letters, diagonals and side bearings can produce different perceived spacing. Do not silently apply optical kerning or call a baseline distance an ink gap.
-
-### Bounded transient equal-gap snapping
-
-Extend the same fixed same-Text / same-occurrence snapshot with visible glyph interval records on the permitted physical axis. Sort by minimum ink coordinate, then maximum and stable ID. Initial scope supports an ordered nonoverlapping run; ambiguous interleaving, crossed order or selected/nonselected mixtures inside the moving group should suppress equal-gap candidates, leaving ordinary edge/center snapping available. Use horizontal X for an ordinary horizontal run and Y for a vertical column; multi-line/column candidate building must use layout line membership/source mapping so adjacent lines do not masquerade as one spacing run. Never infer source identity from spatial sorting.
-
-Treat a multi-selection as a rigid bounding interval `[m0,m1]`; its internal spacing stays unchanged. A selected block must be contiguous in the relevant run for equal-gap candidates. Unselected adjacent neighbors `[l0,l1]` and `[r0,r1]` give a between-neighbors translation:
-
-`d = (l1 + r0 - m0 - m1) / 2`
-
-The resulting left and right gaps must both be nonnegative. At raw pointer delta `p`, attract only when `abs(d-p)*canvasScale() <= 6` CSS pixels. This holds without changing glyph width or font metrics.
-
-For matching an established adjacent stationary-pair gap `g = b0-a1 >= 0`, a moving interval to the right of a stationary neighbor ending at `t1` has candidate `d=t1+g-m0`; to its left of a neighbor beginning at `t0`, `d=t0-g-m1`. Bound initial matching to adjacent pairs within the same run and chosen occurrence, with all moved IDs excluded. Do not search every arbitrary glyph pair, creating noisy attraction and quadratic behavior. At each proposed translation, ensure the intended adjacency remains valid and no target is actually moving. Candidate ties are deterministic; explicit guides then edge/center character alignment may take precedence over equal-gap candidates on an exact tie. Both edge and spacing attraction must feed one common solver, never sequential corrections.
-
-A gap target depends on both ends, so extend the candidate representation to carry a desired translation/correction (or an equivalent synthetic source/target) plus provenance: moving IDs, stationary IDs, axis, and gap value. Keep that detail out of authored geometry. Ordinary full-length snap lines cannot communicate equal gaps: draw two short dimension segments/brackets in artboard coordinates for the matched gaps, using the same transient overlay lifecycle. Numeric gap labels are optional, but paired marks are required to distinguish spacing assistance from alignment. Avoid graph overlay coordinates and exported SVG content. Compute cross-axis bracket placement from the involved final ink bounds, and suppress labels/markers when a candidate is not actually selected by the solver.
-
-Acceptance additions: between-neighbors centering; match an existing adjacent gap on either side; wide and narrow glyphs; mixed fonts/sizes; vertical columns; no whitespace/other-line/selected targets; overlap/interleaving suppression; multi-selection internal spacing invariant; one-axis locks; six-CSS-pixel threshold; paired guides disappear on Alt/end/cancel. After font/size changes, a NEW drag must obtain newly evaluated ink geometry and target gaps. Existing snapshot geometry must never survive a completed typography edit or invalidated gesture.
-
-### Separate later contract: maintained equal-spacing arrangement
-
-A completed snap currently authors ordinary character XY offsets. Those offsets do not automatically preserve visible gaps when the font or size changes. Supporting that expectation requires an explicit persistent arrangement constraint, separate from the transient helper above. Do not claim the transient feature provides persistence.
-
-Proposed later behavior: user explicitly applies a same-Text equal-ink-gap arrangement to an ordered, stable-ID contiguous group, choosing axis/run, gap and anchor (first glyph/center/last). After normal text layout and per-character shape evaluation, derive spacing translations from fresh visible bounds before the downstream occurrence transform. Store the arrangement intent separately from manual XY offsets, with a documented precedence/escape behavior for manual drags. One arrangement command and each later font/size edit remain one Undo. Existing unarranged Text serialization and rendering must remain identical.
-
-That proposal still needs a bounded product/schema decision: whether the maintained gap is Text-local or displayed-artboard distance, especially under rotation, nonuniform downstream scale and multiple output instances; how line wraps, vertical columns, insertion/deletion/reordering, explicit manual offsets, baseline shifts and individual scale interact; and whether a contiguous group's gap is fixed or derived from a fixed total span. First version should reject unsupported cases and surface a specific reason, not detach stable IDs silently or rewrite tracking. Reuse valid character identity and run provenance; invalidated mapping suspends the arrangement until explicitly resolved. Type on Path and divergent shared-output transforms should remain excluded until their semantics are specified.
-
-Persistent acceptance belongs in that later implementation: apply arrangement, change family/style/size/width, verify recomputed ink gap and chosen anchor, stable IDs, unaffected font metrics and line spacing, JSON round-trip and exact Undo/Redo; verify clear suspended behavior after unsupported edits. It is not part of this document's passing primitive tests.
+Unresolved semantics include Text-local versus displayed-artboard distance,
+multiple transformed occurrences, line wrapping, insertion/deletion/reordering,
+baseline shifts, individual scale and fixed gap versus fixed total span.
+Unsupported mapping must suspend rather than detach identities silently.
+Type on Path and divergent shared-output transforms need their own contract.
+These are future design requirements, not implemented or passing acceptance.
