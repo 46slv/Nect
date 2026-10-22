@@ -122,6 +122,7 @@ import { resolveArtworkMoveSelection, translateArtworkTargets } from './artwork-
 import { alignArtworkSelection } from './artwork-alignment.js';
 import { planNodeOutputAlignment } from './node-output-alignment.js';
 import { planPointAlignment } from './point-alignment.js';
+import { planPointDistribution } from './point-distribution.js';
 import { distributeArtworkSelection } from './artwork-distribution.js';
 import { distributeArtworkGaps } from './artwork-gap-distribution.js';
 import { importSVGTree } from './svg-import.js';
@@ -6757,8 +6758,8 @@ export class CommandSession {
       validate(candidate);
       return { candidate, result: {} };
     }
-    if (type === 'align-points') {
-      const pointMoves = planPointAlignment(
+    if (['align-points', 'distribute-points'].includes(type)) {
+      const pointMoves = (type === 'align-points' ? planPointAlignment : planPointDistribution)(
         before,
         payload.layerId,
         payload.nodeId,

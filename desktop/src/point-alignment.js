@@ -39,6 +39,7 @@ export function pointAlignmentContext(doc, layerId, nodeId, pointIds, options = 
   return {
     matrix: route.matrix,
     points: pointIds.map((id) => byId.get(id)),
+    pointOrder: points.map((p) => p.id),
     sourceKey: JSON.stringify([
       layerId,
       nodeId,
@@ -48,6 +49,15 @@ export function pointAlignmentContext(doc, layerId, nodeId, pointIds, options = 
       route.path.fingerprint || null,
     ]),
   };
+}
+
+export function pointAxisPrecision(context, axis) {
+  const norm = Math.abs(context.matrix[axis]) + Math.abs(context.matrix[axis + 2]);
+  return Math.max(
+    1e-9,
+    norm * 1e-10 +
+      16 * Number.EPSILON * Math.max(1, ...context.points.map((p) => Math.abs(p.position[axis]))),
+  );
 }
 
 export function planPointAlignment(
@@ -69,11 +79,7 @@ export function planPointAlignment(
     low = Math.min(...coordinates),
     high = Math.max(...coordinates),
     target = [low, low / 2 + high / 2, high][edge],
-    norm = Math.abs(context.matrix[axis]) + Math.abs(context.matrix[axis + 2]),
-    precision = Math.max(
-      1e-9,
-      norm * 1e-10 + 16 * Number.EPSILON * Math.max(1, ...coordinates.map(Math.abs)),
-    );
+    precision = pointAxisPrecision(context, axis);
   return context.points.map((p) => {
     const delta = [0, 0],
       distance = target - p.position[axis];
