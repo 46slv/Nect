@@ -2024,7 +2024,8 @@ function field(n, key, q) {
     name =
       {
         path: 'Appearance',
-        mask: 'Shape / image alpha',
+        mask: 'Shape / image',
+        luminance: 'Image mode',
         invert: 'Invert',
         feather: 'Feather σ (document units)',
       }[key] || key;
@@ -2059,7 +2060,7 @@ function field(n, key, q) {
   let control;
   const connectLabel =
     n.type === 'Mask' && key === 'mask'
-      ? 'Connect shape or image alpha…'
+      ? 'Connect shape or image…'
       : n.type === 'Convert to Path' && key === 'path'
         ? 'Connect Path or PaintedPath…'
         : `Connect ${q.type}…`;
@@ -2102,7 +2103,9 @@ function field(n, key, q) {
     } else control = inputs;
     if (n.type === 'Keyer' && key === 'keyColor')
       control += `<button class="mini" data-keyer-pick="${n.id}" ${disabled ? 'disabled' : ''}>${driven ? 'Pick base from input' : 'Pick from input'}</button>`;
-  } else if (q.type === 'Boolean')
+  } else if (n.type === 'Mask' && key === 'luminance')
+    control = `<select data-value data-mask-luminance aria-label="Image mask mode" ${current().locked || locked || outputType(current().nodes.find((x) => x.id === n.params.mask.source)) !== 'Image' ? 'disabled' : ''}><option value="alpha" ${!displayed ? 'selected' : ''}>Alpha</option><option value="luminance" ${displayed ? 'selected' : ''}>Luminance (sRGB)</option></select>`;
+  else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
     const baseLocked =
@@ -3234,7 +3237,7 @@ function expandedNodeBody(n, result) {
       ([k]) =>
         isTransform(n) ||
         Object.hasOwn(n.params, k) ||
-        (n.type === 'Mask' && k === 'feather') ||
+        (n.type === 'Mask' && ['feather', 'luminance'].includes(k)) ||
         (n.type === 'Boolean' && k === booleanPendingInputKey),
     )
     .map(([k, q]) => field(n, k, q))
@@ -3540,7 +3543,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
             ([k, q]) =>
               (isTransform(n) ||
                 Object.hasOwn(n.params, k) ||
-                (n.type === 'Mask' && k === 'feather') ||
+                (n.type === 'Mask' && ['feather', 'luminance'].includes(k)) ||
                 (n.type === 'Boolean' && k === booleanPendingInputKey)) &&
               !['Path', 'PaintedPath', 'Image'].includes(q.type),
           )
@@ -9340,9 +9343,13 @@ app.addEventListener('change', async (e) => {
             value.alpha = Number(el.value);
           } else value.hex = el.value;
         } else {
+          if (el.matches('[data-mask-luminance]') && !['alpha', 'luminance'].includes(el.value))
+            throw Error('Choose Alpha or Luminance');
           value =
             q.type === 'Boolean'
-              ? el.checked
+              ? el.matches('[data-mask-luminance]')
+                ? el.value === 'luminance'
+                : el.checked
               : Number(el.value) / Number(el.dataset.valueFactor || 1);
           if (
             q.type !== 'Boolean' &&
