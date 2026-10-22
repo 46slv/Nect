@@ -127,6 +127,7 @@ import { importSVGTree } from './svg-import.js';
 import { prepareCompositionImport } from './project-composition-import.js';
 import {
   GRID_ORIGIN_SCHEMA_VERSION,
+  GRID_ANGLE_SCHEMA_VERSION,
   validateGuides,
   guideDefaults,
   setLayoutGrid,
@@ -138,6 +139,8 @@ export {
   guideSettings,
   gridAnchors,
   resolveGridOrigin,
+  resolveGridBasis,
+  gridLineLayout,
   snapTranslation,
   collectSnapLayerBounds,
   layoutGridDefaults,
@@ -4486,6 +4489,7 @@ export function validate(doc) {
       doc.schemaVersion !== REPEATER_FILL_SCHEMA_VERSION &&
       doc.schemaVersion !== REPEATER_STROKE_SCHEMA_VERSION &&
       doc.schemaVersion !== GRID_ORIGIN_SCHEMA_VERSION &&
+      doc.schemaVersion !== GRID_ANGLE_SCHEMA_VERSION &&
       doc.schemaVersion !== OPENTYPE_SCHEMA_VERSION &&
       doc.schemaVersion !== NODE_PRESET_SCHEMA_VERSION &&
       doc.schemaVersion !== BOOLEAN_INPUT_SCHEMA_VERSION &&
@@ -4506,6 +4510,12 @@ export function validate(doc) {
   validateGuides(doc.editor, id);
   if (doc.editor?.gridAnchor === 'center' && doc.schemaVersion < 27)
     throw Error('Centered grid requires schemaVersion 27');
+  if (
+    doc.editor?.gridAngle !== undefined &&
+    doc.editor.gridAngle !== 0 &&
+    doc.schemaVersion < GRID_ANGLE_SCHEMA_VERSION
+  )
+    throw Error(`Angled grid requires schemaVersion ${GRID_ANGLE_SCHEMA_VERSION}`);
   if (
     doc.editor?.gridAnchor !== undefined &&
     !['top-left', 'center'].includes(doc.editor.gridAnchor) &&
@@ -7271,6 +7281,8 @@ export class CommandSession {
             candidate.schemaVersion = Math.max(candidate.schemaVersion, 27);
           else if (payload.key === 'gridAnchor' && payload.value !== 'top-left')
             candidate.schemaVersion = Math.max(candidate.schemaVersion, GRID_ORIGIN_SCHEMA_VERSION);
+          if (payload.key === 'gridAngle' && payload.value !== 0)
+            candidate.schemaVersion = Math.max(candidate.schemaVersion, GRID_ANGLE_SCHEMA_VERSION);
         } else if (type === 'set-layout-grid')
           setLayoutGrid(candidate, clone(payload.config), () => uid('guide'));
         else {

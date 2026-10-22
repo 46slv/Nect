@@ -70,7 +70,24 @@ export function snapDirectionTranslation(
       delta.map((v, i) => v + offset[i]),
       direction,
     ).map((v, i) => v - offset[i]);
-    const found = snap(sources, base, safeScale * Math.SQRT2);
+    const found = snap(sources, base, safeScale * Math.SQRT2, {
+      direction,
+      gridSources: sources,
+      gridScale: safeScale,
+    });
+    // The rotated grid resolves its line/ray intersection in world coordinates.
+    // Do not reinterpret a grid-local axis as a world-axis target.
+    if (found.matches.some((match) => match.gridLine)) {
+      const matches = [...found.matches];
+      if (enabled)
+        matches.push(
+          directionGuide(
+            origin,
+            found.delta.map((v, i) => v + offset[i]),
+          ),
+        );
+      return { delta: found.delta, matches };
+    }
     const choices = found.matches
       .map((match) => ({
         match,
@@ -108,7 +125,11 @@ export function snapDirectionTranslation(
   const allowed = direction
     ? sources.map((values, axis) => (direction[axis] ? values : []))
     : sources;
-  const found = snap(allowed, delta, safeScale);
+  const found = snap(allowed, delta, safeScale, {
+    direction,
+    gridSources: sources,
+    gridScale: safeScale,
+  });
   // Ordinary explicit targets retain their exact behavior. When no target wins,
   // Snap also attracts to a 45 degree ray through the gesture origin (6 CSS px).
   if (
