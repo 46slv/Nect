@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { activateCommand } from './command-menu-actions.js';
 import { verifyProjectFileAtomicity } from './project-file-atomicity.js';
+import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -60,6 +61,7 @@ const download = async (action, ext) => {
 };
 try {
   await fs.mkdir('test-results', { recursive: true });
+  await preloadVariableFontDependency(page, process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
   await page.waitForSelector('.node');
