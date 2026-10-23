@@ -741,10 +741,11 @@ let variableBridge = null,
 const hasVariableFonts = (doc) =>
   Object.values(doc.fontAssets || {}).some((a) => a.kind === 'variable-glyf-v1');
 const variableNode = (id) => current().nodes.find((n) => n.id === id)?.variation;
-const activeFonts = () => ({
+const fontsFromBridge = (bridge) => ({
   ...(bundledFont ? { default: bundledFont } : {}),
-  ...(variableBridge?.fonts() || {}),
+  ...(bridge?.fonts() || {}),
 });
+const activeFonts = () => fontsFromBridge(variableBridge);
 function cancelVariableAction() {
   variableAction?.controller.abort();
   variableAction?.owner.cancelPrepared(variableAction.bridge);
@@ -846,10 +847,8 @@ async function prepareOpenDocument(next, options = {}) {
     )
       throw Error('Document changed while preparing; open the file again');
     bridge.activate(ticket);
-    variableBridge?.dispose();
-    variableBridge = bridge;
     variableAction = null;
-    replaceDocument(project, { ...options, activeCompositionId, prepared: true });
+    replaceDocument(project, { ...options, activeCompositionId, preparedBridge: bridge });
   } catch (error) {
     if (variableAction === action) variableAction = null;
     bridge.dispose();
@@ -6549,26 +6548,31 @@ async function showRecoveryCopies(startup = false) {
 }
 function replaceDocument(
   next,
-  { binding = null, saved = false, prepared = false, activeCompositionId = null } = {},
+  { binding = null, saved = false, preparedBridge = null, activeCompositionId = null } = {},
 ) {
+  const project = asCompositionProject(next);
+  activeCompositionId ??= project.compositions[0].id;
+  // Validate every Composition before retiring the current document's view state.
+  const replacement = createCompositionSessionOwner(project, {
+    ...sessionOptions,
+    activeCompositionId,
+    fonts: preparedBridge ? () => fontsFromBridge(preparedBridge) : sessionOptions.fonts,
+  });
+  const previousBridge = variableBridge;
   sourceEpoch++;
   sourcePicker = null;
   sourceReturn = null;
   cancelVariableAction();
-  if (!prepared) {
-    variableBridge?.dispose();
-    variableBridge = null;
-  }
   resetTransient();
   compositionViewStates.clear();
   detailsState.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
-  const project = asCompositionProject(next);
-  activeCompositionId ??= project.compositions[0].id;
-  session = createCompositionSessionOwner(project, { ...sessionOptions, activeCompositionId });
+  session = replacement;
   history = session.historyView;
+  variableBridge = preparedBridge;
   documents.replace({ binding, saved });
+  if (previousBridge && previousBridge !== preparedBridge) previousBridge.dispose();
   zoom = 1;
   canvasFit = true;
   pan = [0, 0];

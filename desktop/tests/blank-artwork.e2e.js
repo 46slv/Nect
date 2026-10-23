@@ -2,6 +2,8 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { activateCommand } from './command-menu-actions.js';
+import { verifyProjectFileAtomicity } from './project-file-atomicity.js';
+import { preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -59,6 +61,7 @@ const download = async (action, ext) => {
 };
 try {
   await fs.mkdir('test-results', { recursive: true });
+  await preloadVariableFontDependency(page, process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
   await page.waitForSelector('.node');
@@ -164,6 +167,7 @@ try {
   assert.equal(await projectSnapshot(), blankProject);
   assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   assert.equal(await page.locator('.shape,.warning').count(), 0);
+  await verifyProjectFileAtomicity(page);
   for (const tool of ['Circle', 'Rectangle', 'Polygon', 'Star', 'Text', 'pen']) {
     await load(blank);
     await page.locator(`[data-tool="${tool}"]`).click();

@@ -219,8 +219,12 @@ export class CompositionSessionOwner {
       throw Error('Unknown active Composition ID');
     if (this.#sameDocument(this.#history.doc, candidate)) return false;
 
-    // Prepare/validate the replacement active Document before changing project
-    // History. Invalid state leaves the old project and session untouched.
+    // Match initial Open validation, including inactive imported Documents,
+    // before changing project History or the active session.
+    for (const composition of candidate.compositions) {
+      if (composition.id !== activeCompositionId)
+        this.#validateDocument(this.#documentFor(candidate, composition.id));
+    }
     const nextActiveDocument = this.#documentFor(candidate, activeCompositionId);
     const nextSession =
       activeCompositionId === this.#activeCompositionId &&

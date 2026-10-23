@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { blankDocument, deserialize, evaluate } from '../src/core.js';
-import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
+import { loadDemoFixture, preloadVariableFontDependency } from './helpers/browser-fixture-setup.js';
 import { browserTestFiles } from '../scripts/browser-suite-runner.mjs';
 
 // This checks the setup helper contract without launching a browser or server.
@@ -71,6 +71,88 @@ test('demo setup awaits public loading and propagates import failures', async (t
     throw Error('Fixture import rejected');
   };
   await assert.rejects(loadDemoFixture(page), /Fixture import rejected/);
+});
+
+test('variable fixture preloading awaits the discovered optimized module without navigating or loading a document', async () => {
+  const calls = [];
+  let finishBody;
+  const body = new Promise((resolve) => {
+    finishBody = resolve;
+  });
+  const page = {
+    url: () => 'about:blank',
+    request: {
+      get: async (url) => {
+        calls.push(url);
+        if (calls.length === 1)
+          return {
+            status: () => 200,
+            text: async () =>
+              'import { create } from "/@fs/C:/owned-cache/deps/fontkit.js?v=fresh";',
+          };
+        return { status: () => 200, body: () => body };
+      },
+    },
+  };
+  let finished = false;
+  const pending = preloadVariableFontDependency(page, 'http://127.0.0.1:5173').then(() => {
+    finished = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, [
+    'http://127.0.0.1:5173/src/variable-font/backend.js',
+    'http://127.0.0.1:5173/@fs/C:/owned-cache/deps/fontkit.js?v=fresh',
+  ]);
+  assert.equal(finished, false, 'a discovered import alone does not establish readiness');
+  finishBody(Buffer.from('export const create = () => {};'));
+  await pending;
+  assert.equal(finished, true);
+});
+
+test('variable fixture preloading propagates missing transforms and failed optimized requests', async () => {
+  await assert.rejects(
+    preloadVariableFontDependency({ url: () => 'http://127.0.0.1:5173' }, 'http://127.0.0.1:5173'),
+    /before navigating to the fixture/,
+  );
+  await assert.rejects(
+    preloadVariableFontDependency(
+      { url: () => 'about:blank', request: { get: async () => ({ status: () => 503 }) } },
+      'http://127.0.0.1:5173',
+    ),
+    /backend preload failed/,
+  );
+  await assert.rejects(
+    preloadVariableFontDependency(
+      {
+        url: () => 'about:blank',
+        request: {
+          get: async () => ({
+            status: () => 200,
+            text: async () => '<html>not a transformed module</html>',
+          }),
+        },
+      },
+      'http://127.0.0.1:5173',
+    ),
+    /transformed fontkit import/,
+  );
+  let requests = 0;
+  const page = {
+    url: () => 'about:blank',
+    request: {
+      get: async () =>
+        ++requests === 1
+          ? {
+              status: () => 200,
+              text: async () => "import { create } from '/optimized/fontkit.js';",
+            }
+          : { status: () => 500 },
+    },
+  };
+  await assert.rejects(
+    preloadVariableFontDependency(page, 'http://127.0.0.1:5173'),
+    /Optimized fontkit preload failed/,
+  );
 });
 
 // Classification of the legacy cold-start family in the default browser chain.
