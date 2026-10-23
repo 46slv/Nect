@@ -46,9 +46,7 @@ try {
     const coords = await page.evaluate(
       ({ id, port }) => {
         const p = document.querySelector('.wire-preview'),
-          g = document.querySelector('.graph'),
-          r = g.getBoundingClientRect(),
-          z = Number(getComputedStyle(g).zoom),
+          matrix = p.getScreenCTM(),
           b = document
             .querySelector(`[data-source="${id}"][data-source-port="${port}"]`)
             .getBoundingClientRect();
@@ -56,9 +54,11 @@ try {
           .getAttribute('d')
           .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)
           .map(Number);
+        const start = new DOMPoint(n[0], n[1]).matrixTransform(matrix),
+          end = new DOMPoint(n.at(-2), n.at(-1)).matrixTransform(matrix);
         return {
-          start: [r.x + n[0] * z, r.y + n[1] * z],
-          end: [r.x + n.at(-2) * z, r.y + n.at(-1) * z],
+          start: [start.x, start.y],
+          end: [end.x, end.y],
           source: [b.x + b.width / 2, b.y + b.height / 2],
         };
       },
@@ -96,7 +96,7 @@ try {
   await page.mouse.wheel(0, 100);
   await page.keyboard.up('Control');
   await page.waitForFunction(
-    () => Number(getComputedStyle(document.querySelector('.graph')).zoom) < 1,
+    () => new DOMMatrixReadOnly(getComputedStyle(document.querySelector('.graph')).transform).a < 1,
   );
   await page.locator('.graph-scroll').evaluate((el) => {
     el.scrollLeft = 80;

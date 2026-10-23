@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openArtworkPanel } from './helpers/artwork-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const browser = await chromium.launch({
@@ -112,12 +113,12 @@ try {
   await drag([398, 158]);
   near(await pos(), [398, 158]);
   await undo();
+  await openArtworkPanel(page, 'guides-panel');
   await page.locator('[data-guide-setting="snapArtwork"]').check();
   await page.locator('[data-guide-setting="visible"]').uncheck();
   await drag([398, 158]);
   near(await pos(), [400, 160]);
   await undo();
-  await page.locator('[data-action="guides-panel"]').click();
   // Numeric entry remains literal with artwork snapping enabled.
   const input = page.locator('.inspector-body [data-key="position"] [data-axis="0"]');
   await input.fill('399');

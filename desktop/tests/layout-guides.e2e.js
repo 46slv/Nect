@@ -1,4 +1,5 @@
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
+import { openArtworkPanel } from './helpers/artwork-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,14 +12,20 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 const model = () => page.evaluate(() => structuredClone(window.nect.document));
-const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
+const snapshot = model;
 const svg = () => page.evaluate(() => window.nect.export());
 const edit = async (label, value) => {
+  await openArtworkPanel(page, label.startsWith('Layout') ? 'layout-panel' : 'guides-panel');
   const input = page.getByRole('spinbutton', { name: label, exact: true });
   await input.fill(String(value));
   await input.press('Tab');
 };
-const click = (selector) => page.locator(selector).click();
+const click = async (selector) => {
+  if (selector.startsWith('[data-layout-')) await openArtworkPanel(page, 'layout-panel');
+  if (/^\[data-(?:lock|select|add)-guide/.test(selector))
+    await openArtworkPanel(page, 'guides-panel');
+  await page.locator(selector).click();
+};
 const undo = () => click('[data-action="undo"]');
 const redo = () => click('[data-action="redo"]');
 try {
@@ -51,7 +58,8 @@ try {
   await page.mouse.down();
   await page.mouse.move(board.x + board.width * 0.85, board.y + board.height * 0.8);
   await page.mouse.up();
-  assert.equal(await snapshot(), hidden);
+  assert.deepEqual(await snapshot(), hidden);
+  await openArtworkPanel(page, 'guides-panel');
   await page.getByLabel('Show guides', { exact: true }).check();
   await click('[data-add-guide="x"]');
   await edit('Guide 1 position', 720);
@@ -67,7 +75,7 @@ try {
   await edit('Layout Gutter Y', 18);
   await page.getByLabel('Preview layout', { exact: true }).check();
   assert.equal(await page.locator('.layout-preview').count(), 12);
-  assert.equal(await snapshot(), before);
+  assert.deepEqual(await snapshot(), before);
   await fs.mkdir('test-results', { recursive: true });
   await page
     .locator('.guides-panel')
@@ -78,7 +86,7 @@ try {
   await page.screenshot({ path: 'test-results/layout-grid-preview-1600x1000.png', fullPage: true });
   await click('[data-layout-cancel]');
   assert.equal(await page.locator('.layout-preview').count(), 0);
-  assert.equal(await snapshot(), before);
+  assert.deepEqual(await snapshot(), before);
   await edit('Layout Columns', 4);
   await edit('Layout Rows', 2);
   await edit('Layout Margin X', 48);
@@ -89,9 +97,10 @@ try {
   assert.equal((await model()).editor.guides.length, 13);
   assert.equal((await model()).editor.guides[0].id, manual);
   await undo();
-  assert.equal(await snapshot(), before);
+  assert.deepEqual(await snapshot(), before);
   await redo();
   assert.equal((await model()).editor.guides.length, 13);
+  await openArtworkPanel(page, 'layout-panel');
   await page.getByRole('spinbutton', { name: 'Layout Columns', exact: true }).fill('2');
   await click('[data-layout-apply]'); // Blur must not swallow the first click.
   assert.equal((await model()).editor.guides.length, 9);
@@ -102,10 +111,11 @@ try {
   assert.ok(await page.locator('[data-layout-apply]').isDisabled());
   await page.getByLabel('Preview layout', { exact: true }).check();
   assert.equal(await page.locator('.layout-preview').count(), 0);
-  assert.equal(await snapshot(), valid);
+  assert.deepEqual(await snapshot(), valid);
   await click('[data-layout-cancel]');
   const generated = (await model()).editor.guides[1].id;
   await click(`[data-lock-guide="${generated}"]`);
+  await openArtworkPanel(page, 'layout-panel');
   assert.ok(await page.locator('[data-layout-remove]').isDisabled());
   assert.ok(await page.locator('[data-layout-apply]').isDisabled());
   await click(`[data-lock-guide="${generated}"]`);
@@ -116,12 +126,13 @@ try {
   );
   await undo();
   assert.equal((await model()).editor.guides.length, 9);
+  await openArtworkPanel(page, 'layout-panel');
   await page.getByLabel('Preview layout', { exact: true }).check();
   await click('[data-action="layout-panel"]');
   assert.equal(await page.locator('.layout-preview').count(), 0);
   const saved = await snapshot();
-  await page.evaluate((text) => window.nect.load(text), saved);
-  assert.equal(await snapshot(), saved);
+  await page.evaluate((doc) => window.nect.load(JSON.stringify(doc)), saved);
+  assert.deepEqual(await snapshot(), saved);
   assert.ok(!(await svg()).includes('<path'));
   await click('[data-layer-guide]');
   assert.equal(await svg(), artwork);
@@ -153,20 +164,32 @@ try {
     );
     await page.mouse.move(p.x, p.y);
   };
-  const sourcePoint = await page.locator('.node-stage-move').evaluate((el) => {
+  const sourceId = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
+  const sourceMarker = page.locator(`.node-stage-move[data-node-stage-move="${sourceId}"]`);
+  await sourceMarker.locator('rect').hover();
+  const sourcePoint = await sourceMarker.evaluate((el) => {
     const p = new DOMPoint(0, 0)
       .matrixTransform(el.getScreenCTM())
       .matrixTransform(document.querySelector('.artboard').getScreenCTM().inverse());
     return [p.x, p.y];
   });
+  const dragBefore = await model();
   await move(...sourcePoint);
   await page.mouse.down();
   await move(sourcePoint[0] + 8, sourcePoint[1]);
-  await page.waitForTimeout(80);
-  assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
+  await page.waitForFunction(() => {
+    const gesture = window.nect.gestureState;
+    return (
+      gesture &&
+      window.nect.previewSnapshot(gesture.gestureId).document.layers[0].nodes[0].params.center
+        .value[0] === 360
+    );
+  });
+  assert.deepEqual(await model(), dragBefore, 'snapped movement stays private until release');
   assert.ok(await page.locator('[data-snap-kind="guide-layer"]').count());
   await page.screenshot({ path: 'test-results/guide-layer-snap-1600x1000.png', fullPage: true });
   await page.mouse.up();
+  assert.equal((await model()).layers[0].nodes[0].params.center.value[0], 360);
   await undo();
   await page.evaluate(() => {
     const d = structuredClone(window.nect.document);

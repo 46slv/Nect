@@ -954,11 +954,20 @@ export function insertionRemapDependents(layer, nodeId) {
     (n) => downstream.has(n.id) && n.type === 'Path Remap' && n.edits.length,
   );
 }
+function isMissingReferenceTarget(error) {
+  return ['REFERENCE_TARGET_UNSET', 'REFERENCE_TARGET_MISSING'].includes(error.code);
+}
 export function referenceTarget(layer, n) {
   if (n?.type !== 'Reference') throw Error('Select a Reference node');
-  if (!n.reference) throw Error('Reference target is not selected');
+  if (!n.reference)
+    throw Object.assign(Error('Reference target is not selected'), {
+      code: 'REFERENCE_TARGET_UNSET',
+    });
   const target = layer.nodes.find((x) => x.id === n.reference.nodeId);
-  if (!target) throw Error(`Reference target is missing: ${n.reference.nodeId}`);
+  if (!target)
+    throw Object.assign(Error(`Reference target is missing: ${n.reference.nodeId}`), {
+      code: 'REFERENCE_TARGET_MISSING',
+    });
   if (outputType(target, referencePort(n.reference)) !== 'Vector2')
     throw Error('Reference target must be a public Vector2 output');
   return target;
@@ -4194,6 +4203,7 @@ export function assertTextPathChange(
     try {
       current.run(n.id);
     } catch (error) {
+      if (isMissingReferenceTarget(error)) continue;
       const old = previousLayer?.nodes.find(
         (x) => x.id === n.id && (x.pathAttachment || x.textWrap),
       );
@@ -4342,7 +4352,8 @@ export function assertClosedOffsetChange(
       // Missing inputs are an ordinary intermediate wiring state.
       if (
         /^Connect (a |both )/.test(error.message) ||
-        ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code)
+        ['COMPOSITION_TARGET_UNSET', 'COMPOSITION_TARGET_MISSING'].includes(error.code) ||
+        isMissingReferenceTarget(error)
       )
         continue;
       const old = previousLayer?.nodes.find(
@@ -8458,15 +8469,19 @@ export class CommandSession {
         candidate,
       );
       for (const mask of checkedMasks) {
-        const feather = maskFeather(evaluation.parameterValue(mask.id, 'feather'));
-        evaluation.parameterValue(mask.id, 'luminance');
-        if (
-          !mask.bypassed &&
-          mask.params.path.source &&
-          mask.params.mask.source &&
-          (feather > 0 || evaluation.parameterValue(mask.id, 'mask')?.kind === 'image')
-        )
-          evaluation.run(mask.id);
+        try {
+          const feather = maskFeather(evaluation.parameterValue(mask.id, 'feather'));
+          evaluation.parameterValue(mask.id, 'luminance');
+          if (
+            !mask.bypassed &&
+            mask.params.path.source &&
+            mask.params.mask.source &&
+            (feather > 0 || evaluation.parameterValue(mask.id, 'mask')?.kind === 'image')
+          )
+            evaluation.run(mask.id);
+        } catch (error) {
+          if (!isMissingReferenceTarget(error)) throw error;
+        }
       }
     }
     if (['save-node-preset', 'update-node-preset', 'apply-node-preset'].includes(type))
@@ -8491,8 +8506,13 @@ export class CommandSession {
         candidate.imageAssets,
         candidate,
       );
-      for (const repeater of repeaters)
-        repeaterSettings((key) => evaluation.parameterValue(repeater.id, key));
+      for (const repeater of repeaters) {
+        try {
+          repeaterSettings((key) => evaluation.parameterValue(repeater.id, key));
+        } catch (error) {
+          if (!isMissingReferenceTarget(error)) throw error;
+        }
+      }
     }
     if (deferVariable) return { candidate, result, committingDraft };
     if (isTransform(transformNode))

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { deserialize } from '../src/core.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -53,9 +54,34 @@ try {
     lines = () => page.evaluate(() => window.nect.evaluate().textLayout('wrap-text').lines);
   const original = await saved(),
     originalSVG = await page.evaluate(() => window.nect.export());
+  // Exercise the historical v7 -> v8 width-only migration independently of the current fixture.
+  const legacy = JSON.parse(original);
+  legacy.schemaVersion = 7;
+  await page.evaluate((json) => window.nect.load(json), JSON.stringify(legacy));
+  const legacyBefore = await saved();
   await field('text-wrap').selectOption('width');
-  assert.equal((await read()).textWrap.width, 320);
-  assert.equal(await page.evaluate(() => window.nect.document.schemaVersion), 8);
+  assert.deepEqual((await read()).textWrap, { width: 320 });
+  const migrated = await saved();
+  assert.equal(deserialize(migrated).schemaVersion, 8);
+  assert.deepEqual(deserialize(migrated), JSON.parse(migrated));
+  assert.throws(
+    () => deserialize(JSON.stringify({ ...JSON.parse(migrated), schemaVersion: 7 })),
+    /Wrap width requires schemaVersion 8/,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await saved(), legacyBefore);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), migrated);
+  await page.evaluate((json) => window.nect.load(json), migrated);
+  assert.equal(await saved(), migrated);
+  await page.evaluate((json) => window.nect.load(json), original);
+  await field('text-wrap').selectOption('width');
+  assert.deepEqual((await read()).textWrap, { width: 320 });
+  assert.equal(
+    await page.evaluate(() => window.nect.document.schemaVersion),
+    Math.max(JSON.parse(original).schemaVersion, 8),
+  );
+  assert.deepEqual(deserialize(await saved()), JSON.parse(await saved()));
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), original);
   await page.locator('[data-action="redo"]').click();
@@ -202,6 +228,9 @@ try {
   const locked = JSON.parse(json);
   locked.layers[0].locked = true;
   await page.evaluate((json) => window.nect.load(json), JSON.stringify(locked));
+  await page.locator(`[data-select-layer="${locked.layers[0].id}"]`).click();
+  const lockedText = locked.layers[0].nodes.find((n) => n.type === 'Text');
+  await page.locator(`.graph .node[data-id="${lockedText.id}"] .node-head strong`).click();
   assert.equal(await field('text-wrap').isDisabled(), true);
   assert.equal(await field('text-wrap-width').isDisabled(), true);
   assert.deepEqual(errors, []);

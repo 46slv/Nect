@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openArtworkPanel } from './helpers/artwork-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const browser = await chromium.launch({
@@ -66,31 +67,36 @@ try {
   await input().focus();
   const compositionDrawing = await drawing();
   await input().dispatchEvent('compositionstart');
-  await input().evaluate((el) => {
-    el.value += 'A';
-    el.dispatchEvent(
-      new InputEvent('input', {
-        bubbles: true,
-        isComposing: true,
-        inputType: 'insertCompositionText',
-      }),
-    );
-  });
+  // Native insertion marks the textarea dirty so Tab emits its real change
+  // event. Assigning el.value alone leaves a private draft after synthetic IME.
+  await input().press('End');
+  await page.keyboard.insertText('A');
   assert.equal(await drawing(), compositionDrawing);
   await input().dispatchEvent('compositionend');
   assert.notEqual(await drawing(), compositionDrawing);
   assert.equal(await input().evaluate((el) => el === document.activeElement), true);
   await input().press('Tab');
-  await page.waitForTimeout(40);
+  await page.waitForFunction(() =>
+    window.nect.document.layers
+      .flatMap((l) => l.nodes)
+      .some((n) => n.type === 'Text' && n.text === 'NectAAAAA'),
+  );
 
   // Selected source resolves the same final output once; graph box stays put.
+  await page.locator('[data-tool="select"]').click();
   await selectText();
   const graphPositions = await page.evaluate(() =>
     window.nect.document.layers.map((l) => l.nodes.map((n) => [n.id, n.position])),
   );
   const unaligned = await snapshot();
+  await openArtworkPanel(page);
   await page.locator('select[data-align-reference]').selectOption('artboard');
   const left = page.locator('[data-align-artwork="left"]');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('select[data-align-reference]')?.value === 'artboard' &&
+      document.querySelector('[data-align-artwork="left"]')?.disabled === false,
+  );
   assert.equal(await left.isEnabled(), true);
   await left.click();
   assert.equal(
@@ -118,6 +124,7 @@ try {
     .locator('.node-head .type-tag')
     .click();
   await page.keyboard.up('Shift');
+  await openArtworkPanel(page);
   await page.locator('[data-align-artwork="left"]').click();
   assert.equal(await snapshot(), aligned);
   await selectText();
@@ -204,6 +211,10 @@ try {
         editor: document.querySelector('.canvas-text-editor')?.outerHTML.slice(0, 500),
         caret: document.querySelector('.canvas-text-caret')?.outerHTML,
         focus: document.activeElement?.tagName,
+        status: document.querySelector('.message')?.textContent,
+        gesture: window.nect.gestureState,
+        alignment: document.querySelector('.alignment-panel')?.innerText,
+        nodes: [...document.querySelectorAll('.node.selected')].map((el) => el.dataset.id),
       })),
     }),
   );

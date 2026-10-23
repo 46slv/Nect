@@ -58,6 +58,8 @@ export const browserTestFiles = Object.freeze([
   'tests/character-numeric-scrub.e2e.js',
   'tests/pair-kerning.e2e.js',
   'tests/editor-names-bypass.e2e.js',
+  'tests/reference-status-help.e2e.js',
+  'tests/canvas-transient-panels.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

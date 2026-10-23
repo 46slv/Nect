@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { document as newDocument, node, layer, connect, serialize } from '../src/core.js';
-test('inline stable-ID names, visibility and reversible typed bypass survive selection, drafts, history and locks', async () => {
+test('inline stable-ID names, visibility and reversible typed bypass survive selection, drafts, history and locks', async (t) => {
+  // Synthetic click timing must not depend on synchronous Happy DOM render cost.
+  let pointerClock = 0;
+  t.mock.method(performance, 'now', () => pointerClock);
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'Event', 'requestAnimationFrame'])
@@ -69,6 +72,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   const undo = () => query('[data-action="undo"]').click(),
     redo = () => query('[data-action="redo"]').click();
   const titleClick = (id, x = 100) => {
+    pointerClock += 10;
     query(`[data-rename-node="${id}"]`).dispatchEvent(
       new win.PointerEvent('pointerdown', {
         bubbles: true,
@@ -90,6 +94,12 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   };
   const initial = saved(),
     originalSVG = win.nect.export();
+  titleClick(effect.id);
+  pointerClock += 500;
+  titleClick(effect.id);
+  assert.equal(input(), null, 'clicks outside the unchanged 500ms window do not rename');
+  assert.equal(saved(), initial);
+  win.dispatchEvent(new win.Event('blur'));
   titleClick(effect.id);
   titleClick(effect.id);
   assert.equal(input().getAttribute('aria-label'), 'Node name');

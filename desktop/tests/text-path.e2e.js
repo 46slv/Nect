@@ -93,9 +93,7 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), attached);
   await write('Type on Path start', 0.5);
-  await controls()
-    .getByRole('combobox', { name: 'Text alignment', exact: true })
-    .selectOption('center');
+  await controls().getByRole('button', { name: 'Text alignment: Center', exact: true }).click();
   await controls().getByRole('checkbox', { name: 'Type on Path reverse', exact: true }).check();
   const reversed = await page.evaluate(
     (id) => window.nect.evaluate().textLayout(id).placements[0].tangent,
@@ -108,20 +106,26 @@ try {
   assert.equal(await saved(), aligned);
   assert.match(await page.locator('.status .message').innerText(), /OVERFLOW/);
   await controls()
-    .getByRole('combobox', { name: 'Writing direction', exact: true })
-    .selectOption('vertical-rl');
+    .getByRole('button', { name: 'Writing direction: Vertical ↓ / columns ←', exact: true })
+    .click();
   assert.equal(await saved(), aligned);
   assert.match(await page.locator('.status .message').innerText(), /horizontal/);
   const textArea = () => controls().getByRole('textbox', { name: 'Text content', exact: true });
   await textArea().fill('TYPE\nON PATH');
   await textArea().press('Tab');
   assert.equal(await saved(), aligned);
+  await textArea().press('Escape');
   assert.match(await page.locator('.status .message').innerText(), /one line/);
   await textArea().fill('A'.repeat(100));
   await textArea().press('Tab');
   assert.equal(await saved(), aligned);
+  await textArea().press('Escape');
   // Numeric source movement and transformed geometry refresh without changing text IDs.
   await inspect(ids.curve);
+  await page
+    .locator(`.graph .node[data-id="${ids.curve}"]`)
+    .getByRole('button', { name: 'Browse all points', exact: true })
+    .click();
   // Curve points live in the expanded graph node, not in the Inspector.
   const field = page
     .locator('.graph')
@@ -157,6 +161,7 @@ try {
     ),
     6,
   );
+  await controls().locator('.control-help > summary').click();
   assert.match(await controls().innerText(), /Canvas character dragging is unavailable/);
   const currentSVG = await page.evaluate(() => window.nect.export());
   assert.notEqual(currentSVG, flatSVG);

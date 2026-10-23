@@ -10,7 +10,11 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-const model = () => page.evaluate(() => structuredClone(window.nect.document));
+const model = () =>
+  page.evaluate(() => {
+    const gesture = window.nect.gestureState;
+    return gesture ? window.nect.previewSnapshot(gesture.gestureId).document : window.nect.document;
+  });
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 const position = async (x, y) =>
   page.locator('.artboard').evaluate(

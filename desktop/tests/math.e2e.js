@@ -58,7 +58,11 @@ try {
     .dragTo(page.locator(`.graph [data-node="${ids.m}"][data-key="a"]`));
   assert.deepEqual(await value(), [170, 120]);
   await inspect(ids.m);
-  assert.equal(await field(ids.m, 'a').locator('[data-value]').inputValue(), '140');
+  assert.match(
+    await field(ids.m, 'a').locator('.parameter-result').innerText(),
+    /Connected result · 140$/,
+  );
+  assert.equal(await field(ids.m, 'a').locator('[data-base]').inputValue(), '0');
   await field(ids.m, 'a').locator('[data-connect-menu]').click();
   await page.locator('dialog select').selectOption(JSON.stringify([ids.s, 'y']));
   await page.locator('dialog [data-confirm]').click();
@@ -97,7 +101,9 @@ try {
     svg = await download('export', 'test-results/workflow-math.svg');
   assert.match(svg.toString(), /<svg/);
   const saved = JSON.parse(json);
-  const ml = saved.layers[0].nodes.find((n) => n.id === ids.m);
+  assert.equal(saved.compositionSchemaVersion, 1);
+  assert.equal(saved.compositions.length, 1);
+  const ml = saved.compositions[0].layers[0].nodes.find((n) => n.id === ids.m);
   assert.equal(ml.params.a.sourcePort, 'x');
   await page
     .locator('#open-file')

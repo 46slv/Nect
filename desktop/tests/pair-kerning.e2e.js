@@ -54,6 +54,7 @@ try {
         doc.schemaVersion = Math.max(7, doc.schemaVersion);
       }
       if (options.locked) l.locked = true;
+      if (options.schemaVersion !== undefined) doc.schemaVersion = options.schemaVersion;
       l.nodes.forEach((n, i) => (n.position = [40 + i * 340, 40]));
       window.nect.load(JSON.stringify(doc));
     }, options);
@@ -106,6 +107,20 @@ try {
     await page.mouse.move(x + dx, y, { steps: 5 });
     await page.mouse.up();
   };
+  // The pair record upgrades older documents to v9 without downgrading current fixtures below.
+  await load({ schemaVersion: 8 });
+  const legacyInitial = await saved();
+  await range(1);
+  await edit(0);
+  assert.equal(await page.evaluate(() => window.nect.document.schemaVersion), 9);
+  assert.deepEqual(await pairs(), { 'c1:c2': 0 });
+  const migrated = await saved();
+  await undo();
+  assert.equal(await saved(), legacyInitial);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await saved(), migrated);
+  await page.evaluate((json) => window.nect.load(json), migrated);
+  assert.equal(await saved(), migrated);
   await load();
   const parityInitial = await saved();
   await range(1);
@@ -119,7 +134,12 @@ try {
     window.nect.dispatch({
       ...state,
       type: 'set-character-kerning',
-      payload: { nodeId: 'pair-text', changes: { 'c1:c2': value } },
+      payload: {
+        layerId: window.nect.document.layers.find((l) => l.nodes.some((n) => n.id === 'pair-text'))
+          .id,
+        nodeId: 'pair-text',
+        changes: { 'c1:c2': value },
+      },
     });
   }, 42);
   assert.equal(await saved(), uiKerningResult, 'shared command matches the UI document result');
@@ -138,7 +158,10 @@ try {
   await edit(0);
   assert.deepEqual(await pairs(), { 'c1:c2': 0 });
   assert.equal(await input().inputValue(), '0');
-  assert.equal(await page.evaluate(() => window.nect.document.schemaVersion), 9);
+  assert.equal(
+    await page.evaluate(() => window.nect.document.schemaVersion),
+    Math.max(JSON.parse(initial).schemaVersion, 9),
+  );
   const zero = await saved();
   await undo();
   assert.equal(await saved(), initial);

@@ -53,9 +53,9 @@ try {
   const guide = page.getByRole('spinbutton', { name: 'Guide 1 position', exact: true });
   await guide.fill('800');
   await guide.press('Tab');
+  await page.getByRole('button', { name: 'Guides', exact: true }).click();
   const snap = page.getByRole('button', { name: 'Snap', exact: true });
   if ((await snap.getAttribute('aria-pressed')) !== 'true') await snap.click();
-  await page.getByRole('button', { name: 'Guides', exact: true }).click();
   const screen = async (x, y) =>
     page.locator('.artboard').evaluate(
       (el, [x, y]) => {

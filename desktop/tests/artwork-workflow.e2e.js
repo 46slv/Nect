@@ -247,7 +247,13 @@ try {
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
     assert.match(
       await page.locator('.artwork-move-status').innerText(),
-      /supported|Unlock|connected|connections/,
+      {
+        repeater:
+          /Whole-artwork Move supports direct Curve, shape or unattached Text artwork; shapes and Text may use one terminal Transform\./,
+        gradient: /artboard-space gradient is not supported/,
+        locked: /Unlock the artwork layer before moving it/,
+        driven: /move parameter is connected to a source/,
+      }[kind],
     );
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
@@ -298,13 +304,18 @@ try {
   const controls = await page.locator('[data-transform-handle]').evaluateAll((els) =>
     els.map((el) => {
       const p = new DOMPoint(0, 0).matrixTransform(el.getScreenCTM());
-      return (
+      return [
+        el.dataset.transformHandle,
         document.elementFromPoint(p.x, p.y)?.closest('[data-transform-handle]')?.dataset
-          .transformHandle === el.dataset.transformHandle
-      );
+          .transformHandle === el.dataset.transformHandle,
+      ];
     }),
   );
-  assert.deepEqual(controls, [true, true]);
+  assert.deepEqual(controls, [
+    ['anchor', true],
+    ['scale', true],
+    ['rotation', true],
+  ]);
   // At low zoom the stroke corridor remains narrow and empty artboard stays empty.
   for (let i = 0; i < 5; i++) await page.locator('[data-action="zoom-out"]').click();
   const blank = await screen([760, 460]);

@@ -74,9 +74,10 @@ try {
   assert.equal(await saved(), before);
   // Point-to-guide snapping uses the Vector itself, not the bounds of connected text.
   await page.evaluate(() => {
-    window.nect.document.editor.guides[0].position = 280;
-    window.nect.document.editor.guides[1].position = 220;
-    window.nect.load(JSON.stringify(window.nect.document));
+    const document = window.nect.document;
+    document.editor.guides[0].position = 280;
+    document.editor.guides[1].position = 220;
+    window.nect.load(JSON.stringify(document));
   });
   before = await saved();
   await start();
@@ -109,7 +110,12 @@ try {
     before = await saved();
     await start();
     await move([60, 35]);
-    assert.notEqual(await saved(), before);
+    const preview = await page.evaluate(() => {
+      const gesture = window.nect.gestureState;
+      return JSON.stringify(window.nect.previewSnapshot(gesture.gestureId).document);
+    });
+    assert.notEqual(preview, before);
+    assert.equal(await saved(), before);
     if (end === 'escape') await page.keyboard.press('Escape');
     else
       await page.evaluate((end) => {

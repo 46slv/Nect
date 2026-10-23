@@ -1,5 +1,6 @@
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
+import { activeCompositionDocument } from '../src/composition-project-model.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -77,6 +78,8 @@ try {
   await inspect(added);
   assert.equal(await field(added, 'start').getAttribute('data-type'), 'Vector2');
   assert.equal(await field(added, 'endColor').getAttribute('data-type'), 'Color');
+  await page.keyboard.press('Escape');
+  await page.locator('.inspector-body .control-help > summary').click();
   assert.match(await page.locator('.inspector-body').innerText(), /absolute artboard/);
   const ids = await page.evaluate(async () => {
     const { document, node, layer, connect } = await import('/src/core.js');
@@ -142,7 +145,9 @@ try {
     .locator('option')
     .evaluateAll((els) => els.map((el) => el.value));
   assert.ok(options.includes(ids.a));
-  assert.ok(!options.includes(ids.g));
+  // Transform accepts painted paths; Color is still incompatible with its path input.
+  assert.ok(options.includes(ids.g));
+  assert.ok(!options.includes(ids.c));
   await inspect(ids.g);
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));
   await field(ids.g, 'end').locator('[data-value]').first().fill('20');
@@ -153,17 +158,20 @@ try {
   assert.equal(await page.locator(`dialog option[value="${ids.c}"]`).count(), 0);
   await page.locator('dialog select').selectOption(ids.v);
   await page.locator('dialog [data-confirm]').click();
-  assert.equal(await field(ids.g, 'start').locator('[data-value]').first().isDisabled(), true);
-  assert.equal(await field(ids.g, 'start').locator('[data-value]').first().inputValue(), '0');
+  assert.match(
+    await field(ids.g, 'start').locator('.parameter-result').innerText(),
+    /Connected result · 0, 60$/,
+  );
+  assert.equal(await field(ids.g, 'start').locator('[data-base]').first().inputValue(), '20');
   await field(ids.g, 'start').locator('.socket.input').click({ button: 'right' });
   assert.equal(await field(ids.g, 'start').locator('[data-value]').first().inputValue(), '20');
   await field(ids.g, 'endColor').locator('[data-connect-menu]').click();
   assert.equal(await page.locator(`dialog option[value="${ids.v}"]`).count(), 0);
   await page.locator('dialog select').selectOption(ids.c);
   await page.locator('dialog [data-confirm]').click();
-  assert.equal(
-    await field(ids.g, 'endColor').locator('[data-color="hex"]').inputValue(),
-    '#ffff00',
+  assert.match(
+    await field(ids.g, 'endColor').locator('.parameter-result').innerText(),
+    /Connected result #ffff00\s+alpha 1$/,
   );
   await field(ids.g, 'endColor').locator('.socket.input').click({ button: 'right' });
   assert.equal(
@@ -254,7 +262,11 @@ try {
   await page.waitForFunction(
     () => document.querySelector('.status .message')?.textContent === 'Project restored',
   );
-  assert.deepEqual(await page.evaluate(() => window.nect.document), JSON.parse(json));
+  const savedProject = JSON.parse(json);
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.document),
+    activeCompositionDocument(savedProject, savedProject.compositions[0].id),
+  );
   const reopened = await page.evaluate(() => window.nect.export());
   assert.equal(reopened, svg.toString());
   // Reopen our evaluated gradient artwork through the actual SVG file control.
@@ -348,7 +360,9 @@ try {
       buffer: Buffer.from(invalid),
     });
     await page.waitForFunction(() =>
-      document.querySelector('.status .message')?.textContent.includes('Open rejected'),
+      document
+        .querySelector('.status .message')
+        ?.textContent.startsWith('SVG import rejected; current document preserved:'),
     );
     assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), imported);
   }

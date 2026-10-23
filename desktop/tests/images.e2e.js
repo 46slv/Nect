@@ -250,14 +250,14 @@ try {
     Object.defineProperty(input, 'files', { configurable: true, value: [file] });
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }, pngData);
-  await value('Artboard width', 321);
+  await value('Artboard width (px)', 321);
   const changed = await snapshot();
   await page.evaluate(() => window.finishImage());
   await page.waitForFunction(() =>
     document.querySelector('.status').textContent.includes('Document changed while reading'),
   );
   assert.equal(await snapshot(), changed);
-  await value('Artboard width', 320);
+  await value('Artboard width (px)', 320);
   // Local JPEG is decoded/oriented then embedded as PNG, never a file path.
   const jpg = await page.evaluate(async (base64) => {
     const image = new Image();
@@ -281,8 +281,8 @@ try {
   );
   await page.locator('[data-action="undo"]').click();
   // Downscaled large artboard is bounded by output pixels, not intrinsic SVG size.
-  await value('Artboard width', 10000);
-  await value('Artboard height', 1000);
+  await value('Artboard width (px)', 10000);
+  await value('Artboard height (px)', 1000);
   await revealCommandMenu(page, 'Export');
   await page.locator('#png-scale').selectOption('0.5');
   const large = await download('export-png', 'test-results/workflow-downscaled.png');

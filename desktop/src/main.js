@@ -3255,7 +3255,7 @@ function referenceControls(n, result, compact = false) {
     : n.reference
       ? `${n.reference.nodeId} · ${n.reference.portId}`
       : 'No target selected';
-  const status = `<p class="font-note reference-source ${diagnostic ? 'reference-error' : ''}" data-reference-status="${n.id}" title="${esc(n.reference ? n.reference.nodeId + ' / ' + n.reference.portId : '')}">← ${esc(label)}<br>${diagnostic ? esc(diagnostic) : `<output data-reference-value="${n.id}">[${esc(displayed)}] · Vector2</output>`}</p>`;
+  const status = `<p class="font-note reference-source ${diagnostic ? 'reference-error' : ''}" role="status" data-reference-status="${n.id}" title="${esc(n.reference ? n.reference.nodeId + ' / ' + n.reference.portId : '')}">← ${esc(label)}<br>${diagnostic ? esc(diagnostic) : `<output data-reference-value="${n.id}">[${esc(displayed)}] · Vector2</output>`}</p>`;
   const jump = target
     ? `<button class="mini" data-reference-jump="${n.id}" title="Select and reveal the source node">Jump to source</button>`
     : '';
@@ -13926,7 +13926,18 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
   if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
-    render();
+    if (canvasTextEdit) {
+      // Closing view-only panels must not detach the focused native text editor.
+      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) panel.remove();
+      app
+        .querySelector('.canvas-toolbar [data-action="align-panel"]')
+        ?.setAttribute('aria-pressed', 'false');
+      for (const button of app.querySelectorAll(
+        '.canvas-toolbar [data-action="grid-panel"], .canvas-toolbar [data-action="layout-panel"], .canvas-toolbar [data-action="guides-panel"]',
+      ))
+        button.setAttribute('aria-expanded', 'false');
+      updateCanvas(true);
+    } else render();
   }
 });
 document.addEventListener('keydown', (event) => {

@@ -92,9 +92,13 @@ function assertNoSuiteHandlers(signalSource) {
 }
 
 test('browser runner preserves all 55 original scripts, arguments, order, and CSP gate', async () => {
-  assert.deepEqual(browserTestFiles, originalBrowserFiles);
-  assert.equal(browserTestFiles.length, 55);
-  assert.equal(new Set(browserTestFiles).size, 55);
+  assert.deepEqual(browserTestFiles.slice(0, 55), originalBrowserFiles);
+  assert.deepEqual(browserTestFiles.slice(55), [
+    'tests/reference-status-help.e2e.js',
+    'tests/canvas-transient-panels.e2e.js',
+  ]);
+  assert.equal(browserTestFiles.length, 57);
+  assert.equal(new Set(browserTestFiles).size, 57);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

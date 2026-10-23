@@ -93,8 +93,20 @@ try {
   await inspect(out);
   assert.deepEqual(await connectMenu(out, 'color', color), ['', color]);
   await shape('#ff8000', 0.5);
-  assert.equal(await field(out, 'color').locator('[data-color="alpha"]').isDisabled(), true);
-  assert.equal(await field(out, 'color').locator('[data-color="hex"]').inputValue(), '#ff8000');
+  assert.equal(
+    await field(out, 'color').locator('[data-color-base][data-color="alpha"]').isDisabled(),
+    false,
+  );
+  assert.equal(
+    await field(out, 'color').locator('[data-color-base][data-color="hex"]').isDisabled(),
+    false,
+  );
+  assert.equal(await field(out, 'color').locator('[data-color="hex"]').inputValue(), '#2040ff');
+  assert.equal(await field(out, 'color').locator('[data-color="alpha"]').inputValue(), '0.25');
+  assert.match(
+    await field(out, 'color').locator('output.parameter-result').textContent(),
+    /Connected result.*#ff8000.*alpha 0.5/,
+  );
   // A cancelled connection dialog leaves the document and alpha unchanged.
   const connected = await page.evaluate(() => JSON.stringify(window.nect.document));
   await field(out, 'color').locator('[data-connect-menu]').click();
@@ -136,7 +148,9 @@ try {
   await alpha.fill('2');
   await alpha.press('Tab');
   await page.waitForFunction(() =>
-    document.querySelector('.status').textContent.includes('Alpha must'),
+    document
+      .querySelector('.status')
+      .textContent.includes('Expected Color with hex #RRGGBB and alpha from 0 to 1'),
   );
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeInvalid);
   await page.screenshot({ path: 'test-results/color-expanded-1600x1000.png', fullPage: true });
@@ -175,7 +189,7 @@ try {
     .locator('#open-file')
     .setInputFiles({ name: 'color.json', mimeType: 'application/json', buffer: json });
   await shape('#ff8000', 0.5);
-  assert.deepEqual(await page.evaluate(() => window.nect.document), JSON.parse(json));
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), JSON.parse(json));
   await page
     .locator('#import-svg-file')
     .setInputFiles({ name: 'color.svg', mimeType: 'image/svg+xml', buffer: svg });

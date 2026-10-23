@@ -15,8 +15,11 @@ page.on('pageerror', (error) => errors.push(error.message));
 await page.route('**/src/storage.js', (route) =>
   route.fulfill({
     contentType: 'text/javascript',
-    body: `export const desktop = true;
-export const saveFile = async () => true, openFile = async () => null;
+    body: `export * from '/src/storage.js?system-font-original';
+export const desktop = true;
+export const beginRecovery = async () => 'system-font-test';
+export const writeRecovery = async () => Date.now(), listRecovery = async () => [];
+export const readRecovery = async () => '', acknowledgeRecovery = async () => {};
 export const listSystemFonts = async () => [
   ['system-0', 'Japanese fixture', null], ['system-1', 'DejaVu Sans', null],
   ['system-2', 'Variable font', 'Variable fonts unsupported']

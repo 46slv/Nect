@@ -21,10 +21,15 @@ test('Text Position UI: typed sockets, source labels, cancellation, snap ownersh
     }
   };
   win.SVGElement.prototype.getScreenCTM = () => ({ inverse: () => ({}) });
+  // Read the real fixture bytes before boot so filesystem scheduling cannot race
+  // the existing startup wait and leave Text geometry unavailable.
+  const bundledFontBytes = await fs.readFile(
+    new URL('../public/fonts/DejaVuSans.ttf', import.meta.url),
+  );
   globalThis.fetch = async () => ({
     ok: true,
     arrayBuffer: async () => {
-      let b = await fs.readFile(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));
+      const b = bundledFontBytes;
       return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
     },
   });

@@ -245,6 +245,7 @@ try {
   const inputPort = page.locator(
     `.graph .field[data-node="${circleId}"][data-key="radius"] .input`,
   );
+  await inputPort.scrollIntoViewIfNeeded();
   const inputBox = await inputPort.boundingBox();
   assert.equal(
     await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.matches('.socket.input'), {
@@ -351,8 +352,9 @@ try {
   const remapKey = `remap.${remapPoint.id}.position`;
   let remapField = page.locator(`.graph .field[data-node="${remapId}"][data-key="${remapKey}"]`);
   assert.equal(await remapField.count(), 1);
-  page.once('dialog', (dialog) => dialog.accept('4; 6'));
   await remapField.locator('[data-fx]').click();
+  await page.getByRole('dialog').getByLabel('Parameter expression', { exact: true }).fill('4; 6');
+  await page.getByRole('dialog').getByRole('button', { name: 'Apply', exact: true }).click();
   await page.getByLabel('Add node', { exact: true }).selectOption('Vector');
   const vectorId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
   await page
@@ -426,6 +428,10 @@ try {
     remapId,
   );
   assert.equal(batchIds.length, 3);
+  await page
+    .locator(`.graph .node[data-id="${remapId}"]`)
+    .getByRole('button', { name: 'Browse all points', exact: true })
+    .click();
   const beforeBlockedBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
   await page.locator(`[data-batch-point="${batchIds[0]}"]`).check();
   await page.locator(`[data-batch-point="${batchIds[1]}"]`).check();
@@ -434,7 +440,7 @@ try {
   await page.getByRole('button', { name: 'Move selected points', exact: true }).click();
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeBlockedBatch);
   assert.match(await page.locator('.status').innerText(), /locked or driven/);
-  await page.getByRole('button', { name: 'Deselect points', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear batch selection', exact: true }).click();
   for (const id of batchIds.slice(1)) await page.locator(`[data-batch-point="${id}"]`).check();
   const beforeBatch = await page.evaluate(() => JSON.stringify(window.nect.document));
   const originalBatchPoint = await page.evaluate(
@@ -504,6 +510,10 @@ try {
   assert.ok(firstLoadedCard.x >= loadedViewport.x && firstLoadedCard.y >= loadedViewport.y);
   const practiceBefore = await page.evaluate(() => window.nect.export());
   const vId = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);
+  await page
+    .locator(`.graph .node[data-id="${vId}"]`)
+    .getByRole('button', { name: 'Browse all points', exact: true })
+    .click();
   const pointX = page
     .locator(`.node[data-id="${vId}"]`)
     .getByLabel('V / editable outline position X', { exact: true })

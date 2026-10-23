@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openArtworkPanel } from './helpers/artwork-panels.js';
 import assert from 'node:assert/strict';
 const browser = await chromium.launch({
   executablePath:
@@ -21,6 +22,7 @@ async function select(names) {
     await page.locator(`.graph .node[data-id="${ids[name]}"] .node-head .type-tag`).click();
     if (i) await page.keyboard.up('Shift');
   }
+  await openArtworkPanel(page);
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
@@ -48,8 +50,8 @@ try {
     window.nect.load(JSON.stringify(doc));
     return Object.fromEntries(Object.entries(nodes).map(([name, n]) => [name, n.id]));
   });
-  await page.locator('select[data-align-reference]').selectOption('artboard');
   await select(['Vector']);
+  await page.locator('select[data-align-reference]').selectOption('artboard');
   const before = await read();
   await page.locator('[data-align-artwork="center-x"]').click();
   assert.equal((await get(ids.Vector)).params.value.value[0], 480);

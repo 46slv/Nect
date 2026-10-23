@@ -1,4 +1,5 @@
 import { activateCommand } from './command-menu-actions.js';
+import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -37,6 +38,7 @@ const select = async () => {
   for (let i = 0; i < ids.length; i++)
     await page.locator(`[data-select-layer="${ids[i]}"]`).click({ modifiers: i ? ['Shift'] : [] });
   await page.waitForFunction(() => document.querySelectorAll('.layer.selected').length === 5);
+  await openArtworkPanel(page);
 };
 const load = async (doc = fixture) => {
   await page.evaluate((doc) => window.nect.load(JSON.stringify(doc)), doc);
@@ -79,6 +81,7 @@ try {
     const min = Math.min(...bb.map((b) => b[axis][0])),
       max = Math.max(...bb.map((b) => b[axis][2]));
     const destination = [min, min / 2 + max / 2, max][edge];
+    await openArtworkPanel(page);
     await page.locator(`[data-align-artwork="${action}"]`).click();
     const after = await saved(),
       ab = await bounds();
@@ -115,10 +118,7 @@ try {
     assert.match(await page.locator('.alignment-error').innerText(), /Transformed star:/);
     assert.equal(await page.locator('[data-align-artwork="left"]').isDisabled(), true);
     const before = await saved();
-    await page.locator('[data-align-artwork="left"]').evaluate((b) => {
-      b.disabled = false;
-      b.click();
-    });
+    await forceArtworkPanelCommand(page, 'data-align-artwork', 'left');
     assert.equal(await saved(), before, kind);
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   }
@@ -129,15 +129,13 @@ try {
       await page.locator('.canvas-stage').dispatchEvent('compositionstart');
     if (busy === 'modal') await page.locator('[data-action="help"]').click();
     if (busy === 'pen') await page.locator('[data-tool="pen"]').click();
-    await page.locator('[data-align-artwork="left"]').evaluate((b) => {
-      b.disabled = false;
-      b.click();
-    });
+    await forceArtworkPanelCommand(page, 'data-align-artwork', 'left');
     assert.equal(await saved(), before, busy);
     if (busy === 'composition') await page.locator('.canvas-stage').dispatchEvent('compositionend');
     if (busy === 'modal') await page.keyboard.press('Escape');
     if (busy === 'pen') await page.locator('[data-tool="select"]').click();
   }
+  await openArtworkPanel(page);
   await page.locator('[data-align-artwork="left"]').click();
   for (const [action, ext] of [
     ['save', 'json'],

@@ -107,7 +107,17 @@ try {
   await select(ids.b);
   const input = field(ids.b, 'position', '.inspector-body');
   assert.match(await input.textContent(), /Master Position.*connected value/);
-  assert.equal(await input.locator('[data-value]').first().isDisabled(), true);
+  assert.deepEqual(
+    await input.locator('[data-base]').evaluateAll((els) => els.map((el) => el.value)),
+    ['100', '200'],
+  );
+  for (const base of await input.locator('[data-base]').all())
+    assert.equal(await base.isDisabled(), false);
+  assert.match(
+    await input.locator('output.parameter-result').textContent(),
+    /Connected result.*500, 300/,
+  );
+  assert.deepEqual(await position(ids.a), [500, 300]);
   await input.locator('[data-connect-menu]').click();
   const options = await page
     .locator('dialog select option')

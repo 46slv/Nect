@@ -1,8 +1,13 @@
 import { activateCommand } from './command-menu-actions.js';
+import {
+  loadArtworkProject,
+  artworkDocumentSnapshot,
+  artworkProjectSnapshot,
+} from './helpers/artwork-project.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { blankLayer, document as makeDoc, serialize } from '../src/core.js';
+import { blankLayer, document as makeDoc } from '../src/core.js';
 import { orderingDocument } from './fixtures/artwork-ordering.js';
 import { unsupportedLayer } from './fixtures/artwork-deletion.js';
 
@@ -15,8 +20,8 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
   errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 page.on('dialog', (dialog) => dialog.accept());
-const load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
-  snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
+const load = (doc) => loadArtworkProject(page, doc),
+  snapshot = () => artworkDocumentSnapshot(page),
   click = (action) => activateCommand(page, action),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
   order = (id, direction = 'forward') =>
@@ -157,10 +162,11 @@ try {
       assert.equal(await snapshot(), after);
       assert.deepEqual(await view(), prior);
     }
+    const project = await artworkProjectSnapshot(page);
     const saved = await download('save', String(width), 'json'),
       svg = await download('export', String(width), 'svg'),
       png = await download('export-png', String(width), 'png');
-    assert.equal(JSON.stringify(JSON.parse(saved)), after);
+    assert.deepEqual(JSON.parse(saved), project);
     const svgPixels = await pixels(svg);
     assert.deepEqual(svgPixels.samples[0], [0, 255, 0, 255]);
     assert.deepEqual(await pixels(png, 'image/png'), svgPixels);
@@ -179,6 +185,7 @@ try {
     await page.reload();
     await page.waitForFunction(() => window.nect);
     await load(JSON.parse(saved));
+    assert.deepEqual(await artworkProjectSnapshot(page), project);
     assert.equal(await snapshot(), after);
     assert.deepEqual(await pixels(await exported()), svgPixels);
     assert.deepEqual(await canvasColor(), [0, 255, 0, 255]);
@@ -307,6 +314,17 @@ try {
   const rename = page.locator('[data-rename-name]');
   await rename.fill('Uncommitted name');
   before = await snapshot();
+  // The Layers list can clip this row after inline rename expands it.
+  await order(id).scrollIntoViewIfNeeded();
+  assert.equal(
+    await order(id).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return hit === el || el.contains(hit);
+    }),
+    true,
+    'pointer targets the refused ordering control',
+  );
   const refusedControl = await order(id).boundingBox();
   await page.mouse.click(
     refusedControl.x + refusedControl.width / 2,

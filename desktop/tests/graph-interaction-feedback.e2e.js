@@ -215,15 +215,15 @@ try {
           v = document.querySelector('.graph-scroll').getBoundingClientRect();
         return p.x > v.x + 30 && p.right < v.right - 110;
       }, ids[3]);
-      const end = await page.locator('.wire-preview').evaluate((el) => {
-        const n = el
+      // Auto-pan replaces paths each frame; measure one currently attached preview.
+      const end = await page.evaluate(() => {
+        const el = document.querySelector('.wire-preview'),
+          n = el
             .getAttribute('d')
             .match(/-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi)
             .map(Number),
-          g = document.querySelector('.graph'),
-          r = g.getBoundingClientRect(),
-          z = Number(getComputedStyle(g).zoom);
-        return [r.x + n.at(-2) * z, r.y + n.at(-1) * z];
+          end = new DOMPoint(n.at(-2), n.at(-1)).matrixTransform(el.getScreenCTM());
+        return [end.x, end.y];
       });
       assert.ok(
         Math.hypot(end[0] - cursor[0], end[1] - cursor[1]) < 2,

@@ -54,6 +54,8 @@ try {
     return { r: r.id, o: o.id, fill: fill.id, value: value.id, curve: curve.id, v: v.id };
   });
   await inspect(ids.o);
+  await page.keyboard.press('Escape');
+  await page.locator('.inspector-body .control-help > summary').click();
   assert.match(await page.locator('.inspector-body').innerText(), /not a final offset error bound/);
   const amount = () => field(ids.o, 'amount').locator('[data-value]');
   const write = async (n) => {
@@ -80,7 +82,11 @@ try {
   assert.equal(await page.locator(`dialog option[value="${ids.v}"]`).count(), 0);
   await page.locator('dialog select').selectOption(ids.value);
   await page.locator('dialog [data-confirm]').click();
-  assert.equal(await amount().isDisabled(), true);
+  assert.match(
+    await field(ids.o, 'amount').locator('.parameter-result').innerText(),
+    /Connected result · -10$/,
+  );
+  assert.equal(await field(ids.o, 'amount').locator('[data-base]').inputValue(), '-10');
   await field(ids.o, 'amount').locator('.input').click({ button: 'right' });
   assert.equal(await amount().isDisabled(), false);
   await field(ids.o, 'amount').locator('[data-lock]').click();

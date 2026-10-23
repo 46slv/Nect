@@ -1,8 +1,9 @@
-import { activateCommand } from './command-menu-actions.js';
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { serialize } from '../src/core.js';
+import { activeCompositionDocument } from '../src/composition-project-model.js';
 import { multiDuplicationDocument } from './fixtures/artwork-duplication.js';
 
 const browser = await chromium.launch({
@@ -38,8 +39,10 @@ try {
   await fs.mkdir('test-results', { recursive: true });
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
+  const projectMenu = await revealCommandMenu(page, 'Project');
   assert.equal(await page.getByRole('button', { name: 'New document', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: 'Open JSON', exact: true }).count(), 1);
+  await projectMenu.locator('summary').click();
   for (const [width, height] of [
     [1600, 1000],
     [1280, 800],
@@ -53,8 +56,8 @@ try {
     const before = await snapshot();
     assert.equal(await duplicate().isEnabled(), true);
     assert.equal(
-      await page.locator('.artwork-duplicate-status').innerText(),
-      'Each copy above its source. One Undo.',
+      await duplicate().getAttribute('title'),
+      'Create independent copies immediately above each source at the same coordinates (one Undo)',
     );
     const position = await duplicate().boundingBox();
     assert.ok(
@@ -126,7 +129,11 @@ try {
     });
     const saved = await download('save', width, 'json'),
       svg = await download('export', width, 'svg');
-    assert.equal(JSON.stringify(JSON.parse(saved)), after);
+    const savedProject = JSON.parse(saved);
+    assert.deepEqual(
+      activeCompositionDocument(savedProject, savedProject.compositions[0].id),
+      JSON.parse(after),
+    );
     assert.equal(svg.toString(), await page.evaluate(() => window.nect.export()));
     assert.equal((svg.toString().match(/<image /g) || []).length, 2);
     // Open the downloaded file through the actual file input after a cold reload.

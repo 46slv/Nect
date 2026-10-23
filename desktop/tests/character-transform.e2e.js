@@ -75,7 +75,16 @@ try {
   const beforeDrag = await read();
   await page.mouse.down();
   await page.mouse.move(b.x + b.width / 2 + 20, b.y + b.height / 2 + 12, { steps: 5 });
-  const duringDrag = await read();
+  const duringDrag = await page.evaluate(() => {
+    const gesture = window.nect.gestureState;
+    return window.nect
+      .previewSnapshot(gesture.gestureId)
+      .document.layers[0].nodes.find((node) => node.id === 'text-horizontal');
+  });
+  assert.deepEqual(
+    (await read()).characterPositions.offsets.c2,
+    beforeDrag.characterPositions.offsets.c2,
+  );
   assert.notDeepEqual(
     duringDrag.characterPositions.offsets.c2,
     beforeDrag.characterPositions.offsets.c2,
@@ -121,7 +130,7 @@ try {
     svg = await fs.readFile('test-results/workflow-character-transform.svg', 'utf8');
   assert.equal(svg, expectedSVG);
   assert.doesNotMatch(svg, /character-hit|character-pivot|character-floating/);
-  assert.equal(JSON.parse(json).schemaVersion, 4);
+  assert.equal(JSON.parse(json).schemaVersion, JSON.parse(scaled).schemaVersion);
   const png = await fs.readFile('test-results/workflow-character-transform.png');
   assert.ok(png.subarray(1, 4).equals(Buffer.from('PNG')));
   await load(json);

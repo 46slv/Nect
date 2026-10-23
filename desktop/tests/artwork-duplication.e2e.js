@@ -1,8 +1,13 @@
 import { activateCommand } from './command-menu-actions.js';
+import {
+  loadArtworkProject,
+  artworkDocumentSnapshot,
+  artworkProjectSnapshot,
+} from './helpers/artwork-project.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { blankLayer, node, serialize } from '../src/core.js';
+import { blankLayer, node } from '../src/core.js';
 import { duplicationDocument, richDuplicationText } from './fixtures/artwork-duplication.js';
 
 const browser = await chromium.launch({
@@ -14,8 +19,8 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
-const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
-  load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
+const snapshot = () => artworkDocumentSnapshot(page),
+  load = (doc) => loadArtworkProject(page, doc),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
   click = (action) => activateCommand(page, action),
   duplicate = () => page.locator('[data-duplicate-artwork]'),
@@ -120,10 +125,11 @@ try {
       assert.equal(await page.locator('.layer.selected').getAttribute('data-layer'), f.layer.id);
       await click('redo');
       assert.equal(await snapshot(), after);
+      const project = await artworkProjectSnapshot(page);
       const saved = await download('save', label, 'json'),
         svg = await download('export', label, 'svg'),
         png = await download('export-png', label, 'png');
-      assert.equal(JSON.stringify(JSON.parse(saved)), after);
+      assert.deepEqual(JSON.parse(saved), project);
       assert.equal(svg.toString(), await exported());
       assert.deepEqual(
         await pixels(png, 'image/png'),
@@ -149,6 +155,7 @@ try {
       await page.reload();
       await page.waitForFunction(() => window.nect);
       await load(JSON.parse(saved));
+      assert.deepEqual(await artworkProjectSnapshot(page), project);
       await page.waitForFunction(() => !document.querySelector('.warning'));
       assert.equal(await snapshot(), after);
       assert.deepEqual(await pixels(await exported()), await pixels(png, 'image/png'));
@@ -202,6 +209,10 @@ try {
       await input.fill('Edited independent copy');
       await input.press('Tab');
     } else {
+      // Point lists start in selected-only mode. Browse the copy's rows before
+      // editing its first authored anchor through the existing graph control.
+      await page.locator(`.graph [data-point-panel-mode="${generator.id}"]`).click();
+      assert.equal(await snapshot(), JSON.stringify(after));
       const input = page.locator(
         `.graph .field[data-node="${generator.id}"][data-key="${generator.points[0].id}.position"] [data-value][data-axis="0"]`,
       );

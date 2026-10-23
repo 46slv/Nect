@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { blankDocument, deserialize, evaluate } from '../src/core.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
+import { browserTestFiles } from '../scripts/browser-suite-runner.mjs';
 
 // This checks the setup helper contract without launching a browser or server.
 // Real pointer, visibility and download acceptance remains in the E2E scripts.
@@ -160,10 +161,9 @@ test('an unavailable startup API cannot be bypassed by fixture injection', async
 });
 
 test('the browser chain never waits for startup artwork before explicit fixture setup', async () => {
-  const pkg = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'));
-  const scripts = [...pkg.scripts['test:e2e'].matchAll(/node (tests\/[^ &]+)/g)];
+  const scripts = browserTestFiles;
   assert.ok(scripts.length > 0);
-  for (const [, script] of scripts) {
+  for (const script of scripts) {
     const source = await fs.readFile(new URL(`../${script}`, import.meta.url), 'utf8');
     assert.doesNotMatch(
       source,

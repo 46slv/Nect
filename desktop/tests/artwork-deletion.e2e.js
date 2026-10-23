@@ -1,8 +1,13 @@
 import { activateCommand } from './command-menu-actions.js';
+import {
+  loadArtworkProject,
+  artworkDocumentSnapshot,
+  artworkProjectSnapshot,
+} from './helpers/artwork-project.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { blankLayer, document as makeDoc, node, serialize } from '../src/core.js';
+import { blankLayer, document as makeDoc, node } from '../src/core.js';
 import { appendArtwork } from '../src/artwork-creation.js';
 import { deletionDocument, unsupportedLayer } from './fixtures/artwork-deletion.js';
 
@@ -15,8 +20,8 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } }),
   errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (dialog) => dialog.accept());
-const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document)),
-  load = (doc) => page.evaluate((text) => window.nect.load(text), serialize(doc)),
+const snapshot = () => artworkDocumentSnapshot(page),
+  load = (doc) => loadArtworkProject(page, doc),
   stage = () => page.locator('.canvas-stage'),
   deletion = (id) => page.locator(`[data-delete-layer="${id}"]`),
   select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
@@ -92,9 +97,10 @@ try {
     // Toolbar history uses the existing control-focus rules, including disabled Redo.
     // Keep the cleared-selection assertion; direct layer deletion still checks native stage focus.
     await clear(false);
+    const project = await artworkProjectSnapshot(page);
     const saved = await download('save', `${width}.json`),
       svg = await download('export', `${width}.svg`);
-    assert.deepEqual(JSON.parse(saved), JSON.parse(after));
+    assert.deepEqual(JSON.parse(saved), project);
     assert.ok(!svg.includes(target.name));
     assert.ok(svg.includes(doc.layers[2].name));
     await page.screenshot({
@@ -104,6 +110,7 @@ try {
     await page.reload();
     await page.waitForFunction(() => window.nect);
     await load(JSON.parse(saved));
+    assert.deepEqual(await artworkProjectSnapshot(page), project);
     assert.equal(await snapshot(), after);
   }
 

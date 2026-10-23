@@ -123,9 +123,32 @@ try {
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true, end);
     assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false, end);
   }
-  await drag([20, 15], 'up', ['Alt', 'Shift'], true);
-  await verify(expected(before, [20, 0]));
-  await page.locator('[data-action="undo"]').click();
+  // Shift chooses the nearest horizontal, vertical or 45-degree direction.
+  // Alt isolates that constraint from target snapping for the complete set.
+  for (const [delta, constrained] of [
+    [
+      [20, 5],
+      [20, 0],
+    ],
+    [
+      [5, 20],
+      [0, 20],
+    ],
+    [
+      [20, 15],
+      [17.5, 17.5],
+    ],
+    [
+      [20, -15],
+      [17.5, -17.5],
+    ],
+  ]) {
+    await drag(delta, 'up', ['Alt', 'Shift'], true);
+    await verify(expected(before, constrained));
+    await page.locator('[data-action="undo"]').click();
+    await verify(before);
+    assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+  }
   // Group must not snap to one of its own members.
   const snap = structuredClone(before);
   snap.editor = {

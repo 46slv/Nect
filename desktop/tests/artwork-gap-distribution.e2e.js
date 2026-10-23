@@ -1,4 +1,5 @@
 import { activateCommand } from './command-menu-actions.js';
+import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -45,16 +46,13 @@ const select = async (chosen = ids) => {
       .locator(`[data-select-layer="${chosen[i]}"]`)
       .click({ modifiers: i ? ['Shift'] : [] });
   assert.deepEqual(await selected(), [...chosen].sort());
+  await openArtworkPanel(page);
 };
 const load = async (doc = fixture, chosen = ids) => {
   await page.evaluate((doc) => window.nect.load(JSON.stringify(doc)), doc);
   await select(chosen);
 };
-const force = async (action) =>
-  page.locator(`[data-distribute-gap="${action}"]`).evaluate((b) => {
-    b.disabled = false;
-    b.click();
-  });
+const force = (action) => forceArtworkPanelCommand(page, 'data-distribute-gap', action);
 const near = (a, b, label) => assert.ok(Math.abs(a - b) < 0.0003, `${label}: ${a} != ${b}`);
 
 try {
@@ -99,6 +97,7 @@ try {
         .sort((a, b) => a.bounds[axis][0] - b.bounds[axis][0]),
       last,
     ];
+    await openArtworkPanel(page);
     const button = page.locator(`[data-distribute-gap="${action}"]`);
     await button.focus();
     await page.keyboard.press('Enter');
@@ -147,6 +146,7 @@ try {
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
     await page.locator('[data-action="undo"]').click();
+    await openArtworkPanel(page);
     await button.click();
     assert.equal(await saved(), after);
     assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
@@ -271,6 +271,7 @@ try {
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
     await page.locator('[data-action="undo"]').click();
+    await openArtworkPanel(page);
     await page.locator('[data-distribute-gap="gap-x"]').click();
     assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
     await page.evaluate((json) => window.nect.load(json), after);
@@ -325,6 +326,7 @@ try {
     assert.equal(await saved(), before, `${busy} cancellation`);
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   }
+  await openArtworkPanel(page);
   await page.locator('[data-distribute-gap="gap-x"]').click();
   assert.notEqual(await saved(), before, 'valid command works after interrupted edits');
   assert.deepEqual(errors, []);

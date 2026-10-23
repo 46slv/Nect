@@ -91,6 +91,12 @@ try {
   await page
     .locator('.inspector-body [data-text-symbol="textAlignment"][data-text-symbol-value="end"]')
     .click();
+  await page.waitForFunction(
+    (id) =>
+      window.nect.document.layers[1].nodes.find((n) => n.id === id).alignment === 'end' &&
+      document.querySelector(`.graph [data-text-alignment="${id}"]`)?.value === 'end',
+    ids.text,
+  );
   assert.equal(
     await page.locator(`.graph [data-text-alignment="${ids.text}"]`).inputValue(),
     'end',

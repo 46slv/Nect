@@ -4,6 +4,11 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { deserialize, exportSVG, node, layer } from '../src/core.js';
+import {
+  activeCompositionDocument,
+  deserializeCompositionProject,
+  serializeCompositionProject,
+} from '../src/composition-project-model.js';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -31,6 +36,19 @@ async function chooseFont(file) {
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await loadDemoFixture(page);
+  const untouched = await page.evaluate(async () => {
+    const { document } = await import('/src/core.js');
+    const { migrateLegacyDocumentToCompositionProject } = await import(
+      '/src/composition-project-model.js'
+    );
+    const project = window.nect.projectSnapshot();
+    const composition = migrateLegacyDocumentToCompositionProject(document()).compositions[0];
+    composition.id = 'text-untouched-composition';
+    composition.name = 'Unedited composition';
+    project.compositions.push(composition);
+    window.nect.load(JSON.stringify(project));
+    return composition;
+  });
   await page.waitForSelector('.shape');
   await page.locator('[data-tool="Text"]').click();
   await page.locator('.artboard').click();
@@ -78,7 +96,12 @@ try {
   await download.saveAs('test-results/japanese-vertical-project.json');
   const json = await fs.readFile('test-results/japanese-vertical-project.json', 'utf8');
   const svg = await page.evaluate(() => window.nect.export());
-  assert.equal(exportSVG(deserialize(json)), svg);
+  const project = deserializeCompositionProject(json, deserialize);
+  assert.deepEqual(project, await page.evaluate(() => window.nect.projectSnapshot()));
+  assert.deepEqual(project.compositions[1], untouched);
+  assert.deepEqual(deserializeCompositionProject(serializeCompositionProject(project)), project);
+  const activeId = await page.evaluate(() => window.nect.activeCompositionId);
+  assert.equal(exportSVG(activeCompositionDocument(project, activeId)), svg);
   await page.reload();
   await loadDemoFixture(page);
   await page.waitForSelector('.shape');
@@ -88,6 +111,7 @@ try {
   await page.locator('dialog button[value="discard"]').click();
   await (await opening).setFiles('test-results/japanese-vertical-project.json');
   await page.waitForTimeout(150);
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), project);
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
   // Select the restored Text and edit a previously unused character, proving full bytes survived.
   const restoredLayer = await page.evaluate(

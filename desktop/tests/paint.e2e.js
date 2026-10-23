@@ -68,12 +68,44 @@ try {
     .locator(`.graph .node[data-id="${ids.t}"] [data-key="path"] option`)
     .evaluateAll((els) => els.map((el) => el.value));
   assert.ok(transformOptions.includes(ids.r));
-  for (const id of [ids.f, ids.s, ids.o]) assert.ok(!transformOptions.includes(id));
+  for (const id of [ids.f, ids.s, ids.o]) assert.ok(transformOptions.includes(id));
+  for (const id of [ids.c, ids.t]) assert.ok(!transformOptions.includes(id));
+  const beforeTransform = await page.evaluate(() => JSON.stringify(window.nect.document)),
+    beforeTransformSVG = await page.evaluate(() => window.nect.export());
+  for (const source of [ids.f, ids.s, ids.o]) {
+    await page.locator(`.graph .node[data-id="${ids.t}"] [data-path-source]`).selectOption(source);
+    const transform = await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id),
+      ids.t,
+    );
+    assert.equal(transform.params.path.source, source);
+    assert.equal(transform.params.path.type, 'PaintedPath');
+    assert.equal(transform.paintMode, true);
+    assert.equal(
+      await page.evaluate((id) => {
+        window.nect.evaluate().run(id);
+        return window.nect.evaluate().error;
+      }, ids.t),
+      null,
+    );
+    assert.equal(await page.evaluate(() => window.nect.export()), beforeTransformSVG);
+    await page.locator('[data-action="undo"]').click();
+    assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeTransform);
+  }
   await inspect(ids.s);
   await field(ids.s, 'color').locator('[data-connect-menu]').click();
   await page.locator('dialog select').selectOption(ids.c);
   await page.locator('dialog [data-confirm]').click();
-  assert.equal(await field(ids.s, 'color').locator('[data-color="alpha"]').isDisabled(), true);
+  assert.equal(
+    await field(ids.s, 'color').locator('[data-color-base][data-color="alpha"]').isDisabled(),
+    false,
+  );
+  assert.equal(await field(ids.s, 'color').locator('[data-color="hex"]').inputValue(), '#0000ff');
+  assert.equal(await field(ids.s, 'color').locator('[data-color="alpha"]').inputValue(), '0.75');
+  assert.match(
+    await field(ids.s, 'color').locator('output.parameter-result').textContent(),
+    /Connected result.*#0000ff.*alpha 0.75/,
+  );
   const width = field(ids.s, 'width').locator('[data-value]');
   await width.fill('0');
   await width.press('Tab');
@@ -130,7 +162,7 @@ try {
   await page
     .locator('#open-file')
     .setInputFiles({ name: 'paint.json', mimeType: 'application/json', buffer: json });
-  assert.deepEqual(await page.evaluate(() => window.nect.document), JSON.parse(json));
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), JSON.parse(json));
   await page
     .locator('#import-svg-file')
     .setInputFiles({ name: 'paint.svg', mimeType: 'image/svg+xml', buffer: svg });
