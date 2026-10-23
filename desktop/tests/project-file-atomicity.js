@@ -142,7 +142,7 @@ export async function verifyProjectFileAtomicity(page) {
     'Roboto.ttf',
   );
   const variable = blankDocument(),
-    text = node('Text');
+    text = node('Text', 400, 40);
   variable.fontAssets = { [asset.id]: asset.asset };
   text.font = asset.id;
   text.text = 'AV';
@@ -150,17 +150,49 @@ export async function verifyProjectFileAtomicity(page) {
   variable.layers[0].nodes.push(text);
   variable.layers[0].nodes[0].params.path.source = text.id;
   const variableText = serialize(variable);
+  const selectText = () =>
+    page.locator(`.graph .node[data-id="${text.id}"] .node-head strong`).click();
+  const editText = async (value) => {
+    const input = page.locator(`.inspector-body [data-text="${text.id}"]`);
+    await input.fill(value);
+    await input.press('Tab');
+    await page.waitForFunction(
+      ({ id, value }) =>
+        window.nect.document.layers[0].nodes.find((n) => n.id === id).text === value ||
+        document
+          .querySelector('.status .message')
+          ?.textContent.startsWith('Variable font edit rejected;'),
+      { id: text.id, value },
+    );
+    assert.equal(
+      await page.evaluate(
+        (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).text,
+        text.id,
+      ),
+      value,
+    );
+    assert.equal(await page.locator('.status .message').textContent(), 'Text updated');
+  };
   await open(variableText);
+  await selectText();
+  await editText('AVX');
+  await activateCommand(page, 'undo');
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).text === 'AV',
+    text.id,
+  );
+  await selectText();
   const baseline = await state(),
     svg = await page.evaluate(() => window.nect.export());
+  assert.equal(baseline.file.dirty, false);
+  assert.equal(baseline.redoDisabled, false);
   assert.match(svg, /<path/);
   const inactive = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
   inactive.id = 'invalid-variable-inactive';
   inactive.layers[0].nodes[0].type = 'Not a Nect node';
-  const invalid = {
-    ...structuredClone(baseline.project),
-    compositions: [...baseline.project.compositions, inactive],
-  };
+  const invalid = structuredClone(baseline.project);
+  invalid.compositions.push(inactive);
+  invalid.compositions[0].layers[0].nodes.find((n) => n.id === text.id).text = 'AW';
   await chooseFile('open', JSON.stringify(invalid), 'invalid-variable-project.json');
   await page.waitForFunction(() =>
     document.querySelector('.status .message')?.textContent.startsWith('Open rejected;'),
@@ -178,9 +210,25 @@ export async function verifyProjectFileAtomicity(page) {
   );
   await refresh();
   assert.deepEqual(await state(), baseline);
+  // Edit the retained document before any Open/reset can replace a broken bank.
+  await editText('AVZ');
+  assert.notEqual(await page.evaluate(() => window.nect.export()), svg);
+  await activateCommand(page, 'undo');
+  await page.waitForFunction(
+    (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).text === 'AV',
+    text.id,
+  );
+  assert.deepEqual(await project(), baseline.project);
   await open(variableText);
   assert.deepEqual(await project(), baseline.project);
   assert.equal(await page.evaluate(() => window.nect.export()), svg);
+  const followOn = structuredClone(baseline.project);
+  followOn.compositions[0].layers[0].nodes.find((n) => n.id === text.id).text = 'AW';
+  await open(JSON.stringify(followOn));
+  assert.deepEqual(await project(), followOn);
+  assert.notEqual(await page.evaluate(() => window.nect.export()), svg);
+  await selectText();
+  await editText('AWX');
   console.log(
     'PASS project file atomicity: 17 rejected Open/import cases; exact state/history/selection and subsequent valid Open, including prepared variable fonts',
   );
