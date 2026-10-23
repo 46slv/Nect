@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Contour-scoped point navigation
+## ACTIVE CHECKPOINT — Offline update identity and metadata validation
 
-Goal: Make outlined Text and compound points browsable by actual unit/contour membership inside the existing paged point panel, preserving stable Canvas/row selection and authored data. Scope and source evidence: desktop/docs/contour-point-navigation.md.
+Goal: Implement the newly authorized bounded offline identity, pure validator and informational UI slice. Actual updater application remains outside scope.
 
-Current phase: Implementation, 64/64 focused model/DOM checks and actual native WebView2 verification complete on owned compound, generated Remap and owned outlined Text routes. Sole feature writer; no replacement scope or second writer.
+Current phase: Single implementation writer on isolated branch codex/offline-update-identity-20261023, based on current main 282b325dd01608fbd5366c026ced13f8ba78605c. Initial 1,332 blobs matched the supported GitHub tree and initial Git status was clean. No equivalent active implementation or PR was found in supported ownership logs.
 
-Proven: Verified PR40 final feature head 77603a353da69c64cc119ee3e2c92089678d5ed6; branch codex/contour-point-navigation. No equivalent contour filter existed in the base point panel. Added view-only Unit/Contour selectors and stable-ID active-point following. Dedicated DOM cases cover 1,237-point bounded paging, hole/closure/group identity, selection/history neutrality, separate unit movement and point edits, outlined Text and generated Remap batch independence. Color artifact was copied and hash-verified into ../color-artifact-5c4cd2a; handoff ../color-artifact-handoff.md. No Color suites rerun.
+Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
 
-Next task: Draft PR41 https://github.com/46slv/Nect/pull/41 is open against codex/color-value-expressions at 77603a3. Product/source e59b2f61a661d021af479e47af42173f726428cf is pushed. Verify the final documentation checkpoint remote HEAD, then return the PR/SHA. Additional trusted user authorization resolved the prior publication denial. The next feature will be separately scoped; common delta controls for selected owned points remain an unmet OUTLINE-EDIT-UI capability. No completed tests are rerun for this publication step.
+Next task: Complete scoped diff/format checks, synchronize the development tree through the supported GitHub connector, create a draft PR and read back its exact head/tree. Report local Cargo and rustfmt limitations separately from any CI result. Native GUI/visual acceptance remains open; no GUI is authorized in this task.
 
-Approach: Filter existing point records by saved unit/contour IDs; retain 24-row pages and source contour traversal order. Units without provenance are not invented for generated Remap. Existing Unit selection/movement and Remap batch controls remain separate. No core/schema/bake/rebind rewrite.
+Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
 
-Done for next: Verified source, tests, exact candidate, remote commit and draft PR recorded with limitations and next unmet OUTLINE-EDIT-UI goal. OS dialogs/physical input remain explicitly outside demonstrated native renderer coverage.
+Done for next: Concrete reviewed diff, exact branch/head/tree, executed check evidence, development PR and explicit native acceptance gaps delivered to parent.
 
-State: Isolated remote-backed checkout C:/Users/shiro/Documents/Codex/2026-10-21/task-13/Nect-pen-baseline. Color PR40 and accepted product remain preserved on their feature branch and immutable local artifact. New candidate builds may reuse this task's native-target only.
+State: Writable isolated checkout under task-21/nect-offline-identity. Cargo application check stopped before compilation because offline rfd is unavailable; rustfmt is not installed. Denied D-drive Git reads and failed shell Git transports were stopped, without escalation. Supported GitHub API reads and blob-verified snapshot supply the source; no existing writer tree was edited.
 
-Authority: Current delegated serial feature contract authorizes main.js/focused tests/docs, isolated native renderer checks, development branch push and draft PR. No protected-main merge, release, force push/history rewrite, auth changes, denied paths or disabled native APIs.
+Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
 
-Handoff: Source and bounded verification complete; publication is resumed and Draft PR41 exists. Return verified remote SHA to parent. Preserve the sealed contour and Color artifacts unchanged; no new feature implementation is assumed.
+Handoff: CONTINUE_CURRENT_TASK through publication/readback, then deliver this bounded slice and its open native acceptance obligations.

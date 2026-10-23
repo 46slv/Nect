@@ -1,6 +1,7 @@
 import { invoke, isTauri, Channel } from '@tauri-apps/api/core';
 export { DocumentLifecycle } from './document-lifecycle.js';
 export const desktop = isTauri();
+export const queryBuildIdentity = () => invoke('query_build_identity').catch(nativeError);
 export const beginRecovery = () => invoke('begin_recovery');
 export const writeRecovery = (copy) => invoke('write_recovery', copy).catch(nativeError);
 export const listRecovery = () => invoke('list_recovery').catch(nativeError);

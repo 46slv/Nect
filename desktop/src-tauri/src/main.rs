@@ -1,5 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
+mod build_identity;
+#[cfg(test)]
+#[path = "../build_identity_config.rs"]
+mod build_identity_config;
+#[cfg(test)]
+#[path = "../build_identity_sources.rs"]
+mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
 mod os_font_outlines;
@@ -143,13 +150,20 @@ fn run() -> Result<(), String> {
         std::env::set_var("WEBVIEW2_USER_DATA_FOLDER", &paths.webview);
     }
     let window_storage = storage.clone();
+    let identity = build_identity::BuildIdentity::compiled(
+        &context.config().identifier,
+        context.config().version.as_deref(),
+        storage.0.is_some(),
+    );
     tauri::Builder::default()
+        .manage(identity)
         .manage(storage)
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
+            build_identity::query_build_identity,
             open_document,
             open_svg_source,
             save_document,

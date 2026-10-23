@@ -2450,3 +2450,21 @@ input[data-scrub-step].scrubbing {
 .recovery-failures select {
   width: 100%;
 }
+/* Read-only build information shares the compact command menu surface. */
+.build-info .command-menu-items {
+  left: auto;
+  right: 0;
+  padding: 8px 12px;
+  min-width: 240px;
+  max-width: min(480px, 80vw);
+}
+.build-info p {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 16px;
+}
+.build-info pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
