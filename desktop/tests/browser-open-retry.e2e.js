@@ -95,11 +95,15 @@ try {
       if (scenario.endsWith('-cancel')) {
         const cancelled = await choose();
         assert.equal(await page.locator(`#${inputId}`).inputValue(), '');
-        // Chromium empty selection on an already re-armed input emits cancel.
-        // This is browser automation, not physical OS-dialog acceptance.
-        await cancelled.setFiles([]);
+        // FileChooser.setFiles([]) clears files; it does not dismiss a picker.
+        // Model the browser's cancel event on this exact intercepted input.
+        // The later disk-file selection is real; OS-dialog cancellation is not measured.
+        await cancelled.element().dispatchEvent('cancel');
         await page.waitForFunction(() => window.retryEvents.includes('cancel'));
+        assert.deepEqual(await page.evaluate(() => window.retryEvents), ['change', 'cancel']);
+        assert.equal(await cancelled.element().evaluate((input) => input.files.length), 0);
         assert.deepEqual(await state(), baseline, 'chooser cancellation preserves the document');
+        console.log('INFO json-dimensions-cancel: synthetic input cancel; no OS-dialog acceptance');
       }
       const retry = await choose();
       assert.equal(await page.locator(`#${inputId}`).inputValue(), '');
