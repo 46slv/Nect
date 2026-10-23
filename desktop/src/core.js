@@ -88,6 +88,7 @@ import { mirrorGeometry } from './mirror-geometry.js';
 import {
   repeatGeometry,
   repeaterSettings,
+  assertRepeaterControls,
   REPEATER_KEYS,
   REPEATER_SCHEMA_VERSION,
   REPEATER_ALTERNATE_SCHEMA_VERSION,
@@ -8507,11 +8508,10 @@ export class CommandSession {
         candidate,
       );
       for (const repeater of repeaters) {
-        try {
-          repeaterSettings((key) => evaluation.parameterValue(repeater.id, key));
-        } catch (error) {
-          if (!isMissingReferenceTarget(error)) throw error;
-        }
+        assertRepeaterControls(
+          (key) => evaluation.parameterValue(repeater.id, key),
+          isMissingReferenceTarget,
+        );
       }
     }
     if (deferVariable) return { candidate, result, committingDraft };

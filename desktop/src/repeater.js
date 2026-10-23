@@ -42,57 +42,91 @@ export const REPEATER_KEYS = [
   'copiesAbove',
 ];
 
-export function repeaterSettings(read) {
-  const settings = Object.fromEntries(['count', ...REPEATER_KEYS].map((key) => [key, read(key)]));
-  if (settings.alternateScale === undefined) settings.alternateScale = 100;
-  if (settings.alternateFill === undefined) settings.alternateFill = false;
-  if (settings.alternateColor === undefined) settings.alternateColor = REPEATER_FILL_DEFAULT;
-  if (typeof settings.alternateFill !== 'boolean')
+function validateRepeaterSettings(settings, unresolved = new Set()) {
+  const available = (key) => !unresolved.has(key);
+  if (available('alternateScale') && settings.alternateScale === undefined)
+    settings.alternateScale = 100;
+  if (available('alternateFill') && settings.alternateFill === undefined)
+    settings.alternateFill = false;
+  if (available('alternateColor') && settings.alternateColor === undefined)
+    settings.alternateColor = REPEATER_FILL_DEFAULT;
+  if (available('alternateFill') && typeof settings.alternateFill !== 'boolean')
     throw Error('2D Repeater Alternate Fill must be Boolean');
-  settings.alternateColor = publicColor(settings.alternateColor);
-  if (settings.alternateStroke === undefined) settings.alternateStroke = false;
-  if (settings.alternateStrokeColor === undefined)
+  if (available('alternateColor')) settings.alternateColor = publicColor(settings.alternateColor);
+  if (available('alternateStroke') && settings.alternateStroke === undefined)
+    settings.alternateStroke = false;
+  if (available('alternateStrokeColor') && settings.alternateStrokeColor === undefined)
     settings.alternateStrokeColor = REPEATER_STROKE_DEFAULT;
-  if (typeof settings.alternateStroke !== 'boolean')
+  if (available('alternateStroke') && typeof settings.alternateStroke !== 'boolean')
     throw Error('2D Repeater Alternate Stroke must be Boolean');
-  settings.alternateStrokeColor = publicColor(settings.alternateStrokeColor);
-  const {
-    count,
-    offset,
-    anchor,
-    position,
-    scale,
-    alternateScale,
-    rotation,
-    startOpacity,
-    endOpacity,
-    copiesAbove,
-  } = settings;
-  if (!Number.isFinite(count) || count < 0 || count > 256)
+  if (available('alternateStrokeColor'))
+    settings.alternateStrokeColor = publicColor(settings.alternateStrokeColor);
+  const { count, offset, scale, alternateScale, rotation, copiesAbove } = settings;
+  if (available('count') && (!Number.isFinite(count) || count < 0 || count > 256))
     throw Error('2D Repeater Copies must be a finite number from 0 to 256');
-  if (!Number.isFinite(offset) || Math.abs(offset) > 256)
+  if (available('offset') && (!Number.isFinite(offset) || Math.abs(offset) > 256))
     throw Error('2D Repeater Offset must be a finite number from -256 to 256');
   if (
-    ![anchor, position, scale].every(
-      (v) => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite),
-    ) ||
-    !Number.isFinite(rotation)
+    !['anchor', 'position', 'scale']
+      .filter(available)
+      .every(
+        (key) =>
+          Array.isArray(settings[key]) &&
+          settings[key].length === 2 &&
+          settings[key].every(Number.isFinite),
+      ) ||
+    (available('rotation') && !Number.isFinite(rotation))
   )
     throw Error('2D Repeater requires finite Anchor, Position, Scale and Rotation');
-  if (scale.some((v) => Math.abs(v) > 1000))
+  if (available('scale') && scale.some((v) => Math.abs(v) > 1000))
     throw Error('2D Repeater Scale must be from -1000 to 1000 percent');
-  if (!Number.isFinite(alternateScale) || alternateScale < 0.01 || alternateScale > 1000)
+  if (
+    available('alternateScale') &&
+    (!Number.isFinite(alternateScale) || alternateScale < 0.01 || alternateScale > 1000)
+  )
     throw Error('2D Repeater Alternate Scale must be from 0.01 to 1000 percent');
-  if (!Number.isInteger(offset) && scale.some((v) => v < 0))
+  if (
+    available('offset') &&
+    available('scale') &&
+    !Number.isInteger(offset) &&
+    scale.some((v) => v < 0)
+  )
     throw Error(
       '2D Repeater fractional Offset requires nonnegative Scale; use an integer Offset with negative Scale',
     );
-  if (offset < 0 && scale.some((v) => v === 0))
+  if (available('offset') && available('scale') && offset < 0 && scale.some((v) => v === 0))
     throw Error('2D Repeater negative Offset requires nonzero Scale on both axes');
-  if (![startOpacity, endOpacity].every((v) => Number.isFinite(v) && v >= 0 && v <= 100))
+  if (
+    !['startOpacity', 'endOpacity']
+      .filter(available)
+      .every((key) => Number.isFinite(settings[key]) && settings[key] >= 0 && settings[key] <= 100)
+  )
     throw Error('2D Repeater Start/End Opacity must be from 0 to 100 percent');
-  if (typeof copiesAbove !== 'boolean') throw Error('2D Repeater Copies Above must be Boolean');
+  if (available('copiesAbove') && typeof copiesAbove !== 'boolean')
+    throw Error('2D Repeater Copies Above must be Boolean');
   return settings;
+}
+
+export function repeaterSettings(read) {
+  return validateRepeaterSettings(
+    Object.fromEntries(['count', ...REPEATER_KEYS].map((key) => [key, read(key)])),
+  );
+}
+
+// Admission checks every independently resolved control. Unresolved controls are
+// omitted, never replaced; normal evaluation above still requires all controls.
+export function assertRepeaterControls(read, isUnresolved = () => false) {
+  const settings = {},
+    unresolved = new Set();
+  for (const key of ['count', ...REPEATER_KEYS]) {
+    try {
+      settings[key] = read(key);
+    } catch (error) {
+      if (!isUnresolved(error)) throw error;
+      unresolved.add(key);
+    }
+  }
+  validateRepeaterSettings(settings, unresolved);
 }
 
 const identity = () => [1, 0, 0, 1, 0, 0];
