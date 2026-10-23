@@ -10,7 +10,9 @@ pub fn strict_version(value: &str) -> bool {
             return false;
         }
     }
-    let (core, pre) = main.split_once('-').map_or((main, None), |(a, b)| (a, Some(b)));
+    let (core, pre) = main
+        .split_once('-')
+        .map_or((main, None), |(a, b)| (a, Some(b)));
     let parts: Vec<_> = core.split('.').collect();
     parts.len() == 3
         && parts.iter().all(|part| numeric(part))

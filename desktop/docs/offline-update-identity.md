@@ -41,7 +41,17 @@ The local `D:\Documents\Nect` Git status/worktree reads were denied with Permiss
 
 ## Remaining acceptance and scope
 
-### CI checkpoint and preserved follow-up
+### Resumed diagnostic repair
+
+The same implementation owner resumed. Supported terminal logs for old run39965103927/job120452801263 became available after normal synchronization. The run's terminal conclusion is cancelled, preserving its already completed results: Windows compilation passed; native Rust 44 passed / 0 failed; frontend 2,345 passed / 2 failed / 4 skipped of2,351. The two unit failures were exact menu-list expectations in `graph-pan-joystick-app-dom.test.js:232` and `pen-menu-keyboard-dom.test.js:74`: they expected Project/Import/Export and observed the added Build menu. Their expected lists now include Build; editing, Pen ownership/default-key behavior, History and document neutrality assertions remain intact.
+
+The exact rustfmt diagnostic requested four formatting changes in the new Rust helpers. The previously preserved follow-up already contained the two overlong assignment wraps. The remaining two method chains now match the CI diff exactly. No toolchain was installed and no setting was changed. Local validation reran the affected Graph case and the two pure Rust version tests; the Pen menu case and all nine contained scenarios passed in the focused repair run, along with the18 new focused tests. No lifecycle product code, timeout or assertion strength changed.
+
+The browser log also retained a `blank-artwork.e2e.js` failure through unchanged `project-file-atomicity.js:115`: expected `Invalid node`, received `Invalid Composition width`. That browser helper waits on a rejection prefix reused by successive cases, so stale diagnostic observation is a source-level possibility, not a verified product diagnosis. The helper and lifecycle source are unchanged from base; this unrelated browser acceptance gap is preserved rather than folded into the offline identity implementation. Remaining browser results from the cancelled run are not claimed.
+
+Normal follow-up publication118c77daab9a202e7b0adb6ce093f97fe9add530/tree1c5a3427b8cfe4e7282633826c079327050edecb was read back from the actual branch ref. A further bounded commit contains these exact formatting and menu-expectation repairs; its new exact-head CI must be reported separately. Production provider remains null; native UI is NOT_RUN.
+
+### Initial checkpoint
 
 Draft PR [82](https://github.com/46slv/Nect/pull/82) published head `c8f0e11cd1a6fe4b3955a65f53661d83065658ce`, tree `445756c68d5b2b94e951a5b97c4233bc367c39f8`. Existing Windows CI [39965103927](https://github.com/46slv/Nect/actions/runs/39965103927), job `120452801263`, has passed Windows application compilation and native Rust tests at that exact published head. Its Rust-formatting step failed. At the 2026-10-23 14:08 UTC checkpoint the full frontend unit/DOM stage was still running; the job and overall CI are not green or terminal. Log retrieval returned 404 BlobNotFound while the job was running, so no formatting diagnostic or exact Rust test count is invented here.
 

@@ -50,7 +50,10 @@ pub fn checked_config(root: &Path, cargo: &str) -> Value {
         cargo,
         npm.get("version").and_then(Value::as_str).unwrap_or(""),
         base.get("version").and_then(Value::as_str).unwrap_or(""),
-        effective.get("version").and_then(Value::as_str).unwrap_or(""),
+        effective
+            .get("version")
+            .and_then(Value::as_str)
+            .unwrap_or(""),
     ])
     .expect("Inconsistent build versions");
     effective

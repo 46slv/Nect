@@ -18,18 +18,18 @@ Coarse route: document lifetime → common command Session migration → represe
 
 Goal: Implement the newly authorized bounded offline identity, pure validator and informational UI slice. Actual updater application remains outside scope.
 
-Current phase: Single implementation writer on isolated branch codex/offline-update-identity-20261023, based on current main 282b325dd01608fbd5366c026ced13f8ba78605c. Initial 1,332 blobs matched the supported GitHub tree and initial Git status was clean. No equivalent active implementation or PR was found in supported ownership logs.
+Current phase: Resumed same single implementation writer. Published the preserved provider/notes work bounds normally at remote118c77d, matching local7145d48 tree1c5a3427. Recovered terminal old-run diagnostics and applied its remaining exact Rust formatting changes plus two Build-menu expectation repairs.
 
 Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
 
-Next task: Draft PR82 is published at c8f0e11cd1a6fe4b3955a65f53661d83065658ce, tree 445756c68d5b2b94e951a5b97c4233bc367c39f8. Its native compilation and Rust test stages passed; formatting failed and the full frontend stage is still running. Read completed job120452801263 logs, reconcile exact formatting, then fast-forward the same branch with the preserved local provider/notes and formatting follow-up. Do not interrupt the progressing CI or create another writer. Local full Cargo and rustfmt remain unavailable; native GUI/visual acceptance remains open.
+Next task: Publish the bounded exact-CI formatting/menu-test repair on the same PR82 branch with expected remote118c77daab9a202e7b0adb6ce093f97fe9add530, verify the new remote tree and CI formatting/test results, then return the accepted source tree and explicit remaining gaps. Do not hold a completed follow-up merely to preserve an older CI.
 
 Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
 
 Done for next: Concrete reviewed diff, exact branch/head/tree, executed check evidence, development PR and explicit native acceptance gaps delivered to parent.
 
-State: Writable isolated checkout under task-21/nect-offline-identity. Cargo application check stopped before compilation because offline rfd is unavailable; rustfmt is not installed. Denied D-drive Git reads and failed shell Git transports were stopped, without escalation. Supported GitHub API reads and blob-verified snapshot supply the source; no existing writer tree was edited.
+State: Writable isolated task-21 checkout, same branch and single writer. Terminal old CI preserved: native compilation passed, Rust44/44, frontend2345 pass/2 menu-expectation failures/4 skip. Exact formatter diff is recovered and applied. An unchanged browser atomicity helper produced a separate diagnostic mismatch; no lifecycle product code was changed. Local Cargo cache/rustfmt limitations remain recorded.
 
 Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
 
-Handoff: CHECKPOINT_READY. Return the published PR, exact local/remote source and preserved follow-up to parent. Fast-forward publication is pending the completed existing CI diagnostic; do not wait indefinitely or cancel the progressing command. Continue only this same bounded offline slice.
+Handoff: CONTINUE_CURRENT_TASK through normal publication and new exact-head CI readback, then return this bounded slice. Native UI NOT_RUN. No updater application, production provider, lifecycle or session scope expansion.
