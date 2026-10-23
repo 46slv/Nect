@@ -12,8 +12,9 @@ const keys = (value, required, optional = []) =>
 const supportedList = (value, supported) =>
   Array.isArray(value) &&
   value.length > 0 &&
+  value.length <= supported.length &&
   new Set(value).size === value.length &&
-  value.every((item) => supported.includes(item));
+  Array.from(value).every((item) => supported.includes(item));
 const result = (reason, state = 'unavailable') => ({ state, reason });
 
 export function assessIdentity(identity) {
@@ -82,6 +83,7 @@ function validRequest(request, provider, identity) {
 function literal(value, limit) {
   return (
     typeof value === 'string' &&
+    value.length <= limit &&
     !/[\p{Cc}\p{Cs}]/u.test(value.replace(/[\t\r\n]/g, '')) &&
     new TextEncoder().encode(value).length <= limit
   );

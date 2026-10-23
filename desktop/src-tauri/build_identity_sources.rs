@@ -62,7 +62,8 @@ mod tests {
     use serde_json::json;
     #[test]
     fn overlays_merge_recursively_and_null_removes_values() {
-        let mut config = json!({"version":"0.1.0", "build":{"frontendDist":"../dist", "other":true}});
+        let mut config =
+            json!({"version":"0.1.0", "build":{"frontendDist":"../dist", "other":true}});
         merge(
             &mut config,
             json!({"build":{"frontendDist":"../dist-recovery-acceptance-test"}}),

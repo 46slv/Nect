@@ -22,7 +22,7 @@ Current phase: Single implementation writer on isolated branch codex/offline-upd
 
 Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
 
-Next task: Complete scoped diff/format checks, synchronize the development tree through the supported GitHub connector, create a draft PR and read back its exact head/tree. Report local Cargo and rustfmt limitations separately from any CI result. Native GUI/visual acceptance remains open; no GUI is authorized in this task.
+Next task: Draft PR82 is published at c8f0e11cd1a6fe4b3955a65f53661d83065658ce, tree 445756c68d5b2b94e951a5b97c4233bc367c39f8. Its native compilation and Rust test stages passed; formatting failed and the full frontend stage is still running. Read completed job120452801263 logs, reconcile exact formatting, then fast-forward the same branch with the preserved local provider/notes and formatting follow-up. Do not interrupt the progressing CI or create another writer. Local full Cargo and rustfmt remain unavailable; native GUI/visual acceptance remains open.
 
 Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
 
@@ -32,4 +32,4 @@ State: Writable isolated checkout under task-21/nect-offline-identity. Cargo app
 
 Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
 
-Handoff: CONTINUE_CURRENT_TASK through publication/readback, then deliver this bounded slice and its open native acceptance obligations.
+Handoff: CHECKPOINT_READY. Return the published PR, exact local/remote source and preserved follow-up to parent. Fast-forward publication is pending the completed existing CI diagnostic; do not wait indefinitely or cancel the progressing command. Continue only this same bounded offline slice.

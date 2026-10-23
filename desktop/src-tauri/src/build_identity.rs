@@ -81,7 +81,8 @@ mod tests {
     }
     #[test]
     fn isolation_is_independent_of_build_flavor_and_provenance_stays_unknown() {
-        let identity = BuildIdentity::compiled("com.nect.svg", Some(env!("CARGO_PKG_VERSION")), true);
+        let identity =
+            BuildIdentity::compiled("com.nect.svg", Some(env!("CARGO_PKG_VERSION")), true);
         assert_eq!(identity.integrity, "verified");
         assert_eq!(identity.runtime_isolation, "acceptance-isolated");
         assert_eq!(identity.channel, None);

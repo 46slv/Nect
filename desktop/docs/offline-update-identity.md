@@ -41,6 +41,12 @@ The local `D:\Documents\Nect` Git status/worktree reads were denied with Permiss
 
 ## Remaining acceptance and scope
 
+### CI checkpoint and preserved follow-up
+
+Draft PR [82](https://github.com/46slv/Nect/pull/82) published head `c8f0e11cd1a6fe4b3955a65f53661d83065658ce`, tree `445756c68d5b2b94e951a5b97c4233bc367c39f8`. Existing Windows CI [39965103927](https://github.com/46slv/Nect/actions/runs/39965103927), job `120452801263`, has passed Windows application compilation and native Rust tests at that exact published head. Its Rust-formatting step failed. At the 2026-10-23 14:08 UTC checkpoint the full frontend unit/DOM stage was still running; the job and overall CI are not green or terminal. Log retrieval returned 404 BlobNotFound while the job was running, so no formatting diagnostic or exact Rust test count is invented here.
+
+A local follow-up rejects sparse/oversized provider arrays before audience assessment, bounds string work before UTF-8 encoding, and wraps two overlong Rust lines. The 18 focused tests passed after the sparse-array change, and all 11 validator tests passed after the final string-work bound. This follow-up is preserved in a separate development commit. Its remote fast-forward is pending because the existing workflow concurrency would cancel the genuinely progressing run. The requested checkpoint returns this exact pending action instead of waiting indefinitely. No rerun or second writer was started. Read the completed job log, reconcile the precise formatting difference, then fast-forward the same PR branch and assess the new exact head separately.
+
 Full Tauri compilation, the new serde/Tauri native identity tests, native JSON merge tests, and existing full native storage tests remain unexecuted locally because Cargo dependencies are unavailable. Rustfmt remains unverified locally. Existing CI may establish these separately; its result must be reported against its exact head.
 
 No GUI, Resolve, Nect native instance, native OS dialog or browser UI was opened. No native UI or visual acceptance, physical input, production session, OS save/open, restart, updater installation or full-suite acceptance is claimed.

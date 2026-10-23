@@ -223,6 +223,8 @@ test('provider schema, supported unique arrays and request audience are closed',
     { ...provider, targets: ['unknown'] },
     { ...provider, targets: [identity.target, identity.target] },
     { ...provider, targets: [] },
+    { ...provider, targets: Array(1) },
+    { ...provider, channels: Array(1) },
     { ...provider, url: 'https://invalid' },
   ])
     reason(fixture({ provider: bad }), 'PROVIDER_INVALID');
