@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { preview } from 'vite';
 import { chromium } from 'playwright-core';
 import { document, node, connect } from '../src/core.js';
+import { activateCommand } from './command-menu-actions.js';
 
 const config = JSON.parse(await fs.readFile('src-tauri/tauri.conf.json', 'utf8'));
 const server = await preview({
@@ -109,14 +110,16 @@ try {
   assert.ok(await page.locator('.inspector-body .repeater-limits').isVisible());
   const download = async (action, extension) => {
     const event = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     const file = `${root}/copies-above.${extension}`;
     await (await event).saveAs(file);
     return fs.readFile(file);
   };
+  const savedProject = await page.evaluate(() => window.nect.projectSnapshot());
   const json = await download('save', 'json'),
     svg = await download('export', 'svg'),
     png = await download('export-png', 'png');
+  assert.deepEqual(JSON.parse(json.toString('utf8')), savedProject);
   const saved = await page.evaluate(() => JSON.stringify(window.nect.document));
   const pixels = async (bytes, mime) =>
     page.evaluate(
@@ -162,13 +165,18 @@ try {
   const behindPixels = await pixels(behind, 'image/svg+xml');
   assert.notEqual(behindPixels.digest, svgPixels.digest);
   await fs.writeFile(`${root}/copies-below.svg`, behind);
-  await page
-    .locator('#open-file')
-    .setInputFiles({ name: 'repeater.json', mimeType: 'application/json', buffer: json });
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), true);
+  const opening = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  await page.locator('dialog[open] button[value="discard"]').click();
+  await (
+    await opening
+  ).setFiles({ name: 'repeater.json', mimeType: 'application/json', buffer: json });
   await page.waitForFunction(
     (expected) => JSON.stringify(window.nect.document) === expected,
     saved,
   );
+  assert.deepEqual(await page.evaluate(() => window.nect.projectSnapshot()), savedProject);
   assert.deepEqual(
     await pixels(Buffer.from(await page.evaluate(() => window.nect.export())), 'image/svg+xml'),
     svgPixels,
