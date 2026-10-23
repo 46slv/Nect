@@ -47,6 +47,12 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing
       # Report each validation failure without suppressing the native build.
+      - name: Run offline native artifact verifier tests
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          ./tests/verify-native-artifact.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check acceptance Rust formatting
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
