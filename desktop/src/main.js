@@ -6551,6 +6551,13 @@ function replaceDocument(
   next,
   { binding = null, saved = false, prepared = false, activeCompositionId = null } = {},
 ) {
+  const project = asCompositionProject(next);
+  activeCompositionId ??= project.compositions[0].id;
+  // Validate every Composition before retiring the current document's view state.
+  const replacement = createCompositionSessionOwner(project, {
+    ...sessionOptions,
+    activeCompositionId,
+  });
   sourceEpoch++;
   sourcePicker = null;
   sourceReturn = null;
@@ -6564,9 +6571,7 @@ function replaceDocument(
   detailsState.clear();
   contextMenuScroll.clear();
   viewerState = createViewerState();
-  const project = asCompositionProject(next);
-  activeCompositionId ??= project.compositions[0].id;
-  session = createCompositionSessionOwner(project, { ...sessionOptions, activeCompositionId });
+  session = replacement;
   history = session.historyView;
   documents.replace({ binding, saved });
   zoom = 1;
