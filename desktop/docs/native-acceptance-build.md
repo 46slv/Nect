@@ -5,12 +5,51 @@ acceptance. CI never launches the application or installer for these storage tes
 
 ## Build provenance
 
-The Windows workflow already builds `src-tauri/target/release/nect-svg-desktop.exe`. It now uploads that
-standalone executable alongside the unsigned NSIS installer, the exact generated Cargo.lock,
-`test-results/native-isolation-rust.log` and `test-results/native-acceptance-build.json`. The JSON records
-the exact commit/run and each binary's size and SHA-256. Verify the downloaded archive's GitHub digest
-and the two extracted binary hashes before use. A rebuilt executable has a new hash; the previous
-development artifact's digest does not authenticate it. No installer execution or extraction is needed.
+The Windows workflow builds with `--no-bundle` and uploads one standalone executable, Cargo.lock,
+logs and `test-results/native-acceptance-build.json` in the existing verification artifact. The receipt
+records the actual checkout commit/tree, run ID/attempt and executable size/SHA-256. For pull requests,
+the checkout can be a synthetic merge commit: verify its actual tree separately from the PR head tree.
+
+Use `scripts/verify-native-artifact.ps1` with PowerShell 7 on Windows before any separately authorized
+native run. Supply every expected value independently from the trusted **successful** run and artifact
+API, including the ZIP digest/size. Values copied only from inside the ZIP cannot authenticate it.
+The SHA-256 argument is 64 lowercase hexadecimal characters without the API's `sha256:` prefix.
+From `desktop/`:
+
+```powershell
+pwsh -NoProfile -NonInteractive -File scripts/verify-native-artifact.ps1 `
+  -ArchivePath $localZip -ExpectedArchiveSHA256 $apiArchiveSha256 `
+  -ExpectedArchiveBytes $apiArchiveBytes -ExpectedCheckoutCommit $actualCheckoutCommit `
+  -ExpectedCheckoutTree $actualCheckoutTree -ExpectedRunId $runId -ExpectedRunAttempt $runAttempt
+```
+
+The workflow's common upload root is `desktop/`, so the exact ZIP entries are
+`test-results/native-acceptance-build.json` and `src-tauri/target/release/nect-svg-desktop.exe`, without
+a `desktop/` prefix. The verifier checks the whole archive, strict receipt fields and EXE stream
+length/hash. It rejects duplicate/missing entries, unsafe paths, malformed JSON and oversized input
+(512 MiB archive, 128 MiB per entry, 64 KiB receipt, 4096 entries). Before constructing `ZipArchive`,
+it inspects the same open stream's EOCD and central directory, caps directory bytes at 4 MiB, counts
+actual records and checks offset/length ranges. ZIP64, multi-disk and inconsistent directory records
+are unsupported and rejected. Ordinary single-disk ZIP32 CI archives remain supported.
+
+Run only in a trusted local working directory where other processes do not replace the archive or
+its ancestors between checking and opening it. Fixed/RAM drive, UNC, reparse-point and offline-file
+checks are best-effort preflight. They do not prevent a filesystem race from redirecting OS path
+resolution to a network location. No race-proof network isolation is provided. The output's
+`pathSafety: BEST_EFFORT_REQUIRES_STABLE_TRUSTED_LOCAL_ANCESTORS` records this prerequisite.
+
+The verifier reads streams only, without extraction, EXE writes/execution or download, and does not
+call communication APIs itself; this differs from the OS path-resolution race above. Its small JSON
+result and exit code (0 matched, 1 rejected) always report native UI `NOT_RUN` and signature
+verification `NOT_PERFORMED`. A match is neither signature verification nor native acceptance. The
+existing launch script does not check CI receipts; a later authorized launch must also bind the
+extracted EXE's size/hash to the verified stream measurements. A rebuild needs new provenance.
+
+Focused tests use synthetic non-executable payloads and standard PowerShell/.NET only:
+
+```powershell
+pwsh -NoProfile -NonInteractive -File tests/verify-native-artifact.test.ps1
+```
 
 ## Process-local contract
 
