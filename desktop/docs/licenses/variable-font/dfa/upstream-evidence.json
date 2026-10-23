@@ -1,0 +1,47 @@
+{
+  "name": "dfa",
+  "version": "1.2.0",
+  "gitHead": "3f5e603e5082caedabefefdf53e8a6ca3111e966",
+  "metadataUrl": "https://registry.npmjs.org/dfa/1.2.0",
+  "sourceArchiveUrl": "https://codeload.github.com/devongovett/dfa/tar.gz/3f5e603e5082caedabefefdf53e8a6ca3111e966",
+  "archiveSha256": "067e69434e7205c6d8489cd6260b103d085bdcb415528abe01c66151e663e503",
+  "sourceFileCount": 15,
+  "allSourceFiles": [
+    ".babelrc",
+    ".gitignore",
+    "Makefile",
+    "README.md",
+    "package.json",
+    "rollup.config.js",
+    "src/StateMachine.js",
+    "src/SymbolTable.js",
+    "src/compile.js",
+    "src/dfa.js",
+    "src/grammar.peg",
+    "src/nodes.js",
+    "src/utils.js",
+    "src/visualize.js",
+    "test/test.js"
+  ],
+  "noticeFilenameMatches": [],
+  "licenseDeclaration": "MIT",
+  "status": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
+  "retainedSourceFiles": {
+    "README.md": "30bd445925aa53205ff7f9afa6a43e21358fab656e471df6e028431aefc426c7",
+    "package.json": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+  },
+  "npmDist": {
+    "shasum": "96ac3204e2d29c49ea5b57af8d92c2ae12790657",
+    "tarball": "https://registry.npmjs.org/dfa/-/dfa-1.2.0.tgz",
+    "fileCount": 6,
+    "integrity": "sha512-ED3jP8saaweFTjeGX8HQPjeC1YYyZs98jGNZx6IiBvxW7JG5v492kamAQB3m2wop07CvU/RQmzcKr6bgcC5D/Q==",
+    "signatures": [
+      {
+        "sig": "MEUCIQDiUCBfhWBk0/nH846qibtXSviV3c4q7zYwpbyatOezgAIgCel943di30Oy/W4ciR/g2DL/1e8rHzHdOqSZUV0WWMo=",
+        "keyid": "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA"
+      }
+    ],
+    "unpackedSize": 137726,
+    "npm-signature": "-----BEGIN PGP SIGNATURE-----\r\nVersion: OpenPGP.js v3.0.4\r\nComment: https://openpgpjs.org\r\n\r\nwsFcBAEBCAAQBQJdBvHHCRA9TVsSAnZWagAA3TsP+gJxBBaJpBEkzPko4v2r\nCymaJHmr1xAUePGaaSotnXgjzR4H6SRlob1vxk8gRwccs68XiU71wChXqixG\n2DCQ/cKtOxJmjL1GHbDdpwui2pvQKv2gmeL3O4XZBeKybHQGyUzAlAQuP6Oz\nCZEb2CLBBz81Cea7NIS9JaOgK1mbjd3P462htFLoaCr0AAS+3OXAhDJKEcXD\nnLZ4wgxrWhpV0MNLU4sCcA6gH4KAP5LKOiPnJbRxZmmroXIVqpCzf6KIUYFU\nlttYMLfhICDbMRq09d2Yoi4ARtXQgKMVnsICcR6p0LXPzZiwSnGywntv/uwl\nQttGwjtobjIv4rmFHfk3mF+DgJEHPu1CaaA762hnnLoea18lw68rTvLqdR+U\n3gQrommxFfn8ABpxwjRRf3Bqp7xuVB5W3yNJn/lvVQ1GbwFtEF0CWRkT4SKA\ne74et90vCqTCUcTGLxU6CYL72YE1glnpkErEqnE1f172bYyoOgNxCa+khUAU\nF3xXkmunRNx9GECOTsQrCo8sykvVgr+hVjDmu368Ykd9pCvV41JPmdMdQAlr\n0uJ5Ja0unlBCuQmxUy+J+CtSp/drl9K9IvydX+hq33jJ6TL1t4smLsWnKT47\nXJnd4y+fiF1rKew3czTvfWCbFRCDDHIvmjIqyzHEbZhV87o69dsBw+5ZN4mR\nKNKQ\r\n=ktlT\r\n-----END PGP SIGNATURE-----\r\n"
+  }
+}

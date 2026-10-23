@@ -1,0 +1,920 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nect:native:0.4",
+  "title": "Nect native document 0.4 \u2014 retained linear and radial gradients",
+  "$comment": "Shape constraints only. Core validation additionally checks document-wide IDs, ownership, references, binding units/cycles, evaluated ranges and parser limits.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "nect-native"
+    },
+    "version": {
+      "const": "0.4"
+    },
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "units": {
+      "const": "du96"
+    },
+    "color_space": {
+      "const": "srgb"
+    },
+    "compositions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/composition"
+      },
+      "maxItems": 128
+    },
+    "objects": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/group"
+          },
+          {
+            "$ref": "#/$defs/path"
+          }
+        ]
+      },
+      "maxItems": 10000
+    },
+    "collections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/collection"
+      }
+    }
+  },
+  "required": [
+    "format",
+    "version",
+    "id",
+    "units",
+    "color_space",
+    "compositions",
+    "objects",
+    "collections"
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "object": {
+          "$ref": "#/$defs/id"
+        },
+        "point": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "const": ""
+            }
+          ]
+        },
+        "field": {
+          "anyOf": [
+            {
+              "enum": [
+                "transform.a",
+                "transform.b",
+                "transform.c",
+                "transform.d",
+                "transform.tx",
+                "transform.ty",
+                "stroke.r",
+                "stroke.g",
+                "stroke.b",
+                "stroke.a",
+                "stroke.width",
+                "x",
+                "y",
+                "in.angle",
+                "in.length",
+                "out.angle",
+                "out.length",
+                "generator.center_x",
+                "generator.center_y",
+                "generator.radius",
+                "generator.width",
+                "generator.height"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^op\\.[A-Za-z0-9_-]+\\.(r|g|b|a|width|copies|position_x|position_y|anchor_x|anchor_y|rotation|scale_x|scale_y|offset|start_opacity|end_opacity)$"
+            },
+            {
+              "type": "string",
+              "pattern": "^op\\.[A-Za-z0-9_-]+\\.gradient\\.[A-Za-z0-9_-]+\\.(start_x|start_y|end_x|end_y|stop\\.[A-Za-z0-9_-]+\\.(offset|r|g|b|a))$"
+            }
+          ]
+        }
+      },
+      "required": [
+        "object",
+        "point",
+        "field"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/ref"
+        },
+        "scale": {
+          "type": "number"
+        },
+        "offset": {
+          "type": "number"
+        },
+        "mode": {
+          "const": "copy_local_value"
+        }
+      },
+      "required": [
+        "source",
+        "scale",
+        "offset",
+        "mode"
+      ]
+    },
+    "scalar": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "literal": {
+          "type": "number",
+          "minimum": -1000000000.0,
+          "maximum": 1000000000.0
+        },
+        "binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/binding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "literal"
+      ]
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "x": {
+          "$ref": "#/$defs/scalar"
+        },
+        "y": {
+          "$ref": "#/$defs/scalar"
+        },
+        "in_angle": {
+          "$ref": "#/$defs/scalar"
+        },
+        "in_length": {
+          "$ref": "#/$defs/scalar"
+        },
+        "out_angle": {
+          "$ref": "#/$defs/scalar"
+        },
+        "out_length": {
+          "$ref": "#/$defs/scalar"
+        }
+      },
+      "required": [
+        "id",
+        "x",
+        "y",
+        "in_angle",
+        "in_length",
+        "out_angle",
+        "out_length"
+      ]
+    },
+    "contour": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "closed": {
+          "type": "boolean"
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          },
+          "minItems": 1,
+          "maxItems": 50000
+        }
+      },
+      "required": [
+        "id",
+        "closed",
+        "points"
+      ]
+    },
+    "artboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "width": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10000000.0
+        },
+        "height": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 10000000.0
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "x",
+        "y",
+        "width",
+        "height"
+      ]
+    },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "artboards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artboard"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "roots",
+        "artboards"
+      ]
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "members"
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "transform": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scalar"
+          },
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "kind": {
+          "const": "group"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "transform",
+        "kind",
+        "children"
+      ]
+    },
+    "path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "transform": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scalar"
+          },
+          "minItems": 6,
+          "maxItems": 6
+        },
+        "kind": {
+          "const": "path"
+        },
+        "contours": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contour"
+          }
+        },
+        "source": {
+          "$ref": "#/$defs/primitive"
+        },
+        "point_edit": {
+          "$ref": "#/$defs/point_edit"
+        },
+        "stack": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/operation"
+          }
+        },
+        "legacy_stroke": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "const": ""
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "transform",
+        "kind",
+        "stack",
+        "legacy_stroke"
+      ],
+      "oneOf": [
+        {
+          "required": [
+            "contours"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "source"
+                ]
+              },
+              {
+                "required": [
+                  "point_edit"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "source"
+          ],
+          "not": {
+            "required": [
+              "contours"
+            ]
+          }
+        }
+      ]
+    },
+    "primitive": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "type": {
+              "const": "nect.shape.circle"
+            },
+            "version": {
+              "const": 1
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "center_x": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "center_y": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "radius": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "center_x",
+                "center_y",
+                "radius"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "parameters"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "type": {
+              "const": "nect.shape.rectangle"
+            },
+            "version": {
+              "const": 1
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "center_x": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "center_y": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "width": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "height": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "center_x",
+                "center_y",
+                "width",
+                "height"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "parameters"
+          ]
+        }
+      ]
+    },
+    "point_edit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "nect.path.point-edit"
+        },
+        "version": {
+          "const": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "overrides": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/id"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "x": {
+                "$ref": "#/$defs/scalar"
+              },
+              "y": {
+                "$ref": "#/$defs/scalar"
+              },
+              "in.angle": {
+                "$ref": "#/$defs/scalar"
+              },
+              "in.length": {
+                "$ref": "#/$defs/scalar"
+              },
+              "out.angle": {
+                "$ref": "#/$defs/scalar"
+              },
+              "out.length": {
+                "$ref": "#/$defs/scalar"
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "version",
+        "enabled",
+        "overrides"
+      ]
+    },
+    "operation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "nect.paint.fill"
+            },
+            "version": {
+              "const": 1
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "composite": {
+              "enum": [
+                "above",
+                "below"
+              ]
+            },
+            "fill_rule": {
+              "enum": [
+                "nonzero",
+                "evenodd"
+              ]
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "g": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "b": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "a": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "r",
+                "g",
+                "b",
+                "a"
+              ]
+            },
+            "gradient": {
+              "$ref": "#/$defs/gradient"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "enabled",
+            "parameters",
+            "composite",
+            "fill_rule"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "nect.paint.stroke"
+            },
+            "version": {
+              "const": 1
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "composite": {
+              "enum": [
+                "above",
+                "below"
+              ]
+            },
+            "fill_rule": {
+              "enum": [
+                "nonzero"
+              ]
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "r": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "g": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "b": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "a": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "width": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "r",
+                "g",
+                "b",
+                "a",
+                "width"
+              ]
+            },
+            "gradient": {
+              "$ref": "#/$defs/gradient"
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "enabled",
+            "parameters",
+            "composite",
+            "fill_rule"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "nect.shape.repeater"
+            },
+            "version": {
+              "const": 1
+            },
+            "enabled": {
+              "type": "boolean"
+            },
+            "composite": {
+              "enum": [
+                "above",
+                "below"
+              ]
+            },
+            "fill_rule": {
+              "enum": [
+                "nonzero"
+              ]
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "copies": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "position_x": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "position_y": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "anchor_x": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "anchor_y": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "rotation": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "scale_x": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "scale_y": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "offset": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "start_opacity": {
+                  "$ref": "#/$defs/scalar"
+                },
+                "end_opacity": {
+                  "$ref": "#/$defs/scalar"
+                }
+              },
+              "required": [
+                "copies",
+                "position_x",
+                "position_y",
+                "anchor_x",
+                "anchor_y",
+                "rotation",
+                "scale_x",
+                "scale_y",
+                "offset",
+                "start_opacity",
+                "end_opacity"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "type",
+            "version",
+            "enabled",
+            "parameters",
+            "composite",
+            "fill_rule"
+          ]
+        }
+      ]
+    },
+    "gradient_stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "offset": {
+          "$ref": "#/$defs/scalar"
+        },
+        "rgba": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scalar"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "id",
+        "offset",
+        "rgba"
+      ]
+    },
+    "gradient": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "enum": [
+            "linear",
+            "radial"
+          ]
+        },
+        "version": {
+          "const": 1
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "start_x": {
+          "$ref": "#/$defs/scalar"
+        },
+        "start_y": {
+          "$ref": "#/$defs/scalar"
+        },
+        "end_x": {
+          "$ref": "#/$defs/scalar"
+        },
+        "end_y": {
+          "$ref": "#/$defs/scalar"
+        },
+        "stops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/gradient_stop"
+          },
+          "minItems": 2,
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "version",
+        "enabled",
+        "start_x",
+        "start_y",
+        "end_x",
+        "end_y",
+        "stops"
+      ]
+    }
+  }
+}

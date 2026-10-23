@@ -1,0 +1,17 @@
+{
+  "sourceSha": "76940ea316a58add594d745d6203fdb180af9aa2",
+  "reference": "Nect PR33 recovery baseline; compatible reproduction, no forced version downgrade",
+  "checks": {
+    "cargo": "cargo 1.99.1 (C:\\Users\\TWRT\\.cargo\\bin\\cargo.exe)",
+    "rustup": "rustup 1.29.1",
+    "rustc": "rustc 1.99.1",
+    "node": "v24.19.0",
+    "npm": "11.17.0",
+    "windowsSdk26100": "present",
+    "webView2": "present (155.0.4283.45 and 155.0.4283.62 detected)",
+    "msvc": "NOT_RESOLVED_FROM_CURRENT_SHELL; cargo custom-protocol build succeeded"
+  },
+  "canonicalReleaseCommand": "npm run desktop:build",
+  "offlineEquivalentWhenTauriCliIsUnavailable": "cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml",
+  "nativeUi": "NOT_RUN: WebView2 UIA/mouse restrictions remain; no security or permission changes"
+}

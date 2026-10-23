@@ -1,0 +1,514 @@
+#include "nect/io.hpp"
+#include "native_legacy_fixture.hpp"
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+
+using namespace nect;
+namespace {
+int checks=0;
+void check(bool ok,const char* reason) {if(!ok)throw std::runtime_error(reason);++checks;}
+double response_number(const std::string& response,const std::string& field) {
+    const auto marker="\""+field+"\":";
+    const auto begin=response.find(marker);
+    if(begin==std::string::npos)throw std::runtime_error("Missing numeric API field: "+field);
+    const auto value_begin=begin+marker.size();
+    const auto value_end=response.find_first_of(",}",value_begin);
+    if(value_end==std::string::npos)throw std::runtime_error("Unterminated numeric API field: "+field);
+    return std::stod(response.substr(value_begin,value_end-value_begin));
+}
+template<class F> void rejects(const char* code,F action) {
+    try {action();}catch(const Error& e){check(e.code==code,("Expected "+std::string(code)+", got "+e.code).c_str());return;}
+    throw std::runtime_error("Expected rejection: "+std::string(code));
+}
+Primitive circle() {return {"circle-source","nect.shape.circle",1,
+    {{"center_x",{100,{}}},{"center_y",{200,{}}},{"radius",{50,{}}}}};}
+void point_edit_enabled_links() {
+    Session s(empty_document("edit-doc","edit-comp","edit-art"));
+    auto source_circle=circle();source_circle.id="source-generator";
+    auto other_circle=circle();other_circle.id="other-generator";
+    s.apply({CreatePrimitive{"edit-comp","","target","Target",circle()},
+        CreatePrimitive{"edit-comp","","source","Source",source_circle},
+        CreatePrimitive{"edit-comp","","other","Other",other_circle}},0);
+    const Ref target_point{"target","circle-source-east","x"},source_point{"source","source-generator-east","x"};
+    s.apply({Set{target_point,210},Set{source_point,310},
+        Set{{"other","other-generator-east","x"},320},EnablePointEdit{"other",false}},1);
+    const auto target_ref=point_edit_enabled_ref("target","circle-source-point-edit");
+    const auto source_ref=point_edit_enabled_ref("source","source-generator-point-edit");
+    const auto other_ref=point_edit_enabled_ref("other","other-generator-point-edit");
+    s.apply({EnablePointEdit{"target",false}},2);
+    s.apply({LinkPointEditEnabled{target_ref,source_ref}},3);
+    const auto linked_document=s.document();const auto linked_history=s.history();const auto linked_revision=s.revision();
+    s.apply({LinkPointEditEnabled{target_ref,source_ref}},linked_revision);
+    check(s.document()==linked_document&&s.history()==linked_history&&s.revision()==linked_revision,
+        "Exact Point Edit enabled link reapply is idempotent");
+    auto state=point_edit_enabled_state(s.document(),target_ref);
+    check(state.literal==false&&state.driver==source_ref&&state.evaluated&&
+        evaluate(s.document()).at(target_point)==210&&property_origin(s.document(),target_point)=="point_edit",
+        "A false-literal target follows the exact source while retaining its authored override");
+    const auto legacy_ref=Ref{"target","","point_edit.enabled"};
+    check(point_edit_enabled_property(s.document(),legacy_ref)==false,
+        "Legacy Point Edit slot read remains the authored literal");
+    const auto legacy=request(s,R"({"op":"get","ref":{"object":"target","point":"","field":"point_edit.enabled"}})");
+    const auto qualified=request(s,R"({"op":"get","ref":{"object":"target","point":"","field":"point_edit.circle-source-point-edit.enabled"}})");
+    const auto property_list=request(s,R"({"op":"properties"})");
+    check(legacy.find("\"link\":false")!=std::string::npos&&legacy.find("\"literal\":false")!=std::string::npos&&
+        qualified.find("\"link\":true")!=std::string::npos&&qualified.find("\"evaluated\":true")!=std::string::npos&&
+        qualified.find("\"object\":\"source\"")!=std::string::npos&&
+        property_list.find("point_edit.circle-source-point-edit.enabled")!=std::string::npos,
+        "Legacy and instance-qualified API reads expose their distinct authored and evaluated states");
+    check(resolve_name(s.document(),"Target","","point_edit.circle-source-point-edit.enabled")==target_ref,
+        "Unique-name resolution finds the exact retained correction Ref");
+    const auto linked_bytes=encode(s.document());
+    check(linked_bytes.find(test_support::current_native_version_marker())!=std::string::npos&&
+        linked_bytes.find("\"enabled_driver\":{\"link\":{\"object\":\"source\",\"point\":\"\",\"field\":\"point_edit.source-generator-point-edit.enabled\"}}")!=std::string::npos&&
+        encode(decode(linked_bytes))==linked_bytes,
+        "Native 0.70 retains the optional closed driver and roundtrips without byte drift");
+    auto false_version=test_support::without_empty_presets_for_legacy_fixture(linked_bytes);
+    const auto version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.31\"");
+    rejects("UNSUPPORTED_POINT_EDIT_ENABLED_DRIVER",[&]{(void)decode(false_version);});
+    auto malformed=linked_bytes;
+    const auto ref_at=malformed.find("point_edit.source-generator-point-edit.enabled");
+    malformed.replace(ref_at,std::string("point_edit.source-generator-point-edit.enabled").size(),"point_edit.enabled");
+    rejects("INVALID_POINT_EDIT_REF",[&]{(void)decode(malformed);});
+
+    const auto prior_document=s.document();const auto prior_history=s.history();const auto prior_revision=s.revision();
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({EnablePointEdit{"target",true}},prior_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({LinkPointEditEnabled{target_ref,other_ref}},prior_revision);});
+    rejects("REVISION_CONFLICT",[&]{s.apply({UnlinkPointEditEnabled{target_ref}},prior_revision-1);});
+    rejects("DRIVEN_PROPERTY",[&]{s.apply({Set{target_point,220}},prior_revision);});
+    check(s.document()==prior_document&&s.history()==prior_history&&s.revision()==prior_revision,
+        "Driven toggles, implicit replacement, stale revisions and false-literal edits leave state and history unchanged");
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ClearPointEdit{"source"}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ClearPointEdit{"source"},Set{source_point,320}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({ConvertToPath{"source"}},prior_revision);});
+    rejects("POINT_EDIT_IN_USE",[&]{s.apply({DeleteObjects{{"source"}}},prior_revision);});
+    check(s.document()==prior_document&&s.history()==prior_history&&s.revision()==prior_revision,
+        "Clear, same-batch clear/recreate, conversion and source deletion stop at the destructive command boundary");
+    rejects("MISSING_POINT_EDIT",[&]{(void)point_edit_enabled_state(s.document(),
+        Ref{"target","","point_edit.recreated-point-edit.enabled"});});
+    rejects("INVALID_POINT_EDIT_REF",[&]{(void)point_edit_enabled_state(s.document(),
+        Ref{"target","circle-source-east","point_edit.circle-source-point-edit.enabled"});});
+    rejects("USE_TYPED_COMMAND",[&]{s.apply({Set{target_ref,1}},prior_revision);});
+
+    const auto linked_before_same_id_edit=s.document();const auto same_id_revision=s.revision();
+    s.apply({Set{{"source","","generator.radius"},60},Rename{"source","Renamed source"},
+        ReorderObjects{"edit-comp","",{"source","target","other"}}},same_id_revision);
+    check(point_edit_enabled_state(s.document(),target_ref).driver==source_ref&&
+        point_edit_enabled_state(s.document(),target_ref).evaluated&&
+        s.document().objects.at("source").point_edit->id=="source-generator-point-edit",
+        "Same-ID source edits, rename and reorder preserve the qualified driver");
+    s.undo(s.revision());
+    check(s.document()==linked_before_same_id_edit&&point_edit_enabled_state(s.document(),target_ref).driver==source_ref,
+        "Undo restores same-ID source edits without retargeting the Point Edit link");
+    s.redo(s.revision());
+    check(point_edit_enabled_state(s.document(),target_ref).driver==source_ref,
+        "Redo preserves the exact qualified Point Edit source");
+
+    const auto same_id_redone_revision=s.revision();
+    s.apply({EnablePointEdit{"source",false}},same_id_redone_revision);
+    check(!point_edit_enabled_state(s.document(),target_ref).evaluated&&
+        evaluate(s.document()).at(target_point)==150&&
+        s.document().objects.at("target").point_edit->overrides.at(target_point.point).at("x").literal==210,
+        "False source bypasses to generator fallback without deleting target overrides");
+    s.apply({EnablePointEdit{"source",true}},same_id_redone_revision+1);
+    check(point_edit_enabled_state(s.document(),target_ref).evaluated&&evaluate(s.document()).at(target_point)==210,
+        "Restoring the source reactivates the same target override and generated point ID");
+    s.apply({UnlinkPointEditEnabled{target_ref}},same_id_redone_revision+2);
+    const auto frozen=point_edit_enabled_state(s.document(),target_ref);
+    check(!frozen.driver&&frozen.literal&&frozen.evaluated,
+        "Unlink freezes the evaluated authored bypass bit");
+    s.undo(s.revision());
+    check(s.document().objects.at("target").point_edit->enabled_driver==source_ref&&
+        point_edit_enabled_state(s.document(),target_ref).evaluated,
+        "Undo restores the exact driver and evaluated correction state");
+    s.redo(s.revision());
+    check(!s.document().objects.at("target").point_edit->enabled_driver,
+        "Redo restores the frozen literal after unlink");
+
+    auto cyclic=s.document();
+    cyclic.objects.at("target").point_edit->enabled_driver=target_ref;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    cyclic=s.document();cyclic.objects.at("target").point_edit->enabled_driver=source_ref;
+    cyclic.objects.at("source").point_edit->enabled_driver=target_ref;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    auto foreign=s.document();
+    Object foreign_object;foreign_object.id="foreign";foreign_object.name="Foreign";
+    foreign_object.source=circle();foreign_object.source->id="foreign-source";
+    foreign_object.point_edit=PointEdit{"foreign-source-point-edit",1,true,{{"foreign-source-east",{{"x",{1,{}}}}}}};
+    foreign.objects.emplace(foreign_object.id,foreign_object);
+    foreign.compositions.push_back(Composition{"foreign-comp","Foreign",{"foreign"},{},{}});
+    foreign.objects.at("target").point_edit->enabled_driver=point_edit_enabled_ref("foreign","foreign-source-point-edit");
+    rejects("CROSS_COMPOSITION",[&]{validate(foreign);});
+    auto deep=empty_document("deep-doc","deep-comp","deep-art");
+    constexpr int chain=130;
+    for(int i=0;i<chain;++i) {
+        const auto id="node"+std::to_string(i),source_id="generator"+std::to_string(i);
+        Object object;object.id=id;object.name=id;object.source=circle();object.source->id=source_id;
+        object.point_edit=PointEdit{source_id+"-point-edit",1,true,{}};
+        deep.objects.emplace(id,std::move(object));deep.compositions.front().roots.push_back(id);
+    }
+    for(int i=0;i<chain-1;++i)deep.objects.at("node"+std::to_string(i)).point_edit->enabled_driver=
+        point_edit_enabled_ref("node"+std::to_string(i+1),"generator"+std::to_string(i+1)+"-point-edit");
+    rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
+}
+void point_edit_enabled_expressions() {
+    Session session(empty_document("point-edit-expression-doc","point-edit-expression-comp","point-edit-expression-art"));
+    auto target_source=circle();target_source.id="expr-target-generator";
+    auto source_source=circle();source_source.id="expr-source-generator";
+    session.apply({CreatePrimitive{"point-edit-expression-comp","","expr-target","Target",target_source},
+        CreatePrimitive{"point-edit-expression-comp","","expr-source","Source",source_source}},0);
+    const Ref target_point{"expr-target","expr-target-generator-east","x"};
+    const Ref source_point{"expr-source","expr-source-generator-east","x"};
+    session.apply({Set{target_point,260},Set{source_point,360},EnablePointEdit{"expr-target",false},
+        EnablePointEdit{"expr-source",false}},1);
+    const auto target=point_edit_enabled_ref("expr-target","expr-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("expr-source","expr-source-generator-point-edit");
+    const Expression expression{" ! ref ( \"expr-source\" , \"\" , \"point_edit.expr-source-generator-point-edit.enabled\" ) ",1};
+    session.apply({SetPointEditEnabledExpression{target,expression}},2);
+    const auto state=point_edit_enabled_state(session.document(),target);
+    check(!state.literal&&!state.driver&&state.expression==expression&&state.evaluated&&
+        evaluate(session.document()).at(target_point)==260&&
+        session.document().objects.at("expr-target").point_edit->overrides.at(target_point.point).at("x").literal==260,
+        "Negated exact correction Ref enables the target override while retaining its false literal and exact source");
+    check(point_edit_enabled_property(session.document(),{"expr-target","","point_edit.enabled"})==false,
+        "The unqualified owner slot remains a literal-only read");
+    const auto qualified=request(session,R"({"op":"get","ref":{"object":"expr-target","point":"","field":"point_edit.expr-target-generator-point-edit.enabled"}})");
+    const auto owner=request(session,R"({"op":"get","ref":{"object":"expr-target","point":"","field":"point_edit.enabled"}})");
+    const auto list=request(session,R"({"op":"properties"})");
+    check(qualified.find("\"source_kind\":\"expression\"")!=std::string::npos&&
+        qualified.find("\"source\":\" ! ref ( \\\"expr-source\\\" , \\\"\\\" , \\\"point_edit.expr-source-generator-point-edit.enabled\\\" ) \"")!=std::string::npos&&
+        qualified.find("\"expression\":true")!=std::string::npos&&
+        owner.find("\"literal\":false")!=std::string::npos&&owner.find("\"expression\":false")!=std::string::npos&&
+        list.find("point_edit.expr-target-generator-point-edit.enabled")!=std::string::npos,
+        "Qualified reads expose exact expression capability while the owner slot stays literal-only");
+    const auto original=session.document();const auto original_history=session.history();const auto expression_revision=session.revision();
+    session.apply({SetPointEditEnabledExpression{target,expression}},expression_revision);
+    check(session.document()==original&&session.history()==original_history&&session.revision()==expression_revision,
+        "Exact expression reapply is idempotent");
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({SetPointEditEnabledExpression{target,Expression{"false",1}}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({LinkPointEditEnabled{target,source}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({EnablePointEdit{"expr-target",true}},expression_revision);});
+    rejects("DRIVEN_PROPERTY",[&]{session.apply({Set{target_point,280}},expression_revision);});
+    check(session.document()==original&&session.history()==original_history&&session.revision()==expression_revision,
+        "Implicit source replacement, driven toggle, false-literal point edit and stale mutation preserve authored state and history");
+
+    session.apply({EnablePointEdit{"expr-source",true}},expression_revision);
+    check(!point_edit_enabled_state(session.document(),target).evaluated&&evaluate(session.document()).at(target_point)==150&&
+        session.document().objects.at("expr-target").point_edit->enabled==false&&
+        session.document().objects.at("expr-target").point_edit->enabled_expression==expression,
+        "Changing the source bypasses to generator geometry without modifying the target literal, expression or overrides");
+    session.apply({EnablePointEdit{"expr-source",false}},session.revision());
+    check(point_edit_enabled_state(session.document(),target).evaluated&&evaluate(session.document()).at(target_point)==260,
+        "Source false restores the same correction override");
+
+    auto native=encode(session.document());
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
+        native.find("\"enabled_expression\":{\"source\":\" ! ref (")!=std::string::npos&&
+        encode(decode(native))==native,
+        "Native 0.70 retains the exact expression and cold codec roundtrip without byte drift");
+    auto false_version=native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(false_version);
+    const auto version_at=false_version.find(test_support::current_native_version_marker());
+    false_version.replace(version_at,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.69\"");
+    rejects("UNSUPPORTED_POINT_EDIT_ENABLED_EXPRESSION",[&]{(void)decode(false_version);});
+
+    auto atomic=[&](const char* code,std::vector<Command> commands) {
+        const auto before=session.document();const auto history=session.history();const auto revision=session.revision();
+        rejects(code,[&]{session.apply(std::move(commands),revision);});
+        check(session.document()==before&&session.history()==history&&session.revision()==revision,
+            "Rejected Point Edit expression command preserves Document, revision and history");
+    };
+    atomic("BOOLEAN_EXPRESSION_TYPE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"\",\"point_edit.enabled\")",1}}});
+    atomic("BOOLEAN_EXPRESSION_TYPE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"expr-source-generator-east\",\"point_edit.expr-source-generator-point-edit.enabled\")",1}}});
+    atomic("MISSING_POINT_EDIT",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-source\",\"\",\"point_edit.missing-correction.enabled\")",1}}});
+    atomic("UNSUPPORTED_EXPRESSION_VERSION",{SetPointEditEnabledExpression{target,Expression{"true",2}}});
+    atomic("BOOLEAN_EXPRESSION_SYNTAX",{SetPointEditEnabledExpression{target,Expression{"true || false",1}}});
+    atomic("DEPENDENCY_CYCLE",{SetPointEditEnabledExpression{target,
+        Expression{"ref(\"expr-target\",\"\",\"point_edit.expr-target-generator-point-edit.enabled\")",1},true}});
+    atomic("POINT_EDIT_IN_USE",{ClearPointEdit{"expr-source"},Set{source_point,380}});
+    atomic("POINT_EDIT_IN_USE",{ConvertToPath{"expr-source"}});
+    atomic("POINT_EDIT_IN_USE",{DeleteObjects{{"expr-source"}}});
+
+    session.apply({LinkPointEditEnabled{target,source,true}},session.revision());
+    check(point_edit_enabled_state(session.document(),target).driver==source&&
+        !point_edit_enabled_state(session.document(),target).expression,
+        "Explicit link replacement clears the prior expression source");
+    const auto frozen=point_edit_enabled_state(session.document(),target).evaluated;
+    session.apply({UnlinkPointEditEnabled{target}},session.revision());
+    check(!point_edit_enabled_state(session.document(),target).driver&&
+        !point_edit_enabled_state(session.document(),target).expression&&
+        point_edit_enabled_state(session.document(),target).literal==frozen,
+        "Unlink freezes the evaluated value and clears either source kind in one Session edit");
+
+    auto cyclic=session.document();
+    cyclic.objects.at("expr-target").point_edit->enabled_expression=Expression{
+        "ref(\"expr-source\",\"\",\"point_edit.expr-source-generator-point-edit.enabled\")",1};
+    cyclic.objects.at("expr-source").point_edit->enabled_driver=target;
+    rejects("DEPENDENCY_CYCLE",[&]{validate(cyclic);});
+    auto foreign=cyclic;foreign.objects.at("expr-source").point_edit->enabled_driver.reset();
+    Object foreign_object;foreign_object.id="expr-foreign";foreign_object.name="Foreign";
+    foreign_object.source=circle();foreign_object.source->id="expr-foreign-generator";
+    foreign_object.point_edit=PointEdit{"expr-foreign-generator-point-edit",1,true,{}};
+    foreign.objects.emplace(foreign_object.id,foreign_object);
+    foreign.compositions.push_back(Composition{"expr-foreign-comp","Foreign",{"expr-foreign"},{},{}});
+    foreign.objects.at("expr-target").point_edit->enabled_expression=Expression{
+        "ref(\"expr-foreign\",\"\",\"point_edit.expr-foreign-generator-point-edit.enabled\")",1};
+    rejects("CROSS_COMPOSITION",[&]{validate(foreign);});
+    auto deep=empty_document("point-edit-expression-deep-doc","point-edit-expression-deep-comp","point-edit-expression-deep-art");
+    constexpr int chain=130;
+    for(int i=0;i<chain;++i) {
+        const auto id="expr-node"+std::to_string(i),generator="expr-generator"+std::to_string(i);
+        Object object;object.id=id;object.name=id;object.source=circle();object.source->id=generator;
+        object.point_edit=PointEdit{generator+"-point-edit",1,true,{}};
+        deep.objects.emplace(id,std::move(object));deep.compositions.front().roots.push_back(id);
+    }
+    for(int i=0;i<chain-1;++i) {
+        const auto target_id="expr-node"+std::to_string(i+1),source_id="expr-node"+std::to_string(i);
+        deep.objects.at(target_id).point_edit->enabled_expression=Expression{"!ref(\""+source_id+
+            "\",\"\",\"point_edit.expr-generator"+std::to_string(i)+"-point-edit.enabled\")",1};
+    }
+    rejects("DEPENDENCY_DEPTH",[&]{validate(deep);});
+}
+void ellipse_contract() {
+    constexpr double k=0.5522847498307936;
+    const auto defaults=default_primitive("ellipse-defaults","nect.shape.ellipse");
+    check(defaults.parameters.size()==4&&defaults.parameters.at("center_x").literal==0&&
+        defaults.parameters.at("center_y").literal==0&&defaults.parameters.at("width").literal==220&&
+        defaults.parameters.at("height").literal==140,
+        "Ellipse defaults retain center and established Rectangle dimensions");
+
+    Session session(empty_document("ellipse-doc","ellipse-comp","ellipse-art"));
+    const auto primitive_catalog=request(session,R"({"op":"primitive_types"})");
+    check(primitive_catalog.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
+        primitive_catalog.find("\"width\"")!=std::string::npos&&
+        primitive_catalog.find("\"height\"")!=std::string::npos,
+        "Public primitive catalog exposes the retained Ellipse source template");
+    auto source=default_primitive("ellipse-source","nect.shape.ellipse");
+    source.parameters.at("center_x").literal=300;source.parameters.at("center_y").literal=200;
+    session.apply({CreatePrimitive{"ellipse-comp","","ellipse","Ellipse",source}},0);
+    const auto contour=path_contours(session.document().objects.at("ellipse")).front();
+    const std::vector<Id> expected_ids{"ellipse-source-east","ellipse-source-south","ellipse-source-west","ellipse-source-north"};
+    check(session.revision()==1&&session.document().objects.at("ellipse").contours.empty()&&
+        contour.id=="ellipse-source-contour"&&[&]{std::vector<Id> ids;for(const auto& point:contour.points)ids.push_back(point.id);return ids==expected_ids;}(),
+        "Created Ellipse retains one source with stable contour and cardinal point identities");
+    auto values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==410&&values.at({"ellipse",expected_ids[0],"y"})==200&&
+        values.at({"ellipse",expected_ids[1],"x"})==300&&values.at({"ellipse",expected_ids[1],"y"})==270&&
+        values.at({"ellipse",expected_ids[2],"x"})==190&&values.at({"ellipse",expected_ids[2],"y"})==200&&
+        values.at({"ellipse",expected_ids[3],"x"})==300&&values.at({"ellipse",expected_ids[3],"y"})==130,
+        "Ellipse anchors follow center and half-width/half-height axes");
+    const std::vector<double> incoming{-90,0,90,180},outgoing{90,180,270,360};
+    for(std::size_t i=0;i<expected_ids.size();++i) {
+        const auto expected_length=(i%2==0?70.0:110.0)*k;
+        check(values.at({"ellipse",expected_ids[i],"in.angle"})==incoming[i]&&
+            values.at({"ellipse",expected_ids[i],"out.angle"})==outgoing[i]&&
+            std::abs(values.at({"ellipse",expected_ids[i],"in.length"})-expected_length)<1e-12&&
+            std::abs(values.at({"ellipse",expected_ids[i],"out.length"})-expected_length)<1e-12,
+            "Ellipse handles retain Circle tangent directions and anisotropic cubic lengths");
+    }
+    const Ref width{"ellipse","","generator.width"},height{"ellipse","","generator.height"};
+    const auto width_read=request(session,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.width"}})");
+    const auto width_properties=properties(session.document());
+    check(width_read.find("\"origin\":\"authored\"")!=std::string::npos,
+        "Ellipse Width API read identifies its authored source");
+    check(response_number(width_read,"evaluated")==220,
+        "Ellipse Width API read returns its evaluated default");
+    check(std::find(width_properties.begin(),width_properties.end(),width)!=width_properties.end(),
+        "Ellipse Width is discoverable through the normal property API");
+
+    const auto initial_ids=path_contours(session.document().objects.at("ellipse")).front().points;
+    session.apply({Set{width,300}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==450&&values.at({"ellipse",expected_ids[2],"x"})==150&&
+        values.at({"ellipse",expected_ids[1],"y"})==270&&path_contours(session.document().objects.at("ellipse")).front().points==initial_ids,
+        "Width-only edit changes only the horizontal axis and keeps stable IDs");
+    session.apply({Set{height,180}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==450&&values.at({"ellipse",expected_ids[1],"y"})==290&&
+        values.at({"ellipse",expected_ids[3],"y"})==110&&path_contours(session.document().objects.at("ellipse")).front().points==initial_ids,
+        "Height-only edit changes only the vertical axis and keeps stable IDs");
+
+    session.apply({Set{width,0}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[0],"x"})==300&&values.at({"ellipse",expected_ids[2],"x"})==300,
+        "Zero Ellipse width follows the existing degenerate nonnegative length rule");
+    session.apply({Set{width,300},Set{height,0}},session.revision());values=evaluate(session.document());
+    check(values.at({"ellipse",expected_ids[1],"y"})==200&&values.at({"ellipse",expected_ids[3],"y"})==200,
+        "Zero Ellipse height follows the existing degenerate nonnegative length rule");
+    session.apply({Set{height,180}},session.revision());
+
+    auto atomic=[&](const char* code,std::vector<Command> commands) {
+        const auto before=session.document();const auto history=session.history();const auto revision=session.revision();
+        rejects(code,[&]{session.apply(commands,revision);});
+        check(session.document()==before&&session.history()==history&&session.revision()==revision,
+            "Rejected Ellipse edit/create preserves document, revision and history");
+    };
+    atomic("OUT_OF_RANGE",{Set{width,-1}});atomic("OUT_OF_RANGE",{Set{height,-1}});
+    atomic("OUT_OF_RANGE",{Set{{"ellipse","","generator.center_x"},999},Set{width,-1}});
+
+    const Ref east_x{"ellipse",expected_ids[0],"x"};
+    const auto source_only=encode(session.document());
+    check(source_only.find("ellipse-source-east")==std::string::npos,
+        "Native source persistence derives anchors instead of storing generated geometry");
+    session.apply({Set{east_x,777}},session.revision());
+    check(property_origin(session.document(),east_x)=="point_edit"&&
+        evaluate(session.document()).at(east_x)==777&&evaluate(session.document()).at(width)==300,
+        "Generated point edits create downstream corrections without rewriting Ellipse source dimensions");
+    session.apply({EnablePointEdit{"ellipse",false}},session.revision());
+    check(property_origin(session.document(),east_x)=="bypassed_point_edit"&&
+        evaluate(session.document()).at(east_x)==450&&evaluate(session.document()).at(width)==300,
+        "Point Edit bypass restores the current generated Ellipse");
+    session.apply({EnablePointEdit{"ellipse",true}},session.revision());
+    session.apply({ClearPointEdit{"ellipse"},Set{height,160}},session.revision());
+    check(!session.document().objects.at("ellipse").point_edit&&
+        evaluate(session.document()).at(east_x)==450&&evaluate(session.document()).at(height)==160,
+        "Reset removes the correction and continues to follow the retained source");
+
+    const auto native=encode(session.document());
+    check(native.find(test_support::current_native_version_marker())!=std::string::npos&&
+        native.find("\"type\":\"nect.shape.ellipse\"")!=std::string::npos&&
+        encode(decode(native))==native,
+        "Current-writer native output preserves Ellipse type and parameters in a deterministic cold codec reopen");
+    Session reopened(decode(native));
+    check(reopened.document()==session.document()&&
+        response_number(request(reopened,R"({"op":"get","ref":{"object":"ellipse","point":"","field":"generator.height"}})"),"evaluated")==160,
+        "A fresh Session reads Ellipse source values through the public API");
+    auto lied=native;
+    test_support::remove_empty_native_076_templates_for_legacy_fixture(lied);
+    const auto writer_version=lied.find(test_support::current_native_version_marker());
+    check(writer_version!=std::string::npos,"Ellipse fixture identifies current native writer");
+    lied.replace(writer_version,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.72\"");
+    rejects("UNSUPPORTED_OPERATOR",[&]{(void)decode(lied);});
+    auto malformed=native;
+    const auto ellipse_type=malformed.find("\"type\":\"nect.shape.ellipse\"");
+    const auto width_parameter=ellipse_type==std::string::npos?std::string::npos:malformed.find("\"width\":",ellipse_type);
+    check(width_parameter!=std::string::npos,"Ellipse fixture carries the required Width source parameter");
+    malformed.replace(width_parameter+1,std::string("width").size(),"unknown_width");
+    rejects("INVALID_GENERATOR_PARAMETERS",[&]{(void)decode(malformed);});
+    auto previous_document=empty_document("ellipse-legacy-doc","ellipse-legacy-comp","ellipse-legacy-art");
+    Session previous(previous_document);
+    previous.apply({CreatePrimitive{"ellipse-legacy-comp","","legacy-circle","Circle",
+        default_primitive("legacy-circle-source","nect.shape.circle")}},0);
+    auto legacy=encode(previous.document());test_support::remove_empty_native_076_templates_for_legacy_fixture(legacy);
+    const auto latest=legacy.find(test_support::current_native_version_marker());
+    legacy.replace(latest,std::string(test_support::current_native_version_marker()).size(),"\"version\":\"0.72\"");
+    check(decode(legacy)==previous.document(),"Native 0.72 remains readable for previously supported primitives");
+
+    Session creation(empty_document("ellipse-undo-doc","ellipse-undo-comp","ellipse-undo-art"));
+    creation.apply({CreatePrimitive{"ellipse-undo-comp","","kept-circle","Circle",
+        default_primitive("kept-circle-source","nect.shape.circle")}},0);
+    const auto before_ellipse=creation.document();
+    creation.apply({CreatePrimitive{"ellipse-undo-comp","","created-ellipse","Ellipse",
+        default_primitive("created-ellipse-source","nect.shape.ellipse")}},creation.revision());
+    const auto created=creation.document();creation.undo(creation.revision());
+    check(creation.document()==before_ellipse,"One creation Undo removes only the new Ellipse");
+    creation.redo(creation.revision());check(creation.document()==created,"Creation Redo restores the retained Ellipse exactly");
+
+    Session atomic_session(empty_document("ellipse-atomic-doc","ellipse-atomic-comp","ellipse-atomic-art"));
+    const auto atomic_before=atomic_session.document();const auto atomic_history=atomic_session.history();const auto atomic_revision=atomic_session.revision();
+    rejects("MISSING_COMPOSITION",[&]{atomic_session.apply({CreatePrimitive{"missing-comp","","bad","Bad",
+        default_primitive("missing-source","nect.shape.ellipse")}},atomic_revision);});
+    check(atomic_session.document()==atomic_before&&atomic_session.history()==atomic_history&&
+        atomic_session.revision()==atomic_revision,"Missing Composition rejects Ellipse creation atomically");
+    auto missing_width=default_primitive("malformed-source","nect.shape.ellipse");missing_width.parameters.erase("width");
+    rejects("INVALID_GENERATOR_PARAMETERS",[&]{atomic_session.apply({CreatePrimitive{"ellipse-atomic-comp","","bad","Bad",missing_width}},atomic_revision);});
+    auto unsupported=default_primitive("unsupported-source","nect.shape.ellipse");unsupported.type="nect.shape.future";
+    rejects("UNSUPPORTED_OPERATOR",[&]{atomic_session.apply({CreatePrimitive{"ellipse-atomic-comp","","bad","Bad",unsupported}},atomic_revision);});
+    check(atomic_session.document()==atomic_before&&atomic_session.history()==atomic_history&&
+        atomic_session.revision()==atomic_revision,"Malformed or unsupported Ellipse creation leaves no partial object or history");
+}
+}
+int main() {
+    try {
+        ellipse_contract();
+        Session s(empty_document("doc","comp","art"));
+        s.apply({CreatePrimitive{"comp","","circle","Circle",circle()},
+            CreatePrimitive{"comp","","rect","Rectangle",{"rect-source","nect.shape.rectangle",1,
+                {{"center_x",{300,{}}},{"center_y",{200,{}}},{"width",{80,{}}},{"height",{120,{}}}}}}},0);
+        const Ref east{"circle","circle-source-east","x"},west{"circle","circle-source-west","x"};
+        const Ref radius{"circle","","generator.radius"},rx{"rect","rect-source-top-left","x"};
+        const Ref edit_enabled{"circle","","point_edit.enabled"};
+        rejects("NO_POINT_EDIT",[&]{(void)point_edit_enabled_property(s.document(),edit_enabled);});
+        rejects("NO_POINT_EDIT",[&]{(void)resolve_name(s.document(),"Circle","","point_edit.enabled");});
+        auto values=evaluate(s.document());
+        check(values.at(east)==150&&values.at(west)==50,"Circle uses hand-specified anchor coordinates");
+        check(std::abs(values.at({"circle","circle-source-east","out.length"})-27.61423749153968)<1e-10,
+            "Circle cubic handle length");
+        check(values.at(rx)==260&&values.at({"rect","rect-source-bottom-right","y"})==260,"Rectangle corners");
+        check(s.document().objects.at("circle").contours.empty(),"No duplicated generated authored geometry");
+        const auto generated=encode(s.document());
+        check(generated.find("circle-source-east")==std::string::npos,"Generated role IDs are derived, not saved geometry");
+        check(property_origin(s.document(),east)=="generated","Generated origin is discoverable");
+        const auto get=request(s,R"({"op":"get","ref":{"object":"circle","point":"circle-source-east","field":"x"}})");
+        check(get.find("\"authored\":null")!=std::string::npos&&get.find("\"origin\":\"generated\"")!=std::string::npos,"Generated API value is not mislabeled authored");
+        rejects("OUT_OF_RANGE",[&]{s.apply({Set{east,180},Set{radius,-1}},1);});
+        check(encode(s.document())==generated&&s.revision()==1,"Failed batch cannot leave a correction instance");
+        rejects("GENERATED_TOPOLOGY",[&]{s.apply({CloseContour{"circle","circle-source-contour",false}},1);});
+        rejects("DEPENDENCY_CYCLE",[&]{s.apply({Link{radius,{east,1,0,"copy_local_value"}}},1);});
+        s.apply({Set{east,180}},1);
+        check(s.document().objects.at("circle").source.has_value()&&property_origin(s.document(),east)=="point_edit",
+            "Direct edit retains generator and authors a downstream correction");
+        const auto discovered=properties(s.document());
+        check(point_edit_enabled_property(s.document(),edit_enabled)&&
+            std::find(discovered.begin(),discovered.end(),edit_enabled)!=discovered.end()&&
+            resolve_name(s.document(),"Circle","","point_edit.enabled")==edit_enabled,
+            "Authored Point Edit is discoverable and resolves by its unique owner name");
+        const auto enabled_read=request(s,R"({"op":"get","ref":{"object":"circle","point":"","field":"point_edit.enabled"}})");
+        check(enabled_read.find("\"type\":\"bool\"")!=std::string::npos&&
+            enabled_read.find("\"literal\":true")!=std::string::npos&&
+            enabled_read.find("\"driver\":null")!=std::string::npos&&
+            enabled_read.find("\"evaluated\":true")!=std::string::npos,
+            "Point Edit enabled typed read exposes the authored bypass choice");
+        rejects("MISSING_REFERENCE",[&]{s.apply({Set{edit_enabled,0}},2);});
+        rejects("INVALID_POINT_EDIT_REF",[&]{(void)point_edit_enabled_property(s.document(),Ref{"circle","circle-source-east","point_edit.enabled"});});
+        s.apply({Set{radius,80},Link{rx,{east,1,20,"copy_local_value"}}},2);
+        values=evaluate(s.document());
+        check(values.at(east)==180&&values.at(west)==20&&values.at(rx)==200,"Radius changes preserve overrides and driven stable references");
+        s.apply({EnablePointEdit{"circle",false}},3);
+        check(property_origin(s.document(),east)=="bypassed_point_edit"&&
+            !point_edit_enabled_property(s.document(),edit_enabled),"Disabled correction is retained and explicit");
+        s.apply({Set{radius,90}},4);
+        check(evaluate(s.document()).at(east)==190&&evaluate(s.document()).at(rx)==210,"Bypass restores generated output and dependent evaluation");
+        const auto bypassed=encode(s.document());
+        check(encode(decode(bypassed))==bypassed,"Disabled corrections persist exactly");
+        s.apply({EnablePointEdit{"circle",true},Rename{"circle","Renamed"},
+            ReorderObjects{"comp","",{"rect","circle"}}},5);
+        check(evaluate(s.document()).at(rx)==200,"Rename/reorder/bypass retain point identity");
+        s.undo(6);check(encode(s.document())==bypassed&&!point_edit_enabled_property(s.document(),edit_enabled),
+            "Undo restores source, typed correction bypass and hierarchy");s.redo(7);
+        s.apply({Link{rx,{radius,1,0,"copy_local_value"}}},8);
+        check(conversion_blockers(s.document(),"circle")==std::vector<Ref>{rx},"Conversion lists generator dependents");
+        const auto blocked=encode(s.document());
+        rejects("CONVERSION_REFERENCE",[&]{s.apply({ConvertToPath{"circle"}},9);});
+        check(encode(s.document())==blocked&&s.revision()==9,"Blocked conversion is atomic");
+        const Ref east_y{"circle","circle-source-east","y"};
+        const Ref rect_y{"rect","","generator.center_y"};
+        s.apply({Unlink{rx},Link{east_y,{rect_y,1,10,"copy_local_value"}},ConvertToPath{"circle"}},9);
+        const auto& converted=s.document().objects.at("circle");
+        check(!converted.source&&!converted.point_edit&&converted.contours.front().id=="circle-source-contour",
+            "Explicit conversion keeps contour identity and removes procedural source");
+        check(property(s.document(),east_y).binding->source==rect_y&&evaluate(s.document()).at(east_y)==210,
+            "Active correction bindings survive conversion");
+        check(evaluate(s.document()).at(east)==180&&evaluate(s.document()).at(rx)==90,"Conversion freezes fallback geometry and explicit unlinks");
+        s.undo(10);check(encode(s.document())==blocked,"Conversion undo restores all authored procedural state");
+        s.redo(11);check(encode(decode(encode(s.document())))==encode(s.document()),"Converted scene reopens deterministically");
+        check(export_svg(s.document(),"comp","art").find("M 180 210 C ")!=std::string::npos,"SVG uses corrected primitive geometry");
+
+        auto invalid=decode(generated);
+        invalid.objects.at("circle").source->version=2;
+        rejects("UNSUPPORTED_OPERATOR_VERSION",[&]{validate(invalid);});
+        invalid=decode(generated);invalid.objects.at("circle").source->type="nect.future.shape";
+        rejects("UNSUPPORTED_OPERATOR",[&]{validate(invalid);});
+        invalid=decode(generated);invalid.objects.at("circle").point_edit=PointEdit{"circle-source-point-edit",1,true,{{"missing",{{"x",{12,{}}}}}}};
+        rejects("UNRESOLVED_POINT_EDIT",[&]{validate(invalid);});
+        invalid=decode(generated);invalid.objects.at("circle").source->parameters.erase("radius");
+        rejects("INVALID_GENERATOR_PARAMETERS",[&]{validate(invalid);});
+        invalid=decode(generated);invalid.objects.at("circle").source->parameters.emplace("future",Scalar{});
+        rejects("INVALID_GENERATOR_PARAMETERS",[&]{validate(invalid);});
+        point_edit_enabled_links();
+        point_edit_enabled_expressions();
+        std::cout<<"PASS "<<checks<<" primitive, correction and conversion checks\n";return 0;
+    }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}
+}

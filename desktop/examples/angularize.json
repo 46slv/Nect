@@ -1,0 +1,997 @@
+{
+  "schemaVersion": 2,
+  "name": "Curve to angular segments",
+  "width": 1000,
+  "height": 270,
+  "layers": [
+    {
+      "id": "angular-0",
+      "name": "Original curve",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-0:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [125, 115],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [145, 145],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-0:n1",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-0:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-0:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-0:n2"
+    },
+    {
+      "id": "angular-1",
+      "name": "Original curve",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [50, 235],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Original curve",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-1:n2"
+    },
+    {
+      "id": "angular-2",
+      "name": "24 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-2:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [375, 115],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [145, 145],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-2:n1",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-2:n0"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "count",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-2:n2",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-2:n1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-2:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-2:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-2:n3"
+    },
+    {
+      "id": "angular-3",
+      "name": "24 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-3:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [300, 235],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "24 points",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-3:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-3:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-3:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-3:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-3:n2"
+    },
+    {
+      "id": "angular-4",
+      "name": "8 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-4:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [625, 115],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [145, 145],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-4:n1",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-4:n0"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "count",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-4:n2",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-4:n1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-4:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-4:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-4:n3"
+    },
+    {
+      "id": "angular-5",
+      "name": "8 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-5:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [550, 235],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "8 points",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-5:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-5:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-5:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-5:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-5:n2"
+    },
+    {
+      "id": "angular-6",
+      "name": "4 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-6:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [875, 115],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [145, 145],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-6:n1",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-6:n0"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "count",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-6:n2",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-6:n1"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 5,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-6:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-6:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-6:n3"
+    },
+    {
+      "id": "angular-7",
+      "name": "4 points",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "angular-7:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [800, 235],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "4 points",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-7:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-7:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "angular-7:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "angular-7:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "angular-7:n2"
+    }
+  ]
+}

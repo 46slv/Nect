@@ -1,0 +1,43 @@
+{
+  "production": true,
+  "scenarios": [
+    "Null: Shift45 + SnapOFF + Undo/Redo",
+    "Vector: Shift45 + SnapOFF + Undo/Redo",
+    "Rectangle: Shift45 + SnapOFF + Undo/Redo",
+    "Circle: Shift45 + SnapOFF + Undo/Redo",
+    "Text: Shift45 + SnapOFF + Undo/Redo",
+    "Transform: Shift45 + SnapOFF + Undo/Redo",
+    "Curve: Shift45 + SnapOFF + Undo/Redo",
+    "Path Remap: Shift45 + SnapOFF + Undo/Redo",
+    "Automatic45 / Alt / diagonal guide winner",
+    "Pen anchor45 + Bezier45 + one Undo",
+    "Existing Bezier handle measured about anchor",
+    "Source point45 through rotation90 / scale-2",
+    "Graph node45 / visible guide / one Undo",
+    "Transform rotation existing45 + anchor45 + one Undo",
+    "Character45 through rotation90 / scale-2",
+    "Multi Path unit45 preserves topology + one Undo",
+    "Multi Path unit45 through rotation90 / scale-2"
+  ],
+  "pageErrors": [],
+  "base": "42c3a7a9031488b0c2950531be0e40c35e780f1b",
+  "timestamp": "2026-10-18T11:59:11.077Z",
+  "focusedTests": 45,
+  "focusedPassed": 45,
+  "newMathTests": 13,
+  "sourceSha256": "40185a5aa74e0b2ad1c01fb42e37edc8e4b81bbd4b1060247a0b9ceaca6f44cc",
+  "integrationPatchSha256": "392dd4b1ea98b5575ee5416b54e1ee424f17700887a80f6318c63a725af9c111",
+  "buildAssets": [
+    {
+      "name": "index-BS_XrqN7.css",
+      "sha256": "3283a4ee1f39548de24442a75a1a73174b8eed69fac31fd83024f98b48d0e7d7"
+    },
+    {
+      "name": "index-jP-g_Qqq.js",
+      "sha256": "403edec664b796f88c928b0537f70379a2dbb4662956a5c54c3385995cebb1ee"
+    }
+  ],
+  "nativeExeTested": false,
+  "externalConsultation": "not-required",
+  "externalSubmissions": 0
+}

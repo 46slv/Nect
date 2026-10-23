@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320" viewBox="0 0 480 320">
+  <title>Original Nect basic-shape badge</title>
+  <rect x="24" y="24" width="432" height="272" rx="32" fill="#172F3A"/>
+  <g fill="#59D8B0">
+    <circle cx="116" cy="126" r="54"/>
+    <ellipse cx="280" cy="126" rx="72" ry="40" transform="rotate(-15 280 126)"/>
+    <polygon points="358,70 416,126 358,182" fill="#F7C65D"/>
+  </g>
+  <polyline points="72,238 126,212 180,238 234,212 288,238" fill="none" stroke="#E4F0EA" stroke-width="6"/>
+  <line x1="326" y1="226" x2="404" y2="226" stroke="#F7C65D" stroke-width="6"/>
+</svg>

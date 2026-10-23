@@ -1,0 +1,332 @@
+{
+  "schemaVersion": 12,
+  "name": "Resample Count and Maximum Spacing",
+  "width": 680,
+  "height": 220,
+  "layers": [
+    {
+      "id": "resample-example-count",
+      "name": "Count 6: both contours",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "resample-example-count:n0",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M40 70h120 M40 140h240"
+        },
+        {
+          "id": "resample-example-count:n1",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-count:n0"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 6,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "count",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-count:n2",
+          "type": "Path Remap",
+          "name": "Path Remap",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-count:n1"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-count:n3",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-count:n2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-count:n4",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-count:n3"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "resample-example-count:n4"
+    },
+    {
+      "id": "resample-example-spacing",
+      "name": "Maximum spacing 24 px",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "resample-example-spacing:n0",
+          "type": "Imported Path",
+          "name": "Imported Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {},
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "M360 70h120 M360 140h240"
+        },
+        {
+          "id": "resample-example-spacing:n1",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-spacing:n0"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 6,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "spacing",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-spacing:n2",
+          "type": "Path Remap",
+          "name": "Path Remap",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-spacing:n1"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-spacing:n3",
+          "type": "Stroke",
+          "name": "Stroke",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-spacing:n2"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            },
+            "dashOffset": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "resample-example-spacing:n4",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "resample-example-spacing:n3"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "resample-example-spacing:n4"
+    }
+  ]
+}

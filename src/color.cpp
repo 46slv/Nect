@@ -1,0 +1,84 @@
+#include "nect/core.hpp"
+#include <algorithm>
+
+namespace nect {
+std::string property_name(const Document& d,const Ref& ref) {
+    if(ref.field.starts_with("artboard.guide.")) {
+        for(const auto& composition:d.compositions)for(const auto& board:composition.artboards)
+            if(board.id==ref.object) {
+                const auto guides=effective_artboard_guides(d,composition.id,board.id);
+                const auto found=std::find_if(guides.begin(),guides.end(),[&](const auto& guide) {
+                    return guide.guide_id==ref.point;
+                });
+                if(found!=guides.end())return board.name+" / "+found->name;
+            }
+        throw Error("MISSING_ARTBOARD_GUIDE_SOURCE",ref.point);
+    }
+    if(const auto found=d.objects.find(ref.object);found!=d.objects.end())return found->second.name;
+    if(const auto found=d.named_colors.find(ref.object);found!=d.named_colors.end())return found->second.name;
+    for(const auto& composition:d.compositions)
+        for(const auto& board:composition.artboards)if(board.id==ref.object)return board.name;
+    if(ref.field.starts_with("grid."))for(const auto& composition:d.compositions)
+        for(const auto& board:composition.artboards)
+            if((board.layout&&board.layout->grid&&board.layout->grid->id==ref.object)||
+                (board.template_assignment&&board.template_assignment->grid_id==ref.object))
+                return board.name;
+    throw Error("MISSING_REFERENCE",ref.object);
+}
+std::vector<Ref> color_properties(const Document& d) {
+    std::vector<Ref> result;
+    for(const auto& [id,color]:d.named_colors){(void)color;result.push_back({id,"","color"});}
+    for(const auto& [id,object]:d.objects)for(const auto& op:object.stack) {
+        if(op.type!="nect.paint.fill"&&op.type!="nect.paint.stroke")continue;
+        result.push_back(operation_ref(id,op.id,"color"));
+        if(op.gradient)for(const auto& stop:op.gradient->stops)
+            result.push_back(gradient_ref(id,op.id,op.gradient->id,"stop."+stop.id+".color"));
+    }
+    return result;
+}
+std::array<Ref,4> color_channels(const Document& d,const Ref& ref) {
+    const auto available=color_properties(d);
+    if(std::find(available.begin(),available.end(),ref)==available.end())throw Error("MISSING_COLOR",ref.object+"/"+ref.field);
+    const auto prefix=ref.field=="color"?"color.":ref.field.substr(0,ref.field.size()-5);
+    std::array<Ref,4> result;const std::array<std::string,4> channels{"r","g","b","a"};
+    for(std::size_t i=0;i<4;++i)result[i]={ref.object,"",prefix+channels[i]};
+    return result;
+}
+ColorValue color_value(const Document& d,const Ref& ref,const std::map<Ref,double>& values) {
+    ColorValue color;const auto channels=color_channels(d,ref);
+    for(std::size_t i=0;i<4;++i)color.rgba[i]=values.at(channels[i]);
+    return color;
+}
+std::optional<Ref> color_link(const Document& d,const Ref& ref) {
+    const auto channels=color_channels(d,ref);const auto first=property(d,channels[0]);
+    if(!first.binding)return {};
+    const auto& source=first.binding->source;
+    if(!source.point.empty()||!source.field.ends_with(".r"))return {};
+    const Ref candidate{source.object,"",d.named_colors.contains(source.object)?"color":source.field.substr(0,source.field.size()-1)+"color"};
+    std::array<Ref,4> source_channels;
+    try{source_channels=color_channels(d,candidate);}catch(const Error&){return {};}
+    for(std::size_t i=0;i<4;++i) {
+        const auto scalar=property(d,channels[i]);
+        if(!scalar.binding||scalar.binding->source!=source_channels[i]||scalar.binding->scale!=1||scalar.binding->offset!=0||scalar.binding->mode!="copy_local_value")return {};
+    }
+    return candidate;
+}
+bool color_is_used(const Document& d,const Ref& ref,const std::map<Ref,bool>* operation_enabled,
+    const std::map<Ref,bool>* gradient_enabled) {
+    if(!ref.point.empty())return false;
+    const auto object=d.objects.find(ref.object);if(object==d.objects.end())return false;
+    std::map<Ref,bool> computed_enabled;
+    if(!operation_enabled) {computed_enabled=evaluate_operation_enableds(d);operation_enabled=&computed_enabled;}
+    std::map<Ref,bool> computed_gradient_enabled;
+    if(!gradient_enabled) {computed_gradient_enabled=evaluate_gradient_enableds(d);gradient_enabled=&computed_gradient_enabled;}
+    for(const auto& op:object->second.stack) {
+        if(!operation_enabled->at(operation_ref(ref.object,op.id,"enabled"))||
+            (op.type!="nect.paint.fill"&&op.type!="nect.paint.stroke"))continue;
+        const bool gradient_active=op.gradient&&gradient_enabled->at(gradient_ref(ref.object,op.id,op.gradient->id,"enabled"));
+        if(ref==operation_ref(ref.object,op.id,"color"))return !gradient_active;
+        if(gradient_active)for(const auto& stop:op.gradient->stops)
+            if(ref==gradient_ref(ref.object,op.id,op.gradient->id,"stop."+stop.id+".color"))return true;
+    }
+    return false;
+}
+}

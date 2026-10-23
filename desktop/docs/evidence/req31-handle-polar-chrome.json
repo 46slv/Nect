@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "browser": "155.0.8059.80",
+  "checks": [
+    "Curve corner: both angle/length, coupling, single Undo/Redo",
+    "Curve smooth: both angle/length, coupling, single Undo/Redo",
+    "Curve symmetric: both angle/length, coupling, single Undo/Redo",
+    "Multi Path corner: both angle/length, coupling, single Undo/Redo",
+    "Multi Path smooth: both angle/length, coupling, single Undo/Redo",
+    "Multi Path symmetric: both angle/length, coupling, single Undo/Redo",
+    "Escape, negative/empty/nonfinite rejection, shared arithmetic evaluator",
+    "zero length / +X regrowth / JSON reload",
+    "untouched rounded fields preserve full precision and History; edit advances dirty revision once",
+    "Curve corner: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "Curve smooth: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "Curve symmetric: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "Multi Path corner: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "Multi Path smooth: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "Multi Path symmetric: numeric → SVG handle; both Canvas drags → polar values; one Undo per operation",
+    "layer/node/parameter lock and expression/connection: disabled and forged change rejected",
+    "focused Enter commit preserves focus and nested scroll; existing XY edit remains synchronized"
+  ],
+  "pageErrors": [],
+  "native": "unverified",
+  "physicalIME": "unverified"
+}

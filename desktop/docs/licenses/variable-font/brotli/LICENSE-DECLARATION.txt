@@ -1,0 +1,12 @@
+Exact pinned package README license section:
+
+## License
+
+MIT
+
+Author from package.json: Devon Govett <devongovett@gmail.com>
+
+No full project-level MIT grant/copyright notice is present in the pinned
+package or complete upstream source tree. MIT is explicitly declared; final bundled notice packaging remains a review item.
+Do not substitute a synthetic grant or the vendored Google license for the
+JavaScript port authors' missing project notice. See PROVENANCE.md.

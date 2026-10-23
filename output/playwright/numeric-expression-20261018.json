@@ -1,0 +1,18 @@
+{
+  "browser": "Chrome",
+  "executablePath": "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "url": "http://127.0.0.1:4174/",
+  "cases": {
+    "math_divide": { "typed": "120/3", "result": "40", "inputType": "number" },
+    "math_parentheses": { "typed": "2+(4)", "result": "6" },
+    "invalid_expression": { "typed": "120/", "result": "0" },
+    "zero_division": { "typed": "1/0", "result": "0" },
+    "escape": { "result": "0", "inputType": "number" },
+    "undo_redo": { "committed": "10", "undo": "0", "redo": "10" },
+    "constrained_expand_stroke": { "result": "6", "min": "0", "max": "4" }
+  },
+  "notes": [
+    "Invalid and zero-division cases preserved the prior value.",
+    "Constrained control exposes min/max attributes; existing command validation behavior remains unchanged in this route."
+  ]
+}

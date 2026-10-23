@@ -1,0 +1,1712 @@
+{
+  "schemaVersion": 2,
+  "name": "Image Pattern Composition",
+  "width": 1040,
+  "height": 344,
+  "layers": [
+    {
+      "id": "image-path-0",
+      "name": "White paper",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-0:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [520, 172],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [1040, 344],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-0:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-0:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-0:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-0:n2"
+    },
+    {
+      "id": "image-path-1",
+      "name": "Label / Image → Pattern → Geometry",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 40],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 25,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Image → Pattern → Geometry",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#20323d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-1:n2"
+    },
+    {
+      "id": "image-path-2",
+      "name": "Label / Convert generated paint into a Path, then transform and repaint it",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-2:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 66],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Convert generated paint into a Path, then transform and repaint it",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-2:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-2:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-2:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-2:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-2:n2"
+    },
+    {
+      "id": "image-path-3",
+      "name": "01  SOURCE PNG",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-3:n0",
+          "type": "Image",
+          "name": "Image",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 144],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-tone-raster"
+        },
+        {
+          "id": "image-path-3:n1",
+          "type": "Image Output",
+          "name": "Image Output",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-3:n0"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-3:n1"
+    },
+    {
+      "id": "image-path-4",
+      "name": "Label / 01  SOURCE PNG",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-4:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "01  SOURCE PNG",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-4:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-4:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-4:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-4:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-4:n2"
+    },
+    {
+      "id": "image-path-5",
+      "name": "Label / 96×64 embedded RGBA raster",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-5:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 314],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "96×64 embedded RGBA raster",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-5:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-5:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-5:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-5:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-5:n2"
+    },
+    {
+      "id": "image-path-6",
+      "name": "02  HALFTONE",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-6:n0",
+          "type": "Image",
+          "name": "Image",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [288, 144],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-tone-raster"
+        },
+        {
+          "id": "image-path-6:n1",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-6:n0"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-6:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-6:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-6:n2"
+    },
+    {
+      "id": "image-path-7",
+      "name": "Label / 02  HALFTONE",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-7:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [288, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "02  HALFTONE",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-7:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-7:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-7:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-7:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-7:n2"
+    },
+    {
+      "id": "image-path-8",
+      "name": "Label / pixel luminance → dot area",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-8:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [288, 314],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "pixel luminance → dot area",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-8:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-8:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-8:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-8:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-8:n2"
+    },
+    {
+      "id": "image-path-9",
+      "name": "03  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-9:n0",
+          "type": "Image",
+          "name": "Image",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [544, 144],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-tone-raster"
+        },
+        {
+          "id": "image-path-9:n1",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-9:n0"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-9:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-9:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-9:n2"
+    },
+    {
+      "id": "image-path-10",
+      "name": "Label / 03  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-10:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [544, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "03  ORDERED DITHER",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-10:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-10:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-10:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-10:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-10:n2"
+    },
+    {
+      "id": "image-path-11",
+      "name": "Label / pixel luminance → Bayer cells",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-11:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [544, 314],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "pixel luminance → Bayer cells",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-11:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-11:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-11:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-11:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-11:n2"
+    },
+    {
+      "id": "image-path-12",
+      "name": "04  VECTOR MODIFIERS",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-12:n0",
+          "type": "Image",
+          "name": "Image",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [800, 144],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-tone-raster"
+        },
+        {
+          "id": "image-path-12:n1",
+          "type": "Halftone",
+          "name": "Halftone",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n0"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-12:n2",
+          "type": "Convert to Path",
+          "name": "Convert to Path",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-12:n3",
+          "type": "Path Remap",
+          "name": "Path Remap",
+          "position": [798, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n2"
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-12:n4",
+          "type": "Transform",
+          "name": "Transform",
+          "position": [1048, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n3"
+            },
+            "anchor": {
+              "type": "Vector2",
+              "value": [896, 208],
+              "expression": "",
+              "locked": false
+            },
+            "offset": {
+              "type": "Vector2",
+              "value": [0, 0],
+              "expression": "",
+              "locked": false
+            },
+            "scale": {
+              "type": "Scalar",
+              "value": 1,
+              "expression": "",
+              "locked": false
+            },
+            "rotation": {
+              "type": "Scalar",
+              "value": 10,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-12:n5",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [1298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n4"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#126a77",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-12:n6",
+          "type": "Output",
+          "name": "Output",
+          "position": [1548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-12:n5"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-12:n6"
+    },
+    {
+      "id": "image-path-13",
+      "name": "Label / 04  VECTOR MODIFIERS",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-13:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [800, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "04  VECTOR MODIFIERS",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-13:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-13:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-13:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-13:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-13:n2"
+    },
+    {
+      "id": "image-path-14",
+      "name": "Label / converted, rotated and repainted",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "image-path-14:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [800, 314],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "converted, rotated and repainted",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-14:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-14:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "image-path-14:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "image-path-14:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "image-path-14:n2"
+    }
+  ],
+  "imageAssets": {
+    "image-tone-raster": {
+      "name": "procedural-tone.png",
+      "mime": "image/png",
+      "width": 96,
+      "height": 64,
+      "data": "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"
+    }
+  }
+}

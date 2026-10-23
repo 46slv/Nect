@@ -4,6 +4,22 @@ Status: M0 engineering baseline. Notion owns product requirements/decisions; thi
 
 ## Owners
 
+### Production Desktop lane (2026-10-16)
+
+The 2026-10-18 Windows font adapters additionally own bounded read-only OS font
+discovery and glyph-outline preparation. They return geometry and face metadata,
+never font bytes or authored document changes. The JS Session validates and
+adopts snapshots; pure evaluation/export never calls Windows. See
+`desktop/docs/windows-text-shaping.md` for schema 28/29 and unsupported layouts.
+
+The separate Desktop Mission lives under `desktop/`, with its adopted Brief in this worktree's CURRENT_GOAL.md. It uses Tauri/WebView2 and the imported Nect-SVG typed graph. Its common editing Session is JavaScript, independent of the DOM; Rust owns filesystem bindings and staged writes only. Supported GUI/headless/API adapters must share that Session's commands and history. Legacy C++/Qt and native formats remain preserved, separate implementations; no format/command equivalence is claimed. The imported callback History and UI direct edits are an explicit migration obligation, not a completed command architecture. DocumentLifecycle coordinates file lifetime and is not itself the editing Session.
+
+For migrated Text editing, CommandSession also owns temporary text drafts, stable character reconciliation and bounded native-input Undo snapshots. The UI captures observed text/selection/composition intent and renders provisional input; it cannot install authored character maps. Text/font commits validate private candidates and share the Session History. See `desktop/docs/nect-integration.md` for the remaining direct-edit migration debt.
+
+Graph layout, numeric/Text scrubs and Canvas gestures use one exclusive Session-private gesture candidate. Fixed stable targets and an independent preview revision protect updates; detached previews are output-only display projections. Committed snapshots/History remain unchanged until one validated commit, and cancellation discards the draft without restoring over newer authored state. Pen shares that slot and separates pressed-point rollback from whole-path cancellation. GUI retains pointer/snap/view/selection state. SVG adapters lower XML to portable syntax data; the DOM-free Session validates the supported subset and generates the authored graph and identities. The UI reads frozen History states for selection identity, while public debug reads/evaluation use detached snapshots. Authored mutation stays inside typed Session commands.
+
+The baseline owners below continue to describe the legacy implementation.
+
 | Owner | Responsibility | Must not own |
 |---|---|---|
 | `nect_core` | Authored document, identity/hierarchy, property addressing, evaluation, atomic commands, undo/revision | UI state, file paths, MCP transport, proprietary codec internals |
@@ -23,9 +39,9 @@ Native authored state is the editing authority. Compatibility IR, render trees a
 
 ## Relationships and coordinate ownership
 
-M0 Composition owns root paint order and its coordinate plane. Its artboards are output rectangles, not object parents. Object children currently provide containment and inherited transforms; Folder is the UI name for a Group, not an extra data model. Collection is a non-owning set; scalar Binding is a directed value dependency.
+Composition owns root paint order and its coordinate plane. Its artboards are output rectangles, not object parents. Object children provide containment and default inherited transforms; Folder is the UI name for a Group, not an extra data model. Collection is a non-owning set; scalar Binding is a directed value dependency.
 
-The selected future direction separates Structure (ownership/order/effect scope), Transform Parent (following), template assignment, Collection membership and property dependency. Before implementing an explicit Transform Parent, specify its effective-parent rule relative to structural transforms; never apply the same inherited transform twice.
+Native0.9 separates Structure (ownership/order/effect scope) from explicit Transform Parent (following). The effective parent is the explicit reference when present, otherwise the structural parent, otherwise Composition identity. Shared evaluation validates same-composition references, cycles and depth; it never applies both parent transforms. Template assignment, Collection membership and property dependencies remain distinct relationships.
 
 Validate ownership and dependencies at the appropriate property/evaluation stage. A mask source can depend on the target's world transform while the target's render depends on the source mask: this is not automatically a cycle at the whole-object level. A real evaluation cycle is invalid. Do not validate each relation in isolation while missing a cycle across domains, or reject all cross-domain references conservatively as object cycles.
 
@@ -33,11 +49,11 @@ Changing Collection membership does not reparent source objects but can change o
 
 ## Grouping, parenting and pivots
 
-M0 only implements **neutral GroupContiguous**: ordered contiguous siblings are replaced in paint order by an identity Group. General keep-world reparenting is not implemented.
+**GroupContiguous** replaces ordered contiguous siblings in paint order by an identity Group and initializes its Anchor once from geometric bounds. Transform-parent attach/detach can preserve world coordinates through an explicit command. Bounded Ungroup removes neutral static containers with child affine/value preservation checks; unsafe compositing/dynamic/reference cases refuse. General structural keep-world reparenting is not implemented.
 
 Future reparenting must distinguish coordinate preservation from appearance preservation. Parent-matrix inversion addresses coordinates only and fails for singular transforms. Masks, backdrop blend, isolation, effects and order can still change appearance. Reject or show a conversion plan when preservation is not possible; do not silently flatten.
 
-An authored Anchor is distinct from derived bounds center. Initialize it at creation, keep it fixed through later content changes and support explicit anchor edits/recentering. An anchor-only move should preserve placement where representable. Extend the current transform representation coherently when this is implemented; do not add a second independently authoritative matrix/TRS state.
+An authored Anchor is distinct from derived bounds center. Shared Session creation initializes it at the current local geometry center; it stays fixed through later content changes and supports explicit edits/recentering. Text creation without Windows DirectWrite retains a neutral or explicitly authored Anchor instead, so authored Text remains portable; geometry-dependent measurement and recentering still report the unavailable capability. The six affine Scalars remain the canonical transform, so editing Anchor alone preserves placement. Derived Position and one-shot rotation/scale commands solve that matrix about Anchor; they do not persist a second authoritative TRS state. See docs/model-v0.md for driven-field and singular-transform refusal boundaries.
 
 ## One live Session per open document
 
@@ -68,6 +84,10 @@ Incomplete text/IME composition stays a draft. Type/unit/cycle/evaluation errors
 During source picking, target property IDs remain frozen independently of the viewed source. Search resolves readable names to stable references and exposes type/unit/space. Multi-target link/edit commits are atomic and undoable; incompatible targets are reported. Named/global Color links use the same dependency ownership; equal values do not create implicit links.
 
 ## Continuous gestures and background evaluation
+
+Session may expose the derived property values produced by its last successful gesture validation to Canvas. They belong to that exact preview snapshot, are read-only, and are discarded on an empty update, commit or cancel. Failed updates/failed history admission retain the last valid preview/value pair. Non-gesture projection still evaluates authored state normally; this does not add editing authority or skip validation.
+
+Canvas edit notifications follow projection of the exact committed edit (or its last validated preview). Window may reuse a successful projection only during that synchronous notification, with Host session identity/revision guards. It still updates Inspector, structure, History and recovery. External edits, load, Undo, failed projection and reentrant revision/identity changes use a full refresh; this is not a persistent revision cache.
 
 A completed drag/scrub is one undoable edit; cancellation restores its starting state. Use a Session-owned edit context or command grouping, not unmanaged widget geometry. Define queue/reject/rebase behavior for API edits arriving during a gesture; never silently overwrite concurrent work.
 
@@ -103,6 +123,15 @@ Define mask coordinate space, input stage and alpha/luma/geometry mode. Transfor
 
 Evaluate each child's own appearance/effects before processing the required composed Group result. Neutral Groups avoid unnecessary isolation. Group opacity/effects and Pass Through/Isolated blending need targeted fixtures; they cannot be inferred solely from hierarchy labels.
 
+The native0.11 subset resolves visibility, ordinary Scalar opacity, geometry
+masks and twelve separable blends through one transient `evaluate_scene` tree.
+One evaluated shape per leaf is shared by artwork and mask consumers. Structural
+scope and world-space mask geometry are explicit; Qt/SVG consume this projection.
+Compositions start with transparent artwork, independent of viewport paper UI.
+Nonneutral scopes aggregate before clip/opacity/blend; neutral Groups pass through.
+Renderer surface bounds and SVG reader requirements are visible capability limits,
+not permission to silently flatten or omit native effects. See `docs/model-v0.md`.
+
 ## Artboards, templates and reusable sources
 
 Artboards are output frames on their owning Composition's plane, with stable identity and output metadata. Objects may cross frames or live outside them. Ordered navigator layout, export order and actual frame coordinates are independent. Auto-tidy presentation must not change crops or translate artwork. Physical frame/content relocation is an explicit command with its impact shown.
@@ -111,7 +140,24 @@ Templates may provide optional frame/layout settings and repeated content with p
 
 Linked and Embedded resources are explicit. Show link change/missing/version state; reload uses the normal document command boundary where it changes the result. Embedded bytes are self-contained; saving a linked reference is not a backup of all external historical bytes.
 
+## Property expression boundary
+
+Scalar has one driven source: Binding or versioned Expression, never both.
+Expression compilation is pure and transient; stable property references re-enter
+the existing property dependency visitor for units, cycles and generated topology.
+Requested-root transform evaluation uses that same path. The bounded v1 arithmetic
+language has no script runtime or external authority. Numeric-row multiline drafts
+and their validation result are UI state; only explicit Session commands modify
+and persist source. A stale draft revision rejects rather than overwriting edits
+from the API. SVG is an evaluated projection; native source remains authored.
+
 ## Interchange and source preservation
+
+The optional desktop SVG reader performs memory-only interchange lowering into
+existing Session commands (`src/desktop/svg_import.cpp`, logical IO responsibility).
+It uses already-linked Qt Core XML and owns no editing state; core-only `nect_io`
+and CLI do not acquire a Qt dependency. Host supplies bounded local bytes and
+applies the complete serializable batch once for GUI/API/MCP. See `docs/svg-import.md`.
 
 Native persistence preserves authored intent; interchange is a projection. Plan direct mapping -> geometry expansion -> bounded appearance bake -> explicit refusal. A safe bake boundary includes necessary inputs, masks, backdrop, filter support, resolution and color context; it is not guaranteed to be one layer/subtree. Preserve unrelated editability where possible and report the actual loss.
 
@@ -138,3 +184,87 @@ Choose flush/cadence/retention/recovery-loss bounds with the persistence impleme
 | Host/codec/plugin runtime | Adapter plus actual capability gaps | No second authority; explicit unsupported result |
 
 Use the smallest correct boundary, not the fewest lines at any cost. If an invariant blocks a real requirement, propose its bounded replacement and migration rather than preserving a known defect or rewriting unrelated subsystems.
+
+
+## Same-document Composition output references (schema 31)
+
+Composition Reference stores a stable compositionId and numeric Position. The
+common Session owns selection/retarget/duplication edits; evaluate receives the
+document explicitly, resolves source Output independently of layer visibility,
+and includes its output revision in dependent cache keys. Missing IDs remain
+saved and diagnosed; self/indirect cycles are rejected, including unused nodes.
+
+Appearance reuse is a derived painted-group value, never saved scene snapshots:
+ordered paint/image children and affine matrices render the source appearance,
+while aggregate contours are only geometry for bounds/handles. Transform and Join
+persist an explicit paintMode with PaintedPath sockets/output. Plain Path-only
+consumers still require Convert to Path. Nested groups preserve per-child alpha,
+holes, gradient IDs and image data without an artboard/background bake. Source
+export restrictions propagate separately from editable character provenance.
+The structural/geometry/depth budgets refuse expansion rather than truncating it.
+Old documents keep their schema until this feature is authored. No external-file
+identity, storage or render authority is introduced by this reference.
+
+
+OS Text horizontal wrap (schema32, OS reference v4 / directwrite-v3) reuses
+textWrap.width in the common prepared-text command. The immutable outline records
+requested wrapWidth and overflow, axes and writing mode; source text retains only
+its explicit newlines. DirectWrite whole-word breaks preserve long unbreakable
+spans without clipping, while width/spacing/alignment/text and generated geometry
+commit atomically. Layout advances and visible-bound anchoring keep their existing
+coordinate meanings. Horizontal layout height grows independently of artboard
+size; PNG retains normal artboard clipping. Full Japanese kinsoku and vertical
+wrap are not claimed. Old unwrapped native requests/snapshots retain v1/v2 meanings.
+
+
+Direct selection is a view-only resolver of a unique editable Output route. It
+composes literal Transform matrices for displayed controls and maps pointer/world
+nudge deltas back into source coordinates. Generated and branching paths are not
+silently baked or assigned new ownership. Common translate-points uses the same
+Curve/Multi Path/explicit Remap gesture validator, and independent handle drags
+commit corner mode plus one handle in the same transaction. UI point selection
+may be restored by stable ID on Undo, independently of saved authoring data.
+
+Pen continuation extends the existing common Session Pen draft using explicit
+layer/node/contour/endpoint IDs. Its preview replaces the owned layer, while new
+Pen artwork still appends a private layer. Head insertion prepends IDs without
+reversing existing point records or swapping handles; Multi Path global point
+storage and unrelated contours retain identity. World pointer coordinates are
+mapped through the same literal affine route as direct selection. One finish
+commits the entire extension; cancellation and unchanged finish preserve history.
+Retained Remap dependents refuse topology changes instead of silently suspending
+their edits. Procedural sources require explicit authoring conversion elsewhere.
+
+SVG parts reuse the conservative SVG syntax adapter and Composition appearance
+contract. Common add-svg-part builds one hidden editable source Composition from
+the parsed vector graphs, then appends a named Composition Reference to the current
+Composition and joins it after the previous output. Existing artboard, document
+binding, unrelated layers and authored source nodes remain intact. One command
+owns import, instance and join; refusal and Undo are atomic. The saved graphs are
+self-contained without a source-file dependency. No new SVG renderer, execution,
+external fetching, node type or document schema is introduced. Unsupported parser
+features and graph/paint limits refuse explicitly. Existing import-svg retains
+its separate undoable document-replacement contract.
+
+Desktop SVG actions use one native chooser that reads a selected UTF-8 file up to
+10 MB, returns basename/contents and creates no project-file binding. This avoids
+depending on HTML file-input activation after an asynchronous native unsaved-change
+prompt. The same JS parser and Session command own adoption after revision and
+document-generation checks. Cancel/read/parse errors preserve the current document;
+browser file inputs reset before each pick so retries do not suppress change events.
+
+Layer Solo is an optional saved boolean gated by schema33 and authored through
+set-layer-state/clear-layer-solo in the common Session. Multiple Solo layers form
+a top-level preview/export filter; Hide remains authoritative. It never rewrites
+visible flags, and clearing/Undo restores the prior state. Canvas, hit testing and
+SVG/PNG use the same visibility predicate. Composition Reference source evaluation
+continues independently of top-level display filters. A persistent panel status
+makes Solo's export effect visible. Structural renders retain Layers scroll along
+with the existing inspector/graph/guide scroll and prevent-scroll focus restore.
+
+The SVG adapter resolves rectangle percentages against its viewport and lowers
+rounded rectangles into editable paths. To import QR-like data without one layer
+per module, consecutive unnamed opaque same-color stroke-free rectangles can be
+combined into bounded closed-contour sources. The shared raw-path/geometry budgets
+remain intact; transparent paints, gradients, arbitrary paths and named layers are
+kept separate. This does not introduce permissive SVG execution or external assets.

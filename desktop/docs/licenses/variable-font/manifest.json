@@ -1,0 +1,370 @@
+{
+  "captured": "2026-10-17",
+  "scope": "fontkit 2.0.4 runtime dependency closure; browser inputs from isolated esbuild metafile; embedded base64-arraybuffer and Brotli source notices",
+  "packages": [
+    {
+      "name": "@swc/helpers",
+      "version": "0.5.23",
+      "resolved": "https://registry.npmjs.org/@swc/helpers/-/helpers-0.5.23.tgz",
+      "integrity": "sha512-5lSsMOTXURePglDfvuAQUqkGek9Hg2kksOYay2m0+XR++b2NWYL/4sWyuvVBIs8oKnJaxkdi9whaL/sqN13afw==",
+      "license": "Apache-2.0",
+      "browserInputPresent": true,
+      "directory": "@swc--helpers",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "base64-js",
+      "version": "1.5.1",
+      "resolved": "https://registry.npmjs.org/base64-js/-/base64-js-1.5.1.tgz",
+      "integrity": "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "base64-js",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "brotli",
+      "version": "1.3.3",
+      "resolved": "https://registry.npmjs.org/brotli/-/brotli-1.3.3.tgz",
+      "integrity": "sha512-oTKjJdShmDuGW94SyyaoQvAjf30dZaHnjJ8uAF+u2/vGJkJbJPJAT1gDiOJP5v1Zb6f9KEyW/1HpuaWIXtGHPg==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "brotli",
+      "notices": [
+        "LICENSE-DECLARATION.txt",
+        "VENDOR-GOOGLE-LICENSE.txt",
+        "DECODER-NOTICES.txt",
+        "Apache-2.0.txt"
+      ],
+      "fullLicenseIncludedUpstream": false,
+      "upstreamGitHead": "e36051345f6d27a56e5f39ea70d2f789b8574046",
+      "releaseStatus": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
+      "provenance": "PROVENANCE.md"
+    },
+    {
+      "name": "clone",
+      "version": "2.1.2",
+      "resolved": "https://registry.npmjs.org/clone/-/clone-2.1.2.tgz",
+      "integrity": "sha512-3Pe/CF1Nn94hyhIYpjtiLhdCoEoz0DqQ+988E9gmeEdQZlojxnOb74wctFyuwWQHzqyf9X7C7MG8juUpqBJT8w==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "clone",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "dfa",
+      "version": "1.2.0",
+      "resolved": "https://registry.npmjs.org/dfa/-/dfa-1.2.0.tgz",
+      "integrity": "sha512-ED3jP8saaweFTjeGX8HQPjeC1YYyZs98jGNZx6IiBvxW7JG5v492kamAQB3m2wop07CvU/RQmzcKr6bgcC5D/Q==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "dfa",
+      "notices": ["LICENSE-DECLARATION.txt"],
+      "fullLicenseIncludedUpstream": false,
+      "upstreamGitHead": "3f5e603e5082caedabefefdf53e8a6ca3111e966",
+      "releaseStatus": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
+      "provenance": "PROVENANCE.md"
+    },
+    {
+      "name": "fast-deep-equal",
+      "version": "3.1.3",
+      "resolved": "https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz",
+      "integrity": "sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "fast-deep-equal",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "fontkit",
+      "version": "2.0.4",
+      "resolved": "https://registry.npmjs.org/fontkit/-/fontkit-2.0.4.tgz",
+      "integrity": "sha512-syetQadaUEDNdxdugga9CpEYVaQIxOwk7GlwZWWZ19//qW4zE5bknOKeMBDYAASwnpaSHKJITRLMF9m1fp3s6g==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "fontkit",
+      "notices": ["LICENSE-DECLARATION.txt"],
+      "fullLicenseIncludedUpstream": false,
+      "upstreamGitHead": "fbf3b9ef21eebd219eb73e666faed573af0fba09",
+      "releaseStatus": "MIT_DECLARED_FULL_UPSTREAM_NOTICE_ABSENT",
+      "provenance": "PROVENANCE.md"
+    },
+    {
+      "name": "pako",
+      "version": "0.2.9",
+      "resolved": "https://registry.npmjs.org/pako/-/pako-0.2.9.tgz",
+      "integrity": "sha512-NUcwaKxUxWrZLpDG+z/xZaCgQITkA/Dv4V/T6bw7VON6l1Xz/VnrBqrYjZQ12TamKHzITTfOEIYUj48y2KXImA==",
+      "license": "MIT",
+      "browserInputPresent": false,
+      "directory": "pako",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "restructure",
+      "version": "3.0.2",
+      "resolved": "https://registry.npmjs.org/restructure/-/restructure-3.0.2.tgz",
+      "integrity": "sha512-gSfoiOEA0VPE6Tukkrr7I0RBdE0s7H1eFCDBk05l1KIQT1UIKNc5JZy6jdyW6eYH3aR3g5b3PuL77rq0hvwtAw==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "restructure",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "tiny-inflate",
+      "version": "1.0.3",
+      "resolved": "https://registry.npmjs.org/tiny-inflate/-/tiny-inflate-1.0.3.tgz",
+      "integrity": "sha512-pkY1fj1cKHb2seWDy0B16HeWyczlJA9/WW3u3c4z/NiWDsO3DOU5D7nhTLE9CF0yXv/QZFY7sEJmj24dK+Rrqw==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "tiny-inflate",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "tslib",
+      "version": "2.8.1",
+      "resolved": "https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz",
+      "integrity": "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==",
+      "license": "0BSD",
+      "browserInputPresent": true,
+      "directory": "tslib",
+      "notices": ["LICENSE.txt", "CopyrightNotice.txt"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "unicode-properties",
+      "version": "1.4.1",
+      "resolved": "https://registry.npmjs.org/unicode-properties/-/unicode-properties-1.4.1.tgz",
+      "integrity": "sha512-CLjCCLQ6UuMxWnbIylkisbRj31qxHPAurvena/0iwSVbQ2G1VY5/HjV0IRabOEbDHlzZlRdCrD4NhB0JtU40Pg==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "unicode-properties",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    },
+    {
+      "name": "unicode-trie",
+      "version": "2.0.0",
+      "resolved": "https://registry.npmjs.org/unicode-trie/-/unicode-trie-2.0.0.tgz",
+      "integrity": "sha512-x7bc76x0bm4prf1VLg79uhAzKw8DVboClSN5VxJuQ+LKDOVEW9CdH+VY7SP+vX7xCYQqzzgQpFqz15zeLvAtZQ==",
+      "license": "MIT",
+      "browserInputPresent": true,
+      "directory": "unicode-trie",
+      "notices": ["LICENSE"],
+      "fullLicenseIncludedUpstream": true
+    }
+  ],
+  "additionalNotices": [
+    "base64-arraybuffer/LICENSE",
+    "brotli/DECODER-NOTICES.txt",
+    "brotli/Apache-2.0.txt"
+  ],
+  "fixture": {
+    "path": "tests/fixtures/variable-font/Roboto-variable.ttf",
+    "bytes": 488584,
+    "sha256": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134"
+  },
+  "files": [
+    {
+      "path": "@swc--helpers/LICENSE",
+      "sha256": "d96eba1f1881334d50ffc144276dfa98e147a415e7c591ecdfcb81680361dc91"
+    },
+    {
+      "path": "@swc--helpers/package.json",
+      "sha256": "10ee79b75759afbf8cfa2b8e5a2eff946c487143e935fc31b2433aa68be84596"
+    },
+    {
+      "path": "README.md",
+      "sha256": "6ec7397d57a8ebc6d80d40c3507b20f23100871a74585837abad4ef97439b817"
+    },
+    {
+      "path": "base64-arraybuffer/LICENSE",
+      "sha256": "f3eca6ff762533fa5a77caf954a143e48afa204668cf97dce758c45a9e006be3"
+    },
+    {
+      "path": "base64-arraybuffer/PROVENANCE.md",
+      "sha256": "fc469bdf922951b53af3b6a0e7ae810717a49300145ca023edf78012ad4b78b5"
+    },
+    {
+      "path": "base64-js/LICENSE",
+      "sha256": "5b37224c080cdcc97c871ada971c224e9926370fe74f11b539aa1cf9f3b1aca1"
+    },
+    {
+      "path": "base64-js/package.json",
+      "sha256": "9758f3ab8c45e07bb9a368e32f9a8b3729623bbf47cbbb205b32d674ab2a91f0"
+    },
+    {
+      "path": "brotli/Apache-2.0.txt",
+      "sha256": "d96eba1f1881334d50ffc144276dfa98e147a415e7c591ecdfcb81680361dc91"
+    },
+    {
+      "path": "brotli/DECODER-NOTICES.txt",
+      "sha256": "3ae5e09cfcf61f1ab06153b7dad8730171cb7c9b2f512d925bd4b8585fcf665d"
+    },
+    {
+      "path": "brotli/LICENSE-DECLARATION.txt",
+      "sha256": "184798d2682695bb03515332d5dd9adb5d96fb9ad756956caf1de4cf432a0df4"
+    },
+    {
+      "path": "brotli/PROVENANCE.md",
+      "sha256": "0f590ff5b0a0d3a840c43c55eacc3f4b6809bcc74cbd217eee4afe5956be83d1"
+    },
+    {
+      "path": "brotli/VENDOR-GOOGLE-LICENSE.txt",
+      "sha256": "3d180008e36922a4e8daec11c34c7af264fed5962d07924aea928c38e8663c94"
+    },
+    {
+      "path": "brotli/package.json",
+      "sha256": "387b47d00ea96cab9b4c521629fbcdc7621053ac061812526f3c69700924cef5"
+    },
+    {
+      "path": "brotli/upstream-gitmodules.txt",
+      "sha256": "e3cbed0b94641ca35a7f74ed0d4f009bd8b1c56b3cbf5be79970964fe4aa7fbc"
+    },
+    {
+      "path": "brotli/upstream-readme.md",
+      "sha256": "8a8bac543fccf52a64708ff3315ca2be90e3e4c270634df1e4e4b51f0ee9c5d7"
+    },
+    {
+      "path": "brotli/upstream-tree.json",
+      "sha256": "55d33a7d4bef92ae409167130c84cd12eb4ef5094af89ce5a2ce361341fa7ab3"
+    },
+    {
+      "path": "browser-inputs.json",
+      "sha256": "d930bac1fb1b1c7971d30f4199dd1ac67b4a51f21214098fc428295db244f94f"
+    },
+    {
+      "path": "clone/LICENSE",
+      "sha256": "3fb0857ef0133928cf72c88dfc464e931486e88778961eedec25585e2321507f"
+    },
+    {
+      "path": "clone/package.json",
+      "sha256": "07e9c7efd55a99cbe2909d1fd46b032b67cba6b493d1fbc974fddf4f2adebc83"
+    },
+    {
+      "path": "dfa/LICENSE-DECLARATION.txt",
+      "sha256": "bc95da0e9c575d8488af569322a0038afd740c4ee598c665e1ebcced39c87eba"
+    },
+    {
+      "path": "dfa/PROVENANCE.md",
+      "sha256": "80f2f40054c4bb2ca19a304fa7d554cca9039de5cd0221ff25213166454dc1da"
+    },
+    {
+      "path": "dfa/package.json",
+      "sha256": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+    },
+    {
+      "path": "dfa/upstream-README.md",
+      "sha256": "30bd445925aa53205ff7f9afa6a43e21358fab656e471df6e028431aefc426c7"
+    },
+    {
+      "path": "dfa/upstream-evidence.json",
+      "sha256": "b2310ac41eefb12d6a5e8ac30e932ea0bc33da2dd2acb7094512d03d0624a528"
+    },
+    {
+      "path": "dfa/upstream-package.json",
+      "sha256": "96c0ce3cc17b34aabd58fd442157766d9e244cba735e54ee4fe10d7841f0460c"
+    },
+    {
+      "path": "fast-deep-equal/LICENSE",
+      "sha256": "7bf9b2de73a6b356761c948d0e9eeb4be6c1270bd04c79cd489c1e400ffdfc1a"
+    },
+    {
+      "path": "fast-deep-equal/package.json",
+      "sha256": "a5c63940db0260739be9e2ac67f3aac268df4db5770420ee4e34e493152f97d2"
+    },
+    {
+      "path": "fontkit/LICENSE-DECLARATION.txt",
+      "sha256": "bc95da0e9c575d8488af569322a0038afd740c4ee598c665e1ebcced39c87eba"
+    },
+    {
+      "path": "fontkit/PROVENANCE.md",
+      "sha256": "8364b56e95bacf174d342a1cb03e1e940828e43e9132f58ecd19da3858be1853"
+    },
+    {
+      "path": "fontkit/package.json",
+      "sha256": "49c60605b92316a5d5fe57b9a3bca8950ad9a8beab1cb633d6f29862d1bd163d"
+    },
+    {
+      "path": "fontkit/upstream-README.md",
+      "sha256": "8a1cf12d8ae7277f047c3000af7677927f2da9243627223ba5715d40df4979d6"
+    },
+    {
+      "path": "fontkit/upstream-evidence.json",
+      "sha256": "12e86877d90dc2938e4277d9aea35b05bc8b2d1afbf363bc6b1f024613e427d2"
+    },
+    {
+      "path": "fontkit/upstream-package.json",
+      "sha256": "49c60605b92316a5d5fe57b9a3bca8950ad9a8beab1cb633d6f29862d1bd163d"
+    },
+    {
+      "path": "pako/LICENSE",
+      "sha256": "3bc404ffa7888053253eedcc5a667619aa08dc1be0bea400e5ff28c51602180f"
+    },
+    {
+      "path": "pako/package.json",
+      "sha256": "dc1090fc2228e15fb13cc8aa81f3c99c9c0a4237f99a42d1c7ffda1b137cf1cf"
+    },
+    {
+      "path": "restructure/LICENSE",
+      "sha256": "c0df7f551401f8f80197ff31bf69b8cd23727d127423403282514d242a3ab132"
+    },
+    {
+      "path": "restructure/package.json",
+      "sha256": "f28780f515208c0fc417a2e49340b0cd1c146ff20ce6bfeee3593e64a8f74d14"
+    },
+    {
+      "path": "tiny-inflate/LICENSE",
+      "sha256": "c0df7f551401f8f80197ff31bf69b8cd23727d127423403282514d242a3ab132"
+    },
+    {
+      "path": "tiny-inflate/package.json",
+      "sha256": "7a97c9567b054c9294036537d42a112f4bd4263892fbfe2714e6acdf25816c6d"
+    },
+    {
+      "path": "tslib/CopyrightNotice.txt",
+      "sha256": "da16ddb65f8ca390998fb99223d0112498b56b45784d00afd77ff8ce1ac4de8b"
+    },
+    {
+      "path": "tslib/LICENSE.txt",
+      "sha256": "210b19e543130388c68654b7497e967119ce17145f66ab7d85688fbd70f08751"
+    },
+    {
+      "path": "tslib/package.json",
+      "sha256": "f02b4851df316f29bdfcd404aa1eb41e4e216b5859015f81fcd3e91caf8be931"
+    },
+    {
+      "path": "unicode-data/LICENSE.txt",
+      "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+    },
+    {
+      "path": "unicode-data/PROVENANCE.md",
+      "sha256": "5372747b3c1ed92c30b71a5eb4dffb70de8bdff6c349e8a880264d3974beb937"
+    },
+    {
+      "path": "unicode-properties/LICENSE",
+      "sha256": "43439dbd4f43837aadab215cdbe5a422cc6323a50c4ea84d8d6bbc3671666a1d"
+    },
+    {
+      "path": "unicode-properties/package.json",
+      "sha256": "4dba3776474dc9f928749684eeaeabacb40fd0e58ef704b2c2a976201830183b"
+    },
+    {
+      "path": "unicode-trie/LICENSE",
+      "sha256": "43439dbd4f43837aadab215cdbe5a422cc6323a50c4ea84d8d6bbc3671666a1d"
+    },
+    {
+      "path": "unicode-trie/package.json",
+      "sha256": "11742ae162c45a0f55a4d85ae1c6dc7dd380e203173d3bca04e72ca3b68729b6"
+    }
+  ],
+  "releaseStatus": "BUNDLING_NOTICE_REVIEW",
+  "missingAuthoritativeNotices": ["fontkit@2.0.4", "dfa@1.2.0", "brotli@1.3.3"],
+  "interpretation": "Packages explicitly declare MIT; full project notices absent. Not a finding of absent licensing or a legal prohibition."
+}

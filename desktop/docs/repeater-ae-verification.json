@@ -1,0 +1,29 @@
+{
+  "uiControls": true,
+  "undoRedo": true,
+  "fractionalCopies": true,
+  "fractionalOffset": true,
+  "jsonRestore": true,
+  "canvasPixels": {
+    "digest": "a1245e675c33d1615b1d40b6a9308006e629639a58855e9435c2003d90c56138",
+    "size": [160, 100],
+    "overlap": [255, 0, 0, 31]
+  },
+  "svgPixels": {
+    "digest": "a1245e675c33d1615b1d40b6a9308006e629639a58855e9435c2003d90c56138",
+    "size": [160, 100],
+    "overlap": [255, 0, 0, 31]
+  },
+  "pngPixels": {
+    "digest": "a1245e675c33d1615b1d40b6a9308006e629639a58855e9435c2003d90c56138",
+    "size": [160, 100],
+    "overlap": [255, 0, 0, 31]
+  },
+  "behindPixels": {
+    "digest": "3e04224a91c3b63afa76a2d5cab91870152e5bd56fdeccfaf81e9fa89b827fdb",
+    "size": [160, 100],
+    "overlap": [255, 0, 0, 31]
+  },
+  "pageErrors": [],
+  "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+}

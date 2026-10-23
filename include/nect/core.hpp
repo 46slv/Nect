@@ -1,22 +1,21 @@
 #pragma once
+#include "nect/raster.hpp"
 #include <array>
 #include <cstdint>
 #include <compare>
 #include <utility>
 #include <map>
+#include <list>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
 namespace nect {
 using Id = std::string;
-
-struct Error : std::runtime_error {
-    std::string code;
-    Error(std::string code, const std::string& message);
-};
 
 struct Ref {
     Id object;
@@ -25,31 +24,363 @@ struct Ref {
     auto operator<=>(const Ref&) const = default;
 };
 
+struct Error : std::runtime_error {
+    std::string code;
+    std::vector<Ref> references;
+    Error(std::string code, const std::string& message);
+};
+
 struct Binding {
     Ref source;
     double scale = 1;
     double offset = 0;
     std::string mode = "copy_local_value";
+    bool operator==(const Binding&) const = default;
+};
+
+struct Expression {
+    std::string source;
+    unsigned version = 1;
+    bool operator==(const Expression&) const = default;
+};
+
+// Text Italic is a typed boolean dependency; its bounded expression subset is
+// intentionally separate from the same-type integer Text weight link below.
+using TextItalicDriver = std::variant<Ref,Expression>;
+struct TextWeightDriver {
+    Ref link;
+    std::int64_t offset = 0;
+    bool operator==(const TextWeightDriver&) const = default;
+};
+enum class TextWeightBatchMode { edit, link, unlink };
+struct TextWeightBatch {
+    TextWeightBatchMode mode = TextWeightBatchMode::edit;
+    std::vector<Ref> targets;
+    std::int64_t value = 0;
+    std::optional<Ref> source;
+    bool relative = false;
+    bool replace_driver = false;
+};
+struct TextContentDriver {
+    Ref link;
+    bool operator==(const TextContentDriver&) const = default;
+};
+struct TextFamilyDriver {
+    Ref link;
+    bool operator==(const TextFamilyDriver&) const = default;
+};
+struct TextLocaleDriver {
+    Ref link;
+    bool operator==(const TextLocaleDriver&) const = default;
+};
+struct TextDirectionDriver {
+    Ref link;
+    bool operator==(const TextDirectionDriver&) const = default;
+};
+struct TextLayoutDriver {
+    Ref link;
+    bool operator==(const TextLayoutDriver&) const = default;
+};
+struct TextAlignmentDriver {
+    Ref link;
+    bool operator==(const TextAlignmentDriver&) const = default;
+};
+struct FillRuleDriver {
+    Ref link;
+    bool operator==(const FillRuleDriver&) const = default;
+};
+
+struct TextPathAttachment {
+    Id path;
+    Id contour;
+    std::string start_mode="distance";
+    double start=0;
+    double spacing=0;
+    bool reversed=false;
+    bool operator==(const TextPathAttachment&) const = default;
+};
+
+struct GroupPathFollowItem {
+    double distance=0;
+    double normal_offset=0;
+    bool follow_tangent=true;
+    bool operator==(const GroupPathFollowItem&) const = default;
+};
+
+struct GroupPathFollow {
+    Id id,path,contour;
+    std::string start_mode="distance";
+    double start=0;
+    double normal_offset=0;
+    bool reversed=false;
+    std::string mode="rigid";
+    std::string deform_axis="x";
+    std::map<Id,GroupPathFollowItem> items;
+    bool operator==(const GroupPathFollow&) const = default;
 };
 
 struct Scalar {
     double literal = 0;
     std::optional<Binding> binding;
+    std::optional<Expression> expression;
+    bool operator==(const Scalar&) const = default;
 };
 
 struct Point {
     Id id;
     Scalar x, y, in_angle, in_length, out_angle, out_length;
+    bool operator==(const Point&) const = default;
 };
 
 struct Contour {
     Id id;
     bool closed = false;
     std::vector<Point> points;
+    bool operator==(const Contour&) const = default;
 };
 
-enum class Kind { group, path };
+enum class Kind { group, path, text, image, instance };
 
+inline constexpr std::size_t document_raster_bytes_limit=24*1024*1024;
+inline constexpr std::uint64_t document_raster_pixels_limit=33554432;
+struct RasterAsset {
+    Id id;
+    std::string name;
+    std::string mode="embedded"; // linked / embedded
+    std::string locator; // Absolute local path for linked; never evaluated or fetched by core.
+    Raster payload; // Immutable accepted original bytes, shared by snapshots/history.
+    bool operator==(const RasterAsset& other) const {
+        return id==other.id&&name==other.name&&mode==other.mode&&locator==other.locator&&
+            (payload==other.payload||(payload&&other.payload&&*payload==*other.payload));
+    }
+};
+struct ImageSource {
+    Id asset;
+    Scalar width{1},height{1};
+    bool operator==(const ImageSource&) const=default;
+};
+
+struct TextSource {
+    Id id;
+    unsigned version=1;
+    std::string content="Text",family="Yu Gothic",locale="ja-JP";
+    std::optional<TextContentDriver> content_driver;
+    std::optional<TextFamilyDriver> family_driver;
+    std::optional<TextLocaleDriver> locale_driver;
+    std::optional<TextDirectionDriver> direction_driver;
+    std::optional<TextLayoutDriver> layout_driver;
+    std::optional<TextAlignmentDriver> alignment_driver;
+    std::optional<TextPathAttachment> path_attachment;
+    std::string layout="auto",direction="horizontal",alignment="start";
+    unsigned weight=400;
+    std::optional<TextWeightDriver> weight_driver;
+    std::optional<Expression> weight_expression;
+    bool italic=false;
+    std::optional<TextItalicDriver> italic_driver;
+    std::map<std::string,Scalar> parameters;
+    bool operator==(const TextSource&) const = default;
+};
+TextSource default_text(Id id,std::string content="Text");
+std::vector<std::string> text_fonts();
+
+struct Primitive {
+    Id id;
+    std::string type; // nect.shape.circle / ellipse / rectangle / polygon / star
+    unsigned version = 1;
+    std::map<std::string,Scalar> parameters;
+    bool operator==(const Primitive&) const = default;
+};
+Primitive default_primitive(Id id,const std::string& type);
+
+struct PointEdit {
+    Id id;
+    unsigned version = 1;
+    bool enabled = true;
+    // Absolute, local-space scalar overrides of stable generated point fields.
+    // Fields not present continue to evaluate from the source generator.
+    std::map<Id,std::map<std::string,Scalar>> overrides;
+    std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
+    bool operator==(const PointEdit&) const = default;
+};
+
+struct GradientStop {
+    Id id;
+    Scalar offset;
+    std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+    bool operator==(const GradientStop&) const = default;
+};
+struct Gradient {
+    Id id;
+    std::string type="linear"; // linear / radial, local user-space coordinates
+    unsigned version=1;
+    bool enabled=true;
+    Scalar start_x{0,{}},start_y{0,{}},end_x{100,{}},end_y{0,{}};
+    std::vector<GradientStop> stops;
+    std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
+    bool operator==(const Gradient&) const = default;
+};
+struct ShapeOperation {
+    Id id;
+    std::string type; // nect.paint.*, nect.shape.*, nect.group.posterize
+    unsigned version=1;
+    bool enabled=true;
+    std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
+    std::map<std::string,Scalar> parameters;
+    std::string composite="below";
+    std::string fill_rule="nonzero";
+    std::optional<FillRuleDriver> fill_rule_driver;
+    std::optional<Gradient> gradient;
+    std::string line_join="miter"; // Offset v1 / Stroke v2: miter, round, bevel.
+    std::string line_cap="butt"; // Stroke v2: butt, round, square; v1 stays butt.
+    bool operator==(const ShapeOperation&) const = default;
+};
+ShapeOperation default_operation(Id id,const std::string& type);
+struct MacroPort {
+    Id id;
+    std::string domain;
+    bool operator==(const MacroPort&) const = default;
+};
+struct MacroEndpoint {
+    Id node;
+    Id port;
+    bool operator==(const MacroEndpoint&) const = default;
+};
+struct MacroEdge {
+    MacroEndpoint from,to;
+    bool operator==(const MacroEdge&) const = default;
+};
+struct MacroNode {
+    ShapeOperation operation;
+    Id input_port,output_port;
+    bool operator==(const MacroNode&) const = default;
+};
+struct MacroPublicParameter {
+    std::string id,label;
+    Id node;
+    std::string parameter;
+    std::string value_type="number";
+    std::string unit="scalar";
+    std::string domain="local_paths_and_paint";
+    bool operator==(const MacroPublicParameter&) const = default;
+};
+struct MacroDefinitionRevision {
+    std::uint64_t revision=1;
+    MacroPort input,output;
+    std::vector<MacroNode> nodes;
+    std::vector<MacroEdge> edges;
+    MacroEndpoint output_mapping;
+    std::vector<MacroPublicParameter> public_parameters;
+    bool operator==(const MacroDefinitionRevision&) const = default;
+};
+struct MacroDefinition {
+    Id id;
+    std::string label;
+    std::uint64_t latest_revision=1;
+    std::map<std::uint64_t,MacroDefinitionRevision> revisions;
+    bool operator==(const MacroDefinition&) const = default;
+};
+// Validates the exact supported portable Macro dependency closure and every
+// retained revision using the same owner as native Document validation.
+void validate_portable_macro_definition(const MacroDefinition&);
+struct MacroInstance {
+    Id definition;
+    std::uint64_t pinned_revision=1;
+    std::map<std::string,double> overrides;
+    bool operator==(const MacroInstance&) const = default;
+};
+struct Document;
+Ref macro_parameter_ref(const Id& object,const Id& instance,const std::string& public_parameter);
+double macro_parameter_value(const Document&,const Id& object,const Id& instance,const std::string& public_parameter);
+// One ordered local-processing entry is either an ordinary ShapeOperation
+// (the inherited payload) or a Macro instance (the optional tagged payload).
+// For Macro entries, only id, enabled and type are read from ShapeOperation.
+struct ProcessingEntry : ShapeOperation {
+    std::optional<MacroInstance> macro;
+    ProcessingEntry() = default;
+    ProcessingEntry(ShapeOperation operation) : ShapeOperation(std::move(operation)) {}
+    bool operator==(const ProcessingEntry&) const = default;
+};
+inline constexpr const char* macro_entry_type="nect.macro.instance";
+struct PresetEntry {
+    // Schema v1 entries are projected to kind="builtin" without changing their
+    // authored fields. Schema v2 uses one tagged sequence for built-ins and
+    // pinned, document-local Macro instances.
+    std::string kind="builtin";
+    std::string type;
+    unsigned version=1;
+    bool enabled=true;
+    std::map<std::string,double> parameters;
+    std::string composite="below";
+    std::string fill_rule="nonzero";
+    std::string line_join="miter";
+    std::string line_cap="butt";
+    Id macro_definition;
+    std::uint64_t pinned_revision=1;
+    std::map<std::string,double> overrides;
+    bool operator==(const PresetEntry&) const = default;
+};
+struct PresetDefinition {
+    Id id;
+    unsigned schema_version=1;
+    std::string label;
+    std::string category;
+    std::vector<std::string> tags;
+    std::string target_domain="local_paths_and_paint";
+    std::vector<PresetEntry> entries;
+    bool operator==(const PresetDefinition&) const = default;
+};
+std::vector<Id> preset_operation_ids(const PresetDefinition&,const Id& prefix);
+// Immutable descriptors for executable built-ins. External extension registration is not yet supported.
+struct BuiltinOperationType {
+    std::string type,label,target_kind,input,output;
+    unsigned version=1;
+    bool effects_catalog=false;
+    std::map<std::string,double> parameter_defaults;
+};
+const std::vector<BuiltinOperationType>& builtin_operation_types();
+const BuiltinOperationType* builtin_operation_type(const std::string& type);
+Ref operation_ref(const Id& object,const Id& operation,const std::string& parameter);
+// field is start_x/start_y/end_x/end_y or stop.<stable stop ID>.offset/r/g/b/a.
+Ref gradient_ref(const Id& object,const Id& operation,const Id& gradient,const std::string& field);
+
+struct GeometryMask {
+    Id id,source;
+    unsigned version=1;
+    bool enabled=true;
+    std::string fill_rule="nonzero";
+    std::optional<Ref> enabled_driver;
+    std::optional<Expression> enabled_expression;
+    // Missing native mode/profile fields migrate to Geometry/sRGB. Alpha and
+    // Luma use the source's isolated RGBA projection; fill_rule is Geometry-only.
+    std::string mode="geometry";
+    bool invert=false;
+    // A missing profile in native documents predating 0.72 migrates to sRGB.
+    std::string mask_color_space="srgb";
+    bool operator==(const GeometryMask&) const = default;
+};
+struct Compositing {
+    unsigned version=1;
+    Scalar opacity{1};
+    std::string blend="normal";
+    bool isolated=false;
+    std::optional<Ref> isolated_driver;
+    // Optional bounded same-field boolean source. Mutually exclusive with isolated_driver.
+    std::optional<Expression> isolated_expression;
+    std::optional<GeometryMask> mask;
+    bool operator==(const Compositing&) const = default;
+};
+struct Definition {
+    Id id,name,root;
+    bool operator==(const Definition&) const = default;
+};
+struct DefinitionInstance {
+    Id definition;
+    std::map<Ref,double> overrides;
+    bool operator==(const DefinitionInstance&) const = default;
+};
 struct Object {
     Id id;
     std::string name;
@@ -57,14 +388,134 @@ struct Object {
     std::vector<Id> children;
     std::vector<Contour> contours;
     std::array<Scalar,6> transform{{{1,{}},{0,{}},{0,{}},{1,{}},{0,{}},{0,{}}}};
-    std::array<Scalar,4> color{{{0,{}},{0,{}},{0,{}},{1,{}}}};
-    Scalar stroke_width{2,{}};
+    std::vector<ProcessingEntry> stack;
+    // Compatibility address only: stroke.* resolves to this stable operation.
+    // All scalar authority is in stack; this never stores duplicate paint values.
+    Id legacy_stroke;
+    std::optional<Primitive> source;
+    std::optional<PointEdit> point_edit;
+    std::optional<TextSource> text;
+    // Pivot is authored in object-local coordinates; changing it alone never
+    // changes the canonical affine matrix or the rendered placement.
+    std::array<Scalar,2> anchor{};
+    // Replaces inherited structural transforms; ownership/order stay structural.
+    std::optional<Id> transform_parent;
+    std::optional<GroupPathFollow> path_follow;
+    bool visible=true;
+    // Optional same-field link. The literal above remains authored state.
+    std::optional<Ref> visibility_driver;
+    // Optional bounded boolean source. Mutually exclusive with visibility_driver.
+    std::optional<Expression> visibility_expression;
+    Compositing compositing;
+    std::optional<ImageSource> image;
+    std::optional<DefinitionInstance> instance;
+    bool operator==(const Object&) const = default;
 };
 
+struct ArtboardParent {
+    Id artboard;
+    bool width=true,height=true;
+    bool operator==(const ArtboardParent&) const = default;
+};
+struct Guide {
+    Id id;
+    std::string name;
+    std::string axis="x"; // x is a vertical line, y is horizontal.
+    double position=0;
+    std::optional<Ref> position_driver;
+    std::optional<Expression> position_expression;
+    bool operator==(const Guide&) const = default;
+};
+// Artboard Guides form a literal-only domain separate from Composition Guides.
+struct ArtboardGuide {
+    Id id;
+    std::string name;
+    std::string axis="x";
+    double position=0;
+    bool enabled=true;
+    bool operator==(const ArtboardGuide&) const = default;
+};
+struct LayoutRect {
+    double x=0,y=0,width=0,height=0;
+    bool operator==(const LayoutRect&) const = default;
+};
+struct Margin {
+    double left=0,top=0,right=0,bottom=0;
+    std::optional<Ref> left_driver;
+    std::optional<Expression> left_expression;
+    std::optional<Ref> top_driver;
+    std::optional<Expression> top_expression;
+    std::optional<Ref> right_driver;
+    std::optional<Expression> right_expression;
+    std::optional<Ref> bottom_driver;
+    std::optional<Expression> bottom_expression;
+    bool operator==(const Margin&) const = default;
+};
+struct Grid {
+    Id id;
+    LayoutRect bounds;
+    std::size_t columns=1,rows=1;
+    double column_gutter=0,row_gutter=0;
+    std::optional<Ref> column_gutter_driver;
+    std::optional<Expression> column_gutter_expression;
+    std::optional<Ref> row_gutter_driver;
+    std::optional<Expression> row_gutter_expression;
+    std::optional<Ref> bounds_x_driver;
+    std::optional<Expression> bounds_x_expression;
+    std::optional<Ref> bounds_y_driver;
+    std::optional<Expression> bounds_y_expression;
+    std::optional<Ref> bounds_width_driver;
+    std::optional<Expression> bounds_width_expression;
+    std::optional<Ref> bounds_height_driver;
+    std::optional<Expression> bounds_height_expression;
+    std::optional<Ref> columns_driver;
+    std::optional<Expression> columns_expression;
+    std::optional<Ref> rows_driver;
+    std::optional<Expression> rows_expression;
+    bool operator==(const Grid&) const = default;
+};
+struct ArtboardLayout {
+    std::optional<Margin> margin;
+    std::optional<Grid> grid;
+    bool operator==(const ArtboardLayout&) const = default;
+};
+struct ArtboardTemplate {
+    Id id,name,source_artboard;
+    std::optional<Id> definition;
+    bool operator==(const ArtboardTemplate&) const = default;
+};
+struct ArtboardTemplateAssignment {
+    Id template_id;
+    // Grid identity belongs to the target's effective Grid, never the source Grid.
+    Id grid_id;
+    std::optional<Id> content_instance;
+    std::optional<double> width_override,height_override;
+    bool margin_overridden=false;
+    bool grid_overridden=false;
+    // IDs are document-unique, so each override or suppression names one stable source Guide.
+    std::map<Id,double> guide_position_overrides;
+    std::map<Id,bool> guide_enabled_overrides;
+    std::vector<Id> detached_guides;
+    bool operator==(const ArtboardTemplateAssignment&) const = default;
+};
+struct ArtboardSizeDriver {
+    std::variant<Ref,Expression> value;
+    ArtboardSizeDriver(Ref link):value(std::move(link)){}
+    ArtboardSizeDriver(Expression expression):value(std::move(expression)){}
+    bool operator==(const ArtboardSizeDriver&) const = default;
+};
 struct Artboard {
     Id id;
     std::string name;
     double x=0,y=0,width=640,height=480;
+    std::optional<ArtboardParent> parent_size;
+    std::optional<ArtboardLayout> layout;
+    using SizeDriver=ArtboardSizeDriver;
+    std::optional<SizeDriver> width_driver;
+    std::optional<SizeDriver> height_driver;
+    std::optional<ArtboardTemplateAssignment> template_assignment;
+    std::vector<ArtboardGuide> local_guides;
+    bool operator==(const Artboard&) const = default;
 };
 
 struct Composition {
@@ -72,20 +523,66 @@ struct Composition {
     std::string name;
     std::vector<Id> roots;
     std::vector<Artboard> artboards;
+    std::vector<Guide> guides;
+    std::vector<ArtboardTemplate> templates;
+    bool operator==(const Composition&) const = default;
 };
+
+// Resolves only dimensions; frame position, ownership and artwork do not move.
+Artboard evaluate_artboard(const Composition& composition,const Id& artboard);
 
 struct Collection {
     Id id;
     std::string name;
     std::vector<Id> members;
+    bool operator==(const Collection&) const = default;
 };
 
+struct ColorValue {
+    std::string space="srgb",profile="srgb",alpha="straight";
+    std::array<double,4> rgba{0,0,0,1};
+    bool operator==(const ColorValue&) const = default;
+};
+struct NamedColor {
+    Id id;
+    std::string name;
+    std::array<Scalar,4> rgba{{{0,{}},{0,{}},{0,{}},{1,{}}}};
+    bool operator==(const NamedColor&) const = default;
+};
 struct Document {
     Id id;
     std::vector<Composition> compositions;
     std::map<Id,Object> objects;
     std::vector<Collection> collections;
+    std::map<Id,NamedColor> named_colors;
+    std::map<Id,RasterAsset> raster_assets;
+    std::map<Id,PresetDefinition> preset_definitions;
+    std::map<Id,Definition> definitions;
+    std::map<Id,MacroDefinition> macro_definitions;
+    bool operator==(const Document&) const = default;
 };
+
+struct EffectiveArtboardGuide {
+    Id target_artboard,source_artboard,template_source_artboard,guide_id;
+    std::string name,axis;
+    double source_position=0,template_position=0,position=0;
+    bool source_enabled=true,template_enabled=true,enabled=true;
+    bool inherited=false,position_overridden=false,enabled_overridden=false;
+    bool operator==(const EffectiveArtboardGuide&) const = default;
+};
+std::vector<EffectiveArtboardGuide> effective_artboard_guides(const Document&,const Id& composition,
+    const Id& artboard);
+
+// Color properties aggregate ordinary Scalar channels, using the same evaluator.
+// Ref.field is color, op.ID.color, or op.ID.gradient.ID.stop.ID.color.
+// Named color channel fields are color.r/g/b/a.
+std::string property_name(const Document&,const Ref&);
+std::vector<Ref> color_properties(const Document&);
+std::array<Ref,4> color_channels(const Document&,const Ref&);
+ColorValue color_value(const Document&,const Ref&,const std::map<Ref,double>&);
+std::optional<Ref> color_link(const Document&,const Ref&);
+bool color_is_used(const Document&,const Ref&,const std::map<Ref,bool>* operation_enabled=nullptr,
+    const std::map<Ref,bool>* gradient_enabled=nullptr);
 
 struct Set { Ref ref; double value; };
 struct Link { Ref target; Binding binding; };
@@ -93,28 +590,851 @@ struct Unlink { Ref target; };
 struct Rename { Id object; std::string name; };
 struct ReorderPoints { Id object; Id contour; std::vector<Id> order; };
 struct GroupContiguous { Id composition; Id parent; std::vector<Id> members; Id id; std::string name; };
+struct CreateFolder { Id composition; Id parent; Id id; std::string name; };
+struct CreatePath { Id composition; Id parent; Id id; std::string name; std::vector<Contour> contours; };
+struct AddPoint { Id object; Id contour; Point point; };
+struct RemovePoint { Id object; Id contour; Id point; };
+struct CloseContour { Id object; Id contour; bool closed; };
+struct DeleteObjects { std::vector<Id> objects; };
+// Independent copies in place. Prefix (1..48 identifier characters) reserves
+// fresh IDs; collisions reject atomically. Selected Group descendants copy once.
+struct DuplicateObjects { std::vector<Id> objects; Id prefix; };
+// Pure projection of the new top-level selection; uses the command's ID plan.
+std::vector<Id> duplicated_roots(const Document&,const DuplicateObjects&);
+struct ReorderObjects { Id composition; Id parent; std::vector<Id> order; };
+struct CreatePrimitive { Id composition; Id parent; Id id; std::string name; Primitive source; };
+struct EnablePointEdit { Id object; bool enabled; };
+struct ClearPointEdit { Id object; };
+struct LinkPointEditEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkPointEditEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkPointEditEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetPointEditEnabledExpression = LinkPointEditEnabled;
+struct UnlinkPointEditEnabled { Ref target; };
+struct ConvertToPath { Id object; };
+struct AddOperation { Id object; ShapeOperation operation; std::size_t index; };
+struct RemoveOperation { Id object; Id operation; };
+struct ReorderOperations { Id object; std::vector<Id> order; };
+struct CreatePreset { PresetDefinition definition; };
+struct CreatePresetFromStack { PresetDefinition metadata; Id object; };
+PresetDefinition capture_preset_definition(const Document&,PresetDefinition metadata,const Id& object);
+// Pure v1/v2 validation for the portable built-in literal slice. Macro entries
+// remain document-local because the workspace Library does not carry dependencies.
+void validate_portable_literal_preset(const PresetDefinition&);
+struct RenamePreset { Id preset; std::string label; };
+struct UpdatePreset { PresetDefinition definition; };
+struct DeletePreset { Id preset; };
+struct ApplyPreset { Id preset; Id object; Id operation_id_prefix; };
+// Imports a portable literal payload and applies it in the same Session commit.
+// Library identity is receipt context only; the Document receives a fresh local ID.
+struct ImportAndApplyPreset {
+    PresetDefinition definition;
+    Id document_definition_id;
+    Id object;
+    Id operation_id_prefix;
+    Id asset_id;
+    std::uint64_t accepted_revision=0;
+};
+using PresetMutation=std::variant<CreatePreset,CreatePresetFromStack,RenamePreset,UpdatePreset,DeletePreset,ApplyPreset,
+    ImportAndApplyPreset>;
+struct PresetCommand { PresetMutation mutation; };
+struct CreateDefinition { Definition definition; };
+struct RenameDefinition { Id definition; std::string name; };
+struct DeleteDefinition { Id definition; };
+struct CreateInstance { Id composition,parent,id,definition; std::string name; };
+struct SetInstanceOverride { Id instance; Ref target; double value=0; };
+struct ResetInstanceOverride { Id instance; Ref target; };
+struct DetachInstance { Id instance; Id id_prefix; };
+using DefinitionMutation=std::variant<CreateDefinition,RenameDefinition,DeleteDefinition,CreateInstance,
+    SetInstanceOverride,ResetInstanceOverride,DetachInstance>;
+struct DefinitionCommand { DefinitionMutation mutation; };
+struct CreateArtboardTemplate { Id composition; ArtboardTemplate value; };
+struct RenameArtboardTemplate { Id composition,template_id; std::string name; };
+struct DeleteArtboardTemplate { Id composition,template_id; };
+struct AssignArtboardTemplate { Id composition,artboard_id,template_id; std::optional<Id> content_instance; };
+struct SetArtboardTemplateOverride {
+    Id composition,artboard_id;
+    std::string field;
+    std::variant<double,std::optional<Margin>,std::optional<Grid>> value;
+};
+struct ResetArtboardTemplateOverride { Id composition,artboard_id; std::string field; };
+struct DetachArtboardTemplate { Id composition,artboard_id,id_prefix; };
+using ArtboardTemplateMutation=std::variant<CreateArtboardTemplate,RenameArtboardTemplate,
+    DeleteArtboardTemplate,AssignArtboardTemplate,SetArtboardTemplateOverride,
+    ResetArtboardTemplateOverride,DetachArtboardTemplate>;
+struct ArtboardTemplateCommand { ArtboardTemplateMutation mutation; };
+struct AddArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
+struct UpdateArtboardGuide { Id composition,artboard_id; ArtboardGuide guide; };
+struct DeleteArtboardGuide { Id composition,artboard_id,guide_id; };
+struct SetArtboardGuideOverride {
+    Id composition,artboard_id,guide_id;
+    std::string field;
+    std::variant<double,bool> value;
+};
+struct ResetArtboardGuideOverride { Id composition,artboard_id,guide_id; std::string field; };
+struct DetachArtboardGuide { Id composition,artboard_id,guide_id,new_guide_id; };
+using ArtboardGuideMutation=std::variant<AddArtboardGuide,UpdateArtboardGuide,DeleteArtboardGuide,
+    SetArtboardGuideOverride,ResetArtboardGuideOverride,DetachArtboardGuide>;
+struct ArtboardGuideCommand { ArtboardGuideMutation mutation; };
+struct CreateCollection { Collection collection; };
+struct RenameCollection { Id collection; std::string name; };
+struct SetCollectionMembers { Id collection; std::vector<Id> members; };
+struct DeleteCollection { Id collection; };
+using CollectionMutation=std::variant<CreateCollection,RenameCollection,SetCollectionMembers,DeleteCollection>;
+struct CollectionCommand { CollectionMutation mutation; };
+struct CreateMacroDefinition { MacroDefinition definition; };
+struct RenameMacroDefinition { Id definition; std::string label; };
+struct UpdateMacroDefinition { Id definition; MacroDefinitionRevision revision; };
+struct DeleteMacroDefinition { Id definition; };
+struct InstantiateMacro {
+    Id object,definition,instance;
+    std::uint64_t revision=1;
+    std::size_t index=0;
+    // Present only for the compound workspace-library import command. Asset
+    // receipt values are caller context; the Macro payload remains canonical.
+    std::optional<MacroDefinition> imported_definition;
+    Id asset_id;
+    std::uint64_t accepted_asset_revision=0;
+    std::map<std::string,double> overrides;
+};
+struct SetMacroOverride { Id object,instance; std::string public_parameter; double value=0; };
+struct ResetMacroOverride { Id object,instance; std::string public_parameter; };
+struct UpdateMacroInstance { Id object,instance; std::uint64_t revision=1; };
+struct DetachMacroInstance { Id object,instance,operation_id_prefix; };
+using MacroMutation=std::variant<CreateMacroDefinition,RenameMacroDefinition,UpdateMacroDefinition,
+    DeleteMacroDefinition,InstantiateMacro,SetMacroOverride,ResetMacroOverride,UpdateMacroInstance,DetachMacroInstance>;
+struct MacroCommand {
+    std::shared_ptr<const MacroMutation> mutation;
+    MacroCommand()=delete;
+    MacroCommand(const MacroCommand&)=default;
+    MacroCommand(MacroCommand&&) noexcept=default;
+    MacroCommand& operator=(const MacroCommand&)=default;
+    MacroCommand& operator=(MacroCommand&&) noexcept=default;
+    template<class T,std::enable_if_t<std::is_constructible_v<MacroMutation,T&&>,int> =0>
+    explicit MacroCommand(T&& value):mutation(std::make_shared<const MacroMutation>(std::forward<T>(value))){}
+};
+using StructuralCommand=std::variant<DefinitionCommand,CollectionCommand,MacroCommand,ArtboardTemplateCommand,ArtboardGuideCommand>;
+struct EnableOperation { Id object; Id operation; bool enabled; };
+struct LinkOperationEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkOperationEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkOperationEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetOperationEnabledExpression = LinkOperationEnabled;
+struct UnlinkOperationEnabled { Ref target; };
+struct LinkGradientEnabled {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkGradientEnabled(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkGradientEnabled(Ref target,Expression expression,bool replace=false)
+        :target(std::move(target)),source(std::move(expression)),replace_driver(replace){}
+};
+using SetGradientEnabledExpression = LinkGradientEnabled;
+struct UnlinkGradientEnabled { Ref target; };
+struct LinkMaskEnabled { Ref target; Ref source; bool replace_driver=false; };
+struct SetMaskEnabledExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkMaskEnabled { Ref target; };
+struct StrokeStyle { Id object,operation; std::string line_cap="butt",line_join="miter"; double miter_limit=4; };
+struct OperationOptions { Id object; Id operation; std::string composite; std::string fill_rule; std::optional<std::string> line_join; };
+struct LinkFillRule { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkFillRule { Ref target; };
+struct SetGradient { Id object; Id operation; std::optional<Gradient> gradient; };
 
-using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous>;
+struct AddArtboard { Id composition; Artboard artboard; std::size_t index; };
+struct UpdateArtboard { Id composition; Artboard artboard; };
+struct DeleteArtboard { Id composition; Id artboard; };
+struct ReorderArtboards { Id composition; std::vector<Id> order; };
+struct DetachArtboardParent { Id composition; Id artboard; };
+struct LinkArtboardSize { Ref target; Ref source; bool replace_driver=false; };
+struct SetArtboardSizeExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkArtboardSize { Ref target; };
+struct LinkMarginLeft { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginLeftExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkMarginLeft { Ref target; };
+struct LinkMarginTop { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginTopExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkMarginTop { Ref target; };
+struct LinkMarginRight { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginRightExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkMarginRight { Ref target; };
+struct LinkMarginBottom { Ref target; Ref source; bool replace_driver=false; };
+struct SetMarginBottomExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkMarginBottom { Ref target; };
+struct LinkGridBoundsX { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsXExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridBoundsX { Ref target; };
+struct LinkGridColumns { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridColumnsExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridColumns { Ref target; };
+struct LinkGridRows { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridRowsExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridRows { Ref target; };
+struct LinkGridBoundsY { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsYExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridBoundsY { Ref target; };
+struct LinkGridBoundsWidth { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsWidthExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridBoundsWidth { Ref target; };
+struct LinkGridBoundsHeight { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridBoundsHeightExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridBoundsHeight { Ref target; };
+struct LinkGridColumnGutter { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridColumnGutterExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridColumnGutter { Ref target; };
+struct LinkGridRowGutter { Ref target; Ref source; bool replace_driver=false; };
+struct SetGridRowGutterExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGridRowGutter { Ref target; };
+struct LayoutDependencyCommand {
+    std::variant<LinkMarginLeft,SetMarginLeftExpression,UnlinkMarginLeft,LinkMarginTop,SetMarginTopExpression,UnlinkMarginTop,
+        LinkMarginRight,SetMarginRightExpression,UnlinkMarginRight,
+        LinkMarginBottom,SetMarginBottomExpression,UnlinkMarginBottom,
+        LinkGridColumns,SetGridColumnsExpression,UnlinkGridColumns,LinkGridRows,SetGridRowsExpression,UnlinkGridRows,
+        LinkGridBoundsX,SetGridBoundsXExpression,UnlinkGridBoundsX,
+        LinkGridBoundsY,SetGridBoundsYExpression,UnlinkGridBoundsY,
+        LinkGridBoundsWidth,SetGridBoundsWidthExpression,UnlinkGridBoundsWidth,
+        LinkGridBoundsHeight,SetGridBoundsHeightExpression,UnlinkGridBoundsHeight,
+        LinkGridColumnGutter,SetGridColumnGutterExpression,UnlinkGridColumnGutter,
+        LinkGridRowGutter,SetGridRowGutterExpression,UnlinkGridRowGutter> operation;
+    LayoutDependencyCommand(LinkMarginLeft value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginLeftExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginLeft value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkMarginTop value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginTopExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginTop value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkMarginRight value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginRightExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginRight value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkMarginBottom value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetMarginBottomExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkMarginBottom value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridColumns value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridColumnsExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridColumns value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridRows value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridRowsExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridRows value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsX value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsXExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsX value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsY value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsYExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsY value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsWidth value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsWidthExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsWidth value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridBoundsHeight value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridBoundsHeightExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridBoundsHeight value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridColumnGutter value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridColumnGutterExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridColumnGutter value):operation(std::move(value)){}
+    LayoutDependencyCommand(LinkGridRowGutter value):operation(std::move(value)){}
+    LayoutDependencyCommand(SetGridRowGutterExpression value):operation(std::move(value)){}
+    LayoutDependencyCommand(UnlinkGridRowGutter value):operation(std::move(value)){}
+};
+using MarginLeftCommand=LayoutDependencyCommand;
+using MarginTopCommand=LayoutDependencyCommand;
+using MarginRightCommand=LayoutDependencyCommand;
+using MarginBottomCommand=LayoutDependencyCommand;
+using GridColumnsCommand=LayoutDependencyCommand;
+using GridRowsCommand=LayoutDependencyCommand;
+using GridBoundsXCommand=LayoutDependencyCommand;
+using GridBoundsYCommand=LayoutDependencyCommand;
+using GridBoundsWidthCommand=LayoutDependencyCommand;
+using GridBoundsHeightCommand=LayoutDependencyCommand;
+using GridColumnGutterCommand=LayoutDependencyCommand;
+using GridRowGutterCommand=LayoutDependencyCommand;
+struct AddGuide { Id composition; Guide guide; };
+struct UpdateGuide { Id composition; Guide guide; };
+struct DeleteGuide { Id composition; Id guide_id; };
+struct LinkGuidePosition { Ref target; Ref source; bool replace_driver=false; };
+struct SetGuidePositionExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkGuidePosition { Ref target; };
+struct SetArtboardLayout { Id composition; Id artboard_id; std::optional<ArtboardLayout> layout; };
+struct AddRasterAsset { RasterAsset asset; };
+struct ReplaceRasterAsset { RasterAsset asset; };
+struct DeleteRasterAsset { Id asset; };
+struct CreateImage { Id composition,parent,id; std::string name; ImageSource source; };
+struct CreateText { Id composition; Id parent; Id id; std::string name; TextSource source; };
+struct UpdateText { Id object; TextSource source; };
+struct LinkTextItalic { Ref target; Ref source; bool replace_driver=false; };
+struct SetTextItalicExpression { Ref target; Expression expression; bool replace_driver=false; };
+struct UnlinkTextItalic { Ref target; };
+struct LinkTextWeight {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    std::optional<TextWeightBatch> batch;
+    LinkTextWeight()=default;
+    LinkTextWeight(Ref target_value,Ref source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(Ref target_value,Expression source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(Ref target_value,std::variant<Ref,Expression> source_value,bool replace=false)
+        :target(std::move(target_value)),source(std::move(source_value)),replace_driver(replace){}
+    LinkTextWeight(TextWeightBatch value):batch(std::move(value)){}
+    static LinkTextWeight batch_command(TextWeightBatch value) {
+        LinkTextWeight result;result.batch=std::move(value);return result;
+    }
+};
+// Both typed entrypoints share one Command alternative to keep the MSVC 2019
+// visitor within its template nesting limit; JSON-lines names remain distinct.
+using SetTextWeightExpression = LinkTextWeight;
+struct UnlinkTextWeight { Ref target; };
+struct LinkTextContent { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextContent { Ref target; };
+struct LinkTextFamily { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextFamily { Ref target; };
+struct LinkTextLocale { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextLocale { Ref target; };
+struct LinkTextDirection { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextDirection { Ref target; };
+struct LinkTextLayout { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextLayout { Ref target; };
+struct LinkTextAlignment { Ref target; Ref source; bool replace_driver=false; };
+struct UnlinkTextAlignment { Ref target; };
+struct CreateNamedColor { NamedColor color; };
+struct RenameNamedColor { Id color; std::string name; };
+struct DeleteNamedColor { Id color; };
+struct SetColor { Ref ref; ColorValue value; };
+struct LinkColor { Ref target; Ref source; };
+struct UnlinkColor { Ref ref; };
+struct CenterAnchor { Id object; };
+struct SetPosition { Id object; double x,y; };
+struct TransformAroundAnchor { Id object; double rotation=0,scale_x=1,scale_y=1; };
+struct SetTransformParent { Id object; std::optional<Id> parent; bool preserve_world=true; };
+// Explicit scalar batches capture one evaluated starting snapshot. Target lists
+// contain 1..1000 unique scalar properties (including legacy alias identity).
+struct EditProperties { std::vector<Ref> targets; double value; bool relative=false; };
+struct LinkProperties { std::vector<Ref> targets; Ref source; bool relative=false; };
+struct UnlinkProperties { std::vector<Ref> targets; };
+struct SetExpression { std::vector<Ref> targets; Expression expression; bool replace_binding=false; };
+struct SetVisibility { Id object; bool visible; };
+struct LinkObjectVisibility {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkObjectVisibility(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkObjectVisibility(Ref target,Expression source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+};
+using SetObjectVisibilityExpression = LinkObjectVisibility;
+struct UnlinkObjectVisibility { Ref target; };
+struct LinkCompositeIsolated {
+    Ref target;
+    std::variant<Ref,Expression> source;
+    bool replace_driver=false;
+    LinkCompositeIsolated(Ref target,Ref source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+    LinkCompositeIsolated(Ref target,Expression source,bool replace=false)
+        :target(std::move(target)),source(std::move(source)),replace_driver(replace){}
+};
+using SetCompositeIsolatedExpression = LinkCompositeIsolated;
+struct UnlinkCompositeIsolated { Ref target; };
+struct SetCompositing { Id object; std::string blend; bool isolated; };
+struct SetMask { Id object; std::optional<GeometryMask> mask; };
+struct MaskObjects { Id composition,parent; std::vector<Id> members; Id id,mask_id; std::string name; bool top=true; };
+struct PutInside { Id composition,parent,group; std::vector<Id> members; };
+struct Ungroup { Id composition,parent,group; };
+// Move an ordered prefix or suffix of a Group's children beside the retained Group.
+struct MoveOut { Id composition,parent,group; std::vector<Id> members; std::string placement; };
+// World-space displacement, applied once per selected object across Structure
+// and Transform Parent relationships. Selection is one Composition, 1..1000 IDs.
+struct TranslateObjects { std::vector<Id> objects; double dx,dy; };
+// One common Composition-space pivot; null uses evaluated geometric bounds center.
+// Scale along world axes, then rotate clockwise in Y-down coordinates.
+struct TransformObjects {
+    std::vector<Id> objects; double rotation=0,scale_x=1,scale_y=1;
+    std::optional<std::array<double,2>> pivot;
+};
+// One-shot layout from evaluated geometry, excluding stroke width. The legacy
+// artboard field remains a source-compatible alias for an explicit reference.
+struct DistributeObjects {
+    std::vector<Id> objects;
+    std::string axis;
+    std::string reference="selection";
+    std::optional<double> spacing;
+};
+struct AlignObjects {
+    std::vector<Id> objects;
+    std::string axis,alignment;
+    // Retained as a source-compatible C++ alias. JSON callers should use reference.
+    std::optional<Id> artboard;
+    std::string reference="selection";
+};
+struct AttachGroupPathFollow { Id group; GroupPathFollow relation; };
+struct UpdateGroupPathFollow { Id group; GroupPathFollow relation; };
+struct ClearGroupPathFollow { Id group; };
+struct SetGroupPathFollowItem { Id group,object; GroupPathFollowItem item; };
+struct RemoveGroupPathFollowItem { Id group,object; };
+using GroupPathFollowCommand=std::variant<AttachGroupPathFollow,UpdateGroupPathFollow,ClearGroupPathFollow,
+    SetGroupPathFollowItem,RemoveGroupPathFollowItem>;
+
+using Command = std::variant<Set,Link,Unlink,Rename,ReorderPoints,GroupContiguous,
+    CreateFolder,CreatePath,AddPoint,RemovePoint,CloseContour,DeleteObjects,ReorderObjects,
+    CreatePrimitive,EnablePointEdit,ClearPointEdit,LinkPointEditEnabled,UnlinkPointEditEnabled,ConvertToPath,AddOperation,RemoveOperation,
+    ReorderOperations,EnableOperation,LinkOperationEnabled,UnlinkOperationEnabled,LinkGradientEnabled,UnlinkGradientEnabled,OperationOptions,LinkFillRule,UnlinkFillRule,StrokeStyle,SetGradient,AddArtboard,UpdateArtboard,
+    DeleteArtboard,ReorderArtboards,DetachArtboardParent,LinkArtboardSize,SetArtboardSizeExpression,UnlinkArtboardSize,LayoutDependencyCommand,AddGuide,UpdateGuide,DeleteGuide,LinkGuidePosition,SetGuidePositionExpression,UnlinkGuidePosition,SetArtboardLayout,CreateText,UpdateText,
+    CreateNamedColor,RenameNamedColor,DeleteNamedColor,SetColor,LinkColor,UnlinkColor,
+    LinkTextItalic,SetTextItalicExpression,UnlinkTextItalic,LinkTextWeight,UnlinkTextWeight,LinkTextContent,UnlinkTextContent,LinkTextFamily,UnlinkTextFamily,LinkTextLocale,UnlinkTextLocale,LinkTextDirection,UnlinkTextDirection,LinkTextLayout,UnlinkTextLayout,LinkTextAlignment,UnlinkTextAlignment,
+    CenterAnchor,SetPosition,TransformAroundAnchor,SetTransformParent,
+    EditProperties,LinkProperties,UnlinkProperties,TranslateObjects,TransformObjects,SetExpression,
+    SetVisibility,LinkObjectVisibility,UnlinkObjectVisibility,LinkCompositeIsolated,UnlinkCompositeIsolated,
+    LinkMaskEnabled,SetMaskEnabledExpression,UnlinkMaskEnabled,
+    SetCompositing,SetMask,MaskObjects,PutInside,Ungroup,MoveOut,
+    AddRasterAsset,ReplaceRasterAsset,DeleteRasterAsset,CreateImage,DuplicateObjects,AlignObjects,DistributeObjects,
+    StructuralCommand,GroupPathFollowCommand>;
+
+using Affine=std::array<double,6>;
+inline constexpr Affine identity_matrix{1,0,0,1,0,0};
+struct Vec2 {double x=0,y=0;};
+struct CubicPoint {Vec2 anchor,incoming,outgoing;};
+struct EvaluatedContour {bool closed=false;std::vector<CubicPoint> points;};
+struct PathCubicSegment {
+    Vec2 p0,p1,p2,p3;
+    double start_distance=0,end_distance=0;
+};
+struct PathSampleSegment {
+    std::size_t cubic=0;
+    double t_start=0,t_end=1;
+    double start_distance=0,end_distance=0;
+};
+struct PathSampler {
+    Id path,contour;
+    bool closed=false;
+    double length=0;
+    std::vector<PathCubicSegment> cubics;
+    std::vector<PathSampleSegment> segments;
+};
+struct PathSample {
+    Vec2 position,tangent,normal;
+    double distance=0,length=0;
+    Id path,contour;
+};
+PathSampler build_path_sampler(const Document&,const Id& path,const Id& contour,const std::map<Ref,double>& values);
+PathSampler build_path_sampler(const Document&,const Id& path,const Id& contour,const std::map<Ref,double>& values,const Affine& path_world);
+PathSample sample_path(const PathSampler&,double distance,bool reversed=false);
+struct EvaluatedTextGlyph {
+    double advance=0;
+    Vec2 baseline;
+    std::vector<EvaluatedContour> contours;
+};
+struct TextLayout {
+    std::shared_ptr<const std::vector<EvaluatedContour>> contours;
+    double x=0,y=0,width=0,height=0;
+    // Derived layout metric in the same local coordinates as the glyph outlines.
+    // Available only for horizontal text with a measurable first line.
+    std::optional<double> first_line_baseline_y;
+    // Measured horizontal line baselines in layout order; empty for vertical text.
+    std::vector<double> line_baselines_y;
+    // Measured vertical column baseline origins in layout order. Empty if a
+    // column has no run or its DirectWrite run origins disagree.
+    std::vector<double> column_baselines_x;
+    bool overflow=false;
+    std::size_t glyph_count=0;
+    // Present only for attached Text. Each entry is one DirectWrite shaped glyph,
+    // including whitespace advances and an intact, baseline-relative outline.
+    std::vector<EvaluatedTextGlyph> glyphs;
+    std::vector<std::string> warnings,used_fonts;
+};
+// Pure projection of authored text and evaluated text.* parameters. Windows uses
+// DirectWrite shaping, including vertical glyph orientation; no font is embedded.
+TextLayout evaluate_text(const TextSource& source,const std::map<std::string,double>& parameters);
+// Document-aware projection used by Canvas, bounds, SVG and API. Attached Text
+// requires its stable Path/Contour reference and is never returned as flat text.
+TextLayout evaluate_text_projection(const Document&,const Id&,const std::map<Ref,double>& values);
+// Pure projection of an authored Text source with its current evaluated typed values.
+TextSource evaluated_text_source(const Document& document,const Id& object);
+struct PathInstance {
+    std::shared_ptr<const std::vector<EvaluatedContour>> contours;
+    Affine transform=identity_matrix;
+};
+struct EvaluatedGradientStop {double offset=0;std::array<double,4> rgba{};};
+struct EvaluatedGradient {
+    std::string type;
+    Vec2 start,end;
+    std::vector<EvaluatedGradientStop> stops;
+};
+struct PaintLayer {
+    Id operation;
+    std::string type;
+    std::array<double,4> rgba{};
+    double width=0;
+    std::string line_cap="butt",line_join="miter";
+    double miter_limit=4;
+    // Zero-length stroked subpaths (at least one segment), in paint coordinates.
+    // Separate from ordinary paths because some renderers discard those segments.
+    std::vector<Vec2> degenerate_subpaths;
+    std::string fill_rule="nonzero";
+    Affine transform=identity_matrix;
+    std::vector<PathInstance> paths;
+    std::optional<EvaluatedGradient> gradient;
+};
+struct EvaluatedShape {std::vector<PathInstance> paths;std::vector<PaintLayer> paints;};
+// Matrix composition is outer(inner(point)); independent of renderer convention.
+Affine compose(const Affine& outer,const Affine& inner);
+Vec2 map_point(const Affine& matrix,Vec2 point);
+Affine inverse_affine(const Affine& matrix);
+struct EvaluatedTransform {
+    // `authored_local` is read from the stable Object transform Scalars.
+    // `derived_local` is an ephemeral parent-local frame such as Group Path Follow.
+    // `local` is the composed effective local matrix used to produce `world`.
+    Affine authored_local=identity_matrix,derived_local=identity_matrix;
+    Affine local=identity_matrix,world=identity_matrix;
+    Id effective_parent; // Empty denotes the Composition's coordinate plane.
+};
+std::map<Id,EvaluatedTransform> evaluate_transforms(const Document&,const std::map<Ref,double>&);
+struct Bounds {double left=0,top=0,right=0,bottom=0;};
+// Geometric bounds in the target object's local coordinates, including cubic
+// extrema, Shape instances/paints and Text layout; excludes stroke thickness.
+// world_space=true computes extrema directly in the Composition plane.
+// For a deformed leaf, evaluated-local bounds use its follower Group's local
+// projection plane; this remains defined when the authored child is singular.
+// source_geometry=true bypasses Path Deform for source-authoring/intake callers.
+std::optional<Bounds> object_bounds(const Document&,const Id&,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&,bool world_space=false,bool source_geometry=false);
+EvaluatedShape evaluate_shape(const Document&,const Id&,const std::map<Ref,double>&,
+    const std::map<Ref,std::string>* fill_rules=nullptr,
+    const std::map<Ref,bool>* operation_enabled=nullptr,
+    const std::map<Ref,bool>* gradient_enabled=nullptr);
+struct EvaluatedMask {
+    Id source;
+    std::string mode="geometry";
+    std::string fill_rule;
+    std::string mask_color_space="srgb";
+    bool invert=false;
+    std::vector<PathInstance> paths; // transforms already map to Composition/world
+};
+struct EvaluatedSceneNode {
+    Id id;
+    Affine world=identity_matrix;
+    double opacity=1;
+    std::string blend="normal";
+    bool isolated=false,visible=true; // isolated is the resolved aggregate requirement
+    std::optional<EvaluatedMask> mask;
+    std::vector<unsigned> posterize_levels; // ordered Group postchildren pixel operations
+    std::vector<EvaluatedSceneNode> children;
+};
+struct EvaluatedScenePoint {
+    Id id,contour;
+    Vec2 anchor,incoming,outgoing;
+    bool driven=false;
+};
+struct EvaluatedImage { Raster payload; double width=0,height=0; };
+struct EvaluatedScene {
+    std::vector<EvaluatedSceneNode> roots;
+    std::map<Id,EvaluatedShape> shapes;
+    std::map<Id,EvaluatedImage> images;
+    // Deformed geometry is projected in follower-Group local space. These
+    // transient maps preserve stable source-point identity and select the
+    // Group's world transform for the projected leaf geometry.
+    std::map<Id,Affine> geometry_worlds;
+    std::map<Id,Id> deformation_owners;
+    std::map<Id,std::vector<EvaluatedScenePoint>> deformation_points;
+    // Present only when same-document Definition Instances required a transient
+    // expansion. Proxy Objects and their IDs are derived render state.
+    std::shared_ptr<const Document> expanded_document;
+    std::shared_ptr<const std::map<Ref,double>> expanded_values;
+    std::shared_ptr<const std::map<Id,EvaluatedTransform>> expanded_transforms;
+    std::map<Id,Id> instance_owners;
+    std::map<Id,Id> instance_sources; // proxy Object ID -> authored source Object ID
+    bool requires_compositing=false;
+};
+struct SceneProjection {
+    std::shared_ptr<const Document> document;
+    std::shared_ptr<const std::map<Ref,double>> values;
+    std::shared_ptr<const std::map<Id,EvaluatedTransform>> transforms;
+    std::map<Id,Id> instance_owners;
+    std::map<Id,Id> instance_sources;
+};
+SceneProjection project_definition_instances(const Document&,const Id& composition,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&);
+EvaluatedScene evaluate_scene(const Document&,const Id& composition,const std::map<Ref,double>&,
+    const std::map<Id,EvaluatedTransform>&);
+// Used by creation and legacy readers; creates one real stack operation.
+void add_default_stroke(Document&,const Id& object);
 
 std::vector<Ref> properties(const Document& document);
-const Scalar& property(const Document& document, const Ref& ref);
+Scalar property(const Document& document, const Ref& ref);
+struct FillRuleProperty {
+    std::string literal;
+    std::optional<FillRuleDriver> driver;
+    std::string evaluated;
+};
+FillRuleProperty fill_rule_property(const Document&,const Ref&);
+std::string evaluate_fill_rule(const Document&,const Ref&);
+std::map<Ref,std::string> evaluate_fill_rules(const Document&);
+bool gradient_enabled_property(const Document&,const Ref&);
+struct GradientEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=true;
+};
+GradientEnabledProperty gradient_enabled_state(const Document&,const Ref&);
+std::map<Ref,GradientEnabledProperty> gradient_enabled_states(const Document&);
+bool evaluate_gradient_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_gradient_enableds(const Document&);
+bool operation_enabled_property(const Document&,const Ref&);
+struct OperationEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=true;
+};
+OperationEnabledProperty operation_enabled_state(const Document&,const Ref&);
+bool evaluate_operation_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_operation_enableds(const Document&);
+bool object_visibility_property(const Document&,const Ref&);
+struct ObjectVisibilityProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=true;
+};
+ObjectVisibilityProperty object_visibility_state(const Document&,const Ref&);
+bool evaluate_object_visibility(const Document&,const Id& object);
+std::map<Id,bool> evaluate_object_visibilities(const Document&);
+bool composite_isolated_property(const Document&,const Ref&);
+struct CompositeIsolationProperty {
+    bool literal=false;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=false;
+};
+CompositeIsolationProperty composite_isolation_state(const Document&,const Ref&);
+bool evaluate_composite_isolation(const Document&,const Ref&);
+std::map<Id,bool> evaluate_composite_isolations(const Document&);
+bool geometry_mask_enabled_property(const Document&,const Ref&);
+Ref geometry_mask_enabled_ref(const Id& object,const Id& mask);
+struct GeometryMaskEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=true;
+};
+GeometryMaskEnabledProperty geometry_mask_enabled_state(const Document&,const Ref&);
+bool evaluate_geometry_mask_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_geometry_mask_enableds(const Document&);
+bool point_edit_enabled_property(const Document&,const Ref&);
+Ref point_edit_enabled_ref(const Id& object,const Id& point_edit);
+struct PointEditEnabledProperty {
+    bool literal=true;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    bool evaluated=true;
+};
+PointEditEnabledProperty point_edit_enabled_state(const Document&,const Ref&);
+bool evaluate_point_edit_enabled(const Document&,const Ref&);
+std::map<Ref,bool> evaluate_point_edit_enableds(const Document&);
+struct GuidePositionProperty {
+    double literal=0;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
+    double evaluated=0;
+};
+GuidePositionProperty guide_position_property(const Document&,const Ref&);
+double evaluate_guide_position(const Document&,const Id& composition,const Id& guide);
+std::map<Id,double> evaluate_guide_positions(const Document&,const Id& composition);
+struct ArtboardGuideProperty {
+    EffectiveArtboardGuide occurrence;
+    std::variant<double,bool> evaluated;
+};
+ArtboardGuideProperty artboard_guide_property(const Document&,const Ref&);
+struct ArtboardSizeProperty {
+    double literal=0;
+    std::optional<Ref> driver;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
+    double evaluated=0;
+    std::optional<Ref> template_source;
+    std::optional<double> template_override;
+};
+ArtboardSizeProperty artboard_size_property(const Document&,const Ref&);
+struct ArtboardLayoutProperty {
+    std::variant<double,std::size_t> literal;
+    std::optional<Ref> driver;
+    std::variant<double,std::size_t> evaluated;
+    std::optional<Expression> expression;
+    std::string source_kind="literal";
+    std::optional<Ref> template_source;
+};
+ArtboardLayoutProperty artboard_layout_property(const Document&,const Ref&);
+enum class TextPropertyKind { string, enumeration };
+struct TextPropertyValue {
+    TextPropertyKind kind=TextPropertyKind::string;
+    std::string literal;
+    std::vector<std::string> choices;
+    bool operator==(const TextPropertyValue&) const = default;
+};
+bool is_text_readonly_field(const std::string& field);
+TextPropertyValue text_readonly_property(const Document&,const Ref&);
+struct TextItalicProperty {
+    bool literal=false;
+    std::optional<TextItalicDriver> driver;
+    bool evaluated=false;
+};
+struct TextWeightProperty {
+    unsigned literal=400;
+    std::optional<TextWeightDriver> driver;
+    std::optional<Expression> expression;
+    unsigned evaluated=400;
+};
+TextItalicProperty text_italic_property(const Document&,const Ref&);
+bool evaluate_text_italic(const Document&,const Id& object);
+std::map<Ref,bool> evaluate_text_italics(const Document&);
+TextWeightProperty text_weight_property(const Document&,const Ref&);
+unsigned evaluate_text_weight(const Document&,const Id& object);
+std::map<Ref,unsigned> evaluate_text_weights(const Document&);
+struct TextContentProperty {
+    std::string literal;
+    std::optional<TextContentDriver> driver;
+    std::string evaluated;
+};
+struct TextFamilyProperty {
+    std::string literal;
+    std::optional<TextFamilyDriver> driver;
+    std::string evaluated;
+};
+struct TextLocaleProperty {
+    std::string literal;
+    std::optional<TextLocaleDriver> driver;
+    std::string evaluated;
+};
+struct TextDirectionProperty {
+    std::string literal;
+    std::optional<TextDirectionDriver> driver;
+    std::string evaluated;
+};
+struct TextLayoutProperty {
+    std::string literal;
+    std::optional<TextLayoutDriver> driver;
+    std::string evaluated;
+};
+struct TextAlignmentProperty {
+    std::string literal;
+    std::optional<TextAlignmentDriver> driver;
+    std::string evaluated;
+};
+TextContentProperty text_content_property(const Document&,const Ref&);
+std::string evaluate_text_content(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_contents(const Document&);
+TextFamilyProperty text_family_property(const Document&,const Ref&);
+std::string evaluate_text_family(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_families(const Document&);
+TextLocaleProperty text_locale_property(const Document&,const Ref&);
+std::string evaluate_text_locale(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_locales(const Document&);
+TextDirectionProperty text_direction_property(const Document&,const Ref&);
+std::string evaluate_text_direction(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_directions(const Document&);
+TextLayoutProperty text_layout_property(const Document&,const Ref&);
+std::string evaluate_text_layout(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_layouts(const Document&);
+TextAlignmentProperty text_alignment_property(const Document&,const Ref&);
+std::string evaluate_text_alignment(const Document&,const Id& object);
+std::map<Ref,std::string> evaluate_text_alignments(const Document&);
+std::string property_origin(const Document& document, const Ref& ref);
+// Returns contour topology/IDs. All resolved coordinates, including generated
+// points, come from evaluate(); this is never another authored geometry store.
+// A bound dynamic point count requires the caller's evaluated snapshot.
+std::vector<Contour> path_contours(const Object& object,const std::map<Ref,double>* values=nullptr);
+std::vector<Ref> conversion_blockers(const Document& document, const Id& object);
 Ref resolve_name(const Document& document, const std::string& name, const Id& point, const std::string& field);
 std::map<Ref,double> evaluate(const Document& document);
 void validate(const Document& document);
 Document demo_document();
+Document empty_document(Id document, Id composition, Id artboard);
+std::string property_unit(const Ref& ref);
+std::vector<Ref> expression_dependencies(const Expression& expression);
+
+struct HistoryLimits {
+    std::size_t max_entries=1024;
+    std::size_t max_bytes=64*1024*1024;
+};
+struct HistoryState {
+    std::uint64_t id=0;
+    std::string label;
+    std::size_t estimated_bytes=0;
+    bool operator==(const HistoryState&) const = default;
+};
+struct HistoryInfo {
+    // The first row is the earliest retained boundary, followed by edit states.
+    std::vector<HistoryState> states;
+    std::uint64_t current_id=0;
+    std::size_t retained_bytes=0,max_entries=0,max_bytes=0,pruned_entries=0;
+    bool operator==(const HistoryInfo&) const = default;
+};
 
 class Session {
 public:
-    explicit Session(Document document);
+    explicit Session(Document document,HistoryLimits limits={});
     const Document& document() const { return document_; }
     std::uint64_t revision() const { return revision_; }
     void apply(const std::vector<Command>& commands, std::uint64_t expected_revision);
+    void apply_preset_command(const PresetCommand&,std::uint64_t expected_revision);
     void undo(std::uint64_t expected_revision);
     void redo(std::uint64_t expected_revision);
+    bool can_undo() const { return history_cursor_>0; }
+    bool can_redo() const { return history_cursor_<history_.size(); }
+    HistoryInfo history() const;
+    void restore_history(std::uint64_t state_id,std::uint64_t expected_revision);
+    // A gesture previews commands against its starting snapshot. Committed reads
+    // remain stable; other mutations are rejected until commit or cancellation.
+    void begin_gesture(std::uint64_t expected_revision);
+    void update_gesture(const std::vector<Command>& commands);
+    void commit_gesture();
+    void cancel_gesture();
+    bool gesture_active() const { return preview_.has_value(); }
+    const Document& preview_document() const { return preview_ ? *preview_ : document_; }
+    // Derived values from the last successful preview validation. Null before an
+    // update or after an empty/reset/commit/cancel. Invalidated by gesture changes.
+    const std::map<Ref,double>* preview_values() const { return preview_values_ ? &*preview_values_ : nullptr; }
 private:
+    template<class T> struct HistoryChange {
+        Id key;
+        std::optional<T> before,after;
+    };
+    struct HistoryEntry {
+        std::uint64_t id=0;
+        std::string label;
+        std::size_t estimated_bytes=0;
+        std::vector<HistoryChange<Object>> objects;
+        std::vector<HistoryChange<NamedColor>> colors;
+        std::vector<HistoryChange<RasterAsset>> assets;
+        std::vector<HistoryChange<PresetDefinition>> presets;
+        std::vector<HistoryChange<Definition>> definitions;
+        std::vector<HistoryChange<MacroDefinition>> macros;
+        std::optional<std::pair<std::vector<Composition>,std::vector<Composition>>> compositions;
+        std::optional<std::pair<std::vector<Collection>,std::vector<Collection>>> collections;
+    };
     Document document_;
     std::uint64_t revision_ = 0;
-    std::vector<Document> undo_, redo_;
+    HistoryLimits history_limits_;
+    std::list<HistoryEntry> history_;
+    std::size_t history_cursor_=0,history_bytes_=0,pruned_entries_=0;
+    std::uint64_t boundary_id_=0,next_history_id_=1;
+    std::optional<Document> preview_;
+    std::optional<std::map<Ref,double>> preview_values_;
+    bool preview_changed_ = false;
+    std::string preview_label_;
     void check_revision(std::uint64_t expected) const;
+    void commit(Document candidate,std::string label);
+    std::string history_label(const std::vector<Command>& commands,const Document& candidate) const;
+    static std::size_t estimate_history(const HistoryEntry& entry);
+    static void apply_history(Document& candidate,const HistoryEntry& entry,bool forward);
 };
 }

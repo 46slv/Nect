@@ -1,0 +1,20 @@
+{
+  "luminance-playground": [
+    "sha256:cf37bb12502af860ccbc13ef30736a52ce9da8f71d117e0ec4963a31c2647008",
+    "sha256:e3a899c628d42448dbee8350f97894dd6ac3fe7f364b2056e607c0f23ebcafbc"
+  ],
+  "image-luminance-playground": [
+    "sha256:61c0ee79d76477cdfdb4fbca8fa87af5b5d6d0d443809bb0de6a9656ffa70995",
+    "sha256:e125d31beff62060d896aec18d2334c6f86006d7fa358a82fe180d937f760c77",
+    "sha256:b96fb0e9a41c3fb102397cddc462cb5ecfa056a6c54a291e84fdbdbd85ef9df2"
+  ],
+  "luminance-instances": [
+    "sha256:56cf16aba99706704c85301e491b6f5c76809aed748d03ee7a60a60417d90332",
+    "sha256:cd628b08c2d2ca3a6ac571681649d1e187a42ee7d132a4a46d079d7c10577c25"
+  ],
+  "luminance-grid-origin": [
+    "sha256:e22a03ee8160db2dd9ccbd2d59f7e4a176ed763a094144dea20d8af9e2724d50",
+    "sha256:d987680e1000a65d55415a3a5d005e5d6124709f95da58991927aac18758d78c",
+    "sha256:93656c6f45dc648f5d22e5fefebd5cab5d23f567cbc91583a64f009c93757ccb"
+  ]
+}

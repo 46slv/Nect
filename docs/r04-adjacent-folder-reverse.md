@@ -1,0 +1,17 @@
+# R04-ADJACENT-FOLDER-REVERSE-01 — move a prefix to the previous Folder
+
+Status: Sol-frozen implementation packet, 2026-09-27. Baseline clean synchronized `codex/practical-alpha@852170ec8a3fdd34cabc3c90da1a0bc0a35de9c9`. Authority: DEC-71, Confirmed [REQ-30](https://app.notion.com/p/3e0fd279a6f3818db9c0e0a1fc82a901) and [REQ-52](https://app.notion.com/p/3e0fd279a6f38151b544dda1a39adf25), [P04-A](https://app.notion.com/p/3e3fd279a6f381ee8ab0ea5ea614c006). Previous [R04 adjacent transfer](r04-adjacent-folder-transfer.md) is the exact counterpart. No Candidate REQ-46–59 adoption.
+
+## Contract and oracle
+
+Expose “Move selected to previous Folder” in Edit and the selection menu. Select whole objects forming an ordered prefix of one source Folder, with a previous sibling Group Folder in the active Composition. Given roots `X,F1,F2,Y`, F1 children `D`, F2 children `A,B,C`, moving `A,B` must yield F1 children `D,A,B`, F2 child `C`, with roots, drawable order, rendered pixels, world transforms, evaluated nonlocal properties, IDs, references and Collection membership unchanged.
+
+Use one `Session::apply` edit of the existing commands: `MoveOut(F2, A,B, before)`; reorder the sibling list to put `A,B` immediately before F1; `PutInside(F1, A,B)`; reorder F1 children from `A,B,D` to `D,A,B`. The intermediate order is not visible outside the atomic Session edit. This reuses the shared appearance, dynamic transform, dependent-property and stale-revision guards. One Undo/Redo must restore exact authored states; native 0.23 roundtrip and distinct-process reopen must match. No new command or save schema.
+
+Point, middle/suffix, noncontiguous/mixed, missing previous Folder and unsafe source/destination refuse with a scoped error and no Document/revision/History delta. Core/API and offscreen Desktop tests cover the positive and negative oracles and selection follow. Sol reviews the diff, runs focused checks and non-force synchronization with exact remote SHA readback.
+
+Residual: nonadjacent or arbitrary reparent, user-chosen destination, tree drag, live hands-on collapse/expand and whole R04/REQ-30/52 acceptance remain open.
+
+## Local result — 2026-09-27
+
+The reviewed candidate adds the Edit and selection-menu adapters only; no new structural command or native schema. Four existing commands run in one Session edit, with strict source/destination appearance checks. The core/API fixture has a transformed previous Folder with existing children and verifies final paint order, all world transforms, Collection identity, one Undo/Redo, native encode/decode and atomic unsafe-destination refusal. The offscreen Desktop fixture checks both menu affordances, missing-previous and point refusal, selected-object follow, pixel-identical render and exact Undo/Redo. Rotation revealed inverse-composition cancellation at a zero coordinate; the `PutInside` world check now tolerates roundoff scaled to the moved object's destination matrix while keeping non-moved objects on the prior strict check. Release all-target build and full serial CTest **41/41** passed, followed by affected tests **2/2** after the final set-lookup and point-refusal edits and a further `window_interaction` **1/1** after the final menu/missing-target oracle. Distinct-process JSON-lines/native 0.23 cold reopen matched, SHA-256 `1467a85f0c058370a314bc832a7d76b8d91958f9086c72d9e73440858e5312d8` at ignored `build/manual-recipes/r04-reverse-cold.nect`. Live hands-on GUI acceptance remains unverified.

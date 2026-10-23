@@ -1,0 +1,600 @@
+{
+  "schemaVersion": 2,
+  "name": "Grouped Offset",
+  "width": 640,
+  "height": 300,
+  "layers": [
+    {
+      "id": "group-example-0",
+      "name": "Joined groups",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "group-example-0:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [130, 140],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [125, 125],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-0:n1",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [195, 140],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [125, 125],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-0:n2",
+          "type": "Join Geometry",
+          "name": "Join Geometry",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-0:n0"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-0:n3",
+          "type": "Closed Path Offset",
+          "name": "Closed Path Offset",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-0:n2"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "miter",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-0:n4",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-0:n3"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 0.45
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-0:n5",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-0:n4"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "group-example-0:n5"
+    },
+    {
+      "id": "group-example-1",
+      "name": "Joined groups label",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "group-example-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [65, 265],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Joined groups",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "group-example-1:n2"
+    },
+    {
+      "id": "group-example-2",
+      "name": "Offset +10 px",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "group-example-2:n0",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [440, 140],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [125, 125],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-2:n1",
+          "type": "Ellipse",
+          "name": "Ellipse",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [505, 140],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [125, 125],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-2:n2",
+          "type": "Join Geometry",
+          "name": "Join Geometry",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "a": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-2:n0"
+            },
+            "b": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-2:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-2:n3",
+          "type": "Closed Path Offset",
+          "name": "Closed Path Offset",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-2:n2"
+            },
+            "amount": {
+              "type": "Scalar",
+              "value": 10,
+              "expression": "",
+              "locked": false
+            },
+            "miterLimit": {
+              "type": "Scalar",
+              "value": 4,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "miter",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-2:n4",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-2:n3"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#406c85",
+                "alpha": 0.45
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-2:n5",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-2:n4"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "group-example-2:n5"
+    },
+    {
+      "id": "group-example-3",
+      "name": "Offset +10 px label",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "group-example-3:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [375, 265],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 22,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Offset +10 px",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-3:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-3:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#26343d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "group-example-3:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "group-example-3:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "group-example-3:n2"
+    }
+  ]
+}

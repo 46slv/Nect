@@ -1,0 +1,17 @@
+{
+  "sourceSha": "76940ea316a58add594d745d6203fdb180af9aa2",
+  "config": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "customProtocolFeature": true
+  },
+  "officialCommand": "npm run desktop:build",
+  "officialCommandResult": "NOT_RUN_TO_COMPLETION: @tauri-apps/cli@2 fetch failed with npm registry ENOTFOUND; no network workaround used",
+  "fallbackCommand": "cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml",
+  "fallbackResult": "PASS",
+  "configCheck": "PASS: npm run check:native-build",
+  "artifact": "native-artifact-76940-custom/nect-svg-desktop.exe",
+  "sha256": "932CA21BDE17D24F8851A7BA26657075F8615C9E117691B413B13BC6BC23426F",
+  "uiResult": "PASS: Tauri shell and editor UI rendered; previous direct cargo build showed ERR_NETWORK_ACCESS_DENIED",
+  "editorInteractions": "NOT_RUN: pywinauto sees shell/webview pane but WebView2 editor controls are not exposed to UIA and mouse input is denied"
+}

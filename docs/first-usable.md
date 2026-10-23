@@ -1,6 +1,100 @@
 # FIRST_USABLE — M1 contract
 
-M0 is the headless kernel baseline. M1 is the first usable desktop loop and is not complete yet. The increments below expose usable work early; they do not reduce the final M1 acceptance.
+M0 is the headless kernel baseline. The M1 desktop loop was implemented and
+exercised on Windows on 2026-09-20; the evidence and its limits are below.
+The practical-alpha Mission extends this milestone; its current completion evidence
+is in [Integrated practical-alpha acceptance](#integrated-practical-alpha-acceptance--2026-09-22).
+
+## Windows evidence — 2026-09-20
+
+- F1/F2: actual Windows 1400×900 UI created two Curves; Inspector X=315 was
+  independently read through the live API. Canvas widget tests exercise point,
+  both handle directions, creation/collapse, transformed-parent coordinates,
+  one-gesture Undo and Escape/return-origin cancellation.
+- F3: GUI property search linked the second Curve to the first; the linked field
+  and anchor visibly changed color. Cross-object drag pick-whip, target retention,
+  Undo and cancel are exercised through actual Window mouse events. Name lookup,
+  rename, point/order changes and stable references are covered through MCP.
+- F4/F6: atomic native Save/Save As with previous-file backup, real restore,
+  write failure preserving the existing file, failed open preserving the Session,
+  draft/gesture isolation and stale-document identity rejection pass. This is not
+  a claim that every disk/power-loss failure is recoverable.
+- F5: the formal stdio MCP client test initializes/lists/calls through the sidecar
+  into the desktop-owned Session: 24 Paths, seed 7821, 41 mutations, undo/redo,
+  save/restart, deliberately killed process and recovery reopened in a fresh desktop.
+- F7: native bindings survive export; Python's independent XML parser verifies
+  24 paths and CLI tests check hand-specified anchor/Artboard coordinates.
+- F8: live low-noise Canvas/tree/Inspector has no timeline. Initial real-use
+  friction (recovery status destroying input focus, UUID-heavy property labels)
+  was corrected. The visible viewport measurement below meets the 30 fps floor
+  on this fixture; subjective comfort continues to be refined during production.
+
+Build: MSVC 19.29.30137 Release, Qt 6.5.3 Windows raster QWidget path, Boost 1.85.0.
+Machine: Ryzen 9 3900X, 64 GiB RAM; RTX 3070 Ti and GTX 1650 installed (no claim
+that this raster renderer uses either GPU for path evaluation). Window 1440×900,
+Canvas 893×824 logical pixels, DPR 1, 96 logical DPI, 1920×1080 60 Hz display.
+
+`canvas_benchmark` creates the full production Window with semantic commands,
+warms each operation for 12 inputs and measures 90 inputs at a requested 16 ms
+cadence. Timing spans real exposed QWidget paint observations/event-to-paint;
+it does **not** measure DWM/compositor or scan-out timestamps. Raw observations
+are written to `build/canvas-benchmark.json`; the source reconstructs both fixtures.
+No offscreen render or forced `repaint()` is used for this measurement.
+
+| Scene / operation | Interval p50 ms | Interval p95 ms | >33.333 ms frames | Release + UI commit ms |
+|---|---:|---:|---:|---:|
+| 2 Paths / pan | 16.09 | 17.45 | 0 | 0.54 |
+| 2 Paths / zoom | 15.97 | 17.26 | 0 | 0.00 |
+| 2 Paths / point | 15.81 | 17.41 | 0 | 5.25 |
+| 2 Paths / handle | 15.97 | 18.10 | 0 | 4.90 |
+| 2 Paths / transform | 15.94 | 17.65 | 0 | 4.80 |
+| 80 Paths, 320 points / pan | 15.96 | 19.31 | 0 | 0.33 |
+| 80 Paths, 320 points / zoom | 16.14 | 17.23 | 0 | 0.00 |
+| 80 Paths, 320 points / point | 17.45 | 22.53 | 0 | 32.11 |
+| 80 Paths, 320 points / handle | 17.21 | 23.65 | 0 | 32.82 |
+| 80 Paths, 320 points / transform | 19.63 | 23.22 | 0 | 21.60 |
+
+Initial release stalls reached 131.75 ms because Inspector evaluated the full
+document for each row and rebuilt the object tree. One evaluated Inspector
+snapshot and structure-only tree rebuilding brought release below 33.333 ms in
+this run. The lightweight 60 fps p95 target is **not achieved** (17–18 ms interval
+p95, including input/OS scheduling). Do not generalize these results to larger
+scenes, later operators, other displays or GPU presentation timing.
+
+Six CTest entries pass: core, desktop-host persistence, Canvas interaction,
+Window interaction, headless process and same-desktop formal MCP.
+
+### Post-M1 Shape stack check — 2026-09-20
+
+Native 0.3/ordered-paint implementation: eight CTest entries pass, adding primitive
+and shape-stack contracts. The same full Window benchmark was rerun after the
+renderer change. Hardware, viewport and measurement boundary match the table
+above. Additional `--repeat` mode measures two four-anchor sources, each with
+Stroke + Fill + 12-copy Repeater: 24 virtual paths / 48 paint layers. This is
+actual exposed Qt paint/input timing, not compositor/scanout latency.
+
+| Scene / operation | Interval p50 ms | p95 ms | >33.333 ms | Release + Inspector ms |
+|---|---:|---:|---:|---:|
+| 2 Paths / pan | 16.09 | 18.20 | 0 | 0.32 |
+| 2 Paths / zoom | 16.11 | 17.17 | 0 | 0.00 |
+| 2 Paths / point | 15.90 | 17.62 | 0 | 6.93 |
+| 2 Paths / handle | 15.86 | 17.51 | 0 | 7.72 |
+| 2 Paths / transform | 16.03 | 17.36 | 0 | 6.11 |
+| 80 Paths / pan | 16.03 | 17.79 | 0 | 0.48 |
+| 80 Paths / zoom | 16.08 | 17.74 | 0 | 0.00 |
+| 80 Paths / point | 22.73 | 30.16 | 0 | 30.83 |
+| 80 Paths / handle | 20.90 | 28.48 | 0 | 29.43 |
+| 80 Paths / transform | 20.74 | 25.92 | 0 | 30.50 |
+| 48 repeated paint layers / pan | 16.03 | 18.24 | 0 | 0.37 |
+| 48 repeated paint layers / zoom | 16.10 | 17.23 | 0 | 0.00 |
+| 48 repeated paint layers / point | 16.03 | 17.53 | 0 | 17.24 |
+| 48 repeated paint layers / handle | 16.08 | 18.11 | 0 | 20.55 |
+| 48 repeated paint layers / transform | 16.25 | 17.80 | 0 | 15.99 |
+
+30 fps passes; 60 fps remains a target. Raw samples are in ignored
+`build/canvas-benchmark-stack.json` and `build/canvas-benchmark-repeat.json`.
+The denser ordinary scene now has less margin; profile future rendering changes
+against this measured fixture instead of assuming the original M1 timings persist.
 
 ## Flow
 
@@ -62,3 +156,1291 @@ Full AI/PSD writer, all blend modes/effects, OFX host, full PointSet/field/packi
 - Representative SVG/PDF/AI interop observations without modifying originals.
 
 These reduce schema risk; they are not gates requiring full product parity. A failed probe may justify a local seam or migration before that capability is implemented, not a wholesale rewrite.
+
+## Editable Text slice evidence — 2026-09-20
+
+Native 0.6 Text passed all twelve CTest entries: DirectWrite horizontal/vertical
+projection, mixed Japanese/Latin, Arabic contextual shaping, tracking/line spacing,
+missing-font diagnostics, color-glyph handling, overflow retention, authoring
+atomicity, native 0.1–0.5 migration, Window content/style controls, concurrent
+content-edit protection, and formal MCP edit/save/restart/abnormal-exit recovery.
+The final numeric-focus fix passed the focused Window suite and actual Windows use.
+
+`scripts/create_text_demo.py` created `examples/typography-poster.nect` and its
+outlined SVG through the live API: seven editable Text objects, two Japanese
+vertical runs, horizontal Japanese/Latin, a linked subtitle size and the retained
+gradient/repeated ornament. No font binary is included. Actual Windows editing
+changed the heading from 形と光の庭 to 色と光の庭, then size 54→60; semantic
+readback confirmed one revision per edit and linked subtitle size 21.1111.
+Two GUI Undo actions restored the entire original authored document. The content
+edit was saved separately under ignored `build/text-manual.nect`.
+
+Observed friction: Return in a numeric field rebuilt the Inspector and jumped its
+scroll position. Return now restores the same property focus and scroll offset;
+focus-out edits still allow the user's new target to receive focus. Rebuilt Text
+controls passed the regression test and a visible size 54→56 edit stayed in place.
+
+Visible `canvas_benchmark ... --text` used the same Windows hardware and 1440×900
+full Window as the prior baseline, 893×824 Canvas, DPR 1, 96 dpi, 12 warm-ups,
+90 measured inputs at 16 ms. The fixture adds eight Yu Gothic 21 du mixed-script
+Text objects to two four-anchor curves. Point/handle operations edit a curve;
+translation edits a Text object. Qt paint completion includes the shared Session
+preview path, not compositor/GPU presentation.
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.15 | 18.16 | 0 | 0.03 |
+| Zoom | 17.36 | 18.15 | 0 | 0.00 |
+| Point drag | 17.51 | 21.14 | 0 | 13.98 |
+| Handle drag | 17.67 | 19.64 | 0 | 13.55 |
+| Text translation | 18.96 | 22.72 | 0 | 31.84 |
+
+The 30 fps p95 floor passes; the 60 fps interval target remains unmet. Raw timing
+is retained locally in ignored `build/canvas-benchmark-text.json`. This bounded
+fixture does not establish performance for arbitrarily large typography documents.
+
+## Color workflow evidence — 2026-09-20
+
+All fourteen CTest entries pass with native 0.7 migration, named-color propagation,
+reference-protected deletion, strict rich clipboard handling, draft conflicts,
+copy-only bounded history and formal MCP native restart/crash recovery. A later
+swatch fix passed focused GUI tests: identical pixels across all eight Qt icon
+mode/state combinations prevent selection tint from misrepresenting colors.
+
+`create_color_demo.py` produced `examples/named-color-poster.nect` plus SVG from
+the native 0.6 typography poster. Three named colors explicitly drive nine paint
+or gradient-stop properties. Windows GUI changed Ivory typography FFF4D6FF to
+FFB8C8FF; API readback verified all three dependent Text colors and links. Saved
+manual result is in ignored `build/colors-manual.nect`. One GUI Undo restored the
+complete authored example, including every unrelated value.
+
+The same visible mixed-Text benchmark after Colors integration recorded:
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.99 | 22.89 | 0 | 0.02 |
+| Zoom | 17.68 | 23.38 | 0 | 0.00 |
+| Point drag | 19.38 | 25.26 | 0 | 15.46 |
+| Handle drag | 19.00 | 22.49 | 0 | 14.31 |
+| Text translation | 20.49 | 26.55 | 0 | 39.23 |
+
+The 30 fps p95 floor passes; 60 fps remains unmet. Text release/Inspector rebuild
+exceeds the 33.333 ms release target and is an open performance item. Raw evidence
+is in ignored `build/canvas-benchmark-colors.json`; hardware, viewport and input
+cadence match the Text table above. No claim is made for a large open color list.
+
+## Long History evidence — 2026-09-20
+
+All sixteen CTest entries pass with the compact Session timeline. Core checks
+cover 320 edits, arbitrary backward/forward jumps, branch replacement without ID
+reuse, exact authored native equality (including points, links, sources, gradients,
+groups, collections, Artboards and named colors), independent count/byte pruning,
+oversize admission failure and retained gesture preview after failed commit.
+GUI checks navigate 85 edits through the actual History button, then branch and
+replace the Session. Formal MCP adds 80 edits, restores earlier/later states,
+reads dependent changed IDs, and verifies native restart begins fresh History.
+
+The 80-object / 320-edit core case retains an estimated 5,964,800 bytes. A lower
+bound for 320 full authored snapshots is 192,424,960 bytes, excluding allocator
+and string overhead; compact retention is 3.10% of that lower bound. A separate
+Windows process measurement over the entire core test run (including evaluation,
+roundtrip and limit scenarios) recorded peak working set 16,519,168 bytes and
+peak commit 11,358,208 bytes from 711 samples. This is not a measurement of only
+History allocations. Raw result is ignored `build/history-memory.json`.
+
+Actual Windows use applied 96 palette changes to `named-color-poster.nect` through
+the live API, opened View > History, selected Initial document and returned in
+one GUI action. Revision advanced96→97 while state ID returned96→0. API readback
+matched the entire original native fixture and retained all97 timeline rows.
+The source fixture was not overwritten. Initial row spacing was found to differ
+from later refreshes; initial stylesheet polishing addresses that UI issue.
+
+Text release profiling identified eager font dropdown setup (about30 ms) inside
+the Inspector rebuild. A shared font model now attaches to the dropdown only on
+opening; inline completion remains ready. Missing-family strings are preserved,
+and Return commits once even when Qt emits activation and editingFinished.
+Four focused Window/Canvas/History UI/Text authoring checks passed after the fix.
+
+The clean production build, same visible mixed-Text fixture and hardware, records:
+
+| Operation | p95 interval ms | Max interval ms | >33.333 ms | Release/UI commit ms |
+| --- | ---: | ---: | ---: | ---: |
+| Pan | 17.54 | 22.59 | 0 | <1 |
+| Zoom | 17.43 | 22.00 | 0 | 0 |
+| Point drag | 20.52 | 22.17 | 0 | 14.53 |
+| Handle drag | 19.50 | 25.20 | 0 | 19.86 |
+| Text translation | 22.78 | 65.72 | 1 | 24.77 |
+
+All release operations now meet33.333 ms. The30 fps p95 floor passes, while one
+Text interval stall and the unmet60 fps target remain explicit limitations.
+Raw evidence: ignored `build/canvas-benchmark-text-history-font.json`. Temporary
+profiling code is removed; this result uses the production build.
+
+## Continuous protection evidence — 2026-09-20
+
+All19 CTest entries passed after asynchronous live save integration. A deliberately
+blocked worker retained only revisions1 and12 while the main event loop and local
+API remained responsive; the active gesture preview999 never appeared on disk.
+New-session creation drained the worker and protected the latest outgoing edit.
+Native conflict and failed recovery destinations advanced only the independently
+verified destination. Save As preserved external changes and recovery opened as
+an unnamed copy through formal MCP.
+
+Storage tests use actual Windows handles denying writes/replacement, repeated
+failed saves, locked backup generations, exact backup restore and a helper killed
+after QSaveFile staged/flush but before commit. That helper uses the same disabled
+direct-write fallback; it is evidence for interruption at that boundary, not a
+power-loss test. Managed retention kept20 of24 inactive recoveries while retaining
+active/legacy/modified/foreign files. The128MiB threshold is not stress-tested.
+The MCP scenario edits through the real desktop, waits for automatic per-target
+receipts, verifies exact disk bytes, terminates abnormally and reopens both the
+native and recovery data without loss of the verified revision.
+
+Actual Windows poster use copied the example into ignored build storage, moved
+English Title via Canvas, and observed Save pending→Saved revision1 without a
+Save command. API readback matched the entire native and recovery documents, and
+the exact original poster was retained as a backup. The example source remained
+unchanged; the edited copy and receipt are build/live-save-manual.nect and
+build/live-save-manual-receipt.json. The window closed normally.
+
+Visible production Window performance with automatic protection enabled:
+
+| Fixture | Worst p95 interval ms | Worst interval ms | >33.333 ms intervals | Maximum release ms |
+| --- | ---: | ---: | ---: | ---: |
+| Mixed Text | 19.28 | 23.98 | 0 | 24.63 |
+| 80 Paths /320 points | 25.25 | 26.03 | 0 | 34.07 |
+| 2 Paths | 18.61 | 68.14 | 1 | 10.88 |
+
+All scenes meet the30fps p95 floor. The80-Path point/handle release34.07/33.94ms
+slightly exceeds the33.333ms release target; the single2-Path pan outlier and unmet
+60fps target remain explicit limitations. No favorable rerun replaces these
+measurements. Hardware/viewport/input boundaries match the earlier benchmark.
+Final case-alias and monotonic backup-cadence hardening passed four focused
+storage/protection/live-save/Window checks after rebuilding (12.02 seconds).
+Raw artifacts: build/canvas-benchmark-live-save.json and
+build/canvas-benchmark-live-save-paths.json.
+
+## Retained Polygon/Star evidence — 2026-09-20
+
+All21 CTest entries passed (23.68s). New core/UI checks cover linked integer count,
+reduced angular-role identity, preserved corrections on6→12, atomic refusal when
+edited/referenced vertices disappear, reset/Undo, conversion and native0.8 reopen.
+Earlier native fixtures remain unchanged; the0.7 named-color poster migrates with
+all values/links intact. Formal MCP exercises the same commands before its
+history, native restart and abnormal-exit recovery scenario.
+
+The live desktop API created examples/polystar-field.nect and SVG, with Polygon,
+Star, linked count, an outer1/6 point correction, two Repeaters, gradient, three
+named colors and five editable Text objects (22 exported paint layers). Actual
+1402×932 Windows UI changed Polygon count6→12 on a saved working copy. Star
+followed12, correction X846 persisted, and exact live/native readback differed
+only in the intended count literal. The original example remained unchanged.
+
+Visible benchmark on the same recorded hardware,1440×900 Window,893×824 Canvas,
+DPR1: two authored curves plus twelve Polygons/twelve Stars,216 generated vertices
+and23 live count links. Measurement is the production queued QWidget paint path,
+including full-scene evaluation and normal asynchronous protection; it does not
+measure compositor presentation or count-changing gestures.
+
+| Operation | p50 interval ms | p95 interval ms | Max interval ms | >33.333 ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Pan | 16.03 | 17.15 | 20.68 | 0 | 0.03 |
+| Zoom | 16.10 | 18.53 | 21.23 | 0 | 0.00 |
+| Point drag | 16.46 | 19.32 | 27.22 | 0 | 23.47 |
+| Handle drag | 16.45 | 19.81 | 22.28 | 0 | 23.78 |
+| Object translation | 16.00 | 21.10 | 26.15 | 0 | 30.36 |
+
+Each sequence observed90 paints/89 intervals after12 warmup inputs. The30fps p95
+floor and33.333ms release target pass;60fps remains unmet. Raw evidence:
+build/canvas-benchmark-polystar.json and build/polystar-manual-receipt.json.
+
+## Anchor and Transform Parent evidence — 2026-09-20
+
+All23 CTest entries passed (25.21s), covering affine compatibility, Anchor edits,
+keep-world attachment/detachment, effective-parent cycles/depth/domains, singular
+transforms, driven-property refusal, cubic/stack/Text bounds and native0.1–0.8
+migration. GUI tests exercise centered creation, numeric rotation/scale/position,
+parent picking and dragging under a rotated external parent. Formal MCP proves
+that structural and explicit transforms do not apply twice and includes native
+restart/recovery. Six focused checks passed after the final repairs (10.53s).
+
+The live desktop API created examples/pivot-follow.nect/.svg: a Mobile Group,
+four followers owned by a separate translated Group, a gradient and editable Text.
+Actual1402×932 Windows UI dragged Mobile's Anchor, preserving every source/matrix
+and byte-identical exported SVG. Rotate by12° kept its world Anchor fixed while
+the four followers tracked the beam. Both edits were each one Undo; the complete
+original document, automatically saved native and recovery matched exactly at
+revision8. Source example unchanged. Receipt: build/transform-manual-receipt.json.
+
+Production creation exposed a one-ULP cos(12°) drift caused by Boost1.85's default
+imprecise JSON number parser. Native, incoming command and internal DOM parsing
+now request precise conversion. Fourteen seeded binary64 values (including
+adjacent values, small/subnormal numbers and ordinary transform values) retain
+bit identity through native/API/Qt Host paths. The production native/API equality
+check now passes without tolerance or value normalization.
+
+Visible production Window benchmark on the previously recorded hardware and
+893×824 Canvas/DPR1 (queued QWidget paints,90 paints/89 intervals per operation):
+
+| Fixture / operation | p50 ms | p95 ms | Max ms | >33.333ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 80 Paths / pan | 16.10 | 17.93 | 23.39 | 0 | 0.02 |
+| 80 Paths / zoom | 16.06 | 17.62 | 21.51 | 0 | 0.00 |
+| 80 Paths / point | 23.16 | 27.91 | 30.32 | 0 | 34.42 |
+| 80 Paths / handle | 24.32 | 31.44 | 37.05 | 2 | 26.67 |
+| 80 Paths / translation | 22.42 | 25.00 | 27.82 | 0 | 25.42 |
+
+The2-Path scene's worst p9517.38ms, max20.21ms and release10.36ms had no33.333ms
+interval exceedance. Both scenes meet30fps p95;60fps remains unmet. A measured
+duplicate Canvas projection at commit was removed;80-Path point release fell
+from40.31ms to34.42ms, still over target. The two handle stalls remain visible.
+Before/after artifacts: build/canvas-benchmark-transform.json and
+build/canvas-benchmark-transform-release.json; this is not compositor timing.
+
+## Multi-selection and one-snapshot edits — 2026-09-20
+
+Core/API batch commands share one starting value snapshot for absolute/relative
+edits, absolute/relative links and freezing Unlink.274 focused checks cover
+atomic failures, aliases, units, driven fields, topology corrections, gestures,
+Undo, rotated parents and selected ancestors/followers moving exactly once.
+The transform dependency check also follows generated Polygon vertices through
+linked point counts and enabled/bypassed corrections. Full validation remains
+mandatory after the targeted transform evaluation optimization.
+
+Focused existing core/primitive/Polygon/transform/Canvas/Window/process/MCP and
+new UI tests passed. Tests exercise real Ctrl tree selection, Mixed rows,400 to
+all versus +=10 per target, frozen multi-target picker accept/cancel across
+Composition planes, driven refusal, save/reopen and multi-point/object gestures.
+The Inspector now keeps its scroll within the same editing context and hides
+advanced affine entries behind the same explicit disclosure as single selection.
+
+Actual Windows use selected Polygon and Star in a working copy of polystar-field.
+Their Center X280/680 became300/700 with +=20, then400/400 with an absolute edit.
+The entire readback differed only in those two intended literals. Automatic
+native and recovery matched exactly at revision2; each edit undid once and the
+complete migrated original returned at revision4. The0.8 example remained
+unchanged; the owned window closed normally. Receipt: build/batch-manual-receipt.json.
+
+Visible production Window on the previously recorded machine,893×824 Canvas,
+DPR1,90 paints/89 intervals, normal asynchronous protection. The representative
+scene has80 Paths/320 points with12 objects or points selected; the handle run
+edits one point. Both selected and unselected scene content is evaluated/rendered.
+
+| Operation | p50 ms | p95 interval ms | Max ms | >33.333ms | Release ms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Pan | 16.03 | 17.01 | 17.27 | 0 | 0.02 |
+| Zoom | 16.08 | 17.19 | 17.85 | 0 | 0.00 |
+| 12-point drag | 22.82 | 28.61 | 31.87 | 0 | 20.01 |
+| Single handle | 26.88 | 29.65 | 36.08 | 1 | 29.32 |
+| 12-object translation | 23.47 | 29.93 | 30.71 | 0 | 25.32 |
+
+The2-Path/2-target scene had worst p9517.37ms, max18.28ms, no33.333ms intervals,
+and maximum release9.89ms. The30fps p95 and release budgets pass, while60fps and
+the single representative handle stall remain limitations. Initial multi-object
+translation p9548.20ms failed; resolving only affine roots and their dependencies
+through the existing evaluator reduced it to29.93ms. No cache or alternate
+transform evaluation semantics were added. One intervening measurement stopped
+with an interrupted gesture before reaching the representative scene; its cause
+was not established and the incomplete data is not a passing measurement.
+The subsequent run with better interruption diagnostics completed normally.
+Artifacts: build/canvas-benchmark-multi.json, build/canvas-benchmark-multi-transform-subset.json
+and build/canvas-benchmark-multi-transform-subset-observed.json.
+
+
+## Expression authoring evidence — 2026-09-20
+
+Native0.10 adds bounded expressions through the existing property graph and Session,
+with strict old-version readers, source-preserving History/save, driven protections,
+inline multiline drafts and searchable reference insertion. All27 CTest entries
+passed in26.26s, including syntax/unit/cycle/range/topology/conversion failures,
+native0.1–0.9 migration, Qt inline input/stale drafts/link replacement, formal MCP
+changed-ID propagation and saved/restarted expression source. Initial desktop build
+found unqualified `property` colliding with QObject; qualification fixed it.
+No failure was waived. Tests are evidence for the supported language, not JS parity.
+
+`scripts/create_expression_demo.py` created `examples/phase-form.nect` and SVG through
+an empty live desktop Session:16 retained Circles,32 expressions, one Star controller,
+five Named Colors and editable type,31 SVG paint paths. Changing controller angle
+and radius updated all16 wave objects; independent numeric oracles and exact one-step
+Undo/native readback passed. Native retains source; export_plan discloses evaluated
+SVG values. The actual Windows viewport showed a coherent poster and legible controls.
+
+Actual UI worked on `build/expression-manual.nect`, never the source example:
+Center Y's fx editor accepted `330 +` newline
+`ref("phase","","generator.outer_radius")`. Draft showed375 while Canvas and revision4
+stayed unchanged; Ctrl+Enter committed375 at revision5. Native/recovery saved the
+exact multiline source. One toolbar Undo restored the complete original at revision6;
+native/recovery/example readbacks were exact and the owned app closed normally.
+Receipt: `build/expression-manual-receipt.json`. The helper's accessibility tree lagged
+some new controls; screenshot-grounded inputs and semantic readback verified them.
+
+Visible benchmark: `build/canvas-benchmark-expressions.json`, same hardware/Window and
+measurement boundary as above, viewport893x824, DPR1,90 paints/89 intervals per action.
+Every Path's Stroke width references the first point's X, so dragging it reevaluates
+all paints. Representative80 Paths/320 points/80 expressions,12 selected for point
+and object movement (handle remains one point):
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.00|17.52|18.84|0|0.02|
+| Zoom |15.99|17.38|21.71|0|0.00|
+|12 points|23.08|28.67|30.92|0|23.74|
+| Handle |22.80|25.69|26.45|0|30.61|
+|12 objects|24.08|31.78|32.06|0|22.64|
+
+Lightweight2 Paths/2 expressions: worst p9517.45ms, max19.74ms, maximum release10.59ms.
+The30fps p95 and release floor passes in this run; the60fps target remains unmet.
+This measures bounded arithmetic/reference sources, not all worst-case256-node formulas.
+
+## Geometry masks and Group compositing — 2026-09-20
+
+Native0.11 retains independent source visibility, stable geometry-mask references,
+Group opacity, explicit isolation and twelve supported blend modes. Top/Bottom
+mask creation and preserve-world PutInside use atomic Session commands, as do
+Inspector source edits, bypass and formulas on opacity. Full30 CTest entries
+passed25.86s, including native migrations, source/reference protection, exact Undo,
+formal MCP save/restart/recovery and actual Qt context menus. Pixel checks cover
+independent W3C blend formulas, aggregate opacity, pass-through/isolation, hidden
+source editing and renderer limits.87 Canvas checks also pass at DPR1.5.
+
+`scripts/create_compositing_demo.py` authored `examples/colour-cut.nect` and SVG
+through a fresh live Session: two retained circular masks,16 repeated stripes,
+Multiply/.88 Group opacity, five Named Colors and eight editable Text objects.
+On an owned working copy, actual Windows UI changed hidden-source radius157 to124.
+Only that literal changed at revision5; automatic native/recovery matched exactly.
+One toolbar Undo restored the entire original at revision6; source fixture stayed
+unchanged. Receipt: `build/compositing-manual-receipt.json`. Self-use moved mask
+controls above transform controls, making Edit Source immediately reachable.
+The final cropped renderer and corrected Inspector were visually checked again;
+the owned preview closed normally without authored edits.
+
+`scripts/probe_svg_compositing.py` produced SVG through the normal CLI Session and
+read pixels through Chromium153's SVG renderer.31/31 independent probes passed:
+twelve blends at alpha1/.5, Group overlap/opacity, transformed vector mask,
+pass-through/isolation and first-layer Screen on transparency. Largest channel
+difference was2/255 (tolerance3); production SVG visually matched Qt. Receipt:
+`build/svg-compositing-browser-receipt.json`. Local server/tab were closed.
+This establishes the supported SVG/CSS reader contract, not every SVG consumer.
+
+Visible production Window benchmark uses the same recorded machine,893x824 Canvas,
+DPR1 and90 paints/89 intervals. Representative85 leaves include80 authored curves,
+two hidden mask sources, two isolated Groups and one Screen leaf, maximum isolation
+depth2; all normal validation and asynchronous protection remain active.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.12|17.45|17.63|0|0.02|
+| Zoom |16.03|17.19|17.55|0|0.00|
+| Point |23.86|30.54|31.88|0|23.50|
+| Handle |23.52|30.66|32.71|0|24.10|
+| Object translation |24.57|26.38|28.18|0|25.49|
+
+Lightweight7-leaf scene: worst p9517.52ms, max21.46ms, release13.00ms, no interval
+over33.333ms.30fps p95/release floor passes;60fps remains unmet. Initial full-viewport
+isolated images failed at point37.73/handle40.76/move39.22ms p95. Cropping surfaces
+to pixel-aligned mask or true paint bounds reduced paint10–11ms to4–5ms, but point
+still failed34.58ms. Phase profiling found Session update13.56ms and Canvas values
+8.68ms means; unnecessary success-path diagnostic-string allocations were removed.
+Inspector also reuses the just-evaluated committed Canvas values. All validation
+and error semantics remain. No cache framework or relaxed threshold was added.
+Temporary instrumentation was removed. Original/intermediate/final evidence remains
+in `build/canvas-benchmark-compositing.json`, `canvas-benchmark-compositing-cropped.json`,
+`canvas-benchmark-compositing-profile.json` and `canvas-benchmark-compositing-diagnostics.json`.
+
+## Retained Offset Paths — 2026-09-20
+
+Native0.12 adds signed closed-region Offset through the existing shape stack,
+normal properties and Session.208 core checks cover exact rectangle bounds/areas,
+erosion, round/bevel/true miter-limit fallback, holes and winding, explicit invalid
+topology, source/correction IDs, links/formulas, Undo and topology/work limits.
+Paint-before-Offset and nonuniform Repeater-order fixtures verify that geometry
+changes while prior gradient/Stroke bases remain intact. Zero and bypass are exact.
+Curves use a declared bounded0.1du polygon approximation; open paths and analytic
+self-intersection parity are not claimed. Installed Boost headers provide buffering.
+
+Focused tests include real Add/amount/join/rule/bypass/expression controls, visible
+errors, exact one-step Undo, native0.1–0.11 migration, independent SVG rectangle
+coordinates and formal MCP. The MCP fixture puts Offset on a hidden mask source,
+checks owner changed IDs, rejects invalid join options atomically, and retains the
+Offset expression across automatic save, abnormal exit, restart and recovery.
+
+`scripts/create_offset_demo.py` authored `examples/contour-study.nect` and SVG through
+the live API: seven Circles, seven Stars,14 Offsets,13 expressions, four Named
+Colors and seven editable Text objects. All14 Amounts follow one controller.
+Independent value readbacks, changed IDs, exact single Undo/native/SVG passed.
+Actual Windows view showed clear concentric circle/star contours and readable type.
+On `build/offset-manual.nect`, GUI Amount18->26 changed only the controller literal
+at revision5; all14 evaluated Amounts matched, automatic native/recovery exact.
+One toolbar Undo restored the entire original at revision6; sourceexample unchanged.
+Receipt: `build/offset-manual-receipt.json`; owned app PID24760 closed normally.
+Self-use found excessive scrolling to a later operator. Inspector now offers a
+compact Shape stack jump menu, and newly added operators scroll into view. Both
+are viewport navigation; the GUI test checks no authored revision changes.
+Full32-test validation passed31 and exposed a horizontal shift that clipped the
+new jump target's left edge in a narrow Inspector. Keeping the horizontal origin
+fixed corrected it; five focused Window/Offset/expression/compositing/batch UI
+tests passed4.95s. A final actual Windows menu click revealed Offset Amount and
+labels directly; selection-only preview PID57688 closed normally.
+
+Visible `build/canvas-benchmark-offset.json` uses the same machine and893x824/DPR1
+production viewport,90 paints/89 intervals. Two authored curves plus twelve Circles
+and twelve six-point Stars each retain a round-join Offset after Stroke. All24
+Amounts reference the first curve's X/14, so point movement changes every outline.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.16|16.98|17.82|0|0.02|
+| Zoom |16.10|17.22|17.65|0|0.00|
+| Point |18.89|21.10|21.42|0|24.08|
+| Handle |24.26|25.73|31.44|0|29.96|
+| Object translation |20.03|26.49|31.62|0|20.13|
+
+The30fps floor and release budget pass;60fps remains unmet. This measures the
+mixed fixture and active Offset evaluation, not maximum admitted geometry sizes.
+
+
+## Linked / Embedded image assets — 2026-09-20
+
+Native0.13 retains original PNG/JPEG bytes and their validated interpretation,
+stable Linked/Embedded asset IDs and ordinary Image Width/Height properties.
+GUI, API and formal MCP share Session commands and explicit Host import/check/
+reload/relink/embed. Link observations never mutate accepted pixels; missing or
+invalid sources leave artwork intact. Native open/recovery does not fetch links.
+Shared immutable payloads avoid copying source bytes on gestures and history.
+
+The Release build passed. All35 CTest entries passed in51.78s, including116 memory
+raster checks,56 retained asset semantic/codec checks and70 desktop lifecycle/UI/
+pixel checks. Coverage includes PNG/JPEG color/orientation/alpha and malformed
+metadata/budget rejection; shared replacement/Undo, resize links/formulas, strict
+native round-trip/migration, missing/changed/relinked/embedded sources, frozen
+revision/identity, actual Qt import and Inspector controls, Canvas placement,
+independent mask/Multiply/Screen pixel oracles, and formal MCP automatic native+
+recovery save, abnormal exit and exact restart. The two initial desktop harness
+failures were corrected: fetch the Relink button before scheduling its dialog
+callback, and explicitly set the pixel-oracle Artboard size. No failure was waived.
+Build/test evidence: `build/assets-final-build.log`,
+`build/assets-desktop-test-build.log`, `build/assets-final-ctest.log`.
+
+`scripts/create_asset_demo.py` authored `examples/material-study.nect` and SVG
+through the production live API: one Linked JPEG shared across four placements,
+one Embedded transparent PNG, a hidden circular mask, Multiply, three Named Colors
+and seven editable Text objects. Both original source images are procedural fixture
+artwork in `examples/assets`. API resize/Undo and native readbacks were exact; SVG
+contains two shared normalized PNGs and five placements. Actual visual inspection
+caught and corrected an image placement that did not fully cover its circular mask.
+
+Actual Windows GUI on the owned `build/assets-manual.nect` changed Width480->520
+at revision11; only that literal changed, accepted source bytes stayed exact, and
+native/recovery matched. Toolbar Undo restored the entire original at revision12.
+After Relink to an owned duplicate, an external mirror edit was detected by the
+GUI Check link action without changing artwork. GUI Reload updated all four
+placements at revision14 while preserving the complete object map, and native/
+recovery saved the exact new bytes. One Undo restored the accepted pre-reload
+document at revision15. The production example remained unchanged. Receipts:
+`build/assets-study-receipt.json`, `build/assets-manual-receipt.json`. The owned
+application window and benchmark closed normally.
+
+Independent browser inspection of this SVG was blocked by the browser local-URL
+security policy; no bypass was attempted and browser visual parity is unverified.
+Core tests establish exact normalized PNG/accepted-display pixel equality and
+shared-image/mask/blend SVG structure; independent Qt pixel oracles and actual
+Nect production display passed. Earlier vector-only browser checks above do not
+establish this image fixture's browser rendering.
+
+Visible `build/canvas-benchmark-assets.json` uses the same recorded hardware,
+Windows11 25H2/Qt6.5.3, full production Window,893x824 Canvas,DPR1,12 warmups and
+90 paints/89 intervals per action with normal validation and asynchronous
+protection.24 placements share eight512x384 noise PNG assets (4,121,532 original
+bytes,1,572,864 decoded pixels), with three hidden circle masks and three Multiply/
+.8 leaves plus two editable four-anchor curves. Derived projections are reused.
+
+| Operation | p50 ms | p95 ms | max ms | intervals >33.333ms | release ms |
+|---|---:|---:|---:|---:|---:|
+| Pan |16.07|18.46|20.41|0|0.03|
+| Zoom |16.02|17.76|18.76|0|0.00|
+| Curve point |16.15|17.75|18.41|0|19.70|
+| Curve handle |15.86|18.49|19.04|0|15.73|
+| Curve translation |16.09|17.92|19.85|0|15.24|
+
+The30fps p95/release floor passes;60fps remains unmet. Input-to-paint p95 is at
+most9.63ms, paint p95 at most7.07ms. These are input-triggered QWidget paint
+completions, not native compositor/GPU presentation. This measures gestures with
+images present, not image-body translation timing, import/reload latency, maximum
+admitted32MP documents or all ICC profiles. Import/reload/export remain bounded
+synchronous operations, link detection requires explicit Check, and advanced
+raster formats/pixel painting/raster mask sources remain unsupported. Full format,
+color and size contracts are in [model-v0.md](model-v0.md#native013--retained-raster-assets-and-image-placements).
+
+The user requested an operating checkpoint here. The image slice is complete;
+no subsequent feature is started and the larger practical-alpha Mission is not
+claimed complete. This historical stop was superseded by the 2026-09-22 Mission
+resume; `CURRENT_GOAL.md` owns current scope.
+
+## Practical-alpha live reassessment — 2026-09-22
+
+Starting branch `codex/practical-alpha` was clean at `ab3fcec`, matching its
+upstream. `origin/main` at `6324126` was merged as `ffa9471`; only AGENTS.md changed
+in the merge tree. No product implementation, example or private-email backup
+branch was discarded or rewritten. No main push is authorized.
+
+The current evidence supports the following distinction; accepted direction is
+not a promise to implement every candidate before alpha:
+
+| Workflow | Live implementation/evidence | Remaining practical-alpha assessment |
+|---|---|---|
+| Editable vector/procedural graphics | `core.cpp`, `shape.cpp`, `offset.cpp`; primitive/Shape/Offset/gradient contracts | Already present; do not reimplement retained sources/Point Edit/stacks. |
+| Text and shared color | `text.cpp`, `color.cpp`; Text/Color contracts and UI tests | Usable bounded subset. Font substitution/portability remains an explicit limit, not a font-bundling task. |
+| Revising artwork | `transform.cpp`, `expression.cpp`, batch/transform/expression tests | Links, batch edits, pivots and parenting exist. Snap is accepted but absent; prioritize a bounded object-move snap interaction. Object duplication is absent and needs an internal/external reference policy before selection. |
+| Images and composition | `raster.cpp`, `compositing.cpp`; assets/compositing contracts; current runtime below | Linked/Embedded assets, masks and twelve blends exist. Full blend coverage and raster masks need demonstrated workflow demand, not automatic implementation. |
+| Durability and automation | `desktop/host.cpp`, storage/protection/live-save and formal MCP tests | Save/recovery/history and shared semantic commands exist. Keep regression evidence current. |
+| Output and reuse | `io.cpp::export_svg`, ordered Artboard tests | SVG output exists; PNG output and vector import do not. Assess the actual handoff workflow before choosing a codec slice. Inherited Artboard content/full AI/PSD remain deferred. |
+| Interaction performance | Earlier asset benchmark above, `build/canvas-benchmark-assets.json` | Recorded 30 fps floor passes; 60 fps and max-size/import timing are unproven. No fresh performance claim from this checkpoint. |
+
+Fresh Release build: `build/mission-resume-build.log`. Initial current CTest run:
+34/35, with `assets_desktop_contract` timing out at 60 seconds
+(`build/mission-resume-ctest.log`). A research-worker suite overlapped that run and
+reported success; overlapping runs are not used as authoritative evidence.
+Primary-only isolated runs passed all 70 image lifecycle/UI/pixel checks. Timed
+diagnostics located an approximately 12–15 second delay **after the Qt test file
+chooser accepted and began destruction, before its static call returned**
+(`build/mission-assets-timed.log`, `build/mission-assets-timed2.log`). This is not
+evidence of slow raster decoding. The original 60-second stall's exact cause is
+unproven. Changing custom-directory-icon options did not resolve the delay and
+was removed. Production behavior is unchanged; the test now prints flushed phase
+timings and has the same explicit 60-second CTest limit as other desktop tests.
+These diagnostics improve failure localization; they do not claim to fix the stall.
+Final primary-only Release build and suite passed **35/35 in 31.73 s**:
+`build/mission-final-build.log`, `build/mission-final-ctest.log`. No suite or
+research worker ran concurrently with this final verification.
+
+Current actual Windows runtime used the original production code at `ffa9471`,
+an owned `nect-mission-resume` endpoint/recovery directory, and
+`scripts/create_asset_demo.py --output build/mission-material-study.nect`.
+The visible 14-object study contained five image placements, seven editable Text
+objects, three Named Colors, a masked Linked JPEG and transparent Embedded rings.
+Through the real Inspector, Width 480→520 changed only the hero Image width
+(revision 9→10); native and recovery JSON equalled that edited document. The
+toolbar Undo restored the entire authored document exactly at revision 11;
+native/recovery and Host reopen readbacks also matched. Local receipt:
+`build/mission-runtime-receipt.json`; before/edited snapshots:
+`build/mission-ui-before.json`, `build/mission-ui-edited.json`. The native import
+chooser was visibly opened/cancelled; manual native-dialog import completion is
+not claimed because the UI automation tool could not reliably target its field.
+Import itself passed through the real Host/API and Qt GUI contract test.
+Owned runtime closed normally; original `examples` files were unchanged.
+
+## Gentle object-placement Snap — 2026-09-22
+
+Implemented from `c723a678` on `codex/practical-alpha`. The per-window Snap ON/OFF
+action beside Fit and in View defaults ON. Object-body translation attracts each
+axis within 6 logical screen pixels to the active Artboard edges/center and
+document-visible leaf geometry edges/centers in the active Composition. The
+moving selection uses aggregate world geometric bounds; effective transform
+followers are excluded from targets, including followers outside a structural
+Group. Candidates are fixed and sorted at press; pointer updates use binary
+search. Dashed alignment guides exist only in the view during the gesture.
+
+Bounds project the shared evaluated final paths, earlier paint instances, Text
+frames and Image rectangles; they exclude stroke thickness. Hidden/zero-opacity
+objects and ancestors do not contribute. Bounds describe geometry, not masked
+or occluded paint silhouettes. Target Groups contribute their visible leaves,
+not an additional enclosing Group candidate. Point/handle/Anchor edits, numeric
+fields and API commands do not implicitly snap. No native format change or
+persistent guides/grid/preferences was added. Existing Session Set/TranslateObjects
+previews retain one-gesture Undo, cancellation and concurrent-edit rejection.
+
+Verification:
+- Current Release build completed. `tests/canvas_tests.cpp`: 112 checks, including
+  50/100/200% attraction and free motion, tolerance boundary, frozen candidates,
+  exact numeric edits, Escape/return home, concurrent writes, aggregate selection,
+  effective followers, visibility and nonuniform rotated-parent coordinates.
+  Current `batch_ui_tests` and `transform_ui_tests` pass; the existing exact-motion
+  batch fixture explicitly turns Snap OFF. New Snap fixtures exercise ON.
+- Initial full CTest run: 32/35, `build/snap-initial-ctest.log`. Two fixtures were
+  corrected: the hidden-target fixture accidentally coincided with Artboard
+  center, and the old batch test assumed free motion. Their current runs pass.
+  The previously recorded `assets_desktop_contract` chooser-destruction timeout
+  recurred at 60 s. A subsequent isolated run passed all 70 checks in 752 ms
+  (chooser destruction start 504 ms, import return 516 ms). The intermittent
+  cause remains unproven; this checkpoint does not claim to fix it or claim a
+  fresh single-run 35/35 suite.
+- Real Windows Canvas events also passed 113 checks, including saving
+  `build/snap-guide-windows.png`; direct inspection shows the dashed guide at
+  the aligned center. This used `QT_QPA_PLATFORM=windows`, not offscreen.
+- Real production Window, 118% zoom: an identical mouse drag from (437,368) to
+  (645,400) committed X=180 with Snap ON and X=176.78618857901728 with OFF;
+  Y=27.197875166002657 in both cases. Toolbar Undo restored Position X/Y=0 in one
+  step. API/native readbacks: `build/snap-ui-on.json`,
+  `build/snap-ui-off-native.json`; owned document `build/snap-study.nect`.
+  The owned visible Session closed normally. Original examples were unchanged.
+
+Visible Windows/Qt 6.5.3 performance uses the existing production Window benchmark
+with Snap ON, 12 warmups and 90 measured input-triggered QWidget paints per
+operation, 893x824 Canvas/DPR 1. Native compositor/GPU presentation is unmeasured.
+The benchmark now also records press/candidate setup; semantic assertions permit
+at most 6 screen pixels of snap correction and preserve multi-target spacing.
+`build/canvas-benchmark-snap.json` passed the 30 fps p95 interval floor for the
+2/80-curve fixtures. On 80 curves: object-move p95=29.16 ms, press=4.02 ms and
+release/UI commit=33.85 ms (slightly exceeds the 33.33 ms release budget).
+Snap performs no candidate scan at release; the cause of this single release
+overrun was not isolated. The lightweight pass overlapped a brief offscreen
+contract run; the following mixed-image measurement ran without concurrent tests.
+
+`build/canvas-benchmark-snap-assets.json` used the existing 24-image/eight-source,
+two-curve fixture with masks/blending. All five interval and release budgets pass:
+
+| Operation | p95 interval ms | press ms | release/UI commit ms |
+|---|---:|---:|---:|
+| Pan |17.99|0.03|0.02|
+| Zoom |17.91|0.00|0.00|
+| Point drag |18.38|0.12|15.53|
+| Handle drag |18.59|0.11|11.76|
+| Object translation |18.66|0.23|12.83|
+
+The 30 fps interaction floor passes; 60 fps and every-scene release budget are
+not claimed. At this checkpoint the next selected workflow gap was independent
+object duplication; only Artboard-frame duplication existed.
+
+## Independent object / Group duplication — 2026-09-22
+
+The common Session `DuplicateObjects` command now backs Edit/context-menu
+**Duplicate objects in place** and **Ctrl+D**. Copies become the selected roots;
+placement remains an explicit normal Canvas/TranslateObjects edit. Each selected
+Group closure copies once, even when descendants are also selected. Copies follow
+each selected sibling run in its original structural owner and paint order.
+
+Fresh IDs cover retained sources, generated roles/Point Edit, paths, contours,
+points, paints, gradients/stops, Text and masks. Bindings and parsed expression
+references within the closure follow copied IDs (including disabled state), as do
+internal masks and Transform Parents. External references, Named Colors and image
+assets keep their intended targets. Original inbound links and Collections stay
+on originals. See `docs/model-v0.md` for limits and the exact command contract.
+There is no native format change, flattening, linked-instance or clipboard claim.
+
+Validation:
+- Release build `build/duplication-full-build.log`; all **36/36 CTest contracts**
+  passed in55.46s, including formal MCP duplication, native/recovery/restart,
+  core/expression/transform, storage, image and GUI contracts
+  (`build/duplication-full-ctest.log`). The added nested/role checks subsequently
+  passed: **52 duplication checks**, `build/duplication-final-build.log`.
+- GUI batch contract uses Ctrl+D, checks selected copies/Tree synchronization,
+  exact one-step Undo/Redo and independent Inspector editing. Core checks cover
+  generated role and gradient-stop expressions, external/internal dependencies,
+  mask/parenting, disabled Point Edit, text/assets, noncontiguous nested ownership,
+  exact native roundtrip, SVG and atomic invalid/collision/history-limit failures.
+- Actual Windows UI used an owned copy of `material-study.nect` at endpoint
+  `nect-duplication`. Ctrl+D on an Image produced revision1; Canvas move produced
+  r2; GUI Undo restored exact copied state at r3 and exact original at r4. A
+  three-image linked Group was copied via Ctrl+D at r6 and dragged at r7. Editing
+  copied Width120→96 changed its copied follower to96, leaving original linked
+  placements at120. Native and recovery readback equalled r8; Host reopen retained
+  every ID/link/asset, and SVG exported. Local receipt and snapshots are under
+  `build/practical-alpha-dupe/`. Recovery was checked after its verified cadence,
+  not immediately after the native Save returned. The Window closed normally.
+
+The image chooser passed this suite in22.44s; its known intermittent teardown
+delay is **not fixed** by this work. Earlier Snap performance/release limits remain
+as recorded. Next: integrated authoring/recovery/export and warm interaction
+acceptance, selected from the live workflow rather than the full backlog.
+
+## Integrated practical-alpha acceptance — 2026-09-22
+
+The scoped `Nect/practical-alpha` Mission completion conditions are demonstrated
+on production implementation `ebbacf75701de17dbd31bebbfa6bb1b82b34b200`.
+This closes the selected daily editing/native-protection/SVG workflow; it does not
+claim a release, full Illustrator/Photoshop parity or completion of all Candidates.
+The current 36/36 contract suite and 52 focused duplication checks are recorded
+above. No production code changed during this final acceptance.
+
+An owned material-study variation combines 21 objects: eight editable Text
+objects, eight Image placements sharing two assets, vector geometry, three Named
+Colors, masks, Multiply and two independently editable image Groups. Session/API
+commands prepared the expanded 960x820 layout and linked styles. Actual Windows
+GUI interaction then revised the headline, created a retained Circle, set its
+radius to 28 through keyboard Inspector editing, positioned it with Snap, and
+saved using Ctrl+S. The previous duplication checkpoint exercised image/Group
+Ctrl+D, Canvas placement and exact GUI Undo. This is a combined GUI/API production
+flow, not a claim that the entire composition was authored manually from blank.
+
+Acceptance artifacts are under ignored `build/practical-alpha-acceptance/`:
+- `material-variations.nect` and `accepted.json`: saved native exactly matches
+  the authored revision 8; all eight Text entries have no overflow/warning.
+- `receipt.json`: live recovery snapshot equals the same authored state. Opening
+  recovery detaches it from the original filename; Save As to
+  `material-variations-recovered.nect` leaves the recovery source bytes unchanged.
+  A normal close and fresh desktop process reopen that file with exact authored
+  equality, revision 0, and an identical SVG export. Actual restarted UI was
+  inspected. Owned desktop processes then closed normally; examples were unchanged.
+- `material-variations.svg`: independent XML parsing verifies the 960x820 viewBox,
+  embedded assets, eight image uses and clipping. A preinstalled offline
+  Sharp 0.35.4/librsvg 2.62.91 renderer produced `material-variations-preview.png`;
+  visual inspection confirms mask, Multiply, images and outlined Text placement
+  against the actual Canvas. The QA PNG is not a Nect raster-export capability.
+  Browser Use blocked local `file://` access; no browser-rendering claim or URL
+  workaround was used. No dependency was added to the app or environment.
+
+Fresh visible Windows/Qt 6.5.3 benchmarks used the reference machine above,
+893x824 Canvas/DPR 1/96 DPI, Snap ON, 12 warmups and 90 measured inputs per operation.
+No concurrent suite ran. Measurement includes normal queued input and QWidget
+paint completion, not DWM/compositor/scanout. Current p95 intervals meet the
+recorded 30 fps floor for lightweight, 80-curve and mixed-image fixtures:
+
+| Operation | Mixed images p95 / release ms | 80 curves p95 / release ms |
+|---|---:|---:|
+| Pan |18.76 /0.41|18.51 /0.41|
+| Zoom |18.23 /0.00|17.63 /0.00|
+| Point drag |18.25 /14.72|29.56 /34.75|
+| Handle drag |18.18 /13.99|30.20 /25.49|
+| Object translation |18.95 /13.26|26.54 /28.41|
+
+Mixed-image fixture: 24 placements/eight 512x384 sources (4,121,532 encoded bytes),
+two four-point paths and three masks; zero measured intervals exceed 33.333 ms.
+The 80-curve fixture has 320 points; point drag has one interval over 33.333 ms.
+The lightweight two-curve p95 range is 18.16–21.24 ms. Raw evidence:
+`build/practical-alpha-acceptance-performance.json` and
+`build/practical-alpha-acceptance-curves.json`, with matching `.log` files.
+
+Limits remain explicit: the dense point-release/UI commit is 34.75 ms, above the
+33.33 ms release target; the earlier 33.85 ms result is not considered fixed. The
+30 fps p95 interaction floor passes, but 60 fps and every-frame/release budgets do
+not. The intermittent image chooser teardown delay remains uncorrected despite
+the successful current suite. Font portability, raster export/vector import,
+full codecs/typography/compositing and maximum-size scenes remain outside the
+demonstrated subset. Native retains authored intent while SVG uses the declared
+lossy output subset. These limits do not prevent the recorded production flow.
+
+## Daily-output PNG checkpoint — 2026-09-22
+
+Practical-alpha completion remains accepted. The current user authorizes continued
+same-Task Missions; `Nect/daily-output` now adds bounded raster delivery.
+
+- `Canvas::paint_artwork` is shared by viewport and artwork-only Artboard rendering.
+  PNG uses a committed Session snapshot and hidden derived Canvas projection (never
+  shown), preserving the live view, native authored state, revision and history.
+  Geometry, images, gradients, text contours, masks, opacity and supported blends
+  follow the existing evaluator/renderer; paper and editor overlays are excluded.
+- GUI File → Export PNG, Host `export_png` and formal MCP `nect_export_png` use
+  the same export path. Transparent/white background, explicit scale, ceiled
+  dimensions, 8192/axis and16MP limit; existing128MiB isolation budget remains.
+  White is composited behind the finished transparent artwork, not into blends.
+  Output uses atomic QSaveFile replacement with no direct-write fallback.
+  Stale identity/revision, active gestures, invalid bounds and native/linked-source
+  targets reject. Core-only CLI has no PNG renderer and does not claim one.
+- Focused `png_export_contract` proves crop, overlap alpha, explicit backdrop,
+  independent output decode, unchanged native/revision, malformed/oversized input,
+  preservation of existing output on failure, stale revision, gesture rejection,
+  IO failure, actual WIC reimport and linked-source protection. Formal MCP test
+  exports PNG through stdio and checks signature/dimensions.
+- Reimport exposed a real interop issue: Qt's synthesized sRGB ICC profile failed
+  WIC color transform on this host (HRESULT2147944411). Export now writes the
+  standard PNG sRGB perceptual-intent chunk instead. Pixels remain sRGB; production
+  WIC import validates chunk CRC and succeeds. This is not a broader ICC fix.
+- Full suite:37/37 in55.80s (`build/daily-output-regression.log`). After the encoder
+  metadata repair, PNG+formal MCP focused contracts passed in7.43s.
+- Actual Windows GUI: opened owned copy of the21-object material-variations native
+  composition, File → Export PNG →1x/transparent → scratch filename. Status showed
+  960x820 sRGB and revision0. Pillow decoded GUI and API files to identical RGBA
+  pixels. The output image was visually inspected; text, masks, image placements
+  and procedural ornament are present. Original fixture/examples were untouched.
+  Artifacts: `build/daily-output/{gui-output.png,production-export.json}`.
+- Visible mixed-image Canvas benchmark:893x824 viewport,DPR1; p95 intervals
+  pan19.60,zoom18.23,point18.46,handle19.55,object19.00ms.30fps floor met;60fps
+  target not met. Largest release20.21ms. Receipt:
+  `build/daily-output/viewport-benchmark.json`. This does not repair the separately
+  recorded80-curve34.75ms release. All owned app/benchmark windows closed.
+
+Next evidence-driven improvement: combine output resolution/background settings,
+show resulting pixel dimensions before choosing a file, and preserve the settings
+for repeated exports within the Window. Current three-dialog path works but hides
+result size until completion; no new model/format or dependency is needed.
+
+
+## Daily-output settings acceptance — 2026-09-23
+
+A single PNG dialog now contains scale, background, live ceiled pixel dimensions
+and destination with optional Browse. Oversized output is disabled before writing;
+existing-file replacement asks once. Only successful settings are remembered in
+the Window. Target Artboard, Session identity and revision are frozen at entry so
+API edits during the dialog cannot silently substitute a different export.
+
+Focused PNG/window/formal MCP contracts passed3/3 in11.32s
+(`build/daily-output/settings-tests.log`); an added stale-UI-revision assertion also
+passed afterward. The PNG test drives the real action/dialog, writes150x120 white
+output, checks disabled oversized settings, successful setting reuse and cancel,
+and proves a concurrent Rename makes export reject without creating a file.
+
+Actual Windows GUI showed960x820 at1x and immediately480x410 after typing0.5.
+Export succeeded directly from this dialog without opening a native chooser;
+status remained native revision0. Pillow independently decoded the resulting
+`build/daily-output/material-variations.png` as480x410 RGBA with standard sRGB
+intent0. This also verifies the post-ICC-repair encoder in the actual GUI. Owned
+window was closed. Previous rendering/performance evidence is unchanged.
+
+The daily-output Mission's bounded delivery conditions are now satisfied.
+Known limits remain8-bit sRGB PNG, no print/CMYK/high-bit-depth, no core-only CLI
+Qt renderer,16MP/8192 and compositing budgets. File-dialog shell latency is not
+claimed fixed. Current product reassessment selects everyday alignment/layout
+as the next Mission: multi-selection and Snap exist, but exact multi-object edge/
+center alignment has no semantic command or GUI action in live code.
+
+
+## Daily-layout alignment acceptance — 2026-09-23
+
+Shared AlignObjects now aligns exact world geometric edges/centers to the initial
+selection envelope or a named Artboard. Inspector controls and Edit actions use
+the same Session command as JSON API/formal MCP. Sources and stable IDs remain;
+parent/follower translations are solved together. Geometry-changing dependencies,
+driven axes, empty bounds and structural overlapping selection reject atomically.
+
+Full regression38/38 in37.30s (`build/daily-layout-regression.log`). Focused tests
+cover six directions, Artboard, rotation, Groups, selected effective parents,
+invalid/driven failures, Undo/Redo, native roundtrip and JSON. Existing batch tests
+caught a tiny-translation regression during solver extraction; exact requested
+displacement differences repaired it before acceptance. Formal MCP aligns and
+undoes two paths. After Inspector controls were added, window/batch UI tests2/2
+passed4.24s. A later fully relinked run exposed a hard-coded Artboard-center
+expectation in the final button assertion; it now derives the expected center
+from the live Artboard and passes in the spacing regression below.
+
+Actual Windows GUI: three retained rectangles at geometric left70/280/580 were
+selected in the tree and aligned with Inspector Left. Canvas visibly aligned;
+Session readback showed tx0/-210/-510 and revision1. Ctrl+Z restored all tx0 in
+one action, revision2. Receipt `build/daily-layout/gui-alignment.json`; fixture
+`build/daily-layout/alignment.nect`. Owned Window closed.
+
+Current relinked visible multi-selection benchmark completed with all30fps p95
+interval and33ms release budgets met. P95 ranges17.16–19.23ms lightweight and
+17.22–32.37ms representative;60fps target unmet. Receipt
+`build/daily-layout/current-viewport-benchmark.json`. An earlier executable run
+recorded33–45ms intervals and failed the floor (`viewport-benchmark.json` in the
+same directory); its paint times were2–5ms. Both results are retained. The later
+run explicitly relinked current UI; scheduling/measurement variability is not a
+proven performance repair. Native compositor timing is outside this benchmark.
+
+Next practical gap: equal geometric spacing of mixed-width objects. Alignment
+removes one repetitive task; distributing three or more items currently requires
+manual per-object placement. Continue the same Mission/Task with bounded spacing.
+
+
+## Daily-layout spacing / Mission acceptance — 2026-09-23
+
+DistributeObjects adds equal horizontal/vertical geometric gaps for3–1000 objects,
+keeping outer positions fixed and selection order irrelevant. Inspector buttons
+and Edit menu use the same Session command as API/formal MCP. Overlap, structural
+ancestor selection and unpreservable/driven changes reject atomically. The bounds
+and simultaneous translation solver are shared with alignment; no model version
+or dependency change. Sources/references and one-step Undo/Redo remain intact.
+
+Full rebuilt regression38/38 in72.81s (`build/daily-layout/spacing-regression.log`),
+after focused core/window/MCP3/3 in10.37s. Mixed sizes, shuffled order, x/y,
+Transform Parent, rejection, native roundtrip, Undo/Redo and formal MCP verified.
+The Window test now derives Artboard center from actual dimensions instead of
+assuming640px; the earlier assertion failure was a fixture expectation error.
+An initial test invocation raced an unfinished desktop link and saw the old
+command set; only the post-build runs above are acceptance evidence.
+
+Actual Windows GUI: width120/160/80 rectangles initially at left70/280/580.
+Inspector Equal H gaps moved only the middle object by25, yielding115du gaps.
+Ctrl+Z returned all tx0 (revision2); toolbar Redo restored tx0/25/0 (revision3),
+confirmed through live Session readback. Receipt `build/daily-layout/gui-spacing.json`.
+Owned fixture `build/daily-layout/spacing.nect`; owned window closed. No Canvas
+paint-loop change in this checkpoint; alignment benchmark remains the viewport
+baseline, with its recorded variability rather than a new performance claim.
+
+Daily-layout completion conditions are met. The next Mission is direct-edit-flow:
+live Canvas supports explicit selection, Group scope and Fit Artboard, but lacks
+contextual Select All and Fit Selection, and has no arrow-key placement. These
+frequent operations build on existing selection/translation semantics, avoiding
+new authoring formats or speculative frameworks. Continue in this Task.
+
+
+## Direct-edit-flow selection/framing checkpoint — 2026-09-23
+
+Canvas Ctrl+A / Edit context selection operates on visible scope-level objects,
+without selecting both a Group and its descendants. In point context it expands
+the current objects' anchors. View Fit Selection / Ctrl+2 and Canvas Shift+F frame
+world geometric bounds or point positions. Empty/degenerate cases are explicit;
+active drag/draw interactions cannot be reframed by these new actions.
+
+Focused Canvas/Window contracts2/2 in3.95s verify Group/hidden/root selection,
+point expansion, single-point bounded framing, unchanged native/revision, menu
+entry and text-field Ctrl+A. Actual Windows GUI selected a rectangle, Ctrl+2
+framed it at628%, Canvas Ctrl+A selected3 objects, Shift+F framed them at128%.
+Live Session stayed revision0. Receipt `build/daily-layout/gui-navigation.json`;
+owned Window closed. No renderer or authored format change.
+
+Next checkpoint: keyboard placement. Live key handling has no arrow movement;
+reuse existing Session object translation and atomic point edits, preserve
+world-space direction under affine parents, and keep input-field keys local.
+
+
+## Direct-edit-flow keyboard / Mission acceptance — 2026-09-23
+
+Canvas arrows now move1 world du (Shift10), independent of zoom/Snap. Whole
+objects use TranslateObjects; points inverse-map the world delta and submit
+ordinary Set commands together. Existing Session atomicity, Point Edit promotion
+and history are preserved. Each key event is a transaction, including repeat.
+No keyboard interception outside Canvas and no nudge during draw/drag, Anchor Edit
+or gradient control modes. No schema/core/API duplication.
+
+Focused Canvas/Window contracts2/2 in4.21s verify object steps/Undo, inverse
+rotation/nonuniform point movement, multi-point placement, untouched driven axis
+and atomic refusal when a driven coordinate must change. Actual Windows GUI:
+Shift+Right changed retained Rectangle tx0→10 (r1); selecting top-left then Right
+changed its local x70→71 with one Point Edit override (r2), source width120 and
+center130 remained. Ctrl+Z removed Point Edit while retaining tx10 (r3). Saved
+owned native confirms the Undo state. Receipt `build/daily-layout/gui-keyboard.json`
+and `keyboard.nect`. Owned window closed.
+
+Direct-edit-flow completion conditions are met. Live interaction review exposes
+the next high-frequency gap: selecting arbitrary subsets still requires repeated
+Shift-clicks because dragging empty Canvas has no marquee behavior. The next
+Mission will add bounded rectangle selection, preserving Group/point contexts,
+without authored mutations. Continue in this Task.
+
+
+## Area-selection Mission acceptance — 2026-09-23
+
+Empty-Canvas rectangle selection now chooses fully contained scoped objects or
+anchors in the frozen point targets. Shift adds; reverse directions work; Escape
+preserves the original selection. Drag only draws an overlay, and selection/UI
+updates happen once on release. No Session gesture/revision/history mutation.
+Hidden geometry is not a normal candidate; selected Groups use complete geometric
+bounds excluding stroke/mask cropping, consistent with layout tools.
+
+Focused Canvas/Window/batch UI3/3 in4.65s; after diagnostic timing fields were
+added, rebuilt Canvas/Window2/2 in3.95s. Contracts cover containment, reverse
+direction, scope, hidden targets, point replacement/addition, click behavior and
+Escape with unchanged native/revision. Actual Windows GUI selected2 rectangles
+and then2 top-edge anchors using separate empty-area drags; Inspector/tree and
+Canvas agreed, live revision stayed0. `build/daily-layout/gui-marquee.json`.
+
+Viewport investigation: `marquee-viewport-benchmark.json` recorded representative
+translation p95 interval49.28ms/paint6.39ms (30fps floor FAILED). Added additive
+semantic-preview/projection stage timings to existing FrameTiming and receipts.
+`marquee-profile.json` then met the30fps floor for all2/80-curve multi-selection
+operations: representative interval max32.23ms, translation28.60ms, largest
+release28.89ms. Translation stage p95 preview13.43, projection11.37, paint3.95ms.
+60fps remains unmet. These are separate wall-clock runs; no performance repair or
+root cause for the49ms run is claimed. Preserve both and retain measured variance
+as a limitation; do not optimize rendering alone from these results. Owned
+Windows/benchmark processes closed.
+
+Mission conditions are met with current-build interaction and viewport evidence.
+Next value: bring existing vector artwork into Nect. Read-only bounded official
+SVG/Qt research confirms no current importer and QXmlStreamReader availability
+in already-installed Qt Core. Plan a strict editable static SVG subset through
+shared Session commands; unsupported content rejects atomically, without adding
+a codec dependency or claiming full Illustrator/SVG compatibility.
+
+
+## Static SVG intake acceptance (2026-09-23)
+
+Added bounded editable SVG path/group intake through File > Import SVG (Ctrl+I),
+Host `import_svg`, and formal MCP `nect_import_svg`. All paths use one atomic
+Session batch. See `docs/svg-import.md` for the strict conversion contract and
+limits; unsupported content never becomes a partial import. No new dependency
+or native format change. Source viewport mapping does not add clipping/Artboards.
+
+Release full regression: **39/39 passed**,43.65s
+(`build/daily-layout/svg-regression.log`). Coverage includes inherited paint,
+affine/viewBox placement, quadratic/smooth curves, malformed/unsupported refusal,
+stale revision, exact native reopen, Undo/Redo and actual Window action/dialog;
+formal MCP imports and undoes against the live desktop Session.
+
+Actual Windows GUI imported original `examples/wayfinding-mark.svg`:6 editable
+paths in4 Groups, rounded panel, two curves, rotated diamond/arrow and translucent
+baseline visually verified. Shift+Right moved the root10du; Undo restored it.
+A further Undo removed the entire import; Redo button restored byte-equivalent
+native state. Host Save/Open preserved exact authored document and PNG export
+produced960x640 sRGB. Receipts: `build/daily-layout/svg-gui-acceptance.json`,
+`svg-gui-import.json`, `svg-gui-undo.json`; saved native/PNG in same scratch folder.
+Owned GUI closed after verification. Arc/basic-shape elements remain explicitly
+unsupported at this checkpoint; coverage expansion is the next bounded task.
+
+
+## SVG basic-shape intake acceptance (2026-09-23)
+
+Extended the existing importer with rect/circle/ellipse/line/polyline/polygon,
+lowered to native editable paths. Rectangle radius fallback/clamping, SVG2
+ellipse auto radius, default coordinates and straight/open/closed topology are
+covered. Curved portions are explicitly disclosed cubic approximations using
+at most45-degree spans; sampled normalized ellipse radial error stays below5e-6.
+Zero-sized filled shapes remain an explicit refusal. No native/dependency change.
+
+Focused Release `svg_import_contract` + `mcp_desktop_contract`:2/2 passed,8.18s
+(`build/daily-layout/svg-shapes-tests.log`). Full regression39/39 was run at the
+preceding vertical checkpoint; no unrelated render/core code changed here.
+Actual Windows File Import accepted original `examples/shape-badge.svg`: six
+shapes including a rotated ellipse, rounded card and stroked zigzag/line. UI
+showed the approximation disclosure and correctly rendered the artwork. Live
+Session edited an imported circle anchor, undid it, saved and reopened exact
+native state. Receipt `build/daily-layout/svg-shapes-gui-acceptance.json` and
+`svg-shapes-gui.nect`. Owned GUI closed. Next coverage blocker: path A/a arcs.
+
+
+## Vector-intake Mission completion: elliptical arcs (2026-09-23)
+
+SVG A/a now lowers through endpoint-to-center conversion and shared <=45-degree
+cubic spans with basic shapes. Handles radius correction, all large/sweep flags,
+axis rotation, relative/repeated commands and compact single-bit flags. Exact
+input endpoints retained; zero radii become lines and coincident endpoints emit
+no segment. Unsupported content and resource limits still reject atomically.
+The focused test caught floating angular-boundary subdivision drift; fixed by
+removing rounding noise before selecting span count (1e-12 span tolerance).
+
+Release full regression **39/39 passed**,63.03s
+(`build/daily-layout/svg-final-regression.log`). Actual Windows GUI imported
+`examples/arc-mark.svg`:270-degree ring, rotated open ellipse and compact relative
+semicircles visually verified. Same live Session Undo/Redo restored exact state,
+native save/reopen matched and SVG re-export succeeded. Receipt:
+`build/daily-layout/svg-arcs-gui-acceptance.json`, native/output SVG beside it.
+Owned GUI closed. Geometry/style conversion contract: `docs/svg-import.md`.
+
+`Nect/vector-intake` completion conditions are met for its explicit static solid
+paint subset, through GUI/API/formal MCP, with original input unchanged and no
+new dependencies/native format changes. This is not general SVG fidelity:
+CSS/gradients/text/images/masks and alternate cap/join semantics remain explicit
+refusals. Next Mission chosen from live UI: expose existing core stacking-order
+commands for everyday overlapping artwork, then reassess other direct-edit gaps.
+
+
+## Everyday arrangement: stacking acceptance (2026-09-23)
+
+Edit/context menus and Ctrl+]/Ctrl+[/Ctrl+Shift+]/Ctrl+Shift+[ expose sibling
+forward/backward/front/back through existing Session ReorderObjects. Stable
+selection order, one-neighbor block steps, nested Groups, no-op boundaries and
+atomic mixed-parent/point refusal; coordinates and references remain unchanged.
+Focused Release Window/compositing UI/batch UI:3/3 passed,5.84s
+(`build/daily-layout/stacking-tests.log`). Tests cover exact Undo and native codec.
+
+Actual Windows: three overlapping Coral/Mint/Gold objects. Ctrl+] placed Coral
+above Mint but below Gold; Ctrl+Shift+] moved Coral over both. Context menu Send
+to back restored the initial overlap, Ctrl+Z restored Coral to front. Live API
+confirmed child order and exact native save/reopen (`stacking-gui-acceptance.json`
+and `stacking-gui.nect` under build/daily-layout). Owned GUI closed.
+Computer-use popup input required its bounded transient screenshot ID; targeting
+the main-window screenshot dismissed the popup. No product defect was inferred.
+Next live gap: no Ungroup command exists, leaving imported nesting tedious to
+reorganize. Start with neutral static Groups and refuse cases that cannot retain
+appearance/dependencies, rather than silently dropping compositing behavior.
+
+
+## Everyday-arrangement Mission completion: neutral Ungroup (2026-09-23)
+
+Added core/API/MCP `ungroup {composition,parent,group}`, meaningful History label,
+Edit/context action and Ctrl+Shift+G. Neutral static Groups unwrap at their exact
+stacking slot. Child IDs/geometry/Anchors remain; inherited static affine is
+composed into child matrices. Explicit external child parents remain. References
+to the removed Group and non-preserving compositing/dynamic/dependency cases
+reject atomically. Group Collection membership alone is pruned. No inverse,
+native migration or new dependency. Contract in `docs/model-v0.md`.
+
+Focused3/3 passed; full Release **39/39 passed**,60.99s
+(`build/daily-layout/ungroup-focused.log`, `ungroup-regression.log`). Covers nested,
+singular, external-parent, reference/dependency refusal, exact Undo/Redo, Window
+selection and formal MCP. Actual Windows imported original wayfinding fixture,
+selected rotated/translated beacon Group and used Ctrl+Shift+G. Diamond/arrow
+remained visually identical and selected; PNG before/after bytes identical
+(SHA256 `7d4f56683e83f4dc29b77cba1bd693425e260b43597ada084f939280ccced98e`).
+GUI Undo restored exact original document; Redo/save/reopen exact. Receipt
+`build/daily-layout/ungroup-gui-acceptance.json`, before/after JSON/PNG and native
+file alongside. Owned GUI closed.
+
+`Nect/everyday-arrangement` bounded completion conditions now met: stacking and
+neutral imported Group reorganization through semantic authority. Continue with
+measured viewport latency: prior80-curve object move timing varied around30fps;
+its semantic-preview/projection stages each consumed more than painting. Measure
+current baseline before choosing a repair; do not claim60fps or hide failed runs.
+
+
+## Responsive editing: reuse validated preview values (2026-09-23)
+
+Session now exposes read-only values from its last successful preview validation.
+Canvas uses that exact derived snapshot instead of evaluating the same document
+again. Begin/reset/commit/cancel invalidate it; failed update/history admission
+retain the matching last-valid preview/value pair. No authored format, authority,
+validation or dependency changes. Six focused core/history/expression/Canvas
+contracts passed (`build/daily-layout/responsive-focused.log`).
+
+Comparable visible production Windows benchmark receipts are
+`responsive-baseline.json` and `responsive-preview-reuse.json` in that directory.
+Representative80-curve p95 timings (ms):
+
+| Operation | Interval before/after | Preview before/after | Projection before/after | Release before/after |
+| --- | --- | --- | --- | --- |
+| Point drag |31.88 /35.70|14.61 /23.86|13.74 /8.53|30.79 /50.17|
+| Outgoing handle |33.34 /24.11|14.43 /13.84|14.54 /5.53|26.34 /28.97|
+| Object translation |36.23 /20.55|16.54 /12.13|15.77 /4.69|35.91 /26.11|
+
+Projection improves in all three operations. Point timing worsened in the same
+run along with semantic preview/paint, so this is not an all-operation floor
+pass. Both receipts complete; both report30fps/release and60fps aggregate false.
+No unchanged rerun was used to replace the failed timing. Next inspect the
+remaining full evaluation work, especially literal authored properties; preserve
+all expression/generated topology checks and measure after an actual change.
+
+Full Release39/39 passed,64.04s (`responsive-regression.log`).
+
+
+## Responsive editing: literal dependency leaves (2026-09-23)
+
+Full evaluation now directly range-checks/inserts already-indexed, non-generated,
+non-driven literals. They have no dependencies; avoid repeated index lookup and
+active-set allocation. Generated point overrides retain topology/role validation;
+expressions, links and subset evaluation retain existing traversal. Focused6/6
+and full39/39 pass (56.44s), `literal-leaf-focused.log` and
+`literal-leaf-regression.log` in build/daily-layout.
+
+Visible changed-code run `literal-leaf-benchmark.json`: all-operation30fps p95
+interval floor passes; release and60fps aggregate still false. Representative
+point/handle/object intervals32.47/30.60/22.90ms; semantic preview15.40/15.73/12.03ms;
+projection9.61/8.41/6.56ms; release34.43/52.98/22.06ms. Compared with previous run,
+point semantic cost falls but handle increases, so no uniform evaluator speedup
+claim under run variance. Retain every receipt. One confirmed remaining repeated
+cost: successful Canvas commit calls Host.edited → Window.refresh → full Canvas
+projection despite already displaying that exact validated preview. Investigate
+that synchronous notification boundary next, retaining full refresh for external
+edits/Undo/load and failed/cancelled gestures.
+
+
+## Responsive-editing Mission completion: commit projection reuse (2026-09-23)
+
+Window reuses a successful Canvas edit projection only during its synchronous
+Host.edited notification, guarded by Host session identity and revision. It still
+refreshes Inspector/structure/History and queues recovery. Reentrant edits,
+external commands, Undo/load and projection failures use normal full refresh.
+Window contract explicitly tests a revision change during notification.
+
+Release build passed. Focused7/7 (15.68s: Window/Canvas/History/transform/compositing,
+protection/live-save) and remaining affected integration7/7 (10.65s: desktop Host,
+formal MCP, polystar/offset/expression/batch/color UI) passed. Logs
+`build/daily-layout/commit-projection-{build,focused,integration}.log`.
+
+Actual visible Windows `commit-projection-benchmark.json` completed and passed
+**all-operation30fps p95 interval and33ms release budgets**. Representative80-curve
+point/handle/object intervals19.41/20.35/20.54ms; preview10.20/10.48/9.36ms;
+projection5.97/5.52/5.05ms; release18.42/19.39/15.30ms. Previous changed-code run
+release34.43/52.98/22.06ms. These are individual runs with retained variance,
+not guarantees under every workload.60fps remains false. Owned windows closed.
+
+Bounded performance Mission completed: measured redundant work removed without
+semantic/notification regression and visible floor recovered in this run. Next
+production value: multi-object selection has translation/alignment and affine
+fields, but convenient rotation/scale exists only for single-object Anchor edits.
+Add an atomic shared-world-pivot transform for a selection, preserving object IDs,
+retained sources and effective-parent semantics, without temporary Group creation.
+
+
+## Selection-transform: shared common-pivot command (2026-09-23)
+
+Core/API/formal MCP now accept `transform_objects` (contract in model-v0).
+World-axis scales then clockwise rotation share an explicit Composition pivot or
+initial geometric selection-envelope center. Selected effective descendants keep
+exact local matrices, avoiding double application and singular inverse after
+zero scale. Other selected roots compensate external parents. Changed driven
+fields, necessary singular inverse or dependency-induced target mismatch reject
+atomically. Retains IDs, Anchors, parametric source/Point Edit and native0.13.
+
+Release build, focused4/4 and full39/39 (37.58s) passed. Evidence in
+`build/daily-layout/selection-transform-{build,focused,regression}.log`.
+Tests cover parent/follower order, rotated external parent, zero/negative scale,
+retained generator editing, empty geometry with explicit pivot, malformed input,
+cross-Composition/duplicate/range refusal, exact Undo/Redo/native roundtrip and
+live formal MCP. GUI selection workflow is the next checkpoint, not yet claimed.
+
+
+## Selection-transform Mission completion: GUI workflow (2026-09-23)
+
+Edit/context/Inspector action and Ctrl+Shift+T open a compact common-pivot dialog:
+clockwise degrees, linked or independent percentage scales, Flip X/Y and
+selection-center/custom canvas pivot. Selection/session/revision freeze during
+the modal; cancel/default no-op preserve History; stale edits refuse. Existing
+single-object Anchor controls stay separate.
+
+Release build passed. Window/batch UI2/2 passed; new transform UI test initially
+timed out because its mixed-selection fixture normalized to object context and
+opened a legitimate modal without a closing callback. Diagnostic run identified
+the exact phase; repaired fixture asserts actual point context and tests refusal.
+Rebuilt focused transform UI **1/1 passed**,0.94s
+(`selection-transform-ui-repaired.log`). Prior core/API/MCP full39/39 remains
+valid; this checkpoint changes only GUI adapter/test/docs. Failure/diagnostic logs
+are retained in build/daily-layout, not overwritten by a success-only rerun.
+
+Actual Windows imported original shape-badge, unwrapped its outer Group, selected
+four roots (six paths, one nested Group), opened Ctrl+Shift+T and applied30°,
+80% scale plus Flip X about common center(420,310). Readback verified all seven
+world matrices (max error5.69e-14) and unchanged non-transform authored fields.
+GUI Ctrl+Z / Ctrl+Y restored exact before/after documents. Native save/reopen exact;
+PNG visually inspected without selection overlays; SVG exported and XML parsed.
+Receipt `build/daily-layout/selection-transform-gui-acceptance.json`, before/after
+JSON/PNG, matrices, SVG and native file alongside. Owned GUI closed.
+
+Selection-transform Mission complete. Live next bottleneck: stroke painting and
+SVG intake/output are fixed to butt caps/miter joins/miterlimit4. Rounded icon
+lines and beveled strokes require source-altering workarounds or fail import.
+Next bounded Mission investigates retained stroke style across core, renderer,
+UI and SVG interoperability, using existing versioned ShapeOperation ownership.
+
+## Stroke-authoring — versioned core, rendering and export checkpoint
+
+Added explicit `stroke_style` Session/API/MCP mutation: butt/round/square caps,
+miter/round/bevel joins and linkable miter limit [1,1000]. Individual Stroke
+promotion to behavior v2 preserves default v1 encoding and butt/miter/4 behavior;
+native remains0.13. Native roundtrip and Undo/Redo preserve version/style exactly.
+Shared paint feeds Canvas/PNG/SVG and styled hit/compositing bounds. Derived
+zero-length segment caps supplement Qt; one combined outline prevents overlapping
+translucent stroke/caps from applying alpha twice. No source geometry rewrite.
+See docs/model-v0.md for compatibility, scope and official SVG/Qt references.
+
+Release build succeeded (`build/daily-layout/stroke-build.log`). Initial focused
+run exposed a real compatibility bug: legacy `stroke.*` aliases treated newly
+indexed miter_limit as a color channel. Repaired alias range validation and added
+explicit coverage. Initial failures preserved in `stroke-focused.log`; test MCP
+cleanup also reported a temporary lock on failure, then its finally block closed
+the owned desktop (no live process remained). Repair build succeeded
+(`stroke-repair-build.log`); stroke/MCP **2/2 passed in5.52s**
+(`stroke-repaired.log`). Full Release regression **40/40 passed in34.43s**
+(`stroke-regression.log`). Tests cover invalid/atomic mutations, live driven miter,
+semantic/MCP readback and Undo, native equality, SVG style attributes and PNG
+pixel probes for caps/joins/miter fallback/zero-length/alpha/compositing bounds.
+
+This is core/renderer/export acceptance, not completed GUI authoring. Inspector
+controls, SVG style import and actual visible Windows style interaction/recovery
+acceptance remain the next checkpoint. Offscreen Qt pixel evidence is not a claim
+of new visible-GUI acceptance or a new performance benchmark. Previous visible
+30fps/release-floor receipt remains recorded above;60fps was not achieved there.
+
+Latest user instruction requests stopping after this checkpoint, with a report
+and next-Task prompt. No next-checkpoint implementation or successor launch.
+
+## Stroke-authoring CP2 r4 — Inspector and strict SVG intake (2026-09-23)
+
+Resumed from the r4 fixture-access checkpoint after re-fetching the canonical
+Brief (`revision 4 / READY`). The exact inline r1/r2 bytes were materialized in
+ignored `build/stroke-cp2-r4-fixtures/` and matched their required lengths and
+SHA-256 values before source changes. The Inspector now exposes cap/join controls
+per Stroke operation, explicit v1 miter promotion, normal v2 miter editing and
+session/revision/gesture guards. Same-value choices are history-free; evaluated
+Binding/Expression miter sources remain intact when cap/join changes commit.
+
+SVG intake accepts the bounded cap/join/miter subset with strict inheritance and
+inline precedence, emits `StrokeStyle` only for non-default effective values and
+counts it toward the existing 1000-command atomic budget. Unsupported hidden
+stroke styles, `!important`, units/ranges, dashes and over-budget plans reject
+without partial import. Non-default import was saved, reopened in a fresh Host,
+and undone as one transaction. See [docs/svg-import.md](svg-import.md) for the
+current acceptance boundary.
+
+Changed-code evidence:
+
+- Focused Release: 7/7 passed — `stroke_contract`, `svg_import_contract`,
+  `window_interaction`, `expression_ui_interaction`, `batch_ui_interaction`,
+  `png_export_contract`, `mcp_desktop_contract`.
+- Full Release CTest: 40/40 passed; the prior 5/5 focused result remains only
+  historical S0 baseline evidence.
+- Visible T8 benchmark before/after: `build/stroke-cp2-r4-benchmark-before-20260923-102733/`
+  and `build/stroke-cp2-r4-benchmark-after-20260923-110840/`. Both runs used the
+  same Windows/Qt visible lane, 2/80 paths, 1440×900, warm-up12 and 90 measured
+  frames; both met the 30fps p95 and 33ms release floors. The 60fps aggregate
+  remained unmet in both runs and is not treated as a CP2 failure.

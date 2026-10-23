@@ -1,0 +1,25 @@
+# R09-D7 — derived mask difference
+
+Status: Sol-frozen bounded implementation packet, 2026-09-27. Baseline: clean synchronized `codex/practical-alpha@99a4b048b8f0b3d9fac9b1a686bf98605b17e918`; single-writer receipt `build/manual-recipes/r09-d7-release-20260927.json`. Authority: DEC-71, [Completion Route R09/P09](https://app.notion.com/p/3e3fd279a6f381b4ba9dd2d1bf066e0f), Confirmed [REQ-66](https://app.notion.com/p/3e0fd279a6f38157bd50d72a2f48654b) and `CURRENT_GOAL.md`.
+
+## Bounded contract
+
+- Extend the existing read-only `analyze_regions` result and formal `nect_analyze_regions` parity with `mask_boolean`. The single supported operation is `difference`: left operand `morphology` (D5 cross dilation) minus right operand `erosion` (D6 cross erosion). Both are selected by explicit result keys and have the same image dimensions, threshold, scale, output-pixel coordinate system and source revision because they come from this one committed transparent Canvas render. There is no cross-request mask ID or user-supplied mask. This contract leaves room for later named operands/operations without claiming them now.
+- Return `mask_boolean` as `{operation:"difference", operands:[{role:"left",mask:"morphology",operation:"dilate"},{role:"right",mask:"erosion",operation:"erode"}], coordinate_space:"artboard-output-pixels", width, height, source_revision, area, runs}`. `runs` are maximal horizontal `{y,x,width}` foreground spans in row-major order with exclusive width; `area` is their total width. This is a replaceable derived result, not authored mask state. It must be computed from the already bounded D5 and D6 run lists, with no second render and no reinterpretation of alpha.
+- Refuse the 20,001st Boolean output run with `ANALYSIS_LIMIT` and no partial result. Existing D1–D6 cap/error precedence remains unchanged; output cannot exceed the enclosing 4,000,000-pixel image. Success and refusal preserve Document, revision, History and native bytes. No GUI, Session command, file operation, external dependency or native writer change.
+
+## Independent oracles
+
+1. A full 5×5 input yields full D5 and center 3×3 D6. Difference is the one-pixel square ring: rows `{0,0,5}`, `{1,0,1}`, `{1,4,1}`, `{2,0,1}`, `{2,4,1}`, `{3,0,1}`, `{3,4,1}`, `{4,0,5}`; area 16. A full 3×3 input yields area 8. A zero-alpha image yields empty output. An isolated center pixel yields D5's five-pixel cross because D6 is empty.
+2. A full 5×5 input with transparent center `(2,2)` gives D5 full and D6 only `(1,1),(3,1),(1,3),(3,3)`. Difference area is 21, with full rows 0/2/4 and three width-1 runs on each of rows 1/3. At alpha 127 in the center, threshold 128 gives this result while threshold 127 gives the 16-pixel ring. These are independently counted from the input pixels, rather than from the returned D5/D6 arrays.
+3. For the new output cap, use separated 5×5 opaque islands with at least nine-pixel origin spacing and interior margin. The cross kernel dilates each square to 45 pixels (the four diagonal outer corners stay empty) in seven D5 runs; D6 is a 3×3 square of nine pixels in three runs. Difference has area 36 and ten runs per island. Exactly 2,000 islands produce 20,000 difference runs and area 72,000 and are accepted; 2,001 produce 20,010 runs and refuse. The source image and D1–D6 result counts must remain under their earlier caps. Test both pixel helper and real Canvas/API refusal, with no partial result or authored-state change. Verify a nonempty real Canvas/API positive oracle and formal MCP equality, including the exact operands, result, revision and state preservation.
+
+## Residuals
+
+Other mask Boolean operators and arbitrary operand selection, opening/closing, color/palette grouping, authored mask adoption, Node consumers, GUI controls, R09-A alpha/luma design and hands-on acceptance remain open. R09/P09, REQ-64/65/66 and L2 are not closed by this slice.
+
+## Implementation and verification
+
+`Host::analyze_region_pixels` subtracts the already bounded row-major D6 erosion spans from D5 morphology spans and emits the difference after D1–D6 cap checks. The result carries both named operand roles plus output dimensions, revision, area and runs. The formal MCP adapter forwards the same API response. No Session command, renderer, authored model or native writer changed.
+
+The Release build of `region_analysis_tests` and `nect_desktop` passed. Worker focused Release CTest passed **2/2**. Sol reviewed the exact source and test diff against this packet, then independently reran `region_analysis_contract` and `mcp_desktop_contract` with **2/2 PASS** (5.29 s, 8.64 s). Tests include independent 3×3/5×5, empty, isolated and alpha-127-hole pixel oracles; 2,000-island exact 20,000-run acceptance and 2,001-island refusal while earlier caps remain below limit; real Canvas/API positive and refusal with unchanged Document/revision/History/native bytes; and nonempty direct API/formal MCP equality. `git diff --check` passed. These are automated semantic, Qt and MCP checks, not hands-on GUI or whole REQ-66/R09 acceptance.

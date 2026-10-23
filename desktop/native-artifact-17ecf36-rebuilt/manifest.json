@@ -1,0 +1,10 @@
+{
+  "artifact": "nect-svg-desktop.exe",
+  "path": "C:\\Users\\TWRT\\Documents\\Codex\\2026-10-19\\task-11\\proper\\desktop\\native-artifact-17ecf36-rebuilt\\nect-svg-desktop.exe",
+  "sizeBytes": 9963520,
+  "sha256": "A65BD4EB7068DCEE1B050AF66F27B59DEDB5B711D388E95C37D7751D25A0A21E",
+  "sourceSha": "17ecf36e6feaffd0609efcd6edc2ed89feeda433",
+  "distSha256": "25DD8C99173653D4C687BC12819A8F65DB64E86047C4BFC6EDED3923E362CC2F",
+  "build": "CARGO_TARGET_DIR=src-tauri/target-artifact-17ecf36c cargo build --release --features custom-protocol --locked --manifest-path src-tauri/Cargo.toml",
+  "nativeVisualVerification": "NOT_RUN"
+}

@@ -1,0 +1,9 @@
+Exact upstream README license section:
+
+## License
+
+MIT
+
+This declaration is not a complete upstream copyright/permission notice.
+No generic replacement terms or inferred copyright notice are supplied.
+See PROVENANCE.md for the bundling-notice review and exact source evidence.

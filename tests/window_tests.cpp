@@ -1,0 +1,5684 @@
+#include "window.hpp"
+#include <QApplication>
+#include <QAction>
+#include <QCheckBox>
+#include <QContextMenuEvent>
+#include <QComboBox>
+#include <QCompleter>
+#include <QAbstractItemView>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QEventLoop>
+#include <QDoubleSpinBox>
+#include <QEnterEvent>
+#include <QGraphicsOpacityEffect>
+#include <QGroupBox>
+#include <QGuiApplication>
+#include <QLabel>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMouseEvent>
+#include <QPushButton>
+#include <QListWidget>
+#include <QPointer>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QScreen>
+#include <QDebug>
+#include <QTemporaryDir>
+#include <QTest>
+#include <QStatusBar>
+#include <QPlainTextEdit>
+#include <QInputDialog>
+#include <QMenu>
+#include <QSpinBox>
+#include <QStyle>
+#include <QStyleOptionButton>
+#include <QTimer>
+#include <QToolButton>
+#include <QFile>
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+
+using namespace nect;
+using namespace nect::desktop;
+namespace {
+void check(bool ok,const char* message) {if(!ok)throw std::runtime_error(message);}
+void check(bool ok,const std::string& message) {if(!ok)throw std::runtime_error(message);}
+QByteArray reference(const Ref& r) {
+    return QJsonDocument(QJsonObject{{"object",QString::fromStdString(r.object)},
+        {"point",QString::fromStdString(r.point)},{"field",QString::fromStdString(r.field)}}).toJson(QJsonDocument::Compact);
+}
+template<class T> T* field(Window& w,const Ref& ref) {
+    const auto data=reference(ref);
+    for(auto* widget:w.findChildren<T*>())
+        if(widget->isVisible()&&widget->property("nect-reference").toByteArray()==data)return widget;
+    throw std::runtime_error("Visible property widget missing");
+}
+void move(Window& w,QPoint global) {
+    QMouseEvent event(QEvent::MouseMove,w.mapFromGlobal(global),global,Qt::NoButton,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(&w,&event);QApplication::processEvents();
+}
+void release(Window& w,QPoint global) {
+    QMouseEvent event(QEvent::MouseButtonRelease,w.mapFromGlobal(global),global,Qt::LeftButton,Qt::NoButton,Qt::NoModifier);
+    QApplication::sendEvent(&w,&event);QApplication::processEvents();
+}
+template<class T> T* visible_child(Window& window,const char* name) {
+    for(auto* widget:window.findChildren<T*>(QString::fromLatin1(name)))
+        if(widget->isVisible())return widget;
+    throw std::runtime_error(std::string("Visible widget missing: ")+name);
+}
+QAction* named_action(Window& window,const char* name) {
+    auto* action=window.findChild<QAction*>(QString::fromLatin1(name));
+    check(action!=nullptr,"Named production action exists");
+    return action;
+}
+void stacking_authoring(Window& w) {
+    auto& s=w.host.session;const auto comp=s.document().compositions.front().id;std::vector<Command> commands;
+    for(const auto* id:{"a","b","c","d"}){Point p;p.id=std::string(id)+"-point";p.x.literal=10;commands.push_back(CreatePath{comp,"",id,id,{{std::string(id)+"-contour",false,{p}}}});}
+    commands.push_back(Link{{"d","d-point","x"},{{"a","a-point","x"},2,3,"copy_local_value"}});s.apply(commands,0);w.host.edited();
+    auto order=[&](){return s.document().compositions.front().roots;};
+    auto act=[&](const char* name){named_action(w,name)->trigger();};
+    auto undo=[&](){s.undo(s.revision());w.host.edited();};
+    const auto authored=s.document();w.canvas->set_selection("b");act("stack-forward");
+    check(order()==std::vector<Id>{"a","c","b","d"},"Bring forward changes only neighboring stacking order");
+    check(s.document().objects==authored.objects&&evaluate(s.document()).at({"d","d-point","x"})==23,"Stacking preserves points, references and transforms");undo();check(s.document()==authored,"Stacking is one exact Undo");
+    w.canvas->set_selections({{"d",""},{"b",""}});act("stack-back");check(order()==std::vector<Id>{"b","d","a","c"},"Send to back preserves sibling order, not click order");undo();
+    w.canvas->set_selections({{"b",""},{"a",""}});act("stack-forward");check(order()==std::vector<Id>{"c","a","b","d"},"Selected block moves one unselected neighbor");
+    act("stack-front");check(order()==std::vector<Id>{"c","d","a","b"},"Front moves selected block past all remaining siblings");
+    const auto edge_revision=s.revision();act("stack-front");check(s.revision()==edge_revision,"Stacking boundary is history-free no-op");
+    act("stack-backward");check(order()==std::vector<Id>{"c","a","b","d"},"Send backward moves block one neighbor");
+    act("stack-back");check(order()==std::vector<Id>{"a","b","c","d"},"Back restores original stacking order");
+    s.apply({GroupContiguous{comp,"",{"b","c"},"group","Group"}},s.revision());w.host.edited();w.canvas->set_selection("c");
+    const auto grouped=s.document();act("stack-backward");check(s.document().objects.at("group").children==std::vector<Id>{"c","b"}&&order()==std::vector<Id>{"a","group","d"},"Nested selection only reorders within its parent");undo();check(s.document()==grouped,"Nested stacking exact Undo");
+    const auto revision=s.revision();w.canvas->set_selections({{"a",""},{"b",""}});act("stack-front");check(s.revision()==revision&&w.statusBar()->currentMessage().startsWith("INVALID_SELECTION"),"Mixed parents refuse atomically");
+    w.canvas->set_selections({{"a","a-point"},{"d",""}});act("stack-front");check(s.revision()==revision,"Mixed point/object selection cannot reorder objects silently");
+    w.canvas->set_selection("group");act("stack-front");check(order()==std::vector<Id>{"a","d","group"},"Groups reorder as structural units");
+    check(decode(encode(s.document()))==s.document(),"Stacking survives native serialization");
+    const auto before_ungroup=s.document();const auto ungroup_revision=s.revision();named_action(w,"ungroup-objects")->trigger();
+    check(s.revision()==ungroup_revision+1&&!s.document().objects.contains("group")&&order()==std::vector<Id>{"a","d","b","c"},"GUI Ungroup commits shared structural command");
+    check(w.canvas->selected_objects()==std::vector<Id>{"b","c"},"Ungroup selects surviving children");
+    check(decode(encode(s.document()))==s.document(),"Ungroup native codec exact");undo();check(s.document()==before_ungroup,"GUI Ungroup restores Group in one Undo");
+
+    check(named_action(w,"stack-forward")->shortcut()==QKeySequence("Ctrl+]")&&named_action(w,"stack-back")->shortcut()==QKeySequence("Ctrl+Shift+["),"Stacking keyboard accelerators exposed");
+}
+void folder_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    const auto artboard=window.canvas->active_artboard();
+    Point p0,p1,p2,p3;p0.id="folder-p0";p0.x.literal=80;p0.y.literal=80;
+    p1.id="folder-p1";p1.x.literal=200;p1.y.literal=80;
+    p2.id="folder-p2";p2.x.literal=200;p2.y.literal=180;
+    p3.id="folder-p3";p3.x.literal=80;p3.y.literal=180;
+    Contour contour{"folder-contour",true,{p0,p1,p2,p3}};
+    session.apply({CreatePath{composition,"","folder-child","Child",{contour}},
+        GroupContiguous{composition,"",{"folder-child"},"folder-parent","Parent"}},session.revision());
+    window.host.edited();window.canvas->set_selection("folder-child");QApplication::processEvents();
+    check(window.canvas->drill_scope()=="folder-parent","Selecting a child enters its current Folder drill scope");
+    auto* tree=window.findChild<QTreeWidget*>();check(tree!=nullptr,"Folder action keeps the Structure tree available");
+    QTreeWidgetItem* parent_item=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)if(tree->topLevelItem(i)->data(0,Qt::UserRole)=="folder-parent")parent_item=tree->topLevelItem(i);
+    check(parent_item!=nullptr,"Nested Folder parent appears in the Structure tree");
+    parent_item->setExpanded(false);
+    check(!parent_item->isExpanded(),"Folder action starts with its parent row collapsed");
+    const auto before_render=Canvas::render_artboard(session.document(),composition,artboard,1,false);
+    const auto revision=session.revision();named_action(window,"create-folder")->trigger();QApplication::processEvents();
+    const auto folder=window.canvas->selected_object;
+    check(session.revision()==revision+1&&folder.size()>0&&folder!="folder-parent"&&folder!="folder-child",
+        "Create Folder uses one shared Session command and selects its stable new ID");
+    check(session.document().objects.at("folder-parent").children==std::vector<Id>{"folder-child",folder},
+        "Create Folder appends inside the current Canvas drill scope");
+    check(session.document().objects.at(folder).kind==Kind::group&&session.document().objects.at(folder).name=="Folder"&&
+        session.document().objects.at(folder).children.empty(),"Desktop action creates an empty Group named Folder");
+    QTreeWidgetItem* folder_item=nullptr;
+    QTreeWidgetItemIterator iterator(tree);while(*iterator){if((*iterator)->data(0,Qt::UserRole)==QString::fromStdString(folder))folder_item=*iterator;++iterator;}
+    check(folder_item&&folder_item->isSelected()&&tree->currentItem()==folder_item,
+        "New Folder is selected in the tree while its Canvas selection is active");
+    parent_item=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)if(tree->topLevelItem(i)->data(0,Qt::UserRole)=="folder-parent")parent_item=tree->topLevelItem(i);
+    check(parent_item&&parent_item->isExpanded(),"Tree reveals the newly selected Folder inside its parent");
+    const auto after_render=Canvas::render_artboard(session.document(),composition,artboard,1,false);
+    check(before_render==after_render,"Creating an empty Folder leaves the rendered frame pixel-identical");
+    const auto created=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document().objects.at("folder-parent").children==std::vector<Id>{"folder-child"}&&!session.document().objects.contains(folder),
+        "Desktop Folder creation has one exact Undo boundary");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==created,"Desktop Folder creation has one exact Redo boundary");
+    auto find_parent=[&]() -> QTreeWidgetItem* {
+        QTreeWidgetItemIterator it(tree);
+        while(*it) {if((*it)->data(0,Qt::UserRole)=="folder-parent"&&(*it)->data(0,Qt::UserRole+1).toString().isEmpty())return *it;++it;}
+        return nullptr;
+    };
+    const auto before_collapse=session.document();const auto collapse_revision=session.revision();
+    const auto before_collapse_native=encode(before_collapse);
+    const auto before_collapse_render=Canvas::render_artboard(before_collapse,composition,artboard,1,false);
+    parent_item=find_parent();check(parent_item!=nullptr,"Parent Folder row exists before collapse");
+    parent_item->setExpanded(false);QApplication::processEvents();
+    check(!parent_item->isExpanded()&&session.revision()==collapse_revision&&session.document()==before_collapse&&
+        encode(session.document())==before_collapse_native&&
+        Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Collapsing a Folder changes only Structure view state, not authored native or pixels");
+    session.apply({Rename{"folder-child","Renamed child"}},session.revision());window.host.edited();QApplication::processEvents();
+    parent_item=find_parent();check(parent_item&&!parent_item->isExpanded(),"Collapsed Folder remains collapsed across a tree rebuild");
+    check(Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Child rename under a collapsed Folder keeps rendered pixels unchanged");
+    const auto rename_revision=session.revision();const auto renamed_native=encode(session.document());
+    parent_item->setExpanded(true);QApplication::processEvents();
+    check(parent_item->isExpanded()&&session.revision()==rename_revision&&encode(session.document())==renamed_native&&
+        Canvas::render_artboard(session.document(),composition,artboard,1,false)==before_collapse_render,
+        "Expanding a Folder changes only Structure view state");
+}
+void move_out_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"move-out-x","move-out-a","move-out-b","move-out-c","move-out-y"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=20;point.y.literal=40;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    setup.push_back(GroupContiguous{composition,"",{"move-out-a","move-out-b","move-out-c"},"move-out-inner","Folder"});
+    setup.push_back(GroupContiguous{composition,"",{"move-out-x","move-out-inner","move-out-y"},"move-out-outer","Folder"});
+    setup.push_back(Set{{"move-out-inner","","transform.tx"},70});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    auto* move_out=named_action(window,"move-out-of-folder");
+    check(move_out->text()=="Move selected out of Folder","Edit menu exposes the Move Out action by its bounded label");
+
+    window.canvas->set_selection("move-out-b");QApplication::processEvents();const auto revision=session.revision();
+    move_out->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("MOVE_OUT_SELECTION"),
+        "A middle child selection refuses with a scoped error and no authored delta");
+    window.canvas->set_selection("move-out-a","move-out-a-point");QApplication::processEvents();move_out->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("MOVE_OUT_SELECTION"),
+        "Point selection refuses Move Out atomically");
+
+    window.canvas->set_selection("move-out-a");QApplication::processEvents();move_out->trigger();QApplication::processEvents();
+    check(session.revision()==revision+1&&session.document().objects.at("move-out-inner").children==std::vector<Id>{"move-out-b","move-out-c"}&&
+        session.document().objects.at("move-out-outer").children==std::vector<Id>{"move-out-x","move-out-a","move-out-inner","move-out-y"},
+        "Edit action extracts a selected prefix next to its nested Folder through one Session command");
+    check(window.canvas->drill_scope()=="move-out-outer","Canvas drill scope follows the moved child to its new structural parent");
+    const auto moved_world=evaluate_transforms(session.document(),evaluate(session.document()));
+    for(const auto& [id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-moved_world.at(id).world[i])<1e-8,"Desktop Move Out preserves every world transform");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* selected_item=nullptr;
+    QTreeWidgetItemIterator iterator(tree);while(*iterator){if((*iterator)->data(0,Qt::UserRole)=="move-out-a"&&(*iterator)->data(0,Qt::UserRole+1).toString().isEmpty())selected_item=*iterator;++iterator;}
+    check(selected_item!=nullptr,"Structure tree contains the extracted object row");
+    check(selected_item->isSelected(),"Structure tree selects the extracted object row");
+    check(tree->currentItem()==selected_item,"Structure tree makes the extracted object row current");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Desktop prefix Move Out has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Desktop prefix Move Out Redo restores the exact state");
+    session.undo(session.revision());window.host.edited();
+
+    window.canvas->set_selection("move-out-c");QApplication::processEvents();bool context_action=false;
+    const auto context_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* action:menu->actions())if(action->objectName()=="move-out-of-folder-context") {
+                context_action=true;menu->setActiveAction(action);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_action&&session.revision()==context_revision+1&&session.document().objects.at("move-out-inner").children==std::vector<Id>{"move-out-a","move-out-b"}&&
+        session.document().objects.at("move-out-outer").children==std::vector<Id>{"move-out-x","move-out-inner","move-out-c","move-out-y"},
+        "Selection menu exposes and executes the same Move Out Session command for a suffix");
+    check(window.canvas->drill_scope()=="move-out-outer","Selection-menu extraction also follows the new parent scope");
+    session.undo(session.revision());window.host.edited();check(session.document()==before,"Selection-menu Move Out has one exact Undo");
+}
+void adjacent_folder_transfer_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"transfer-a","transfer-b"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=40;point.y.literal=50;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    setup.push_back(GroupContiguous{composition,"",{"transfer-a","transfer-b"},"transfer-source","Folder"});
+    setup.push_back(CreateFolder{composition,"","transfer-next","Folder"});
+    setup.push_back(Set{{"transfer-source","","transform.tx"},70});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    auto* action=named_action(window,"move-to-next-folder");
+    auto* reverse=named_action(window,"move-to-previous-folder");
+    window.canvas->set_selection("transfer-a");QApplication::processEvents();const auto missing_previous_revision=session.revision();reverse->trigger();
+    check(session.revision()==missing_previous_revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Reverse transfer refuses when no previous sibling Folder exists");
+    window.canvas->set_selection("transfer-a");QApplication::processEvents();const auto revision=session.revision();action->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Non-suffix Folder selection refuses without authored delta");
+    window.canvas->set_selection("transfer-b","transfer-b-point");QApplication::processEvents();action->trigger();
+    check(session.revision()==revision&&session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Point selection refuses adjacent Folder transfer");
+    window.canvas->set_selection("transfer-b");QApplication::processEvents();action->trigger();QApplication::processEvents();
+    check(session.revision()==revision+1&&session.document().objects.at("transfer-source").children==std::vector<Id>{"transfer-a"}&&
+        session.document().objects.at("transfer-next").children==std::vector<Id>{"transfer-b"},
+        "Desktop action moves a suffix to its next sibling Folder in one Session edit");
+    check(window.canvas->drill_scope()=="transfer-next"&&window.canvas->selected_object=="transfer-b",
+        "Canvas selection follows the moved object into its destination Folder");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* selected_item=nullptr;
+    QTreeWidgetItemIterator item(tree);while(*item){if((*item)->data(0,Qt::UserRole)=="transfer-b"&&(*item)->data(0,Qt::UserRole+1).toString().isEmpty())selected_item=*item;++item;}
+    check(selected_item&&selected_item->isSelected()&&tree->currentItem()==selected_item,
+        "Structure tree selects the moved object in its destination Folder");
+    const auto after_world=evaluate_transforms(session.document(),evaluate(session.document()));
+    for(const auto& [id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-after_world.at(id).world[i])<1e-8,"Desktop Folder transfer preserves every world transform");
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Adjacent Folder transfer leaves rendered pixels unchanged");
+    check(decode(encode(session.document()))==session.document(),"Desktop Folder transfer survives native roundtrip");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Desktop Folder transfer has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Desktop Folder transfer has one exact Redo");
+    session.undo(session.revision());window.host.edited();window.canvas->set_selection("transfer-b");QApplication::processEvents();
+    bool context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="move-to-next-folder-context") {
+                context_enabled=candidate->isEnabled();menu->setActiveAction(candidate);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_enabled&&session.document()==moved,"Selection menu reaches the same adjacent Folder transfer");
+    check(reverse->text()=="Move selected to previous Folder","Edit menu exposes the reverse bounded transfer");
+    bool reverse_context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="move-to-previous-folder-context") {
+                reverse_context_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    QContextMenuEvent reverse_context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&reverse_context);QApplication::processEvents();
+    check(reverse_context_enabled,"Selection menu enables reverse transfer for a valid prefix");
+    const auto reverse_revision_before=session.revision();
+    window.canvas->set_selection("transfer-b","transfer-b-point");QApplication::processEvents();reverse->trigger();
+    check(session.revision()==reverse_revision_before&&session.document()==moved&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Reverse transfer refuses point selection without authored delta");
+    window.canvas->set_selection("transfer-b");QApplication::processEvents();
+    const auto reverse_revision=session.revision();reverse->trigger();QApplication::processEvents();
+    check(session.revision()==reverse_revision+1&&session.document().objects.at("transfer-source").children==std::vector<Id>{"transfer-a","transfer-b"}&&
+        session.document().objects.at("transfer-next").children.empty(),"Reverse Edit action moves a prefix into the previous Folder");
+    check(window.canvas->drill_scope()=="transfer-source"&&window.canvas->selected_object=="transfer-b",
+        "Reverse transfer follows the selected object into its previous Folder");
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Reverse transfer preserves rendered pixels");
+    const auto reverse_result=session.document();session.undo(session.revision());window.host.edited();
+    check(session.document()==moved,"Reverse transfer is one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==reverse_result,"Reverse transfer is one exact Redo");
+}
+void explicit_folder_transfer_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto path=[&](const char* id,double x) {
+        Contour contour;contour.id=std::string(id)+"-contour";contour.closed=true;
+        for(const auto& xy:std::vector<Vec2>{{x,80},{x+30,80},{x+30,110},{x,110}}) {
+            Point point;point.id=std::string(id)+"-point-"+std::to_string(contour.points.size());
+            point.x.literal=xy.x;point.y.literal=xy.y;contour.points.push_back(point);
+        }
+        setup.push_back(CreatePath{composition,"",id,id,{contour}});
+    };
+    path("chosen-a",30);path("chosen-b",80);path("chosen-c",130);path("chosen-d",180);path("barrier",230);
+    setup.push_back(GroupContiguous{composition,"",{"chosen-a","chosen-b","chosen-c"},"source-folder","Source"});
+    setup.push_back(CreateFolder{composition,"","empty-gap","Empty"});
+    setup.push_back(GroupContiguous{composition,"",{"chosen-d"},"destination-folder","Destination"});
+    setup.push_back(CreateFolder{composition,"","blocked-folder","Blocked"});
+    setup.push_back(ReorderObjects{composition,"",{"source-folder","empty-gap","destination-folder","barrier","blocked-folder"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    auto* action=named_action(window,"move-to-folder");
+    check(action->text()=="Move selected to Folder…","Edit menu exposes the explicit destination action");
+    const auto before=session.document();const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    window.canvas->set_selection("chosen-b");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Middle child selection refuses without authored delta");
+    window.canvas->set_selection("chosen-c","chosen-c-point-0");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_SELECTION"),
+        "Point selection refuses explicit Folder movement");
+    window.canvas->set_selection("chosen-c");QApplication::processEvents();
+    bool offered=false,blocked_offered=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        auto* combo=dialog->findChild<QComboBox*>();
+        if(combo)for(int i=0;i<combo->count();++i) {
+            if(combo->itemText(i).contains("destination-folder")){offered=true;combo->setCurrentIndex(i);}
+            blocked_offered|=combo->itemText(i).contains("blocked-folder");
+        }
+        dialog->accept();return;
+    }});
+    const auto revision=session.revision();action->trigger();QApplication::processEvents();
+    check(offered&&!blocked_offered,"Destination chooser offers the paint-order-safe Folder and excludes a Folder across a drawable");
+    check(session.revision()==revision+1&&session.document().objects.at("source-folder").children==std::vector<Id>{"chosen-a","chosen-b"}&&
+        session.document().objects.at("destination-folder").children==std::vector<Id>{"chosen-c","chosen-d"},
+        "Explicit nonadjacent transfer moves the suffix in one Session edit");
+    check(window.canvas->drill_scope()=="destination-folder"&&window.canvas->selected_object=="chosen-c",
+        "Selection follows the explicitly chosen Folder");
+    for(const auto& [id,transform]:before_world) {
+        const auto after_world=evaluate_transforms(session.document(),evaluate(session.document())).at(id).world;
+        for(std::size_t i=0;i<6;++i)check(std::abs(transform.world[i]-after_world[i])<1e-8,"Explicit transfer preserves world coordinates");
+    }
+    check(Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_render&&
+        decode(encode(session.document()))==session.document(),"Explicit transfer preserves pixels and native state");
+    const auto moved=session.document();session.undo(session.revision());window.host.edited();check(session.document()==before,"Explicit transfer is one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==moved,"Explicit transfer is one exact Redo");
+    session.apply({SetVisibility{"barrier",false},
+        LinkObjectVisibility{{"empty-gap","","object.visible"},{"barrier","","object.visible"},false}},session.revision());
+    window.host.edited();window.canvas->set_selection("chosen-b");QApplication::processEvents();
+    bool hidden_gap_offered=false,after_hidden_gap_offered=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* dialog=qobject_cast<QInputDialog*>(widget)) {
+        auto* combo=dialog->findChild<QComboBox*>();
+        if(combo)for(int i=0;i<combo->count();++i) {
+            hidden_gap_offered|=combo->itemText(i).contains("empty-gap");
+            after_hidden_gap_offered|=combo->itemText(i).contains("destination-folder");
+        }
+        dialog->reject();return;
+    }});
+    const auto linked_hidden=session.document();const auto linked_revision=session.revision();action->trigger();QApplication::processEvents();
+    check(hidden_gap_offered&&!after_hidden_gap_offered&&session.document()==linked_hidden&&session.revision()==linked_revision,
+        "A linked-hidden intermediate Folder blocks Desktop transfer eligibility by evaluated own visibility");
+    Point blocked_point;blocked_point.id="blocked-child-point";blocked_point.x.literal=260;blocked_point.y.literal=90;
+    session.apply({CreatePath{composition,"blocked-folder","blocked-child","Blocked child",{{"blocked-child-contour",false,{blocked_point}}}}},session.revision());
+    window.host.edited();window.canvas->set_selection("blocked-child");QApplication::processEvents();
+    const auto blocked_document=session.document();const auto blocked_revision=session.revision();const auto blocked_history=session.history();
+    action->trigger();
+    check(session.document()==blocked_document&&session.revision()==blocked_revision&&session.history()==blocked_history&&
+        window.statusBar()->currentMessage().startsWith("FOLDER_TRANSFER_ORDER"),
+        "A painted sibling barrier leaves no eligible Folder and refuses without an authored delta");
+}
+void batch_folder_preview_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    for(const auto* id:{"preview-u","preview-a","preview-b","preview-c","preview-v"}) {
+        Point point;point.id=std::string(id)+"-point";point.x.literal=60;point.y.literal=60;
+        setup.push_back(CreatePath{composition,"",id,id,{{std::string(id)+"-contour",false,{point}}}});
+    }
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+    auto* action=named_action(window,"create-folder-from-selection");
+    check(action->text()=="Create Folder from selected…","Edit menu exposes previewed batch Folder creation");
+    const auto before=session.document();const auto before_history=session.history();
+    const auto before_world=evaluate_transforms(before,evaluate(before));
+    const auto before_render=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    window.canvas->set_selections({{"preview-a",""},{"preview-c",""}});QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_GROUP_SELECTION"),
+        "Discontiguous Folder preview selection refuses without authored delta");
+    window.canvas->set_selection("preview-b","preview-b-point");QApplication::processEvents();action->trigger();
+    check(session.document()==before&&window.statusBar()->currentMessage().startsWith("FOLDER_GROUP_SELECTION"),
+        "Point selection refuses Folder preview");
+    window.canvas->set_selections({{"preview-c",""},{"preview-a",""},{"preview-b",""}});QApplication::processEvents();
+    bool context_enabled=false;
+    QTimer::singleShot(0,&window,[&]{for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+        for(auto* candidate:menu->actions())if(candidate->objectName()=="create-folder-from-selection-context") {
+            context_enabled=candidate->isEnabled();menu->close();return;
+        }
+    });
+    const auto point=window.canvas->rect().center();QContextMenuEvent context(QContextMenuEvent::Mouse,point,window.canvas->mapToGlobal(point));
+    QApplication::sendEvent(window.canvas,&context);QApplication::processEvents();
+    check(context_enabled,"Selection menu enables previewed Folder creation for contiguous siblings");
+    bool preview_order=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("create-folder-from-selection-dialog");
+        if(!dialog)return;
+        const auto text=dialog->findChild<QPlainTextEdit*>("create-folder-from-selection-preview")->toPlainText();
+        preview_order=text.indexOf("preview-a")<text.indexOf("preview-b")&&text.indexOf("preview-b")<text.indexOf("preview-c")&&
+            text.contains("Flattened paint order: unchanged");
+        dialog->reject();
+    });
+    action->trigger();QApplication::processEvents();
+    check(preview_order&&session.document()==before&&session.history()==before_history,
+        "Folder preview orders stable IDs by siblings and Cancel leaves Document and History unchanged");
+    bool empty_refused=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("create-folder-from-selection-dialog");
+        if(!dialog)return;
+        auto* name=dialog->findChild<QLineEdit*>("create-folder-from-selection-name");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();name->clear();buttons->button(QDialogButtonBox::Ok)->click();
+        empty_refused=dialog->isVisible()&&dialog->findChild<QLabel*>("create-folder-from-selection-error")->text().contains("name")&&session.document()==before;
+        name->setText("Artwork");buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    const auto revision=session.revision();action->trigger();QApplication::processEvents();
+    check(empty_refused&&session.revision()==revision+1,"Empty Folder name is rejected before one atomic Apply");
+    const auto& result=session.document();const auto id=window.canvas->selected_object;
+    check(result.compositions[0].roots==std::vector<Id>{"preview-u",id,"preview-v"}&&
+        result.objects.at(id).children==std::vector<Id>{"preview-a","preview-b","preview-c"}&&
+        result.objects.at(id).name=="Artwork","Previewed Folder replaces the contiguous block in sibling order");
+    for(const auto* old_id:{"preview-u","preview-a","preview-b","preview-c","preview-v"})
+        check(result.objects.at(old_id)==before.objects.at(old_id),"Existing authored objects and IDs remain exact");
+    const auto after_world=evaluate_transforms(result,evaluate(result));
+    for(const auto& [old_id,transform]:before_world)for(std::size_t i=0;i<6;++i)
+        check(std::abs(transform.world[i]-after_world.at(old_id).world[i])<1e-8,"Batch Folder preserves world placement");
+    check(Canvas::render_artboard(result,composition,window.canvas->active_artboard(),1,false)==before_render,
+        "Batch Folder preserves rendered pixels");
+    check(decode(encode(result))==result,"Previewed Folder survives native roundtrip");
+    const auto grouped=result;session.undo(session.revision());window.host.edited();check(session.document()==before,"Previewed Folder has one exact Undo");
+    session.redo(session.revision());window.host.edited();check(session.document()==grouped,"Previewed Folder has one exact Redo");
+}
+void batch_rename_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto add_rectangle=[&](const std::string& id,const std::string& name,double x) {
+        Contour contour;contour.id=id+"-contour";contour.closed=true;
+        for(const auto& xy:std::vector<Vec2>{{x,80},{x+35,80},{x+35,115},{x,115}}) {
+            Point point;point.id=id+"-point-"+std::to_string(contour.points.size());
+            point.x.literal=xy.x;point.y.literal=xy.y;contour.points.push_back(point);
+        }
+        setup.push_back(CreatePath{composition,"",id,name,{contour}});
+    };
+    add_rectangle("batch-before","Before",30);
+    add_rectangle("batch-a","Batch A",90);
+    add_rectangle("batch-b","Batch B",150);
+    add_rectangle("batch-c","Batch C",210);
+    add_rectangle("batch-after","After",270);
+    add_rectangle("cross-left","Cross left",330);
+    add_rectangle("cross-inner","Cross inner",390);
+    setup.push_back(GroupContiguous{composition,"",{"cross-left","cross-inner"},"cross-folder","Nested"});
+    setup.push_back(Link{{"batch-c","batch-c-point-0","x"},{{"batch-a","batch-a-point-0","x"},2,3,"copy_local_value"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+
+    auto* action=named_action(window,"batch-rename-selection");
+    check(action->text()=="Batch rename selected…","Edit menu exposes the bounded Batch rename action");
+    window.canvas->set_selections({{"batch-c",""},{"batch-a",""},{"batch-b",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Batch rename is enabled only for a valid sibling selection");
+    auto* selection_menu_action=static_cast<QAction*>(nullptr);bool menu_action_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="batch-rename-selection-context") {
+                selection_menu_action=candidate;menu_action_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    const auto menu_point=window.canvas->rect().center();
+    QContextMenuEvent menu_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&menu_event);QApplication::processEvents();
+    check(selection_menu_action&&menu_action_enabled,"Selection menu offers Batch rename for the same valid sibling selection");
+
+    const auto before=session.document();const auto before_revision=session.revision();
+    const auto before_values=evaluate(before);const auto before_image=Canvas::render_artboard(before,composition,window.canvas->active_artboard(),1,false);
+    auto* base_action=named_action(window,"batch-rename-selection");
+    bool cancel_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* base=dialog?dialog->findChild<QLineEdit*>("batch-rename-base"):nullptr;
+        std::vector<QLineEdit*> names;
+        for(int i=0;i<3;++i)names.push_back(dialog?dialog->findChild<QLineEdit*>(QString("batch-rename-name-%1").arg(i)):nullptr);
+        cancel_preview_ok=dialog&&dialog->isVisible()&&base&&base->text()=="Batch A"&&
+            std::all_of(names.begin(),names.end(),[](const auto* item){return item!=nullptr;});
+        if(cancel_preview_ok) {
+            cancel_preview_ok=names[0]->text()=="Batch A 1"&&names[1]->text()=="Batch A 2"&&names[2]->text()=="Batch A 3"&&
+                dialog->findChild<QLabel*>("batch-rename-id-0")->text()=="batch-a"&&
+                dialog->findChild<QLabel*>("batch-rename-id-1")->text()=="batch-b"&&
+                dialog->findChild<QLabel*>("batch-rename-id-2")->text()=="batch-c"&&
+                dialog->findChild<QLabel*>("batch-rename-old-0")->text()=="Batch A"&&
+                dialog->findChild<QLabel*>("batch-rename-old-1")->text()=="Batch B"&&
+                dialog->findChild<QLabel*>("batch-rename-old-2")->text()=="Batch C";
+        }
+        if(auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr)
+            buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(cancel_preview_ok&&session.revision()==before_revision&&session.document()==before,
+        "Batch rename previews IDs/names in structural order and Cancel leaves the Document untouched");
+
+    bool applied_preview_ok=false;bool empty_refusal_ok=false;bool apply_clicked=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* base=dialog?dialog->findChild<QLineEdit*>("batch-rename-base"):nullptr;
+        std::vector<QLineEdit*> names;
+        for(int i=0;i<3;++i)names.push_back(dialog?dialog->findChild<QLineEdit*>(QString("batch-rename-name-%1").arg(i)):nullptr);
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!base||!buttons||std::any_of(names.begin(),names.end(),[](auto* item){return item==nullptr;}))return;
+        base->setText("First pass");QApplication::processEvents();
+        applied_preview_ok=names[0]->text()=="First pass 1"&&names[1]->text()=="First pass 2"&&names[2]->text()=="First pass 3";
+        auto replace=[&](QLineEdit* input,const char* text) {
+            input->setFocus();QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);QApplication::processEvents();
+        };
+        replace(names[1],"Duplicate");replace(names[2],"Duplicate");
+        base->setText("Final");QApplication::processEvents();
+        applied_preview_ok=applied_preview_ok&&names[0]->text()=="Final 1"&&names[1]->text()=="Duplicate"&&names[2]->text()=="Duplicate";
+        names[0]->setFocus();QTest::keyClick(names[0],Qt::Key_A,Qt::ControlModifier);QTest::keyClick(names[0],Qt::Key_Backspace);
+        buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+        auto* error=dialog->findChild<QLabel*>("batch-rename-error");
+        empty_refusal_ok=dialog->isVisible()&&error&&error->text().contains("non-empty")&&
+            session.revision()==before_revision&&session.document()==before;
+        replace(names[0],"Final 1");
+        applied_preview_ok=applied_preview_ok&&names[1]->text()=="Duplicate"&&names[2]->text()=="Duplicate";
+        buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();apply_clicked=true;
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(apply_clicked&&applied_preview_ok&&empty_refusal_ok,
+        "Base edits update only untouched proposals, duplicate names are allowed, and empty names keep the dialog open without mutation");
+    auto expected=before;
+    expected.objects.at("batch-a").name="Final 1";
+    expected.objects.at("batch-b").name="Duplicate";
+    expected.objects.at("batch-c").name="Duplicate";
+    check(session.revision()==before_revision+1&&session.document()==expected,
+        "Batch Apply commits exactly three Rename commands through one Session revision and preserves stable IDs/references/order");
+    check(evaluate(session.document())==before_values&&
+        Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false)==before_image,
+        "Batch rename preserves evaluated property values and rendered appearance");
+    check(decode(encode(session.document()))==session.document(),"Batch-renamed source round-trips through native serialization");
+    check(window.canvas->selected_objects()==std::vector<Id>{"batch-c","batch-a","batch-b"},
+        "Batch rename retains the user's stable object selection");
+    const auto after=session.document();
+    QTemporaryDir saved_dir;check(saved_dir.isValid(),"Batch rename creates a disposable native save directory");
+    const auto saved_path=saved_dir.path()+"/batch-renamed.nect";
+    window.host.save(saved_path);
+    Host reopened(saved_dir.path()+"/cold-recovery");reopened.open(saved_path);
+    check(reopened.session.document()==after,"Batch rename saves and cold-reopens exact native names and stable references");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==before,"Batch rename is one exact Undo for all names");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==after,"Batch rename Redo restores the exact renamed state");
+
+    Document stale_document;std::uint64_t stale_revision=0;bool stale_dialog_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session.apply({Rename{"batch-after","External update"}},session.revision());window.host.edited();
+            stale_document=session.document();stale_revision=session.revision();stale_dialog_seen=true;
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(stale_dialog_seen&&session.revision()==stale_revision&&session.document()==stale_document&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A revision-stale batch dialog refuses without partially renaming its targets");
+
+    window.canvas->set_selection("batch-a");QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for fewer than two selected siblings");
+    window.canvas->set_selections({{"batch-a","batch-a-point-0"},{"batch-b","batch-b-point-0"}});QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for point selections");
+    window.canvas->set_selections({{"batch-a",""},{"cross-left",""}});QApplication::processEvents();
+    check(!base_action->isEnabled(),"Batch rename is not offered for selected objects under different parents");
+
+    window.canvas->set_selections({{"batch-a",""},{"batch-b",""}});QApplication::processEvents();
+    bool session_stale_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("batch-rename-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session_stale_seen=true;
+            window.host.create_document();
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    base_action->trigger();QApplication::processEvents();
+    check(session_stale_seen&&session.revision()==0&&session.document().objects.empty()&&
+        window.statusBar()->currentMessage().startsWith("SESSION_CONFLICT"),
+        "A session-replaced batch dialog refuses without changing the new Document");
+}
+void sort_paint_order_action(Window& window) {
+    auto& session=window.host.session;const auto composition=window.canvas->active_composition();
+    std::vector<Command> setup;
+    auto add=[&](const std::string& id,const std::string& name,double x) {
+        Point point;point.id=id+"-point";point.x.literal=x;point.y.literal=120;
+        setup.push_back(CreatePath{composition,"",id,name,{{id+"-contour",false,{point}}}});
+    };
+    add("sort-u","Untouched before",30);
+    add("sort-c","Same",60);
+    add("sort-x","Untouched middle",90);
+    add("sort-b","alpha",120);
+    add("sort-a","same",150);
+    add("sort-v","Untouched after",180);
+    setup.push_back(Link{{"sort-v","sort-v-point","x"},{{"sort-a","sort-a-point","x"},2,3,"copy_local_value"}});
+    session.apply(setup,session.revision());window.host.edited();QApplication::processEvents();
+
+    auto* action=named_action(window,"sort-selected-name-paint-order");
+    check(action->text()=="Sort selected by name (paint order)…"&&!action->isEnabled(),
+        "Edit menu exposes the explicit paint-order sort and starts disabled");
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""},{"sort-c",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Paint-order sort is enabled for whole sibling selections regardless of click order");
+
+    bool menu_found=false,menu_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="sort-selected-name-paint-order-context") {
+                menu_found=true;menu_enabled=candidate->isEnabled();menu->close();return;
+            }
+    });
+    const auto menu_point=window.canvas->rect().center();
+    QContextMenuEvent menu_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&menu_event);QApplication::processEvents();
+    check(menu_found&&menu_enabled,"Selection menu offers the same paint-order sort for valid siblings");
+
+    const auto before=session.document();const auto before_revision=session.revision();
+    const auto before_values=evaluate(before);
+    bool cancel_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        const std::vector<std::string> old_ids{"sort-u","sort-c","sort-x","sort-b","sort-a","sort-v"};
+        const std::vector<std::string> old_names{"Untouched before","Same","Untouched middle","alpha","same","Untouched after"};
+        const std::vector<std::string> new_ids{"sort-u","sort-b","sort-x","sort-c","sort-a","sort-v"};
+        const std::vector<std::string> new_names{"Untouched before","alpha","Untouched middle","Same","same","Untouched after"};
+        cancel_preview_ok=dialog&&dialog->isVisible()&&buttons;
+        if(cancel_preview_ok) {
+            auto label_text=[&](const QString& name) {auto* label=dialog->findChild<QLabel*>(name);return label?label->text():QString();};
+            auto* heading=dialog->findChild<QLabel*>("sort-paint-order-heading");
+            cancel_preview_ok=heading&&heading->text().contains("actual draw / paint order");
+            for(std::size_t i=0;i<old_ids.size()&&cancel_preview_ok;++i) {
+                cancel_preview_ok=label_text(QString("sort-paint-order-before-id-%1").arg(i))==QString::fromStdString(old_ids[i])&&
+                    label_text(QString("sort-paint-order-before-name-%1").arg(i))==QString::fromStdString(old_names[i])&&
+                    label_text(QString("sort-paint-order-after-id-%1").arg(i))==QString::fromStdString(new_ids[i])&&
+                    label_text(QString("sort-paint-order-after-name-%1").arg(i))==QString::fromStdString(new_names[i]);
+            }
+            buttons->button(QDialogButtonBox::Cancel)->click();
+        }
+    });
+    action->trigger();QApplication::processEvents();
+    check(cancel_preview_ok&&session.revision()==before_revision&&session.document()==before,
+        "Preview lists every full sibling slot with before/after stable IDs and names, while Cancel is history-free");
+
+    bool context_applied=false,context_preview_ok=false,context_menu_enabled=false;
+    QTimer::singleShot(0,&window,[&]{
+        for(auto* widget:QApplication::topLevelWidgets())if(auto* menu=qobject_cast<QMenu*>(widget))
+            for(auto* candidate:menu->actions())if(candidate->objectName()=="sort-selected-name-paint-order-context") {
+                context_menu_enabled=candidate->isEnabled();
+                QTimer::singleShot(0,&window,[&]{
+                    auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+                    auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+                    if(dialog) {
+                        auto label_text=[&](const char* name) {auto* label=dialog->findChild<QLabel*>(name);return label?label->text():QString();};
+                        context_preview_ok=buttons&&label_text("sort-paint-order-before-id-1")=="sort-c"&&
+                            label_text("sort-paint-order-after-id-1")=="sort-b"&&label_text("sort-paint-order-after-id-3")=="sort-c";
+                    }
+                    if(buttons) {buttons->button(QDialogButtonBox::Ok)->click();context_applied=true;}
+                });
+                menu->setActiveAction(candidate);QTest::keyClick(menu,Qt::Key_Return);return;
+            }
+    });
+    QContextMenuEvent sort_event(QContextMenuEvent::Mouse,menu_point,window.canvas->mapToGlobal(menu_point));
+    QApplication::sendEvent(window.canvas,&sort_event);QApplication::processEvents();
+    const std::vector<Id> expected_order{"sort-u","sort-b","sort-x","sort-c","sort-a","sort-v"};
+    auto expected=before;expected.compositions.front().roots=expected_order;
+    check(context_applied&&context_menu_enabled&&context_preview_ok&&session.revision()==before_revision+1&&session.document()==expected,
+        "Selection-menu Apply sorts only selected slots by case-insensitive name with stable equal-name order");
+    check(evaluate(session.document())==before_values&&session.document().objects==before.objects&&
+        window.canvas->selected_objects()==std::vector<Id>{"sort-a","sort-b","sort-c"},
+        "Paint-order sort preserves object data, references, evaluated values and the original selection");
+    check(decode(encode(session.document()))==session.document(),"Paint-order sort survives native serialization");
+    QTemporaryDir saved_dir;check(saved_dir.isValid(),"Paint-order sort creates a disposable native save directory");
+    const auto saved_path=saved_dir.path()+"/sorted-paint-order.nect";window.host.save(saved_path);
+    Host reopened(saved_dir.path()+"/cold-recovery");reopened.open(saved_path);
+    check(reopened.session.document()==session.document(),"Native save and independent reopen retain the full sorted sibling order");
+
+    const auto sorted=session.document();const auto sorted_revision=session.revision();
+    session.undo(sorted_revision);window.host.edited();
+    check(session.document()==before,"Paint-order sort is one exact Undo");
+    session.redo(session.revision());window.host.edited();
+    check(session.document()==sorted,"Paint-order Redo restores the exact sorted order");
+    const auto redone_revision=session.revision();
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""},{"sort-c",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Sorted selection remains eligible after history navigation");
+
+    bool no_op_preview=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog) {
+            auto* before=dialog->findChild<QLabel*>("sort-paint-order-before-id-1");
+            auto* after=dialog->findChild<QLabel*>("sort-paint-order-after-id-1");
+            no_op_preview=buttons&&before&&after&&before->text()=="sort-b"&&after->text()=="sort-b";
+        }
+        if(buttons)buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    action->trigger();QApplication::processEvents();
+    check(no_op_preview&&session.revision()==redone_revision&&session.document()==sorted&&
+        window.statusBar()->currentMessage().startsWith("No change"),
+        "Applying an already sorted selection reports no change without a revision or history entry");
+
+    Point nested_z,nested_a;nested_z.id="sort-nested-z-point";nested_z.x.literal=120;nested_z.y.literal=130;
+    nested_a.id="sort-nested-a-point";nested_a.x.literal=160;nested_a.y.literal=130;
+    session.apply({CreatePath{composition,"","sort-nested-z","zulu",{{"sort-nested-z-contour",false,{nested_z}}}},
+        CreatePath{composition,"","sort-nested-a","Beta",{{"sort-nested-a-contour",false,{nested_a}}}},
+        GroupContiguous{composition,"",{"sort-nested-z","sort-nested-a"},"sort-folder","Folder"}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const auto before_nested=session.document();const auto nested_revision=session.revision();
+    window.canvas->set_selections({{"sort-nested-z",""},{"sort-nested-a",""}});QApplication::processEvents();
+    check(action->isEnabled(),"Paint-order sort accepts sibling children of a Folder");
+    bool nested_preview_ok=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog) {
+            auto* before=dialog->findChild<QLabel*>("sort-paint-order-before-id-0");
+            auto* after=dialog->findChild<QLabel*>("sort-paint-order-after-id-0");
+            nested_preview_ok=buttons&&before&&after&&before->text()=="sort-nested-z"&&after->text()=="sort-nested-a";
+        }
+        if(buttons)buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    action->trigger();QApplication::processEvents();
+    auto expected_nested=before_nested;expected_nested.objects.at("sort-folder").children={"sort-nested-a","sort-nested-z"};
+    check(nested_preview_ok&&session.revision()==nested_revision+1&&session.document()==expected_nested&&
+        session.document().compositions.front().roots==before_nested.compositions.front().roots,
+        "Nested Folder sort changes only the selected child sibling order");
+
+    window.canvas->set_selection("sort-a");QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for fewer than two selected siblings");
+    window.canvas->set_selections({{"sort-a","sort-a-point"},{"sort-b",""}});QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for point selections");
+    window.canvas->set_selections({{"sort-a",""},{"sort-nested-a",""}});QApplication::processEvents();
+    check(!action->isEnabled(),"Paint-order sort is disabled for selections under different parents");
+
+    window.canvas->set_selections({{"sort-a",""},{"sort-b",""}});QApplication::processEvents();
+    Document stale_document;std::uint64_t stale_revision=0;bool stale_dialog_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {
+            session.apply({Rename{"sort-v","External update"}},session.revision());window.host.edited();
+            stale_document=session.document();stale_revision=session.revision();stale_dialog_seen=true;
+            buttons->button(QDialogButtonBox::Ok)->click();
+        }
+    });
+    action->trigger();QApplication::processEvents();
+    check(stale_dialog_seen&&session.revision()==stale_revision&&session.document()==stale_document&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A revision-stale paint-order preview refuses without changing the updated Document");
+
+    bool session_stale_seen=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("sort-paint-order-dialog");
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(dialog&&buttons) {session_stale_seen=true;window.host.create_document();buttons->button(QDialogButtonBox::Ok)->click();}
+    });
+    action->trigger();QApplication::processEvents();
+    check(session_stale_seen&&session.revision()==0&&session.document().objects.empty()&&
+        window.statusBar()->currentMessage().startsWith("SESSION_CONFLICT"),
+        "A Session-replaced paint-order preview refuses without mutating the new Document");
+}
+void history_action(Window& window,const char* text) {
+    for(auto* action:window.findChildren<QAction*>())if(action->text()==QString::fromLatin1(text)) {
+        check(action->isEnabled(),"History action is enabled");action->trigger();QApplication::processEvents();return;
+    }
+    throw std::runtime_error("History action missing");
+}
+void reveal(Window& window,QWidget* widget) {
+    auto* scroll=window.findChild<QScrollArea*>("inspector-scroll");
+    check(scroll!=nullptr,"Inspector scroll area exists");
+    scroll->ensureWidgetVisible(widget);QApplication::processEvents();
+}
+void settle_rebuilt_inspector() {
+    for(int pass=0;pass<2;++pass) {
+        QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);QApplication::processEvents();
+    }
+    QTest::qWait(10);
+}
+void edit_number(Window& window,const Ref& ref,const char* text) {
+    auto* input=field<QLineEdit>(window,ref);reveal(window,input);input->setFocus();
+    QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(input,text);QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
+}
+QPoint source_handle_screen(Window& window,const Id& object,QPointF local) {
+    const auto& document=window.host.session.document();
+    const auto composition=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const Composition& item){
+        return item.id==window.canvas->active_composition();
+    });
+    if(composition==document.compositions.end())throw std::runtime_error("Active Circle Composition is missing");
+    const auto board=evaluate_artboard(*composition,window.canvas->active_artboard());
+    const auto& matrix=window.canvas->evaluated_transforms().at(object).world;
+    const QTransform world(matrix[0],matrix[1],matrix[2],matrix[3],matrix[4],matrix[5]);
+    const auto point=world.map(local);
+    return {qRound(window.canvas->width()/2.0+(point.x()-(board.x+board.width/2))*window.canvas->zoom()),
+        qRound(window.canvas->height()/2.0+(point.y()-(board.y+board.height/2))*window.canvas->zoom())};
+}
+void toggle_correction(Window& window) {
+    auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(checkbox->isEnabled(),"Authored Point Edit can be toggled");reveal(window,checkbox);
+    QTest::mouseClick(checkbox,Qt::LeftButton,Qt::NoModifier,QPoint(8,checkbox->height()/2));
+    QApplication::processEvents();
+}
+void generated_point_expression(Window& window) {
+    auto& session=window.host.session;
+    const auto composition=session.document().compositions.front().id;
+    Primitive source{"expr-source","nect.shape.circle",1,
+        {{"center_x",{100,{}}},{"center_y",{100,{}}},{"radius",{50,{}}}}};
+    session.apply({CreatePrimitive{composition,"","expr-circle","Expression Circle",source}},session.revision());
+    window.host.edited();
+    const Ref x{"expr-circle","expr-source-east","x"};
+    const Ref length{"expr-circle","expr-source-east","out.length"};
+    window.canvas->set_selection(x.object,x.point);QApplication::processEvents();
+    check(field<QLineEdit>(window,x)->property("nect-property-origin")=="generated"&&
+        field<QLineEdit>(window,length)->property("nect-property-origin")=="generated",
+        "Inspector exposes generated point and handle fields before correction");
+    const auto before=session.revision();
+    edit_number(window,x,"=200");
+    check(session.revision()==before+1&&property_origin(session.document(),x)=="point_edit"&&
+        property(session.document(),x).expression->source=="200"&&evaluate(session.document()).at(x)==200&&
+        session.document().objects.at(x.object).source.has_value(),
+        "Inspector expression authors a Point Edit Scalar without flattening the generator");
+    edit_number(window,length,"=30");
+    check(property(session.document(),length).expression->source=="30"&&
+        evaluate(session.document()).at(length)==30&&
+        encode(decode(encode(session.document())))==encode(session.document()),
+        "Inspector handle expression evaluates and survives exact native round-trip");
+    auto* input=field<QLineEdit>(window,x);
+    const auto buttons=input->parentWidget()->findChildren<QPushButton*>();
+    const auto fx=std::find_if(buttons.begin(),buttons.end(),
+        [](QPushButton* button){return button->text()=="fx";});
+    check(fx!=buttons.end(),
+        "Generated Point Edit field retains its expression control");
+    reveal(window,*fx);QTest::mouseClick(*fx,Qt::LeftButton);QApplication::processEvents();
+    auto* panel=visible_child<QWidget>(window,"nect-expression-panel");
+    check(panel->findChild<QPlainTextEdit*>()->toPlainText()=="200",
+        "Expression editor opens the exact authored Point Edit formula");
+    for(auto* button:panel->findChildren<QPushButton*>())if(button->text()=="Cancel")button->click();
+    QApplication::processEvents();
+    const auto authored=encode(session.document());const auto revision=session.revision();
+    edit_number(window,x,"=ref(\"expr-circle\",\"expr-source-east\",\"x\")");
+    check(session.revision()==revision&&encode(session.document())==authored,
+        "Self-referential generated expression fails without changing the committed Session");
+}
+void primitive_authoring(Window& window) {
+    auto& session=window.host.session;
+    auto revision=session.revision();
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();
+    const auto object=window.canvas->selected_object;
+    check(session.revision()==revision+1&&!object.empty(),"Add Circle creates and selects one real object");
+    const auto& circle=session.document().objects.at(object);
+    check(circle.source&&circle.source->type=="nect.shape.circle"&&circle.contours.empty(),
+        "Add Circle retains an authored generator instead of flattening a path");
+    const auto source_id=circle.source->id;
+    const auto east=source_id+"-east";
+    const Ref radius{object,"","generator.radius"},point_x{object,east,"x"};
+    const auto& artboard=session.document().compositions.front().artboards.front();
+    const auto center_x=artboard.x+artboard.width/2;
+    const auto center_y=artboard.y+artboard.height/2;
+    check(evaluate(session.document()).at(radius)==100&&evaluate(session.document()).at(point_x)==center_x+100,
+        "Circle defaults to radius 100 at the current artboard center");
+    check(evaluate(session.document()).at({object,east,"y"})==center_y,"Circle center Y follows the artboard default");
+    auto* correction=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(!correction->isEnabled()&&!correction->isChecked(),"A new source shows an empty correction entry without inventing overrides");
+    auto* correction_state=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(correction_state->text().contains("Correction: absent")&&
+        correction_state->text().contains("Authored literal: n/a")&&
+        correction_state->text().contains("Evaluated enabled: n/a"),
+        "Inspector marks an absent correction without presenting a fabricated authored literal");
+    revision=session.revision();
+    edit_number(window,radius,"150");
+    check(session.revision()==revision+1&&evaluate(session.document()).at(radius)==150&&
+        evaluate(session.document()).at(point_x)==center_x+150,"Radius field edits the source through one Session command");
+
+    auto* tree=window.findChild<QTreeWidget*>();
+    QTreeWidgetItem* source_row=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)
+        if(tree->topLevelItem(i)->data(0,Qt::UserRole).toString().toStdString()==object)source_row=tree->topLevelItem(i);
+    check(source_row&&source_row->childCount()==4,"Generated stable point topology appears in the object tree");
+    QTreeWidgetItem* east_row=nullptr;
+    for(int i=0;i<source_row->childCount();++i)
+        if(source_row->child(i)->data(0,Qt::UserRole+1).toString().toStdString()==east)east_row=source_row->child(i);
+    check(east_row&&east_row->text(0)=="East","Generated role names resolve to stable point IDs");
+    source_row->setExpanded(true);tree->scrollToItem(east_row);QApplication::processEvents();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(east_row).center());
+    QApplication::processEvents();
+    check(window.canvas->selected_object==object&&window.canvas->selected_point==east,
+        "Clicking a generated point selects its actual stable property context");
+    check(field<QLineEdit>(window,point_x)->property("nect-property-origin")=="generated",
+        "Generated coordinate is identified before any correction");
+    const auto override_x=center_x+190;
+    const auto override_text=QString::number(override_x).toLatin1();
+    revision=session.revision();
+    edit_number(window,point_x,override_text.constData());
+    const auto& corrected=session.document().objects.at(object);
+    check(session.revision()==revision+1&&corrected.source&&corrected.point_edit&&corrected.point_edit->enabled,
+        "A generated point numeric edit adds and enables Point Edit while retaining the source");
+    check(corrected.point_edit->overrides.at(east).at("x").literal==override_x&&
+        evaluate(session.document()).at(radius)==150,"Point Edit stores an absolute coordinate without rewriting radius");
+    check(field<QLineEdit>(window,point_x)->property("nect-property-origin")=="point_edit",
+        "The changed field immediately reports its Point Edit origin");
+    check(visible_child<QLabel>(window,"point-edit-summary")->text().contains("1 absolute local overrides"),
+        "Inspector shows the authored correction count immediately after the edit");
+    revision=session.revision();toggle_correction(window);
+    check(session.revision()==revision+1&&!session.document().objects.at(object).point_edit->enabled&&
+        evaluate(session.document()).at(point_x)==center_x+150,"Point Edit bypass restores the current generated geometry");
+    check(field<QLineEdit>(window,point_x)->property("nect-property-origin")=="bypassed_point_edit",
+        "Bypassed authored correction remains visible as a distinct property origin");
+    history_action(window,"Undo");
+    check(session.document().objects.at(object).point_edit->enabled&&evaluate(session.document()).at(point_x)==override_x,
+        "UI Undo restores the enabled correction");
+    history_action(window,"Redo");
+    check(!session.document().objects.at(object).point_edit->enabled&&evaluate(session.document()).at(point_x)==center_x+150,
+        "UI Redo restores source-only evaluation");
+    toggle_correction(window);
+
+    const auto topology=path_contours(session.document().objects.at(object));
+    revision=session.revision();named_action(window,"convert-to-path")->trigger();QApplication::processEvents();
+    auto* dialog=visible_child<QDialog>(window,"convert-to-path-dialog");
+    auto* convert=dialog->findChild<QPushButton*>("confirm-convert-to-path");
+    check(convert&&convert->isEnabled()&&session.revision()==revision,"Conversion requires the explicit review dialog and does not mutate on opening");
+    QTest::mouseClick(convert,Qt::LeftButton);QApplication::processEvents();
+    const auto& converted=session.document().objects.at(object);
+    check(session.revision()==revision+1&&!converted.source&&!converted.point_edit,
+        "Confirmed conversion removes source and correction only through the core command");
+    check(converted.contours.size()==1&&converted.contours.front().id==topology.front().id&&
+        converted.contours.front().points.size()==topology.front().points.size(),"Conversion retains generated contour topology");
+    for(std::size_t i=0;i<topology.front().points.size();++i)
+        check(converted.contours.front().points[i].id==topology.front().points[i].id,"Conversion retains every stable point ID");
+    check(evaluate(session.document()).at(point_x)==override_x&&window.canvas->selected_point==east,
+        "Conversion preserves visible correction and point selection");
+    history_action(window,"Undo");
+    check(session.document().objects.at(object).source&&session.document().objects.at(object).point_edit&&
+        evaluate(session.document()).at(point_x)==override_x,"Undo conversion restores the generator and authored correction");
+
+    // Seed a real semantic dependency, then verify the user-facing conversion
+    // plan refuses to remove the generator that this external field references.
+    const Ref dependent{"a","a1","y"};
+    session.apply({Link{dependent,{radius,1,0,"copy_local_value"}}},session.revision());
+    window.host.edited();QApplication::processEvents();revision=session.revision();
+    named_action(window,"convert-to-path")->trigger();QApplication::processEvents();
+    dialog=visible_child<QDialog>(window,"convert-to-path-dialog");
+    convert=dialog->findChild<QPushButton*>("confirm-convert-to-path");
+    const auto* blockers=dialog->findChild<QListWidget*>("conversion-blockers");
+    check(blockers&&blockers->count()==1&&convert&&!convert->isEnabled(),
+        "Conversion plan names external generator references and disables conversion");
+    QTest::mouseClick(convert,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==revision&&session.document().objects.at(object).source&&
+        nect::property(session.document(),dependent).binding->source==radius,
+        "Blocked conversion preserves generator, dependency and revision");
+    auto* buttons=dialog->findChild<QDialogButtonBox*>();
+    check(buttons!=nullptr,"Conversion review has a cancellation action");
+    QTest::mouseClick(buttons->button(QDialogButtonBox::Cancel),Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==revision,"Cancelling the blocked plan does not mutate the document");
+
+    revision=session.revision();const auto prior_root_count=session.document().compositions.front().roots.size();
+    named_action(window,"add-rectangle")->trigger();QApplication::processEvents();
+    const auto rectangle=window.canvas->selected_object;
+    const auto& rectangle_object=session.document().objects.at(rectangle);
+    check(session.revision()==revision+1&&session.document().compositions.front().roots.size()==prior_root_count+1&&
+        window.canvas->selected_object==rectangle&&rectangle_object.source&&rectangle_object.source->type=="nect.shape.rectangle"&&
+        evaluate(session.document()).at({rectangle,"","generator.width"})==220&&
+        evaluate(session.document()).at({rectangle,"","generator.height"})==140&&
+        path_contours(rectangle_object).front().points.size()==4,
+        "One Add Rectangle action creates and selects one retained source with its defaults and stable topology");
+
+    const auto ellipse_roots=session.document().compositions.front().roots.size();
+    const auto before_ellipse=session.document();revision=session.revision();
+    named_action(window,"add-ellipse")->trigger();QApplication::processEvents();
+    const auto ellipse=window.canvas->selected_object;
+    check(session.revision()==revision+1&&session.document().compositions.front().roots.size()==ellipse_roots+1&&
+        ellipse!=rectangle&&ellipse.size()>0&&window.canvas->selected_object==ellipse&&
+        session.document().objects.at(ellipse).source&&
+        session.document().objects.at(ellipse).source->type=="nect.shape.ellipse"&&
+        session.document().objects.at(ellipse).contours.empty()&&!session.document().objects.at(ellipse).point_edit,
+        "One Add Ellipse action creates and selects exactly one retained source without setup");
+    const auto& active_artboard=session.document().compositions.front().artboards.front();
+    const auto ellipse_center_x=active_artboard.x+active_artboard.width/2;
+    const auto ellipse_center_y=active_artboard.y+active_artboard.height/2;
+    const auto ellipse_source_id=session.document().objects.at(ellipse).source->id;
+    check(evaluate(session.document()).at({ellipse,"","generator.center_x"})==ellipse_center_x&&
+        evaluate(session.document()).at({ellipse,"","generator.center_y"})==ellipse_center_y&&
+        evaluate(session.document()).at({ellipse,"","generator.width"})==220&&
+        evaluate(session.document()).at({ellipse,"","generator.height"})==140&&
+        path_contours(session.document().objects.at(ellipse)).front().id==ellipse_source_id+"-contour",
+        "Ellipse starts centered with the established dimensions and stable contour role");
+    const auto created_ellipse=session.document();history_action(window,"Undo");
+    check(!session.document().objects.contains(ellipse)&&session.document()==before_ellipse,
+        "One Undo removes only the Ellipse created by the one-click action");
+    history_action(window,"Redo");
+    check(session.document()==created_ellipse&&session.document().objects.contains(rectangle),
+        "One Redo restores the same retained Ellipse without changing earlier objects");
+    window.canvas->set_selection(ellipse);QApplication::processEvents();
+    const Ref ellipse_width{ellipse,"","generator.width"},ellipse_height{ellipse,"","generator.height"};
+    auto* width_input=field<QLineEdit>(window,ellipse_width);
+    check(width_input->property("nect-property-origin")=="authored",
+        "Ellipse Width is exposed in the normal source Inspector");
+    edit_number(window,ellipse_width,"300");edit_number(window,ellipse_height,"180");
+    check(evaluate(session.document()).at(ellipse_width)==300&&evaluate(session.document()).at(ellipse_height)==180,
+        "Ellipse Width and Height Inspector edits update the retained source");
+    const Ref ellipse_east_x{ellipse,ellipse_source_id+"-east","x"};
+    window.canvas->set_selection(ellipse,ellipse_east_x.point);QApplication::processEvents();
+    edit_number(window,ellipse_east_x,"777");
+    check(session.document().objects.at(ellipse).point_edit&&
+        session.document().objects.at(ellipse).source->parameters.at("width").literal==300&&
+        evaluate(session.document()).at(ellipse_east_x)==777,
+        "Ellipse generated-point edits remain downstream Point Edit corrections");
+    toggle_correction(window);
+    check(!session.document().objects.at(ellipse).point_edit->enabled&&
+        evaluate(session.document()).at(ellipse_east_x)==ellipse_center_x+150&&
+        evaluate(session.document()).at(ellipse_width)==300,
+        "Point Edit bypass restores current generated geometry without changing source dimensions");
+    toggle_correction(window);
+    window.canvas->set_selection(object);window.host.edited();QApplication::processEvents();
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();
+    const auto circle_stroke=session.document().objects.at(object).stack.back().id;
+    auto* circle_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+circle_stroke).c_str());reveal(window,circle_cap);
+    circle_cap->setCurrentIndex(circle_cap->findData("round"));QApplication::processEvents();
+    check(session.document().objects.at(object).source&&session.document().objects.at(object).stack.back().line_cap=="round"&&
+        session.document().objects.at(object).stack.back().version==2,
+        "Circle source retains topology while its Stroke Inspector commits style");
+    window.canvas->set_selection(rectangle);window.host.edited();QApplication::processEvents();
+}
+void ellipse_creation_preconditions() {
+    QTemporaryDir files;check(files.isValid(),"Ellipse precondition fixture owns a temporary directory");
+    Window window(files.path());window.show();QApplication::processEvents();
+    auto document=window.host.session.document();
+    document.compositions.front().artboards.clear();
+    window.host.session=Session(std::move(document));
+    const auto before=window.host.session.document();const auto history=window.host.session.history();
+    const auto revision=window.host.session.revision();
+    named_action(window,"add-ellipse")->trigger();QApplication::processEvents();
+    check(window.host.session.document()==before&&window.host.session.history()==history&&
+        window.host.session.revision()==revision&&window.statusBar()->currentMessage().contains("MISSING_ARTBOARD"),
+        "Missing Artboard refuses one-click Ellipse creation without partial Session mutation");
+}
+void stack_authoring(Window& window) {
+    auto& session=window.host.session;
+    const auto object=window.canvas->selected_object;
+    const auto original_stack_size=session.document().objects.at(object).stack.size();
+    auto last_operation=[&] {return session.document().objects.at(object).stack.back().id;};
+    auto edit_hex=[&](const Id& operation,const char* text) {
+        const auto name="operation-hex-"+operation;
+        auto* input=visible_child<QLineEdit>(window,name.c_str());reveal(window,input);input->setFocus();
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+        QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
+    };
+    auto control=[&](const char* prefix,const Id& operation) {
+        const auto name=std::string(prefix)+operation;
+        auto* button=visible_child<QPushButton>(window,name.c_str());reveal(window,button);
+        QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto choose=[&](const char* prefix,const Id& operation,int index) {
+        const auto name=std::string(prefix)+operation;
+        auto* combo=visible_child<QComboBox>(window,name.c_str());reveal(window,combo);
+        combo->setCurrentIndex(index);QApplication::processEvents();
+    };
+    auto screen=[&](double x,double y) {
+        const auto& artboard=session.document().compositions.front().artboards.front();
+        return QPoint(qRound(window.canvas->width()/2.0+(x-artboard.x-artboard.width/2)*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(y-artboard.y-artboard.height/2)*window.canvas->zoom()));
+    };
+    auto pixel=[&](double x,double y) {
+        window.canvas->fit_artboard();QApplication::processEvents();
+        const auto pixmap=window.canvas->grab();const auto image=pixmap.toImage();
+        const auto position=QPointF(screen(x,y))*pixmap.devicePixelRatio();
+        return image.pixelColor(qRound(position.x()),qRound(position.y()));
+    };
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();const auto red=last_operation();
+    check(session.document().objects.at(object).stack.size()==original_stack_size+1,
+        "Add Fill appends a real stack operation through the production action");
+    edit_hex(red,"#EF3340FF");
+    check(std::abs(evaluate(session.document()).at(operation_ref(object,red,"r"))-239.0/255)<1e-5,
+        "HEX RGBA edits address the real operation Scalars");
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();const auto blue=last_operation();
+    edit_hex(blue,"#2040E0FF");
+    auto color=pixel(480,320);
+    check(std::abs(color.red()-239)<=2&&std::abs(color.blue()-64)<=2,
+        "Canvas paints earlier default Fill above a later Fill");
+    choose("operation-composite-",blue,1);
+    color=pixel(480,320);
+    check(std::abs(color.red()-32)<=2&&std::abs(color.blue()-224)<=2,
+        "Composite Above changes the actual Canvas paint order");
+    auto fill_driver_button=[&] {
+        const auto buttons=window.findChildren<QToolButton*>(QString::fromStdString("operation-fill-rule-driver-"+blue));
+        check(!buttons.empty(),"Fill rule driver button exists for the selected operation");
+        auto* button=buttons.back();reveal(window,button);
+        check(button->isVisible(),"Current Fill rule driver button is visible after scrolling");return button;
+    };
+    auto* fill_driver=fill_driver_button();
+    const auto fill_ref=operation_ref(object,blue,"fill_rule");
+    const auto fill_revision=session.revision();bool fill_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* value=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-value-"+blue)):nullptr;
+        if(!dialog||!value){if(dialog)dialog->reject();else if(auto* active=qobject_cast<QDialog*>(QApplication::activeModalWidget()))active->reject();return;}
+        value->setCurrentIndex(1);fill_cancel_staged=session.revision()==fill_revision&&
+            fill_rule_property(session.document(),fill_ref).literal=="nonzero";dialog->reject();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(fill_cancel_staged&&session.revision()==fill_revision&&
+        fill_rule_property(session.document(),fill_ref).literal=="nonzero",
+        "Fill rule Inspector stages its literal and Cancel leaves Session bytes and revision unchanged");
+    fill_driver=fill_driver_button();bool fill_apply_modal=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* value=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-value-"+blue)):nullptr;
+        fill_apply_modal=dialog&&value;
+        if(!dialog||!value){if(dialog)dialog->reject();else if(auto* active=qobject_cast<QDialog*>(QApplication::activeModalWidget()))active->reject();return;}
+        value->setCurrentIndex(1);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(fill_apply_modal&&fill_rule_property(session.document(),fill_ref).literal=="evenodd"&&session.revision()==fill_revision+1,
+        "Applying a staged Fill rule literal commits one shared Session revision");
+    const Ref source_fill_ref=operation_ref(object,red,"fill_rule");
+    session.apply({OperationOptions{object,red,"below","evenodd"}},session.revision());window.host.edited();QApplication::processEvents();
+    fill_driver=fill_driver_button();
+    const auto link_revision=session.revision();const auto fill_before_link=session.document();
+    bool link_draft_staged=false;bool hidden_fill_rejected=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-mode-"+blue)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("fill-rule-source-search-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-source-"+blue)):nullptr;
+        if(!dialog||!mode||!search||!source){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));
+        search->setText("no-such-fill-rule-path");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        hidden_fill_rejected=dialog->isVisible()&&source->currentIndex()<0&&session.document()==fill_before_link&&
+            session.revision()==link_revision&&
+            !fill_rule_property(session.document(),fill_ref).driver;
+        search->setText(QString::fromStdString(object).toUpper());
+        check(source->count()==1,"Stable Object ID filters Fill rule sources");
+        search->setText(QString::fromStdString("OP."+red+".FILL_RULE"));
+        check(source->count()==1,"Stable Fill rule path filters to the exact source");
+        source->setCurrentIndex(0);
+        link_draft_staged=session.revision()==link_revision&&!fill_rule_property(session.document(),fill_ref).driver;
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(hidden_fill_rejected&&link_draft_staged&&fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref}&&
+        fill_rule_property(session.document(),fill_ref).evaluated=="evenodd"&&session.revision()==link_revision+1&&
+        window.canvas->selected_object==object,
+        "Fill Inspector rejects hidden source then links the exact stable Ref while retaining target selection");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==fill_before_link,"Undo restores the Fill rule before the source link");
+    session.redo(session.revision());window.host.edited();
+    check(fill_rule_property(session.document(),fill_ref).driver==FillRuleDriver{source_fill_ref},
+        "Redo restores the exact Fill rule source Ref");
+    session.apply({OperationOptions{object,red,"below","nonzero"}},session.revision());window.host.edited();
+    check(fill_rule_property(session.document(),fill_ref).evaluated=="nonzero","Fill Inspector link follows source edits");
+    fill_driver=fill_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("fill-rule-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("fill-rule-mode-"+blue)):nullptr;
+        if(!dialog||!mode){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("unlink"));dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    fill_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    session.apply({OperationOptions{object,red,"below","evenodd"}},session.revision());window.host.edited();
+    check(!fill_rule_property(session.document(),fill_ref).driver&&fill_rule_property(session.document(),fill_ref).literal=="nonzero"&&
+        fill_rule_property(session.document(),fill_ref).evaluated=="nonzero",
+        "Fill Inspector unlink freezes the evaluated choice against later source edits");
+    const auto source_object=std::find_if(session.document().objects.begin(),session.document().objects.end(),
+        [&](const auto& entry){return entry.first!=object&&entry.second.name=="Source";});
+    check(source_object!=session.document().objects.end()&&!source_object->second.stack.empty(),
+        "A second operation in the selected object's Composition can drive enabled state");
+    const auto source_object_id=source_object->first;
+    const auto source_operation=source_object->second.stack.front().id;
+    const Ref source_enabled=operation_ref(source_object_id,source_operation,"enabled");
+    const Ref target_enabled=operation_ref(object,blue,"enabled");
+    session.apply({EnableOperation{source_object_id,source_operation,false}},session.revision());window.host.edited();QApplication::processEvents();
+    auto enabled_driver_button=[&] {
+        auto* button=visible_child<QPushButton>(window,("operation-enabled-driver-"+blue).c_str());
+        reveal(window,button);
+        check(button->isEnabled(),"Operation enabled source picker remains enabled for a Composition-wide source");return button;
+    };
+    auto* enabled_driver=enabled_driver_button();const auto operation_link_revision=session.revision();bool enabled_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+blue)):nullptr;
+        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int selected=-1;
+        for(int index=0;index<source->count();++index)if(source->itemText(index).contains(label))selected=index;
+        if(selected<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(selected);
+        enabled_cancel_staged=session.revision()==operation_link_revision&&!operation_enabled_state(session.document(),target_enabled).driver;
+        dialog->reject();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    check(enabled_cancel_staged&&session.revision()==operation_link_revision&&!operation_enabled_state(session.document(),target_enabled).driver,
+        "Operation enabled Inspector Cancel keeps the Session and authored target unchanged");
+    enabled_driver=enabled_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        auto* source=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+blue)):nullptr;
+        if(!dialog||!mode||!source){if(dialog)dialog->reject();return;}
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int selected=-1;
+        for(int index=0;index<source->count();++index)if(source->itemText(index).contains(label))selected=index;
+        if(selected<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source->setCurrentIndex(selected);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target_enabled).driver==source_enabled&&
+        !operation_enabled_state(session.document(),target_enabled).evaluated&&session.revision()==operation_link_revision+1,
+        "Operation enabled Inspector links to another object in the owning Composition");
+    auto* linked_checkbox=visible_child<QCheckBox>(window,("operation-enabled-"+blue).c_str());
+    check(!linked_checkbox->isEnabled(),"A linked enabled checkbox prevents implicit literal edits");
+    session.apply({EnableOperation{source_object_id,source_operation,true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target_enabled).evaluated,
+        "Operation enabled Inspector follows a source edit from another object");
+    enabled_driver=enabled_driver_button();
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+blue));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+blue)):nullptr;
+        if(!dialog||!mode){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("unlink"));dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(enabled_driver,Qt::LeftButton);QApplication::processEvents();
+    session.apply({EnableOperation{source_object_id,source_operation,false}},session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target_enabled).driver&&
+        operation_enabled_state(session.document(),target_enabled).literal&&operation_enabled_state(session.document(),target_enabled).evaluated,
+        "Operation enabled Inspector unlink freezes the evaluated value against later source edits");
+    const auto enabled_name="operation-enabled-"+blue;
+    const auto enabled_widgets=window.findChildren<QCheckBox*>(QString::fromStdString(enabled_name));
+    check(!enabled_widgets.empty(),"Enabled checkbox exists for the selected Fill operation");
+    auto* enabled=enabled_widgets.back();reveal(window,enabled);
+    check(enabled->isVisible(),"Current Fill enabled checkbox is visible after scrolling");
+    QTest::mouseClick(enabled,Qt::LeftButton,Qt::NoModifier,QPoint(8,enabled->height()/2));QApplication::processEvents();
+    color=pixel(480,320);
+    check(std::abs(color.red()-239)<=2,"Disabling a paint removes its actual rendered contribution");
+    history_action(window,"Undo");
+    control("operation-up-",blue);
+    const auto& reordered=session.document().objects.at(object).stack;
+    check(reordered[original_stack_size].id==blue&&reordered[original_stack_size+1].id==red&&
+        std::abs(evaluate(session.document()).at(operation_ref(object,blue,"b"))-224.0/255)<1e-5,
+        "Stack reorder preserves stable operation references and authored values");
+    control("operation-remove-",blue);
+    check(session.document().objects.at(object).stack.size()==original_stack_size+1,
+        "Remove deletes only the selected stack entry");
+
+    named_action(window,"add-repeater")->trigger();QApplication::processEvents();const auto repeater=last_operation();
+    edit_number(window,operation_ref(object,repeater,"copies"),"3");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto copy_position=screen(760,320);
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,copy_position);QApplication::processEvents();
+    check(window.canvas->selected_object==object&&window.canvas->selected_point.empty(),
+        "A painted virtual copy selects its owner without inventing point identities");
+    color=pixel(760,320);
+    check(std::abs(color.red()-239)<=2&&std::abs(color.blue()-64)<=2,
+        "Core-derived repeated paint appears outside the source rectangle");
+    control("operation-up-",repeater);
+    const auto values=evaluate(session.document());
+    const auto shape=evaluate_shape(session.document(),object,values);
+    check(shape.paths.size()==3,"Moving Repeater before paint keeps core-owned repeated geometry");
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();const auto stroke=last_operation();
+    check(session.document().objects.at(object).stack.back().type=="nect.paint.stroke","Add Stroke is a real additional paint");
+    edit_number(window,operation_ref(object,stroke,"width"),"7");
+    check(evaluate(session.document()).at(operation_ref(object,stroke,"width"))==7,
+        "Additional Stroke width is independently addressable in the Inspector");
+    auto* enable_miter=visible_child<QPushButton>(window,("stroke-enable-miter-"+stroke).c_str());reveal(window,enable_miter);
+    const auto promotion_revision=session.revision();QTest::mouseClick(enable_miter,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==promotion_revision+1&&session.document().objects.at(object).stack.back().version==2&&
+        evaluate(session.document()).at(operation_ref(object,stroke,"miter_limit"))==4,
+        "Native v1 Stroke promotes to editable v2 miter without changing appearance");
+    auto* stale_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,stale_cap);
+    const auto stale_revision=session.revision();session.apply({Set{operation_ref(object,stroke,"width"),8}},stale_revision);
+    stale_cap->setCurrentIndex(stale_cap->findData("round"));QApplication::processEvents();
+    check(session.revision()==stale_revision+1&&session.document().objects.at(object).stack.back().line_cap=="butt"&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT"),
+        "A stale Stroke Inspector handler rejects without retargeting the operation");
+    window.host.edited();QApplication::processEvents();
+    const auto miter_ref=operation_ref(object,stroke,"miter_limit");
+    session.apply({SetExpression{{miter_ref},{"4 + 4",1},false}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    cap->setCurrentIndex(cap->findData("round"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_cap=="round"&&
+        evaluate(session.document()).at(miter_ref)==8&&nect::property(session.document(),miter_ref).expression.has_value(),
+        "Changing cap preserves an expression-driven evaluated miter");
+    cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    const auto no_op_revision=session.revision();cap->setCurrentIndex(cap->findData("butt"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_cap=="butt"&&session.revision()==no_op_revision+1,
+        "Inspector line-cap control commits shared StrokeStyle");
+    cap=visible_child<QComboBox>(window,("stroke-line-cap-"+stroke).c_str());reveal(window,cap);
+    const auto same_cap_revision=session.revision();cap->setCurrentIndex(cap->findData("butt"));QApplication::processEvents();
+    check(session.revision()==same_cap_revision,"Choosing the existing line cap is a history-free no-op");
+    auto* join=visible_child<QComboBox>(window,("stroke-line-join-"+stroke).c_str());reveal(window,join);join->setCurrentIndex(join->findData("bevel"));QApplication::processEvents();
+    check(session.document().objects.at(object).stack.back().line_join=="bevel"&&
+        evaluate(session.document()).at(operation_ref(object,stroke,"miter_limit"))==8&&
+        nect::property(session.document(),miter_ref).expression.has_value(),
+        "Inspector line-join control preserves the evaluated miter limit");
+}
+void scalar_source_path_picker(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point target_point,source_point,beta_point,scale_point;
+    target_point.id="stable-target-point";target_point.x.literal=60;source_point.id="stable-source-point";source_point.x.literal=180;
+    beta_point.id="stable-beta-point";beta_point.x.literal=240;scale_point.id="stable-scale-point";scale_point.x.literal=320;
+    session.apply({CreatePath{composition,"","stable-target-object","Target",{{"target-contour",false,{target_point}}}},
+        CreatePath{composition,"","stable-source-object","Friendly Source",{{"source-contour",false,{source_point}}}},
+        CreatePath{composition,"","stable-beta-object","Other Source",{{"beta-contour",false,{beta_point}}}},
+        CreatePath{composition,"","stable-scale-object","Different Unit",{{"scale-contour",false,{scale_point}}}}},session.revision());
+    window.host.edited();
+    const Ref target{"stable-target-object","stable-target-point","x"};
+    const Ref source{"stable-source-object","stable-source-point","x"};
+    const Ref beta{"stable-beta-object","stable-beta-point","x"};
+    const Ref source_translation{"stable-source-object","","transform.tx"};
+    const Ref incompatible{"stable-scale-object","","transform.a"};
+    check(property_unit(target)==property_unit(source)&&property_unit(source)!=property_unit(incompatible),
+        "Picker fixture has two same-unit sources and a different-unit source");
+    const auto baseline=session.document();const auto baseline_revision=session.revision();
+    window.canvas->set_selection(target.object,target.point);window.host.edited();QApplication::processEvents();
+    const auto selection=window.canvas->selections();
+    auto open_picker=[&] {
+        QTest::mouseClick(field<QPushButton>(window,target),Qt::LeftButton);QApplication::processEvents();
+        auto* dialog=window.findChild<QDialog*>("property-source-picker");
+        check(dialog&&dialog->isVisible(),"Scalar property picker opens");return dialog;
+    };
+    auto find_item=[](QListWidget* list,const Ref& ref) -> QListWidgetItem* {
+        for(int i=0;i<list->count();++i) {
+            const auto value=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(value.value("object").toString().toStdString()==ref.object&&value.value("point").toString().toStdString()==ref.point&&
+                value.value("field").toString().toStdString()==ref.field)return list->item(i);
+        }
+        return nullptr;
+    };
+    auto* dialog=open_picker();auto* search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    auto* list=dialog->findChild<QListWidget*>("property-source-picker-list");auto* buttons=dialog->findChild<QDialogButtonBox*>();
+    auto* source_item=find_item(list,source);auto* beta_item=find_item(list,beta);auto* translation_item=find_item(list,source_translation);
+    check(search&&list&&buttons&&source_item&&beta_item&&translation_item,"Picker rows retain exact source Refs");
+    check(source_item->text().contains("Friendly Source")&&!source_item->text().contains(QString::fromStdString(source.object)),
+        "Friendly-label search remains available without showing stable IDs in the row label");
+    search->setText("Friendly Source");check(!source_item->isHidden()&&beta_item->isHidden(),"Friendly-label search filters rows");
+    search->setText("STABLE-SOURCE-OBJECT");check(!source_item->isHidden()&&beta_item->isHidden(),"Stable object ID search is case insensitive");
+    search->setText("STABLE-SOURCE-POINT");check(!source_item->isHidden()&&beta_item->isHidden(),"Stable point ID search works");
+    search->setText("STABLE-SOURCE-OBJECT transform.tx");check(!translation_item->isHidden(),"Stable field path search works");
+    search->setText("STABLE-SOURCE-OBJECT / STABLE-SOURCE-POINT / X");QApplication::processEvents();
+    check(!source_item->isHidden()&&beta_item->isHidden(),"Full stable object/point/field search is case insensitive");
+    list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());
+    QApplication::processEvents();
+    check(window.canvas->selected_object==source.object&&window.canvas->selected_point==source.point,
+        "Choosing a source changes browsing context while the target stays frozen");
+    buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+    check(session.revision()==baseline_revision+1&&nect::property(session.document(),target).binding&&
+        nect::property(session.document(),target).binding->source==source&&window.canvas->selections()==selection,
+        "Confirm links the exact Ref in one revision and restores target selection");
+    const auto linked=session.document();
+    session.apply({Rename{source.object,"Renamed Source"},
+        ReorderObjects{composition,"",{"stable-scale-object","stable-beta-object","stable-source-object","stable-target-object"}}},session.revision());
+    window.host.edited();
+    check(nect::property(session.document(),target).binding->source==source,"Rename/reorder preserve the linked stable Ref");
+    session.undo(session.revision());window.host.edited();
+    check(session.document()==linked,"Undo of source rename/reorder preserves the link");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==baseline&&session.revision()==baseline_revision+4,"Undo removes the link and restores the exact target state");
+
+    dialog=open_picker();search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    list=dialog->findChild<QListWidget*>("property-source-picker-list");buttons=dialog->findChild<QDialogButtonBox*>();source_item=find_item(list,source);
+    search->setText("Friendly Source");list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());QApplication::processEvents();
+    buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+    check(session.document()==baseline&&session.revision()==baseline_revision+4&&window.canvas->selections()==selection,
+        "Cancel restores the original selection without changing authored state");
+
+    dialog=open_picker();search=dialog->findChild<QLineEdit*>("property-source-picker-search");
+    list=dialog->findChild<QListWidget*>("property-source-picker-list");buttons=dialog->findChild<QDialogButtonBox*>();
+    source_item=find_item(list,source);beta_item=find_item(list,beta);auto* incompatible_item=find_item(list,incompatible);
+    const auto unchanged=session.document();const auto unchanged_revision=session.revision();
+    search->setText("Friendly Source");list->scrollToItem(source_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(source_item).center());QApplication::processEvents();
+    check(list->currentItem()==source_item&&window.canvas->selected_object==source.object,
+        "A compatible source can be selected before narrowing the search");
+    search->setText("STABLE-SCALE-OBJECT / / TRANSFORM.A");
+    check(source_item->isHidden()&&!incompatible_item->isHidden()&&!(incompatible_item->flags()&Qt::ItemIsEnabled)&&
+        list->currentItem()==nullptr&&incompatible_item->toolTip().contains("stable-scale-object /  / transform.a")&&
+        incompatible_item->toolTip().contains("Incompatible unit"),
+        "Filtering from a compatible selection to a different-unit path clears the old choice and keeps the path searchable");
+    list->scrollToItem(incompatible_item);QApplication::processEvents();
+    QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(incompatible_item).center());QApplication::processEvents();
+    check(list->currentItem()==nullptr,"Disabled incompatible source cannot become current");
+    buttons->button(QDialogButtonBox::Ok)->click();QApplication::processEvents();
+    check(dialog->isVisible()&&session.document()==unchanged&&session.revision()==unchanged_revision&&
+        window.statusBar()->currentMessage().startsWith("NO_SOURCE"),"Confirm cannot apply a disabled incompatible source");
+    search->setText("no-such-stable-path");
+    check(source_item->isHidden()&&beta_item->isHidden()&&session.document()==unchanged&&session.revision()==unchanged_revision,
+        "A nonmatching path hides sources without changing Document or revision");
+    buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+    check(session.document()==unchanged&&session.revision()==unchanged_revision&&window.canvas->selections()==selection,
+        "Cancel after incompatible-source rejection preserves the target and authored state");
+}
+struct TextPickerOutcome { bool opened=false,friendly_search=false,stable_id_search=false,stable_path_search=false,browsed=false,context_changed=false,
+    draft_unchanged=false,italic_expression_staged=false,applied=false,restored_selection=false,inspector_visible=false; };
+TextPickerOutcome choose_text_source(Window& window,QToolButton* driver,const Ref& source,const QString& friendly_label,
+        bool change_context=false,const Id& browse_target="text-string-backup") {
+    TextPickerOutcome outcome;const auto original_selection=window.canvas->selections();const auto original_object=window.canvas->selected_object;
+    const auto original_document=window.host.session.document();const auto original_revision=window.host.session.revision();QAction* link=nullptr;
+    for(auto* action:driver->menu()->actions())if(action->text().startsWith("Link to Text ")){link=action;break;}
+    if(!link)return outcome;
+    QEventLoop loop;
+    QTimer::singleShot(0,&window,[&]{
+        auto interact=[&] {
+        TextPickerOutcome result;
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return result;result.opened=true;
+        auto* search=dialog->findChild<QLineEdit*>("text-source-picker-search");
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!search||!list||!buttons)return result;
+        QListWidgetItem* row=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString().toStdString()==source.object&&
+                ref.value("point").toString().toStdString()==source.point&&ref.value("field").toString().toStdString()==source.field)row=list->item(i);
+        }
+        if(!row)return result;
+        search->setText(friendly_label);QApplication::processEvents();result.friendly_search=!row->isHidden();
+        search->setText(QString::fromStdString(source.object).toUpper());QApplication::processEvents();
+        result.stable_id_search=!row->isHidden();
+        const auto stable_path=QString::fromStdString(source.object)+" / "+QString::fromStdString(source.field);
+        search->setText(stable_path.toUpper());QApplication::processEvents();result.stable_path_search=!row->isHidden();
+        list->setCurrentItem(row);QApplication::processEvents();result.browsed=window.canvas->selected_object==source.object;
+        if(buttons->button(QDialogButtonBox::Apply)->isEnabled()) {
+            if(change_context) {
+                check(window.host.session.document().objects.contains(browse_target),"Browsing backup remains a document object");
+                window.canvas->set_selection(browse_target,"");window.host.edited();QApplication::processEvents();
+                result.context_changed=dialog->isVisible()&&window.canvas->selected_object==browse_target;
+            }
+            result.draft_unchanged=window.host.session.revision()==original_revision&&window.host.session.document()==original_document;
+            if(source.field=="text.italic"&&original_document.objects.contains(original_object)&&original_document.objects.at(original_object).text) {
+                const auto& driver_before=original_document.objects.at(original_object).text->italic_driver;
+                result.italic_expression_staged=driver_before&&std::holds_alternative<Expression>(*driver_before);
+            }
+            buttons->button(QDialogButtonBox::Apply)->click();QApplication::processEvents();result.applied=true;
+            result.restored_selection=window.canvas->selections()==original_selection&&window.canvas->selected_object==original_object;
+            const char* inspector_name=source.field=="text.content"?"text-preview":
+                source.field=="text.family"?"text-family":source.field=="text.locale"?"text-locale":
+                source.field=="text.alignment"?"text-alignment":source.field=="text.weight"?"text-weight":"text-italic";
+            for(auto* inspector:window.findChildren<QWidget*>(inspector_name))result.inspector_visible|=inspector->isVisible();
+        }
+        return result;
+        };
+        outcome=interact();loop.quit();
+    });
+    link->trigger();loop.exec();return outcome;
+}
+void text_string_source_picker_contract(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target=default_text("text-string-target-source","String target");target.content="Target content";target.family="Target family";target.locale="ja-JP";
+    auto source=default_text("text-string-source-data","Friendly String Source");source.content="Linked content";source.family="Linked family";source.locale="fr-FR";
+    auto backup=default_text("text-string-backup-data","Browse backup");backup.content="Backup content";backup.family="Backup family";backup.locale="en-GB";
+    session.apply({CreateText{composition,"","text-string-target","String target",target},
+        CreateText{composition,"","text-string-source","Friendly String Source",source},
+        CreateText{composition,"","text-string-backup","Browse backup",backup}},0);
+    check(session.document().objects.contains("text-string-target")&&session.document().objects.contains("text-string-source")&&
+        session.document().objects.contains("text-string-backup"),"All three Text source picker fixture objects exist");
+    window.canvas->set_selection("text-string-target","");window.host.edited();QApplication::processEvents();
+    struct FieldCase { const char* field; const char* driver; const char* typed_field; };
+    const FieldCase fields[]={{"text.content","text-content-driver","content"},
+        {"text.family","text-family-driver","family"},{"text.locale","text-locale-driver","locale"}};
+    const Ref source_refs[]={{"text-string-source","","text.content"},{"text-string-source","","text.family"},
+        {"text-string-source","","text.locale"}};
+    for(std::size_t i=0;i<std::size(fields);++i) {
+        const auto field=std::string(fields[i].field),typed=std::string(fields[i].typed_field);
+        auto open=[&]{auto* driver=visible_child<QToolButton>(window,fields[i].driver);QAction* link=nullptr;
+            for(auto* action:driver->menu()->actions())if(action->text().startsWith("Link to Text ")){link=action;break;}
+            check(link!=nullptr,"Text string link action exists");return link;};
+        const auto target_before=session.document().objects.at("text-string-target");const auto before_filter_revision=session.revision();
+        bool empty_refused=false,empty_open=false,empty_no_source=false,empty_cleared=false,empty_unchanged=false,empty_button_enabled=false;
+        QString empty_status;bool filtered_refused=false,canceled=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            if(!dialog||!search||!list||!buttons||!status)return;
+            list->setCurrentItem(nullptr);
+            empty_button_enabled=buttons->button(QDialogButtonBox::Apply)->isEnabled();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            empty_open=dialog->isVisible();empty_status=status->text();empty_no_source=empty_status.contains("NO_SOURCE");
+            empty_cleared=!list->currentItem();empty_unchanged=session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before;
+            empty_refused=empty_button_enabled&&empty_open&&empty_no_source&&empty_cleared&&empty_unchanged;
+            QListWidgetItem* row=nullptr;
+            for(int j=0;j<list->count();++j) {
+                const auto ref=QJsonDocument::fromJson(list->item(j)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-string-source"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(j);
+            }
+            if(!row)return;
+            search->setText("Friendly String Source");QApplication::processEvents();
+            const auto ref=QJsonDocument::fromJson(row->data(Qt::UserRole).toByteArray()).object();
+            const auto path=ref.value("object").toString()+" / "+ref.value("field").toString();
+            search->setText(path.toUpper());QApplication::processEvents();
+            const bool exact_ref=ref.value("object").toString()=="text-string-source"&&
+                ref.value("point").toString().isEmpty()&&ref.value("field").toString()==QString::fromStdString(field);
+            list->setCurrentItem(row);QApplication::processEvents();
+            search->setText("no matching Text source");QApplication::processEvents();
+            const auto initial=buttons->button(QDialogButtonBox::Apply)->isEnabled();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            filtered_refused=exact_ref&&initial&&row->isHidden()&&!list->currentItem()&&dialog->isVisible()&&
+                status->text().contains("NO_SOURCE")&&session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            canceled=(!safe_dialog||!safe_dialog->isVisible())&&session.revision()==before_filter_revision&&
+                session.document().objects.at("text-string-target")==target_before&&window.canvas->selected_object=="text-string-target";
+        });
+        open()->trigger();QApplication::processEvents();
+        check(empty_refused,"Empty Text source selection reports NO_SOURCE without mutation for "+field);
+        check(filtered_refused,"Filtered Text source is cleared and cannot Apply for "+field);
+        check(canceled,"Cancel preserves the frozen Text target and Session for "+field);
+
+        bool stale_failed=false,stale_canceled=false;const auto stale_target=session.document().objects.at("text-string-target");
+        const auto stale_revision=session.revision();
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            if(!dialog||!search||!list||!buttons||!status)return;
+            QListWidgetItem* row=nullptr;
+            for(int j=0;j<list->count();++j) {
+                const auto ref=QJsonDocument::fromJson(list->item(j)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-string-source"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(j);
+            }
+            if(!row)return;
+            search->setText((QStringLiteral("TEXT-STRING-SOURCE / ")+QString::fromStdString(field)).toUpper());
+            list->setCurrentItem(row);QApplication::processEvents();
+            check(session.document().objects.contains("text-string-backup"),"Stale revision fixture object remains in the document");
+            auto changed=*(session.document().objects.at("text-string-backup").text);changed.family+=" changed";
+            session.apply({UpdateText{"text-string-backup",changed}},session.revision());window.host.edited();QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            stale_failed=dialog->isVisible()&&status->text().contains("changed while the source chooser was open")&&
+                session.revision()==stale_revision+1&&session.document().objects.at("text-string-target")==stale_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            stale_canceled=(!safe_dialog||!safe_dialog->isVisible())&&session.document().objects.at("text-string-target")==stale_target&&
+                window.canvas->selected_object=="text-string-target";
+        });
+        open()->trigger();QApplication::processEvents();
+        check(stale_failed,"Stale Text source Apply stays open with a visible error for "+field);
+        check(stale_canceled,"Cancel after a stale Text source draft preserves authored target state for "+field);
+
+        auto outcome=choose_text_source(window,visible_child<QToolButton>(window,fields[i].driver),source_refs[i],"Friendly String Source",true);
+        check(outcome.opened&&outcome.friendly_search&&outcome.stable_id_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&outcome.applied&&
+            outcome.restored_selection&&outcome.inspector_visible,
+            "Text source chooser supports friendly, stable ID and case-insensitive stable Ref search for "+field+" [open="+std::to_string(outcome.opened)+
+                " friendly="+std::to_string(outcome.friendly_search)+" id="+std::to_string(outcome.stable_id_search)+" path="+std::to_string(outcome.stable_path_search)+
+                " browsed="+std::to_string(outcome.browsed)+" changed="+std::to_string(outcome.context_changed)+
+                " applied="+std::to_string(outcome.applied)+" restored="+std::to_string(outcome.restored_selection)+
+                " inspector="+std::to_string(outcome.inspector_visible)+"]");
+        const auto& linked=*session.document().objects.at("text-string-target").text;
+        bool exact_driver=false;std::string evaluated;
+        if(typed=="content"){exact_driver=linked.content_driver&&linked.content_driver->link==source_refs[i];evaluated=evaluate_text_content(session.document(),"text-string-target");}
+        else if(typed=="family"){exact_driver=linked.family_driver&&linked.family_driver->link==source_refs[i];evaluated=evaluate_text_family(session.document(),"text-string-target");}
+        else {exact_driver=linked.locale_driver&&linked.locale_driver->link==source_refs[i];evaluated=evaluate_text_locale(session.document(),"text-string-target");}
+        const auto expected=typed=="content"?std::string("Linked content"):typed=="family"?std::string("Linked family"):std::string("fr-FR");
+        check(exact_driver&&evaluated==expected&&session.revision()==stale_revision+2&&window.canvas->selected_object=="text-string-target",
+            "Apply links the exact frozen Text target in one revision and restores its context for "+field);
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-string-target")==stale_target,
+            "Undo removes only the staged Text string link for "+field);
+    }
+}
+void text_remaining_source_picker_contract(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target=default_text("text-remaining-target-source","Enum target");
+    target.alignment="start";target.weight=400;target.italic=false;
+    auto source=default_text("text-remaining-source-data","Friendly Remaining Source");
+    source.alignment="end";source.weight=700;source.italic=true;
+    auto backup=default_text("text-remaining-backup-data","Browse backup");
+    backup.alignment="center";backup.weight=500;backup.italic=false;
+    session.apply({CreateText{composition,"","text-remaining-target","Enum target",target},
+        CreateText{composition,"","text-remaining-source","Friendly Remaining Source",source},
+        CreateText{composition,"","text-remaining-backup","Browse backup",backup}},session.revision());
+    session.apply({SetTextItalicExpression{{"text-remaining-target","","text.italic"},{"true",1},false}},session.revision());
+    window.canvas->set_selection("text-remaining-target","");window.host.edited();QApplication::processEvents();
+    struct FieldCase { const char* field; const char* driver; };
+    const FieldCase fields[]={{"text.alignment","text-alignment-driver"},
+        {"text.weight","text-weight-driver"},{"text.italic","text-italic-driver"}};
+    for(const auto& field_case:fields) {
+        const std::string field=field_case.field;
+        const Ref source_ref{"text-remaining-source","",field};
+        const auto target_before=session.document().objects.at("text-remaining-target");
+        auto link_action=[&] {
+            auto* button=visible_child<QToolButton>(window,field_case.driver);
+            for(auto* action:button->menu()->actions())if(action->text().startsWith("Link to Text "))return action;
+            check(false,"Text link action exists for "+field);return static_cast<QAction*>(nullptr);
+        };
+
+        const auto empty_revision=session.revision();bool empty_rejected=false,filtered_rejected=false,cancel_preserved=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* search=dialog?dialog->findChild<QLineEdit*>("text-source-picker-search"):nullptr;
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!search||!list||!status||!buttons)return;
+            list->setCurrentItem(nullptr);buttons->button(QDialogButtonBox::Apply)->click();
+            empty_rejected=dialog->isVisible()&&status->text().contains("NO_SOURCE")&&
+                session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-source"&&
+                    ref.value("point").toString().isEmpty()&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            search->setText((QStringLiteral("TEXT-REMAINING-SOURCE / ")+QString::fromStdString(field)).toUpper());
+            QApplication::processEvents();list->setCurrentItem(row);QApplication::processEvents();
+            search->setText("no matching source");QApplication::processEvents();buttons->button(QDialogButtonBox::Apply)->click();
+            filtered_rejected=row->isHidden()&&!list->currentItem()&&dialog->isVisible()&&status->text().contains("NO_SOURCE")&&
+                session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            cancel_preserved=(!safe_dialog||!safe_dialog->isVisible())&&session.revision()==empty_revision&&
+                session.document().objects.at("text-remaining-target")==target_before&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(empty_rejected,"Empty "+field+" source Apply stays open with a visible error and no mutation");
+        check(filtered_rejected,"Filtering a chosen "+field+" source clears it and rejects Apply atomically");
+        check(cancel_preserved,"Cancel after a failed "+field+" draft preserves the target and selection");
+
+        bool cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            if(!dialog||!list)return;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-source"&&ref.value("field").toString()==QString::fromStdString(field)) {
+                    list->setCurrentItem(list->item(i));QApplication::processEvents();
+                    const bool browsed=window.canvas->selected_object=="text-remaining-source";
+                    dialog->reject();QApplication::processEvents();
+                    cancel_restored=browsed&&window.canvas->selected_object=="text-remaining-target"&&
+                        session.revision()==empty_revision&&session.document().objects.at("text-remaining-target")==target_before;
+                    return;
+                }
+            }
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(cancel_restored,"Cancel after browsing a "+field+" source restores the frozen Inspector target");
+
+        const auto link_revision=session.revision();
+        const auto outcome=choose_text_source(window,visible_child<QToolButton>(window,field_case.driver),source_ref,
+            QStringLiteral("Friendly Remaining Source"),true,"text-remaining-backup");
+        check(outcome.opened&&outcome.friendly_search&&outcome.stable_id_search&&outcome.stable_path_search&&outcome.browsed&&outcome.context_changed&&
+            outcome.draft_unchanged&&outcome.applied&&outcome.restored_selection&&outcome.inspector_visible&&
+            (field!="text.italic"||outcome.italic_expression_staged),
+            "The "+field+" chooser searches friendly names and stable Refs, survives selection changes and restores its Inspector");
+        bool exact_driver=false;std::string evaluated;
+        const auto& linked=*session.document().objects.at("text-remaining-target").text;
+        if(field=="text.alignment") {
+            exact_driver=linked.alignment_driver&&linked.alignment_driver->link==source_ref;
+            evaluated=evaluate_text_alignment(session.document(),"text-remaining-target");
+        } else if(field=="text.weight") {
+            exact_driver=linked.weight_driver&&linked.weight_driver->link==source_ref;
+            evaluated=std::to_string(evaluate_text_weight(session.document(),"text-remaining-target"));
+        } else {
+            exact_driver=linked.italic_driver&&std::holds_alternative<Ref>(*linked.italic_driver)&&
+                std::get<Ref>(*linked.italic_driver)==source_ref;
+            evaluated=evaluate_text_italic(session.document(),"text-remaining-target")?"true":"false";
+        }
+        const std::string expected=field=="text.alignment"?"end":field=="text.weight"?"700":"true";
+        check(exact_driver&&evaluated==expected&&session.revision()==link_revision+1&&
+            window.canvas->selected_object=="text-remaining-target",
+            "Applying "+field+" sends the exact same-field Refs to its dedicated command in one revision");
+
+        // Failed replacement drafts must leave an already-authored link intact.
+        const auto linked_target=session.document().objects.at("text-remaining-target");
+        const auto stale_revision=session.revision();bool stale_failed=false,stale_preserved=false,stale_cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!list||!status||!buttons)return;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-backup"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            list->setCurrentItem(row);QApplication::processEvents();
+            auto changed=*session.document().objects.at("text-remaining-backup").text;
+            changed.family+=" stale";
+            session.apply({UpdateText{"text-remaining-backup",changed}},session.revision());window.host.edited();QApplication::processEvents();
+            buttons->button(QDialogButtonBox::Apply)->click();
+            stale_failed=dialog->isVisible()&&status->text().contains("changed while the source chooser was open");
+            stale_preserved=session.revision()==stale_revision+1&&
+                session.document().objects.at("text-remaining-target")==linked_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            stale_cancel_restored=(!safe_dialog||!safe_dialog->isVisible())&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(stale_failed&&stale_preserved&&stale_cancel_restored,
+            "Stale "+field+" replacement keeps its existing literal and driver and Cancel restores selection");
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-remaining-target")==linked_target,
+            "Undo of the intervening "+field+" source edit leaves the target link unchanged");
+
+        const auto frozen_session=window.host.session_id;const auto session_conflict_revision=session.revision();
+        bool session_failed=false,session_preserved=false,session_cancel_restored=false;
+        QTimer::singleShot(0,&window,[&]{
+            auto* dialog=window.findChild<QDialog*>("text-source-picker");
+            auto* list=dialog?dialog->findChild<QListWidget*>("text-source-picker-list"):nullptr;
+            auto* status=dialog?dialog->findChild<QLabel*>("text-source-picker-status"):nullptr;
+            auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+            if(!dialog||!list||!status||!buttons)return;
+            QListWidgetItem* row=nullptr;
+            for(int i=0;i<list->count();++i) {
+                const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+                if(ref.value("object").toString()=="text-remaining-backup"&&ref.value("field").toString()==QString::fromStdString(field))row=list->item(i);
+            }
+            if(!row)return;
+            list->setCurrentItem(row);QApplication::processEvents();
+            window.host.session_id=frozen_session+"-stale";
+            buttons->button(QDialogButtonBox::Apply)->click();
+            session_failed=dialog->isVisible()&&status->text().contains("SESSION_CONFLICT");
+            window.host.session_id=frozen_session;
+            session_preserved=session.revision()==session_conflict_revision&&
+                session.document().objects.at("text-remaining-target")==linked_target;
+            QPointer<QDialog> safe_dialog(dialog);buttons->button(QDialogButtonBox::Cancel)->click();QApplication::processEvents();
+            session_cancel_restored=(!safe_dialog||!safe_dialog->isVisible())&&window.canvas->selected_object=="text-remaining-target";
+        });
+        link_action()->trigger();QApplication::processEvents();
+        check(session_failed&&session_preserved&&session_cancel_restored,
+            "Session change rejects a "+field+" draft without mutation and restores selection on Cancel");
+
+        session.undo(session.revision());window.host.edited();QApplication::processEvents();
+        check(session.document().objects.at("text-remaining-target")==target_before&&window.canvas->selected_object=="text-remaining-target",
+            "Undo restores the exact pre-link "+field+" literal and selection");
+    }
+}
+void single_operation_enabled_source(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point target_point,source_point,alternate_point;target_point.id="single-target-point";source_point.id="single-source-point";
+    alternate_point.id="single-alternate-point";
+    target_point.x.literal=70;target_point.y.literal=80;source_point.x.literal=180;source_point.y.literal=80;
+    session.apply({CreatePath{composition,"","single-target","Single target",{{"single-target-contour",false,{target_point}}}},
+        CreatePath{composition,"","single-source","Single source",{{"single-source-contour",false,{source_point}}}},
+        CreatePath{composition,"","single-alternate","Alternate source",{{"single-alternate-contour",false,{alternate_point}}}}},0);
+    const auto& target_object=session.document().objects.at("single-target");
+    const auto& source_object=session.document().objects.at("single-source");
+    check(target_object.stack.size()==1&&source_object.stack.size()==1&&
+        session.document().objects.at("single-alternate").stack.size()==1,
+        "The Composition source-picker fixture has one operation on each of three Objects");
+    const auto target_operation=target_object.stack.front().id;
+    const auto source_operation=source_object.stack.front().id;
+    const Ref target=operation_ref("single-target",target_operation,"enabled");
+    const Ref source=operation_ref("single-source",source_operation,"enabled");
+    session.apply({EnableOperation{"single-source",source_operation,false}},session.revision());
+    window.canvas->set_selection("single-target");window.host.edited();QApplication::processEvents();
+    auto* link=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());
+    reveal(window,link);
+    check(link->isEnabled(),"Link stays enabled when target Object has one operation and another Object is the source");
+    const auto unchanged=session.document();const auto unchanged_revision=session.revision();
+    bool rejected_hidden_source=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("operation-enabled-source-search-"+target_operation)):nullptr;
+        auto* source_combo=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!search||!source_combo){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));
+        search->setText("no-such-operation-path");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        rejected_hidden_source=dialog->isVisible()&&source_combo->currentIndex()<0&&
+            session.document()==unchanged&&session.revision()==unchanged_revision;
+        dialog->reject();});
+    QTest::mouseClick(link,Qt::LeftButton);QApplication::processEvents();
+    check(rejected_hidden_source&&session.document()==unchanged&&session.revision()==unchanged_revision&&
+        window.canvas->selected_object=="single-target",
+        "Filtering out a boolean source and applying or cancelling preserves the target and authored state");
+    link=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,link);
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* search=dialog?dialog->findChild<QLineEdit*>(QString::fromStdString("operation-enabled-source-search-"+target_operation)):nullptr;
+        auto* source_combo=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!search||!source_combo){if(dialog)dialog->reject();return;}
+        search->setText("SINGLE-SOURCE");
+        check(source_combo->count()==1,"Stable Object ID filters Boolean source candidates");
+        search->setText(QString::fromStdString("OP."+source_operation+".ENABLED"));
+        check(source_combo->count()==1,"Stable Operation field path filters Boolean source candidates");
+        const auto label=QString("[%1]").arg(QString::fromStdString(source_operation));int index=-1;
+        for(int i=0;i<source_combo->count();++i)if(source_combo->itemText(i).contains(label))index=i;
+        if(index<0){dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("link"));source_combo->setCurrentIndex(index);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(link,Qt::LeftButton);QApplication::processEvents();
+    check(operation_enabled_state(session.document(),target).driver==source,
+        "Stable boolean source path links to the exact Operation Ref");
+    check(!operation_enabled_state(session.document(),target).evaluated&&session.revision()==unchanged_revision+1,
+        "Boolean source path links in one revision to the evaluated source");
+    check(window.canvas->selected_object=="single-target",
+        "Boolean source path keeps the original target selected");
+    session.undo(session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).driver,
+        "Undo removes the exact boolean source link");
+    session.redo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).driver==source,
+        "Redo restores the exact boolean source link");
+    session.apply({UnlinkOperationEnabled{target}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!operation_enabled_state(session.document(),target).driver&&!operation_enabled_state(session.document(),target).expression&&
+        !operation_enabled_state(session.document(),target).literal,
+        "Unlinking the false source prepares an authored false literal for the expression draft");
+    const Expression expression{" ! ref ( \"single-source\" , \"\" , \"op."+source_operation+".enabled\" ) ",1};
+    auto* expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    const auto cancel_revision=session.revision();bool expression_cancel_staged=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        expression_cancel_staged=session.revision()==cancel_revision&&
+            !operation_enabled_state(session.document(),target).expression&&
+            session.document().objects.at("single-target").stack.front().id==target_operation;
+        dialog->reject();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    check(expression_cancel_staged&&session.revision()==cancel_revision&&
+        !operation_enabled_state(session.document(),target).expression,
+        "Cancel leaves the captured operation target and expression source untouched");
+    expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    bool stale_expression_refused=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>(QString::fromStdString("operation-enabled-status-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor||!status){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        stale_expression_refused=dialog->isVisible()&&status->text().contains("changed while its editor was open")&&
+            !operation_enabled_state(session.document(),target).expression&&window.canvas->selected_object=="single-target";
+        dialog->reject();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    check(stale_expression_refused,"A stale operation expression draft cannot retarget or mutate its captured target");
+    session.apply({EnableOperation{"single-source",source_operation,false}},session.revision());window.host.edited();QApplication::processEvents();
+    expression_button=visible_child<QPushButton>(window,("operation-enabled-driver-"+target_operation).c_str());reveal(window,expression_button);
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>(QString::fromStdString("operation-enabled-dialog-"+target_operation));
+        auto* mode=dialog?dialog->findChild<QComboBox*>(QString::fromStdString("operation-enabled-mode-"+target_operation)):nullptr;
+        auto* source_editor=dialog?dialog->findChild<QPlainTextEdit*>(QString::fromStdString("operation-enabled-expression-source-"+target_operation)):nullptr;
+        if(!dialog||!mode||!source_editor){if(dialog)dialog->reject();return;}
+        mode->setCurrentIndex(mode->findData("expression"));source_editor->setPlainText(QString::fromStdString(expression.source));
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    QTest::mouseClick(expression_button,Qt::LeftButton);QApplication::processEvents();
+    auto state=operation_enabled_state(session.document(),target);
+    check(state.literal==false&&!state.driver&&state.expression==expression&&state.evaluated,
+        "Inspector Apply stores the exact same-Composition operation expression beside its authored literal");
+    auto* driven_checkbox=visible_child<QCheckBox>(window,("operation-enabled-"+target_operation).c_str());
+    check(!driven_checkbox->isEnabled(),"An expression-driven operation enabled checkbox is read-only");
+    session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!operation_enabled_state(session.document(),target).evaluated,
+        "Inspector expression follows a source toggle through the shared Session");
+    session.undo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).expression==expression&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Undo restores source evaluation without changing the Inspector expression");
+    session.undo(session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).expression&&!operation_enabled_state(session.document(),target).literal,
+        "Undo removes the Inspector expression and restores the literal target");
+    session.redo(session.revision());window.host.edited();
+    check(operation_enabled_state(session.document(),target).expression==expression&&
+        operation_enabled_state(session.document(),target).evaluated,
+        "Redo restores the exact Inspector expression");
+    session.apply({UnlinkOperationEnabled{target}},session.revision());window.host.edited();
+    session.apply({EnableOperation{"single-source",source_operation,true}},session.revision());window.host.edited();
+    check(!operation_enabled_state(session.document(),target).expression&&
+        operation_enabled_state(session.document(),target).literal&&operation_enabled_state(session.document(),target).evaluated,
+        "Inspector unlink freezes the evaluated expression value against later source edits");
+}
+void point_edit_enabled_source(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    const auto target_source=default_primitive("window-target-generator","nect.shape.circle");
+    const auto source_source=default_primitive("window-source-generator","nect.shape.circle");
+    const Ref target_point{"point-edit-target","window-target-generator-east","x"};
+    const Ref source_point{"point-edit-source","window-source-generator-east","x"};
+    session.apply({CreatePrimitive{composition,"","point-edit-target","Point Edit target",target_source},
+        CreatePrimitive{composition,"","point-edit-source","Point Edit source",source_source},
+        Set{target_point,260},Set{source_point,360},EnablePointEdit{"point-edit-target",false}},session.revision());
+    const auto target=point_edit_enabled_ref("point-edit-target","window-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("point-edit-source","window-source-generator-point-edit");
+    const auto fallback=evaluate(session.document()).at(target_point);
+    check(fallback!=260&&point_edit_enabled_state(session.document(),target).literal==false,
+        "Point Edit UI fixture retains a false target literal and a distinct generator fallback");
+    window.canvas->set_selection("point-edit-target");window.host.edited();QApplication::processEvents();
+    auto* driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto chooser_before=session.document();const auto chooser_revision=session.revision();
+    bool empty_refused=false,hidden_refused=false,canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("point-edit-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        buttons->button(QDialogButtonBox::Apply)->click();
+        empty_refused=dialog->isVisible()&&combo->currentIndex()<0;
+        search->setText(QString::fromStdString(source.object+" / "+source.field));combo->setCurrentIndex(0);
+        search->setText("no such correction");buttons->button(QDialogButtonBox::Apply)->click();
+        hidden_refused=dialog->isVisible()&&combo->count()==0&&combo->currentIndex()<0;
+        buttons->button(QDialogButtonBox::Cancel)->click();canceled=!dialog->isVisible();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(empty_refused&&hidden_refused&&canceled&&session.revision()==chooser_revision&&
+        session.document()==chooser_before,"Point Edit chooser rejects empty and filtered sources; Cancel leaves authorship untouched");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);
+        session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale_refused=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !point_edit_enabled_state(session.document(),target).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions().front()->trigger();window.host.edited();QApplication::processEvents();
+    check(stale_refused&&session.revision()==chooser_revision+1&&
+        !point_edit_enabled_state(session.document(),target).driver,
+        "Point Edit chooser rejects a stale draft without adding a target link");
+    session.apply({EnablePointEdit{"point-edit-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool chose_source=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("point-edit-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("point-edit-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source.object+" / "+source.field).toUpper());
+        if(combo->count()==1&&combo->itemText(0).contains(QStringLiteral("window-source-generator-point-edit"))) {
+            combo->setCurrentIndex(0);buttons->button(QDialogButtonBox::Apply)->click();chose_source=true;
+        } else dialog->reject();
+    });
+    driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    auto linked=point_edit_enabled_state(session.document(),target);
+    auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    auto* status=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(chose_source&&linked.literal==false&&linked.driver==source&&linked.evaluated&&
+        !checkbox->isEnabled()&&!checkbox->isChecked()&&status->text().contains("Correction: present")&&
+        status->text().contains("Authored literal: false")&&status->text().contains("Evaluated enabled: true")&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector links the exact same-field source, preserves the literal, disables its checkbox and Canvas applies the saved override");
+    session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    linked=point_edit_enabled_state(session.document(),target);
+    check(linked.driver==source&&!linked.evaluated&&window.canvas->evaluated_values().at(target_point)==fallback,
+        "Source bypass changes Canvas to generator fallback while retaining the target correction");
+    session.apply({EnablePointEdit{"point-edit-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(point_edit_enabled_state(session.document(),target).evaluated&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Re-enabling the source restores the same Point Edit override in Canvas");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    driver->menu()->actions().at(2)->trigger();QApplication::processEvents();
+    auto frozen=point_edit_enabled_state(session.document(),target);
+    checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(!frozen.driver&&frozen.literal&&frozen.evaluated&&checkbox->isEnabled()&&checkbox->isChecked(),
+        "Inspector unlink freezes the evaluated value and returns the authored checkbox to editing");
+    history_action(window,"Undo");
+    check(point_edit_enabled_state(session.document(),target).driver==source&&
+        !point_edit_enabled_state(session.document(),target).literal&&
+        point_edit_enabled_state(session.document(),target).evaluated,
+        "Inspector history Undo restores the exact driver and authored target bit");
+    history_action(window,"Redo");
+    session.apply({EnablePointEdit{"point-edit-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!point_edit_enabled_state(session.document(),target).driver&&
+        point_edit_enabled_state(session.document(),target).literal&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector Redo keeps its frozen target independent of later source changes");
+}
+void point_edit_enabled_expression(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto target_source=default_primitive("window-expression-target-generator","nect.shape.circle");
+    auto source_source=default_primitive("window-expression-source-generator","nect.shape.circle");
+    const Ref target_point{"window-expression-target","window-expression-target-generator-east","x"};
+    const Ref source_point{"window-expression-source","window-expression-source-generator-east","x"};
+    session.apply({CreatePrimitive{composition,"","window-expression-target","Expression target",target_source},
+        CreatePrimitive{composition,"","window-expression-source","Expression source",source_source},
+        Set{target_point,260},Set{source_point,360},EnablePointEdit{"window-expression-target",false},
+        EnablePointEdit{"window-expression-source",false}},session.revision());
+    const auto target=point_edit_enabled_ref("window-expression-target","window-expression-target-generator-point-edit");
+    const auto source=point_edit_enabled_ref("window-expression-source","window-expression-source-generator-point-edit");
+    const Expression expression{" ! ref ( \"window-expression-source\" , \"\" , \"point_edit.window-expression-source-generator-point-edit.enabled\" ) ",1};
+    const auto fallback=evaluate(session.document()).at(target_point);
+    window.canvas->set_selection(target.object);window.host.edited();QApplication::processEvents();
+    auto* driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto before_cancel=session.document();const auto cancel_revision=session.revision();
+    bool cancel_ok=false,replace_disabled=false,target_captured=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("point-edit-enabled-expression-replace"):nullptr;
+        auto* label=dialog?dialog->findChild<QLabel*>(QString(),Qt::FindDirectChildrenOnly):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!replace||!buttons)return;
+        replace_disabled=!replace->isEnabled();
+        target_captured=dialog->windowTitle().contains("Point Edit enabled expression");
+        source_edit->setPlainText("false");
+        buttons->button(QDialogButtonBox::Cancel)->click();cancel_ok=!dialog->isVisible();
+        (void)label;
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(cancel_ok&&replace_disabled&&target_captured&&session.revision()==cancel_revision&&
+        session.document()==before_cancel,
+        "Inspector expression Cancel leaves the Session unchanged and disables replacement when no source exists");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    const auto original_session=window.host.session_id;bool session_refused=false,session_cancelled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        window.host.session_id=original_session+"-stale";
+        buttons->button(QDialogButtonBox::Apply)->click();
+        session_refused=dialog->isVisible()&&status->text().contains("SESSION_CONFLICT");
+        window.host.session_id=original_session;
+        buttons->button(QDialogButtonBox::Cancel)->click();session_cancelled=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(session_refused&&session_cancelled&&session.revision()==cancel_revision&&session.document()==before_cancel,
+        "Inspector expression Apply rejects a stale Session identity without changing the captured draft target");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        stale_refused=dialog->isVisible()&&status->text().contains("REVISION_CONFLICT")&&
+            !point_edit_enabled_state(session.document(),target).expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(stale_refused&&session.revision()==cancel_revision+1,
+        "Inspector expression Apply rejects a stale revision without committing its captured target draft");
+    session.apply({EnablePointEdit{"window-expression-source",false}},session.revision());
+    window.host.edited();QApplication::processEvents();
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool syntax_refused=false,applied=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!status||!buttons)return;
+        source_edit->setPlainText("true || false");buttons->button(QDialogButtonBox::Apply)->click();
+        syntax_refused=dialog->isVisible()&&status->text().contains("BOOLEAN_EXPRESSION_SYNTAX")&&
+            !point_edit_enabled_state(session.document(),target).expression;
+        source_edit->setPlainText(QString::fromStdString(expression.source));
+        buttons->button(QDialogButtonBox::Apply)->click();applied=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto state=point_edit_enabled_state(session.document(),target);
+    auto* checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    auto* status=visible_child<QLabel>(window,"point-edit-enabled-state");
+    check(syntax_refused&&applied&&state.literal==false&&!state.driver&&state.expression==expression&&state.evaluated&&
+        !checkbox->isEnabled()&&!checkbox->isChecked()&&status->text().contains("Authored literal: false")&&
+        status->text().contains("Evaluated enabled: true")&&window.canvas->evaluated_values().at(target_point)==260,
+        "Inspector Apply stores exact instance-qualified source, disables the driven toggle and applies saved Canvas overrides");
+    session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);
+    check(state.expression==expression&&!state.evaluated&&window.canvas->evaluated_values().at(target_point)==fallback,
+        "Inspector Canvas follows the Point Edit expression to generator fallback when its source turns on");
+    session.apply({EnablePointEdit{"window-expression-source",false}},session.revision());window.host.edited();QApplication::processEvents();
+    check(point_edit_enabled_state(session.document(),target).evaluated&&
+        window.canvas->evaluated_values().at(target_point)==260,
+        "Turning the expression source off restores the same retained Canvas override");
+
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    bool replacement_required=false,replaced=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("point-edit-enabled-expression-dialog");
+        auto* source_edit=dialog?dialog->findChild<QPlainTextEdit*>("point-edit-enabled-expression-source"):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("point-edit-enabled-expression-replace"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("point-edit-enabled-expression-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source_edit||!replace||!status||!buttons)return;
+        source_edit->setPlainText("false");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        replacement_required=dialog->isVisible()&&status->text().contains("DRIVEN_PROPERTY")&&
+            point_edit_enabled_state(session.document(),target).expression==expression;
+        replace->setChecked(true);buttons->button(QDialogButtonBox::Apply)->click();replaced=!dialog->isVisible();
+    });
+    driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);
+    check(replacement_required&&replaced&&state.literal==false&&state.expression==Expression{"false",1}&&
+        !state.evaluated&&!visible_child<QCheckBox>(window,"point-edit-enabled")->isEnabled(),
+        "Inspector requires explicit replacement and preserves the authored literal when replacing the expression");
+    driver=visible_child<QToolButton>(window,"point-edit-enabled-driver");reveal(window,driver);
+    driver->menu()->actions().at(2)->trigger();QApplication::processEvents();
+    state=point_edit_enabled_state(session.document(),target);checkbox=visible_child<QCheckBox>(window,"point-edit-enabled");
+    check(!state.expression&&!state.driver&&!state.literal&&!checkbox->isChecked()&&checkbox->isEnabled(),
+        "Inspector unlink freezes the evaluated expression and returns the literal checkbox to editing");
+    history_action(window,"Undo");
+    check(point_edit_enabled_state(session.document(),target).expression==Expression{"false",1}&&
+        !point_edit_enabled_state(session.document(),target).evaluated,
+        "Undo restores the exact replaced Point Edit expression source");
+    history_action(window,"Redo");
+    session.apply({EnablePointEdit{"window-expression-source",true}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!point_edit_enabled_state(session.document(),target).expression&&
+        !point_edit_enabled_state(session.document(),target).literal&&
+        window.canvas->evaluated_values().at(target_point)==fallback,
+        "Redo keeps the frozen target independent of later source changes");
+}
+void circle_source_handle_inspector(Window& window) {
+    auto& session=window.host.session;
+    const auto revision=session.revision();
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();
+    const auto object=window.canvas->selected_object;
+    check(!object.empty()&&session.revision()==revision+1&&!session.gesture_active()&&
+        session.document().objects.at(object).source&&
+        session.document().objects.at(object).source->type=="nect.shape.circle",
+        "One Add Circle action creates and selects a retained Circle without a draw gesture");
+    auto* handles=visible_child<QPushButton>(window,"circle-source-handles");reveal(window,handles);
+    const auto authored=session.document();const auto encoded=encode(authored);const auto mode_revision=session.revision();
+    QTest::mouseClick(handles,Qt::LeftButton);QApplication::processEvents();
+    check(window.canvas->circle_source_edit()&&session.revision()==mode_revision&&encode(session.document())==encoded,
+        "Circle Inspector affordance enters temporary source mode without changing authored state");
+
+    const Ref center_x{object,"","generator.center_x"},center_y{object,"","generator.center_y"},radius_ref{object,"","generator.radius"};
+    edit_number(window,center_x,"330");
+    check(window.canvas->circle_source_edit()&&evaluate(session.document()).at(center_x)==330,
+        "Inspector numeric Center edit remains the same source while Circle handles are active");
+    edit_number(window,radius_ref,"60");
+    check(window.canvas->circle_source_edit()&&evaluate(session.document()).at(radius_ref)==60,
+        "Inspector numeric Radius edit refreshes the active source-handle frame");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto drag_revision=session.revision();const auto center_before=evaluate(session.document());
+    const auto start=source_handle_screen(window,object,{center_before.at(center_x)+center_before.at(radius_ref),center_before.at(center_y)});
+    const auto end=source_handle_screen(window,object,{center_before.at(center_x)+center_before.at(radius_ref)+50,center_before.at(center_y)});
+    const auto& world_values=window.canvas->evaluated_transforms().at(object).world;
+    const QTransform world(world_values[0],world_values[1],world_values[2],world_values[3],world_values[4],world_values[5]);
+    bool invertible=false;const auto world_inverse=world.inverted(&invertible);
+    check(invertible,"Circle handle object transform is invertible for the screen oracle");
+    const auto viewport_delta=QPointF(end-start)/window.canvas->zoom();
+    const auto local_delta=world_inverse.map(viewport_delta)-world_inverse.map(QPointF{});
+    const auto expected_radius=center_before.at(radius_ref)+local_delta.x();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window.canvas,end);QApplication::processEvents();
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,end);QApplication::processEvents();
+    const auto after_drag=evaluate(session.document());
+    check(session.revision()==drag_revision+1&&std::abs(after_drag.at(radius_ref)-expected_radius)<1e-9&&
+        after_drag.at(center_x)==center_before.at(center_x)&&after_drag.at(center_y)==center_before.at(center_y)&&
+        !session.document().objects.at(object).point_edit,
+        "Canvas Radius handle and Inspector use the same source property with one undoable edit: revision="+
+        std::to_string(session.revision())+" expected="+std::to_string(drag_revision+1)+" radius="+
+        std::to_string(after_drag.at(radius_ref))+" expected radius="+std::to_string(expected_radius)+" center="+
+        std::to_string(after_drag.at(center_x))+","+
+        std::to_string(after_drag.at(center_y))+" status="+window.statusBar()->currentMessage().toStdString());
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(std::abs(evaluate(session.document()).at(radius_ref)-60)<1e-9,
+        "One Undo restores the Inspector and Canvas Radius value together");
+
+    const auto before_exit=encode(session.document());const auto exit_revision=session.revision();
+    handles=visible_child<QPushButton>(window,"circle-source-handles");reveal(window,handles);
+    QTest::mouseClick(handles,Qt::LeftButton);QApplication::processEvents();
+    check(!window.canvas->circle_source_edit()&&session.revision()==exit_revision&&encode(session.document())==before_exit&&
+        encode(decode(before_exit))==before_exit,
+        "Inspector exits source mode without saving UI state; native reopen preserves only source values");
+}
+
+void gradient_authoring(Window& window) {
+    auto& session=window.host.session;
+    named_action(window,"add-rectangle")->trigger();QApplication::processEvents();
+    const auto object=window.canvas->selected_object;
+    named_action(window,"add-fill")->trigger();QApplication::processEvents();
+    const auto op=session.document().objects.at(object).stack.back().id;
+    auto current=[&]() -> const ShapeOperation& {
+        for(const auto& operation:session.document().objects.at(object).stack)if(operation.id==op)return operation;
+        throw std::runtime_error("Gradient operation missing");
+    };
+    auto choose=[&](int index) {
+        auto* mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,mode);
+        mode->setCurrentIndex(index);QApplication::processEvents();
+    };
+    auto click=[&](const std::string& name) {
+        auto* button=visible_child<QPushButton>(window,name.c_str());reveal(window,button);
+        QTest::mouseClick(button,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto hex=[&](const std::string& name,const char* text) {
+        auto* input=visible_child<QLineEdit>(window,name.c_str());reveal(window,input);input->setFocus();
+        QTest::keyClick(input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(input,text);
+        QTest::keyClick(input,Qt::Key_Return);QApplication::processEvents();
+    };
+    hex("operation-hex-"+op,"#00000080");choose(1);
+    check(current().gradient&&current().gradient->enabled&&current().gradient->type=="linear",
+        "Paint mode creates an authored linear gradient");
+    const auto gid=current().gradient->id;
+    const auto gradient_enabled_ref=gradient_ref(object,op,gid,"enabled");
+    const auto operation_enabled_ref=operation_ref(object,op,"enabled");
+    const auto first=current().gradient->stops.front().id,last=current().gradient->stops.back().id;
+    auto ref=[&](const std::string& field){return gradient_ref(object,op,gid,field);};
+    check(current().gradient->stops.size()==2&&first!=last&&current().gradient->stops[0].rgba[3].literal==1&&
+        current().gradient->stops[1].rgba[3].literal==1,"Initial stable stops do not duplicate the paint opacity");
+    check(gradient_enabled_property(session.document(),gradient_enabled_ref)&&
+        operation_enabled_property(session.document(),operation_enabled_ref)&&
+        !evaluate(session.document()).contains(gradient_enabled_ref),
+        "Inspector-created gradient has a typed bypass Ref separate from numeric picker values and operation enabled");
+    hex("gradient-stop-hex-"+first,"#000000FF");hex("gradient-stop-hex-"+last,"#FFFFFFFF");
+    window.canvas->fit_artboard();QApplication::processEvents();
+    const auto& artboard=session.document().compositions.front().artboards.front();
+    const auto cx=artboard.x+artboard.width/2,cy=artboard.y+artboard.height/2;
+    auto screen=[&](double x,double y) {
+        return QPoint(qRound(window.canvas->width()/2.0+(x-cx)*window.canvas->zoom()),
+            qRound(window.canvas->height()/2.0+(y-cy)*window.canvas->zoom()));
+    };
+    auto pixel=[&](double x,double y) {
+        QApplication::processEvents();const auto image=window.canvas->grab().toImage();
+        const auto position=QPointF(screen(x,y))*image.devicePixelRatio();
+        return image.pixelColor(qRound(position.x()),qRound(position.y()));
+    };
+    const auto left=pixel(cx-55,cy+10),right=pixel(cx+55,cy+10);
+    check(std::abs(left.red()-157)<=5&&std::abs(right.red()-220)<=5,
+        "Canvas linear gradient interpolates sRGB and multiplies overall opacity exactly once");
+    choose(2);
+    check(current().gradient->id==gid&&current().gradient->stops[0].id==first&&
+        current().gradient->stops[1].id==last&&current().gradient->type=="radial",
+        "Changing gradient type preserves stop identities and authored colors");
+    const auto center_text=QString::number(cx).toLatin1();edit_number(window,ref("start_x"),center_text.constData());
+    check(pixel(cx,cy+10).red()+35<pixel(cx+55,cy+10).red(),"Radial paint uses the authored center and radius frame");
+    choose(0);check(!current().gradient->enabled&&current().gradient->id==gid&&
+        !gradient_enabled_property(session.document(),gradient_enabled_ref)&&
+        operation_enabled_property(session.document(),operation_enabled_ref),
+        "Solid mode exposes the retained gradient's false bypass without changing operation enabled");
+    choose(1);check(current().gradient->id==gid&&current().gradient->enabled&&
+        gradient_enabled_property(session.document(),gradient_enabled_ref),
+        "Returning to Gradient restores true through the same stable bypass Ref");
+    const auto start_text=QString::number(cx-110).toLatin1();edit_number(window,ref("start_x"),start_text.constData());
+    click("gradient-stop-add-"+op);
+    const auto middle=current().gradient->stops.back().id;
+    check(current().gradient->stops.size()==3&&std::abs(evaluate(session.document()).at(ref("stop."+middle+".offset"))-0.5)<1e-8,
+        "Add stop splits the widest evaluated interval with a new stable ID");
+    click("gradient-stop-add-"+op);
+    const auto quarter=current().gradient->stops.back().id;
+    check(current().gradient->stops.size()==4&&quarter!=middle&&
+        std::abs(evaluate(session.document()).at(ref("stop."+quarter+".offset"))-0.25)<1e-8,
+        "Repeated stop insertion chooses a distinct largest-gap midpoint");
+    check(current().gradient->stops[0].id==first&&current().gradient->stops[1].id==last,
+        "Adding stops never reorders the authored stop vector or retargets old IDs");
+    edit_number(window,ref("stop."+middle+".offset"),"0.65");
+    check(current().gradient->stops[2].id==middle&&current().gradient->stops[2].offset.literal==0.65,
+        "Numeric stop editing addresses stable identity independently of evaluation order");
+    click("gradient-stop-remove-"+quarter);history_action(window,"Undo");
+    check(current().gradient->stops.back().id==quarter,"Undo stop removal restores the same identity");
+    history_action(window,"Redo");click("gradient-stop-remove-"+middle);
+    check(current().gradient->stops.size()==2&&
+        !visible_child<QPushButton>(window,("gradient-stop-remove-"+first).c_str())->isEnabled(),
+        "Stop removal keeps the two-stop minimum visible in the controls");
+
+    // Actual Canvas handle events preview through the shared Session; only release
+    // notifies Host, so Inspector replacement cannot interrupt a gesture.
+    click("gradient-handles-"+op);window.canvas->fit_artboard();QApplication::processEvents();
+    check(window.canvas->gradient_operation()==op,"Inspector enables handles for its specific paint operation");
+    const auto initial=evaluate(session.document()).at(ref("end_x"));
+    auto endpoint=screen(initial,cy);const auto revision=session.revision();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(20,0));QApplication::processEvents();
+    QTest::mouseMove(window.canvas,endpoint+QPoint(40,0));QApplication::processEvents();
+    check(session.gesture_active()&&session.revision()==revision&&
+        evaluate(session.preview_document()).at(ref("end_x"))>initial+20,
+        "Gradient handle motion previews without committing an authored revision");
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(40,0));QApplication::processEvents();
+    check(session.revision()==revision+1&&std::abs(evaluate(session.document()).at(ref("end_x"))-
+        (initial+40/window.canvas->zoom()))<1e-7,"A full gradient handle gesture commits once using local coordinates");
+    history_action(window,"Undo");
+    check(evaluate(session.document()).at(ref("end_x"))==initial,"One Undo restores the entire gradient gesture");
+    const auto cancel_revision=session.revision();window.canvas->setFocus();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(30,0));QApplication::processEvents();
+    QTest::keyClick(window.canvas,Qt::Key_Escape);
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(30,0));QApplication::processEvents();
+    check(session.revision()==cancel_revision&&!session.gesture_active()&&evaluate(session.document()).at(ref("end_x"))==initial,
+        "Escape cancels a gradient preview without a history entry");
+    auto source_fill=default_operation("link-source-fill","nect.paint.fill");source_fill.enabled=false;
+    Gradient source_gradient;source_gradient.id="link-source-gradient";
+    GradientStop source_first;source_first.id="link-source-first";GradientStop source_last;source_last.id="link-source-last";source_last.offset.literal=1;
+    source_first.rgba[0].literal=1;source_last.rgba[2].literal=1;source_gradient.stops={source_first,source_last};
+    auto target_disabled=*current().gradient;target_disabled.enabled=false;
+    session.apply({AddOperation{object,source_fill,0},SetGradient{object,source_fill.id,source_gradient},
+        SetGradient{object,op,target_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto solid_preview=pixel(cx-55,cy+10);
+    const auto source_enabled_ref=gradient_ref(object,source_fill.id,source_gradient.id,"enabled");
+    bool chose_gradient_source=false;
+    auto* enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    const auto gradient_chooser_before=session.document();const auto gradient_chooser_revision=session.revision();
+    bool gradient_empty_refused=false,gradient_hidden_refused=false,gradient_canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("gradient-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_empty_refused=dialog->isVisible()&&combo->currentIndex()<0;
+        search->setText(QString::fromStdString(source_enabled_ref.object+" / "+source_enabled_ref.field));
+        combo->setCurrentIndex(0);search->setText("no such gradient");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_hidden_refused=dialog->isVisible()&&combo->count()==0&&combo->currentIndex()<0;
+        buttons->button(QDialogButtonBox::Cancel)->click();gradient_canceled=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(gradient_empty_refused&&gradient_hidden_refused&&gradient_canceled&&
+        session.revision()==gradient_chooser_revision&&session.document()==gradient_chooser_before,
+        "Gradient chooser rejects empty and filtered sources; Cancel leaves authorship untouched");
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    bool gradient_stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("gradient-enabled-source-dialog-status"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!combo||!status||!buttons)return;
+        combo->setCurrentIndex(0);
+        auto changed=source_gradient;changed.enabled=false;
+        session.apply({SetGradient{object,source_fill.id,changed}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        gradient_stale_refused=dialog->isVisible()&&status->text().contains("STALE_CONTEXT")&&
+            !gradient_enabled_state(session.document(),gradient_enabled_ref).driver;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    enabled_driver->menu()->actions().front()->trigger();window.host.edited();QApplication::processEvents();
+    check(gradient_stale_refused&&session.revision()==gradient_chooser_revision+1&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).driver,
+        "Gradient chooser rejects a stale draft without adding a target link");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-source-dialog");
+        auto* search=dialog?dialog->findChild<QLineEdit*>("gradient-enabled-source-dialog-search"):nullptr;
+        auto* combo=dialog?dialog->findChild<QComboBox*>("gradient-enabled-source-dialog-source"):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_enabled_ref.object+" / "+source_enabled_ref.field).toUpper());
+        if(combo->count()==1&&combo->itemText(0).contains(QString::fromStdString(source_gradient.id))) {
+            combo->setCurrentIndex(0);buttons->button(QDialogButtonBox::Apply)->click();chose_gradient_source=true;
+        } else dialog->reject();
+    });
+    enabled_driver->menu()->actions().front()->trigger();QApplication::processEvents();
+    const auto linked_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    const auto linked_preview=pixel(cx-55,cy+10);
+    auto* linked_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,linked_mode);
+    auto* linked_status=visible_child<QLabel>(window,("gradient-enabled-state-"+op).c_str());
+    check(chose_gradient_source&&linked_state.literal==false&&linked_state.driver==source_enabled_ref&&linked_state.evaluated&&
+        linked_mode->currentIndex()==1&&!linked_mode->isEnabled()&&
+        linked_status->text().contains("Literal: false")&&linked_status->text().contains("Evaluated: true")&&
+        std::abs(linked_preview.red()-solid_preview.red())>25,
+        "Inspector displays authored and evaluated Paint separately, and Canvas preview follows the linked source");
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    const auto expression_invalid_before=session.document();const auto expression_invalid_revision=session.revision();
+    bool expression_invalid_refused=false,expression_invalid_canceled=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!buttons)return;
+        source->setPlainText("ref(");replace->setChecked(true);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        expression_invalid_refused=dialog->isVisible()&&session.revision()==expression_invalid_revision&&
+            session.document()==expression_invalid_before&&gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref;
+        buttons->button(QDialogButtonBox::Cancel)->click();expression_invalid_canceled=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(expression_invalid_refused&&expression_invalid_canceled&&session.revision()==expression_invalid_revision&&
+        session.document()==expression_invalid_before,
+        "An invalid Inspector expression draft remains uncommitted and Cancel preserves the linked source and revision");
+    const auto stale_expression=" ! ref ( \""+source_enabled_ref.object+"\" , \"\" , \""+source_enabled_ref.field+"\" ) ";
+    const auto expression_stale_revision=session.revision();
+    bool expression_stale_refused=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* status=dialog?dialog->findChild<QLabel*>("gradient-enabled-expression-status-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!status||!buttons)return;
+        source->setPlainText(QString::fromStdString(stale_expression));replace->setChecked(true);
+        auto changed=source_gradient;changed.enabled=false;
+        session.apply({SetGradient{object,source_fill.id,changed}},session.revision());
+        buttons->button(QDialogButtonBox::Apply)->click();
+        expression_stale_refused=dialog->isVisible()&&status->text().contains("changed while its editor was open")&&
+            gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref&&
+            !gradient_enabled_state(session.document(),gradient_enabled_ref).expression;
+        buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(expression_stale_refused&&session.revision()==expression_stale_revision+1&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref,
+        "A stale Inspector expression draft cannot change its captured target source");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    linked_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());reveal(window,linked_mode);
+    const auto driven_toggle_revision=session.revision();linked_mode->setCurrentIndex(0);QApplication::processEvents();
+    check(session.revision()==driven_toggle_revision&&gradient_enabled_state(session.document(),gradient_enabled_ref).driver==source_enabled_ref&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).literal==false&&linked_mode->currentIndex()==1,
+        "A direct Inspector Paint mode toggle while driven is refused without clearing or changing the link");
+    auto source_disabled=source_gradient;source_disabled.enabled=false;
+    session.apply({SetGradient{object,source_fill.id,source_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto disabled_pixel=pixel(cx-55,cy+10);
+    check(!gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&
+        window.canvas->gradient_operation().empty()&&disabled_pixel.red()+20<linked_preview.red(),
+        "Canvas removes evaluated gradient handles and previews the retained solid paint when the source bypasses");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* linked_handles=visible_child<QPushButton>(window,("gradient-handles-"+op).c_str());reveal(window,linked_handles);
+    check(gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&linked_handles->isEnabled(),
+        "The target Inspector restores its Canvas gradient controls when the source evaluates true again");
+    QTest::mouseClick(linked_handles,Qt::LeftButton);QApplication::processEvents();
+    check(window.canvas->gradient_operation()==op,
+        "Canvas gradient handles can be enabled from the evaluated active gradient while its authored literal is false");
+    const auto expression_source=" ! ref ( \""+source_enabled_ref.object+"\" , \"\" , \""+source_enabled_ref.field+"\" ) ";
+    bool expression_applied=false;
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("gradient-enabled-expression-dialog-"+QString::fromStdString(op));
+        auto* source=dialog?dialog->findChild<QPlainTextEdit*>("gradient-enabled-expression-source-"+QString::fromStdString(op)):nullptr;
+        auto* replace=dialog?dialog->findChild<QCheckBox*>("gradient-enabled-expression-replace-"+QString::fromStdString(op)):nullptr;
+        auto* buttons=dialog?dialog->findChild<QDialogButtonBox*>():nullptr;
+        if(!dialog||!source||!replace||!buttons)return;
+        source->setPlainText(QString::fromStdString(expression_source));replace->setChecked(true);
+        buttons->button(QDialogButtonBox::Apply)->click();expression_applied=!dialog->isVisible();
+    });
+    enabled_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    auto expression_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    auto* expression_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());
+    auto* expression_status=visible_child<QLabel>(window,("gradient-enabled-state-"+op).c_str());
+    const auto expression_preview=pixel(cx-55,cy+10);
+    check(expression_applied&&expression_state.literal==false&&!expression_state.driver&&expression_state.expression&&
+        expression_state.expression->source==expression_source&&!expression_state.evaluated&&
+        !expression_mode->isEnabled()&&expression_mode->currentIndex()==0&&
+        expression_status->text().contains("Source: expression")&&expression_status->text().contains(QString::fromStdString(expression_source))&&
+        std::abs(expression_preview.red()-solid_preview.red())<8&&window.canvas->gradient_operation().empty(),
+        "Inspector Apply retains the exact expression, locks the driven toggle and routes a false value through Canvas");
+    history_action(window,"Undo");
+    const auto expression_undo=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    check(expression_undo.driver==source_enabled_ref&&!expression_undo.expression&&expression_undo.evaluated&&
+        std::abs(pixel(cx-55,cy+10).red()-solid_preview.red())>25,
+        "One Undo restores the captured Gradient link and its active Canvas paint");
+    history_action(window,"Redo");
+    expression_state=gradient_enabled_state(session.document(),gradient_enabled_ref);
+    check(expression_state.expression&&expression_state.expression->source==expression_source&&!expression_state.evaluated&&
+        std::abs(pixel(cx-55,cy+10).red()-solid_preview.red())<8,
+        "Redo restores the exact Gradient expression and evaluated Canvas bypass");
+    const auto expression_direct_toggle_revision=session.revision();
+    expression_mode=visible_child<QComboBox>(window,("gradient-mode-"+op).c_str());expression_mode->setCurrentIndex(1);QApplication::processEvents();
+    check(session.revision()==expression_direct_toggle_revision&&
+        gradient_enabled_state(session.document(),gradient_enabled_ref).expression->source==expression_source&&
+        visible_child<QComboBox>(window,("gradient-mode-"+op).c_str())->currentIndex()==0,
+        "A direct Inspector Paint toggle cannot replace a retained expression");
+    auto expression_source_disabled=source_gradient;expression_source_disabled.enabled=false;
+    session.apply({SetGradient{object,source_fill.id,expression_source_disabled}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto expression_enabled_pixel=pixel(cx-55,cy+10);
+    check(gradient_enabled_state(session.document(),gradient_enabled_ref).evaluated&&
+        std::abs(expression_enabled_pixel.red()-solid_preview.red())>25,
+        "Canvas resumes gradient paint when the retained expression source changes independently");
+    session.apply({SetGradient{object,source_fill.id,source_gradient}},session.revision());window.host.edited();QApplication::processEvents();
+    enabled_driver=visible_child<QToolButton>(window,("gradient-enabled-driver-"+op).c_str());reveal(window,enabled_driver);
+    auto* unlink=enabled_driver->menu()->actions().at(2);unlink->trigger();QApplication::processEvents();
+    check(!gradient_enabled_state(session.document(),gradient_enabled_ref).driver&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).expression&&
+        !gradient_enabled_state(session.document(),gradient_enabled_ref).literal&&
+        visible_child<QComboBox>(window,("gradient-mode-"+op).c_str())->isEnabled(),
+        "Inspector unlink freezes the evaluated value and enables direct Paint mode editing again");
+    choose(0);choose(1);click("gradient-handles-"+op);
+    const Ref center{object,"","generator.center_x"};
+    session.apply({Link{ref("end_x"),{center,1,110,"copy_local_value"}}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto driven_revision=session.revision();window.canvas->setFocus();
+    QTest::mousePress(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint);
+    QTest::mouseMove(window.canvas,endpoint+QPoint(35,0));QApplication::processEvents();
+    QTest::mouseRelease(window.canvas,Qt::LeftButton,Qt::NoModifier,endpoint+QPoint(35,0));QApplication::processEvents();
+    check(session.revision()==driven_revision&&nect::property(session.document(),ref("end_x")).binding&&
+        window.statusBar()->currentMessage().contains("DRIVEN"),"Dragging a driven gradient frame rejects visibly without unlinking");
+    auto* tree=window.findChild<QTreeWidget*>();QTreeWidgetItem* source_row=nullptr;
+    for(int i=0;i<tree->topLevelItemCount();++i)
+        if(tree->topLevelItem(i)->data(0,Qt::UserRole).toString().toStdString()==object)source_row=tree->topLevelItem(i);
+    check(source_row&&source_row->childCount()>0,"Gradient owner retains its editable source points");
+    auto* point_row=source_row->child(0);source_row->setExpanded(true);tree->scrollToItem(point_row);QApplication::processEvents();
+    QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualItemRect(point_row).center());QApplication::processEvents();
+    check(window.canvas->gradient_operation().empty()&&window.canvas->selected_object==object&&
+        window.canvas->selected_point==point_row->data(0,Qt::UserRole+1).toString().toStdString(),
+        "Selecting a source point in the tree leaves gradient handles and restores direct point editing");
+}
+void artboard_authoring(Window& window) {
+    auto& session=window.host.session;
+    auto button=[&](const char* name) {
+        auto* control=visible_child<QPushButton>(window,name);
+        if(window.findChild<QScrollArea*>("inspector-scroll")->widget()->isAncestorOf(control))reveal(window,control);
+        QTest::mouseClick(control,Qt::LeftButton);QApplication::processEvents();
+    };
+    auto input=[&](const char* name,const char* value) {
+        auto* control=visible_child<QLineEdit>(window,name);reveal(window,control);control->setFocus();
+        QTest::keyClick(control,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(control,value);
+        QTest::keyClick(control,Qt::Key_Return);QApplication::processEvents();
+    };
+    auto select=[&](const Id& board) {
+        auto* list=window.findChild<QListWidget*>("artboards");QListWidgetItem* selected=nullptr;
+        for(int i=0;i<list->count();++i)if(list->item(i)->data(Qt::UserRole+1).toString().toStdString()==board)selected=list->item(i);
+        check(selected!=nullptr,"Frame navigator contains its stable board ID");list->scrollToItem(selected);QApplication::processEvents();
+        QTest::mouseClick(list->viewport(),Qt::LeftButton,Qt::NoModifier,list->visualItemRect(selected).center());QApplication::processEvents();
+        button("artboard-edit");
+    };
+    const auto original=session.document().compositions.front().artboards.front().id;
+    auto authored=[&](const Id& id) {
+        for(const auto& board:session.document().compositions.front().artboards)if(board.id==id)return board;
+        throw std::runtime_error("Authored artboard missing");
+    };
+    auto resolved=[&](const Id& id){return evaluate_artboard(session.document().compositions.front(),id);};
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();
+    const auto geometry=evaluate(session.document());const auto roots=session.document().compositions.front().roots;
+    button("artboard-add");const auto child=window.canvas->active_artboard();
+    check(child!=original&&session.document().compositions.front().artboards.size()==2&&authored(child).x==1000,
+        "Add frame creates a unique ordered board to the right with a gap");
+    input("artboard-name","Alternative crop");input("artboard-x","1234");input("artboard-y","34");
+    check(authored(child).name=="Alternative crop"&&authored(child).x==1234&&authored(child).y==34&&
+        evaluate(session.document())==geometry,"Frame name and crop position edit without moving any artwork");
+    window.canvas->fit_artboard();const auto frame_zoom=window.canvas->zoom();window.canvas->fit_all_artboards();
+    check(window.canvas->zoom()<frame_zoom,"Fit all includes the resolved union of frames in the active composition");
+    window.canvas->fit_artboard();
+    const auto before_reorder=authored(child);button("artboard-up");
+    check(session.document().compositions.front().artboards.front().id==child&&authored(child).x==before_reorder.x&&
+        authored(child).y==before_reorder.y&&authored(original).x==0&&evaluate(session.document())==geometry,
+        "Changing frame order changes neither crop coordinates nor authored geometry");
+    ArtboardLayout child_layout;
+    child_layout.margin=Margin{10,10,10,10};
+    child_layout.grid=Grid{"source-grid",{10,10,100,100},2,2,10,10};
+    session.apply({SetArtboardLayout{session.document().compositions.front().id,child,child_layout}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    button("artboard-duplicate");const auto copy=window.canvas->active_artboard();
+    check(copy!=child&&authored(copy).width==authored(child).width&&authored(copy).x>authored(child).x&&
+        session.document().compositions.front().roots==roots,"Duplicate frame copies settings and leaves artwork ownership unchanged");
+    check(authored(copy).layout&&authored(copy).layout->margin==child_layout.margin&&
+        authored(copy).layout->grid&&authored(copy).layout->grid->bounds==child_layout.grid->bounds&&
+        authored(copy).layout->grid->id!=child_layout.grid->id,
+        "Duplicate frame copies layout values and assigns a fresh Grid identity");
+    button("artboard-remove");
+    check(window.canvas->active_artboard()==child&&session.document().compositions.front().artboards.size()==2,
+        "Removing the active frame reconciles to a surviving frame");
+    select(child);
+    auto* parent=visible_child<QComboBox>(window,"artboard-parent");reveal(window,parent);
+    parent->setCurrentIndex(parent->findData(QString::fromStdString(original)));QApplication::processEvents();
+    check(authored(child).parent_size&&authored(child).parent_size->width&&authored(child).parent_size->height,
+        "Parent picker authors explicit width and height inheritance in the same composition");
+    select(original);input("artboard-width","800");input("artboard-height","450");
+    check(resolved(child).width==800&&resolved(child).height==450,"Parent frame resizing propagates evaluated child size");
+    const auto protected_revision=session.revision();button("artboard-remove");
+    check(session.revision()==protected_revision&&authored(child).parent_size&&window.statusBar()->currentMessage().contains("ARTBOARD_IN_USE"),
+        "Removing a referenced parent rejects visibly without changing the document");
+    select(child);input("artboard-width","900");
+    check(!authored(child).parent_size->width&&authored(child).parent_size->height&&resolved(child).width==900,
+        "Typing inherited width explicitly creates only a local width override");
+    select(original);input("artboard-width","700");input("artboard-height","500");
+    check(resolved(child).width==900&&resolved(child).height==500,"An overridden dimension stays fixed while the other still inherits");
+    select(child);auto* inherit=visible_child<QCheckBox>(window,"artboard-inherit-width");reveal(window,inherit);
+    QTest::mouseClick(inherit,Qt::LeftButton,Qt::NoModifier,QPoint(8,inherit->height()/2));QApplication::processEvents();
+    check(resolved(child).width==700&&authored(child).parent_size->width,"Inherit reset restores the current parent dimension");
+    auto* detach=visible_child<QPushButton>(window,"artboard-detach");reveal(window,detach);button("artboard-detach");
+    check(!authored(child).parent_size&&authored(child).width==700&&authored(child).height==500,"Detach freezes both evaluated dimensions");
+    history_action(window,"Undo");check(authored(child).parent_size.has_value(),"Undo detach restores the parent relationship");
+    history_action(window,"Redo");select(original);input("artboard-width","650");input("artboard-height","400");
+    check(resolved(child).width==700&&resolved(child).height==500&&evaluate(session.document())==geometry,
+        "Detached dimensions and artwork stay fixed when the former parent changes");
+
+    select(child);
+    auto* source_state=visible_child<QLabel>(window,"artboard-width-source-state");
+    check(source_state->text().contains("Source: literal"),"Artboard Inspector identifies the current dimension source");
+    auto* expression=visible_child<QPlainTextEdit>(window,"artboard-width-expression");reveal(window,expression);
+    const auto expression_text="ref(\""+original+"\",\"\",\"artboard.width\") * .5";
+    const auto draft_revision=session.revision();expression->setPlainText(QString::fromStdString(expression_text));
+    check(session.revision()==draft_revision&&!authored(child).width_driver,"Expression text stays a draft until Apply");
+    button("artboard-width-apply-expression");
+    check(authored(child).width_driver&&std::holds_alternative<Expression>(authored(child).width_driver->value)&&
+        std::get<Expression>(authored(child).width_driver->value).source==expression_text&&resolved(child).width==325,
+        "Artboard Inspector commits the exact typed expression and evaluates its Artboard Ref");
+    button("artboard-duplicate");const auto typed_copy=window.canvas->active_artboard();
+    check(typed_copy!=child&&authored(typed_copy).width_driver&&
+        std::holds_alternative<Expression>(authored(typed_copy).width_driver->value)&&
+        std::get<Expression>(authored(typed_copy).width_driver->value).source==expression_text&&resolved(typed_copy).width==325,
+        "Duplicate frame preserves the exact typed expression through dedicated Session commands");
+    button("artboard-remove");
+    select(original);input("artboard-width","600");
+    check(resolved(child).width==300,"Artboard expression follows its stable source ID after an edit");
+    select(child);
+    expression=visible_child<QPlainTextEdit>(window,"artboard-width-expression");reveal(window,expression);
+    expression->setPlainText("ref(\"missing\",\"\",\"artboard.width\")");
+    const auto before_invalid=encode(session.document());const auto invalid_revision=session.revision();
+    button("artboard-width-apply-expression");
+    check(session.revision()==invalid_revision&&encode(session.document())==before_invalid,
+        "Invalid Artboard expression draft leaves the committed source and native bytes unchanged");
+    button("artboard-width-cancel");
+    auto* sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,sources);
+    int source_index=-1;
+    for(int i=0;i<sources->count();++i)
+        if(sources->itemText(i).contains(QString::fromStdString(original)+"/artboard.height"))source_index=i;
+    check(source_index>=0,"Artboard Inspector offers the exact same-Composition height Ref");
+    sources->setCurrentIndex(source_index);
+    const auto before_replace=encode(session.document());const auto replace_revision=session.revision();
+    button("artboard-width-link");
+    check(session.revision()==replace_revision&&encode(session.document())==before_replace,
+        "Artboard Inspector refuses silent replacement of an expression source");
+    auto* replace=visible_child<QCheckBox>(window,"artboard-width-replace");reveal(window,replace);
+    replace->setChecked(true);button("artboard-width-link");
+    check(authored(child).width_driver&&std::holds_alternative<Ref>(authored(child).width_driver->value)&&
+        std::get<Ref>(authored(child).width_driver->value)==Ref{original,"","artboard.height"}&&resolved(child).width==400,
+        "Explicit Inspector replacement links cross-field Artboard size by stable Ref");
+    history_action(window,"Undo");
+    check(authored(child).width_driver&&std::holds_alternative<Expression>(authored(child).width_driver->value)&&resolved(child).width==300,
+        "Undo restores the prior expression instead of the retained local literal");
+    history_action(window,"Redo");select(child);button("artboard-width-unlink");
+    check(!authored(child).width_driver&&authored(child).width==400&&resolved(child).width==400,
+        "Unlink freezes the evaluated Artboard dimension as its authored literal");
+
+    const Id size_source_a_id="size-search-a",size_source_b_id="size-search-b";
+    const auto size_composition=session.document().compositions.front().id;
+    session.apply({AddArtboard{size_composition,Artboard{size_source_a_id,"Equal source",0,0,30,40},2},
+        AddArtboard{size_composition,Artboard{size_source_b_id,"Equal source",0,0,150,160},3}},session.revision());
+    window.host.edited();QApplication::processEvents();select(child);
+    auto* width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    auto* width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    auto* width_link=visible_child<QPushButton>(window,"artboard-width-link");reveal(window,width_link);
+    int source_b_height_original=-1;
+    for(int i=0;i<width_sources->count();++i)
+        if(width_sources->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(size_source_b_id+"/artboard.height"))
+            source_b_height_original=width_sources->itemData(i,Qt::UserRole).toInt();
+    check(source_b_height_original>=0&&width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "Literal Artboard width has no implicit source and the exact duplicate-name height Ref is available");
+    width_search->setText("EQUAL SOURCE");QApplication::processEvents();
+    check(width_sources->count()==4,"Case-insensitive name search returns both fields for both equal-name Artboards");
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();
+    check(width_sources->count()==1&&width_sources->itemData(0,Qt::ToolTipRole).toString()==
+        QString::fromStdString(size_source_b_id+"/artboard.height")&&
+        width_sources->itemData(0,Qt::UserRole).toInt()==source_b_height_original,
+        "Stable ID and field path search retains the original candidate index and exact tooltip path");
+    width_sources->setCurrentIndex(0);QApplication::processEvents();
+    width_search->setText("size-search-a/artboard.width");QApplication::processEvents();
+    check(width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "A query that hides the selected Artboard source clears the draft and disables Link");
+    width_search->clear();QApplication::processEvents();
+    check(width_sources->currentIndex()==-1&&!width_link->isEnabled(),
+        "Clearing a query does not silently select a different Artboard source");
+    const auto before_empty_width_link=session.revision();QTest::mouseClick(width_link,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_width_link&&!authored(child).width_driver,
+        "An empty filtered Artboard source cannot commit a replacement");
+    auto* height_search=visible_child<QLineEdit>(window,"artboard-height-link-source-search");reveal(window,height_search);
+    auto* height_sources=visible_child<QComboBox>(window,"artboard-height-link-source");reveal(window,height_sources);
+    height_search->setText("SIZE-SEARCH-B/ARTBOARD.WIDTH");QApplication::processEvents();
+    check(height_sources->count()==1&&height_sources->itemData(0,Qt::ToolTipRole).toString()==
+        QString::fromStdString(size_source_b_id+"/artboard.width"),
+        "Artboard height source search also accepts a case-insensitive exact ID and field path");
+
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();
+    width_sources->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_width_cancel=session.revision();button("artboard-width-cancel");
+    check(session.revision()==before_width_cancel&&!authored(child).width_driver&&window.canvas->active_artboard()==child,
+        "Cancel discards an explicitly selected Artboard source without changing the captured target");
+    width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();width_sources->setCurrentIndex(0);
+    auto changed_source=authored(size_source_a_id);changed_source.name="Renamed source";
+    session.apply({UpdateArtboard{size_composition,changed_source}},session.revision());
+    const auto after_external_width_update=session.revision();button("artboard-width-link");
+    check(session.revision()==after_external_width_update&&!authored(child).width_driver&&
+        window.statusBar()->currentMessage().contains("REVISION_CONFLICT"),
+        "A stale Artboard source draft rejects without retargeting or mutating its destination");
+    window.host.edited();QApplication::processEvents();select(child);
+    width_search=visible_child<QLineEdit>(window,"artboard-width-link-source-search");reveal(window,width_search);
+    width_sources=visible_child<QComboBox>(window,"artboard-width-link-source");reveal(window,width_sources);
+    width_search->setText("size-search-b/artboard.height");QApplication::processEvents();width_sources->setCurrentIndex(0);
+    const auto before_exact_width_link=session.revision();button("artboard-width-link");
+    const Ref exact_width_target{child,"","artboard.width"};
+    const Ref exact_width_source{size_source_b_id,"","artboard.height"};
+    check(session.revision()==before_exact_width_link+1&&authored(child).width_driver&&
+        std::holds_alternative<Ref>(authored(child).width_driver->value)&&
+        std::get<Ref>(authored(child).width_driver->value)==exact_width_source&&resolved(child).width==160&&
+        artboard_size_property(session.document(),exact_width_target).driver==exact_width_source,
+        "Artboard width Link commits the exact chosen Ref to the Inspector target captured at build time");
+    button("artboard-width-unlink");
+    check(!authored(child).width_driver&&authored(child).width==160,
+        "Unlink freezes the exact selected Artboard source result into the width literal");
+
+    // Open a real native fixture with an empty leading composition and two
+    // independent planes. Empty legacy compositions must not break navigation.
+    auto document=empty_document("navigation-doc","plane-a","board-a");
+    document.compositions.insert(document.compositions.begin(),Composition{"empty-plane","Empty plane",{}, {}});
+    document.compositions.push_back(Composition{"plane-b","Second plane",{},{{"board-b","Offset frame",2000,100,400,300}}});
+    QTemporaryDir files;const auto path=files.filePath("planes.nect");QFile file(path);
+    check(file.open(QIODevice::WriteOnly),"Multi-plane fixture can be written");const auto bytes=QByteArray::fromStdString(encode(document));
+    check(file.write(bytes)==bytes.size(),"Multi-plane fixture write is complete");file.close();window.host.open(path);QApplication::processEvents();
+    check(window.canvas->active_composition()=="plane-a"&&window.canvas->active_artboard()=="board-a",
+        "Open reconciles invalid view state to the first composition with an artboard");
+    named_action(window,"add-circle")->trigger();QApplication::processEvents();const auto first_circle=window.canvas->selected_object;
+    select("board-b");
+    check(window.canvas->active_composition()=="plane-b"&&window.findChild<QTreeWidget*>()->topLevelItemCount()==0,
+        "Switching frames switches composition planes and hides other-plane objects");
+    named_action(window,"add-rectangle")->trigger();QApplication::processEvents();const auto rectangle=window.canvas->selected_object;
+    const auto values=evaluate(session.document());
+    check(values.at({rectangle,"","generator.center_x"})==2200&&values.at({rectangle,"","generator.center_y"})==250&&
+        session.document().compositions.back().roots==std::vector<Id>{rectangle},
+        "New primitives use the active frame center and active composition ownership");
+    named_action(window,"add-curve")->trigger();QApplication::processEvents();const auto curve=window.canvas->selected_object;
+    const auto curve_point=path_contours(session.document().objects.at(curve)).front().points.front().id;
+    check(evaluate(session.document()).at({curve,curve_point,"x"})==2100&&session.document().compositions.back().roots.size()==2,
+        "New Curve uses the active crop and composition instead of the first plane");
+    window.canvas->fit_artboard();window.canvas->set_draw_mode(true);window.canvas->setFocus();
+    QTest::mouseClick(window.canvas,Qt::LeftButton,Qt::NoModifier,window.canvas->rect().center());QApplication::processEvents();
+    window.canvas->set_draw_mode(false);
+    check(session.document().compositions.back().roots.size()==3&&session.document().compositions[1].roots==std::vector<Id>{first_circle},
+        "Canvas draw-path commands stay on the active plane");
+    auto* tree=window.findChild<QTreeWidget*>();tree->clearSelection();
+    for(int index=0;index<tree->topLevelItemCount();++index)tree->topLevelItem(index)->setSelected(true);
+    for(auto* action:window.findChildren<QAction*>())if(action->text()=="Group selected siblings")action->trigger();
+    QApplication::processEvents();
+    check(session.document().compositions.back().roots.size()==1&&session.document().objects.at(session.document().compositions.back().roots.front()).children.size()==3,
+        "Grouping selected roots uses their active composition instead of the first plane");
+    const auto svg=export_svg(session.document(),window.canvas->active_composition(),window.canvas->active_artboard());
+    check(svg.find("viewBox=\"2000 100 400 300\"")!=std::string::npos&&svg.find(first_circle)==std::string::npos,
+        "Active export identifiers select the offset frame and exclude other composition content");
+    // Compare the two fit commands in the same viewport: dock content can
+    // resize the Canvas after the earlier frame fit above.
+    window.canvas->fit_artboard();
+    const auto active_zoom=window.canvas->zoom();window.canvas->fit_all_artboards();
+    check(std::abs(window.canvas->zoom()-active_zoom)<1e-8,"Fit all uses only the active composition plane");
+    window.host.create_document();QApplication::processEvents();
+    check(window.canvas->active_composition()==session.document().compositions.front().id&&
+        window.canvas->active_artboard()==session.document().compositions.front().artboards.front().id,
+        "New document resets stale composition and artboard view identities");
+}
+}
+void layout_setup_previews_commit_and_recovers(Window& window) {
+    auto& session=window.host.session;
+    auto click=[&](const char* name) {
+        auto* control=visible_child<QPushButton>(window,name);reveal(window,control);
+        QTest::mouseClick(control,Qt::LeftButton);QApplication::processEvents();
+    };
+    QTest::mouseClick(visible_child<QPushButton>(window,"artboard-edit"),Qt::LeftButton);QApplication::processEvents();
+    auto input=[&](const char* name,const char* value,bool enter) {
+        auto candidates=window.findChildren<QLineEdit*>(QString::fromLatin1(name));
+        QLineEdit* control=nullptr;for(auto* candidate:candidates)if(candidate->isVisible()){control=candidate;break;}
+        check(control!=nullptr,(std::string("Layout editor remains visible: ")+name).c_str());reveal(window,control);control->setFocus();
+        QTest::keyClick(control,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(control,value);QApplication::processEvents();
+        if(enter){QTest::keyClick(control,Qt::Key_Return);QApplication::processEvents();}
+        return control;
+    };
+    auto board=[&]() -> const Artboard& {return session.document().compositions.front().artboards.front();};
+    auto preview_board=[&]() -> const Artboard& {return session.preview_document().compositions.front().artboards.front();};
+    const auto baseline=session.revision();
+
+    auto* guides=visible_child<QCheckBox>(window,"overlay-show-guides");
+    guides->setChecked(true);QApplication::processEvents();
+    QStyleOptionButton guides_option;guides_option.initFrom(guides);
+    const auto guides_indicator_rect=guides->style()->subElementRect(QStyle::SE_CheckBoxIndicator,&guides_option,guides);
+    check(!guides_indicator_rect.isEmpty(),"Visible Guide checkbox has a style-provided click target");
+    QTest::mouseClick(guides,Qt::LeftButton,Qt::NoModifier,guides_indicator_rect.center());QApplication::processEvents();
+    check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->show_margin()&&session.revision()==baseline,
+        "Guide, Grid and Margin visibility remain independent per-window view state");
+    guides->setChecked(true);QApplication::processEvents();
+    auto* snap_guides=window.findChild<QAction*>("snap-guides");
+    auto* snap_grid=window.findChild<QAction*>("snap-grid");
+    check(snap_guides&&snap_grid&&!snap_guides->toolTip().isEmpty()&&!snap_grid->toolTip().isEmpty(),
+        "Guide Snap and Grid Snap have distinct named controls and help text");
+    snap_guides->setChecked(false);snap_grid->setChecked(false);QApplication::processEvents();
+    const auto snap_state_error="Guide/Grid Snap state failure: guide_snap="+std::to_string(window.canvas->snap_guides_enabled())+
+        " grid_snap="+std::to_string(window.canvas->snap_grid_enabled())+
+        " guides_visible="+std::to_string(window.canvas->show_guides())+
+        " grid_visible="+std::to_string(window.canvas->show_grid())+
+        " revision="+std::to_string(session.revision())+
+        " baseline="+std::to_string(baseline);
+    check(!window.canvas->snap_guides_enabled()&&!window.canvas->snap_grid_enabled()&&
+          window.canvas->show_guides()&&window.canvas->show_grid()&&session.revision()==baseline,
+        snap_state_error.c_str());
+    snap_guides->setChecked(true);snap_grid->setChecked(true);QApplication::processEvents();
+
+    input("margin-left","10",false);input("margin-top","10",false);input("margin-right","10",false);auto* bottom=input("margin-bottom","10",false);
+    check(session.revision()==baseline&&!board().layout&&preview_board().layout&&preview_board().layout->margin->left==10&&
+          !session.can_undo(),"Valid Margin drafts preview in the live Session without changing committed state or history");
+    QTest::keyClick(bottom,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==baseline+1&&board().layout&&board().layout->margin==Margin{10,10,10,10}&&session.can_undo(),
+        "Enter commits a complete Margin through one Session command");
+
+    const auto before_copy=session.revision();
+    const auto evaluated_before_copy=evaluate_artboard(session.document().compositions.front(),board().id);
+    click("grid-copy-margin-box");
+    const auto copied=board().layout->grid.value();
+    check(session.revision()==before_copy+1&&copied.bounds==LayoutRect{10,10,evaluated_before_copy.width-20,evaluated_before_copy.height-20}&&copied.columns==1&&!copied.id.empty(),
+        "Set Grid to margin box copies evaluated local bounds once and creates a stable Grid ID");
+    check(decode(encode(session.document()))==session.document(),"Committed Guide/Grid/Margin state survives native encode/decode");
+
+    input("margin-left","20",false);
+    check(board().layout->margin->left==10&&preview_board().layout->margin->left==20&&preview_board().layout->grid->bounds.x==10,
+        "Margin preview is independent of the one-time copied Grid bounds");
+    auto* left=visible_child<QLineEdit>(window,"margin-left");QTest::keyClick(left,Qt::Key_Return);QApplication::processEvents();
+    check(board().layout->margin->left==20&&board().layout->grid->bounds.x==10,
+        "A later Margin edit does not maintain a persistent link to Grid");
+
+    auto* columns=input("grid-columns","2",false);const auto invalid_revision=session.revision();
+    check(session.preview_document().compositions.front().artboards.front().layout->grid->columns==2&&
+          session.revision()==invalid_revision&&session.document().compositions.front().artboards.front().layout->grid->columns==1,
+        "A valid Grid count draft previews without changing committed authored state");
+    columns=input("grid-columns","2.5",false);
+    check(session.preview_document().compositions.front().artboards.front().layout->grid->columns==2&&
+          session.document().compositions.front().artboards.front().layout->grid->columns==1,
+        "An invalid fractional count leaves the latest valid Session preview visible");
+    QTest::keyClick(columns,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==invalid_revision&&session.document().compositions.front().artboards.front().layout->grid->columns==1&&
+          columns->text()=="2.5"&&window.statusBar()->currentMessage().contains("INVALID_LAYOUT"),
+        "Invalid numeric draft stays visible with an error and never becomes authored");
+    click("grid-clear");
+    check(session.revision()==invalid_revision+1&&board().layout&&board().layout->margin&&!board().layout->grid,
+        "Explicit Clear Grid discards the invalid draft and preserves Margin");
+
+    input("guide-new-position","25",false);
+    check(session.revision()==invalid_revision+1&&session.document().compositions.front().guides.empty()&&
+          session.preview_document().compositions.front().guides.size()==1&&session.preview_document().compositions.front().guides.front().position==25,
+        "New Guide position previews without committing an ID or revision");
+    click("guide-add");const auto guide_id=session.document().compositions.front().guides.front().id;
+    check(!guide_id.empty()&&session.revision()==invalid_revision+2&&session.document().compositions.front().guides.front().position==25,
+        "Apply Guide creation commits one stable Guide identity through the shared Session");
+    const std::string position_name="guide-position-"+guide_id;
+    auto* guide_position=window.findChild<QLineEdit*>(QString::fromStdString(position_name));
+    check(guide_position!=nullptr,"Committed Guide appears in the refreshed Guide editor list");
+    reveal(window,guide_position);
+    auto* edited_position=input(position_name.c_str(),"100",false);
+    check(session.document().compositions.front().guides.front().position==25&&
+          session.preview_document().compositions.front().guides.front().id==guide_id&&
+          session.preview_document().compositions.front().guides.front().position==100,
+        "Guide edit preview retains stable identity and does not commit early");
+    QTest::keyClick(edited_position,Qt::Key_Escape);QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==invalid_revision+2&&!session.gesture_active()&&session.document().compositions.front().guides.front().position==25,
+        "Escape cancels numeric Guide preview without history");
+    auto* restored_position=visible_child<QLineEdit>(window,position_name.c_str());int visible_position_fields=0;
+    for(auto* field:window.findChildren<QLineEdit*>(QString::fromStdString(position_name)))if(field->isVisible())++visible_position_fields;
+    check(visible_position_fields==1&&restored_position->text()=="25",
+        "After queued Escape refresh settles, one current Guide editor is visible with authored state");
+
+    const Id guide_source_id="guide-ui-source";
+    const Ref guide_target_ref{guide_id,"","guide.position"};
+    const Ref guide_source_ref{guide_source_id,"","guide.position"};
+    session.apply({AddGuide{session.document().compositions.front().id,
+            {guide_source_id,"UI Guide source","x",100}},
+        LinkGuidePosition{guide_target_ref,guide_source_ref,false}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    auto* linked_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* linked_status=visible_child<QLabel>(window,("guide-position-status-"+guide_id).c_str());
+    auto* unlink_position=visible_child<QPushButton>(window,("guide-unlink-position-"+guide_id).c_str());
+    check(linked_position->isReadOnly()&&linked_position->text()=="100"&&
+          linked_status->text().contains("UI Guide source")&&linked_status->text().contains("25")&&
+          unlink_position->text()=="Unlink position",
+        "Guide editor shows the evaluated coordinate, source name, authored literal and explicit Unlink action");
+    auto* expression_editor=visible_child<QPlainTextEdit>(window,("guide-position-expression-"+guide_id).c_str());
+    auto* apply_expression=visible_child<QPushButton>(window,("guide-position-apply-expression-"+guide_id).c_str());
+    auto* replace_source=visible_child<QCheckBox>(window,("guide-position-replace-"+guide_id).c_str());
+    const QString guide_expression=QString::fromStdString("ref(\""+guide_source_id+"\",\"\",\"guide.position\") + 20");
+    expression_editor->setPlainText(guide_expression);
+    const auto before_unapproved_replace=session.revision();QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_replace&&
+          window.statusBar()->currentMessage().contains("DRIVEN_GUIDE_POSITION")&&
+          expression_editor->toPlainText()==guide_expression,
+        "Guide expression replacement requires the visible explicit replacement choice and keeps a rejected draft");
+    replace_source->setChecked(true);QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    auto* expression_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* expression_status=visible_child<QLabel>(window,("guide-position-status-"+guide_id).c_str());
+    auto expression_value=guide_position_property(session.document(),guide_target_ref);
+    check(expression_position->isReadOnly()&&expression_position->text()=="120"&&
+          expression_value.literal==25&&!expression_value.driver&&expression_value.source_kind=="expression"&&
+          expression_value.evaluated==120&&expression_status->text().contains("Expression")&&
+          expression_status->text().contains("authored 25")&&expression_status->text().contains("evaluated 120"),
+        "Guide Inspector applies a valid expression and reports its retained literal and evaluated result");
+    expression_editor=visible_child<QPlainTextEdit>(window,("guide-position-expression-"+guide_id).c_str());
+    expression_editor->setPlainText("ref(");
+    replace_source=visible_child<QCheckBox>(window,("guide-position-replace-"+guide_id).c_str());
+    replace_source->setChecked(true);
+    const auto before_invalid_expression=session.revision();
+    apply_expression=visible_child<QPushButton>(window,("guide-position-apply-expression-"+guide_id).c_str());
+    QTest::mouseClick(apply_expression,Qt::LeftButton);QApplication::processEvents();
+    const auto invalid_guide_expression_status=window.statusBar()->currentMessage();
+    const auto invalid_guide_expression_actual="revision="+std::to_string(session.revision())+
+        ", expected="+std::to_string(before_invalid_expression)+", draft="+expression_editor->toPlainText().toStdString()+
+        ", status="+invalid_guide_expression_status.toStdString()+", expression_present="+
+        std::to_string(guide_position_property(session.document(),guide_target_ref).expression.has_value());
+    check(session.revision()==before_invalid_expression&&expression_editor->toPlainText()=="ref("&&
+          window.statusBar()->currentMessage().contains("EXPRESSION_SYNTAX")&&
+          guide_position_property(session.document(),guide_target_ref).expression.has_value(),
+        "Invalid Guide expression remains visible as a draft without changing authored state: "+invalid_guide_expression_actual);
+    unlink_position=visible_child<QPushButton>(window,("guide-unlink-position-"+guide_id).c_str());
+    const auto before_unlink=session.revision();QTest::mouseClick(unlink_position,Qt::LeftButton);QApplication::processEvents();
+    auto* unlinked_position=visible_child<QLineEdit>(window,position_name.c_str());
+    auto* unlinked_status=window.findChild<QLabel*>(QString::fromStdString("guide-position-status-"+guide_id));
+    auto* hidden_unlink=window.findChild<QPushButton*>(QString::fromStdString("guide-unlink-position-"+guide_id));
+    const auto frozen_position=guide_position_property(session.document(),guide_target_ref);
+    check(session.revision()==before_unlink+1&&frozen_position.literal==120&&!frozen_position.driver&&
+          !frozen_position.expression&&frozen_position.source_kind=="literal"&&frozen_position.evaluated==120&&
+          !unlinked_position->isReadOnly()&&unlinked_position->text()=="120"&&
+          unlinked_status&&!unlinked_status->isVisible()&&hidden_unlink&&!hidden_unlink->isVisible(),
+        "Guide Unlink freezes an expression's evaluated coordinate and refreshes the editor to editable literal state");
+
+    input(position_name.c_str(),"nan",false);const auto before_delete=session.revision();
+    check(window.statusBar()->currentMessage().contains("INVALID_VALUE")&&
+          guide_position_property(session.document(),guide_target_ref).literal==120,
+        "Nonfinite Guide input is rejected while the invalid draft remains visible");
+    const std::string delete_name="guide-delete-"+guide_id;click(delete_name.c_str());
+    check(session.revision()==before_delete+1&&session.document().compositions.front().guides.size()==1&&
+          session.document().compositions.front().guides.front().id==guide_source_id,
+        "Explicit Delete Guide discards an invalid draft and removes only the selected stable ID");
+    click(("guide-delete-"+guide_source_id).c_str());
+    check(session.revision()==before_delete+2&&session.document().compositions.front().guides.empty(),
+        "Explicit Delete Guide can then remove the independent source Guide");
+
+    click("margin-clear");const auto before_copy_without_margin=session.revision();click("grid-copy-margin-box");
+    check(session.revision()==before_copy_without_margin&&window.statusBar()->currentMessage().contains("INVALID_LAYOUT"),
+        "Grid copy without authored Margin reports a visible error and leaves revision unchanged");
+
+    const auto& composition=session.document().compositions.front();
+    const auto composition_id=composition.id,board_id=composition.artboards.front().id;
+    auto external_margin=[&](double left) {
+        // An external host owner can end the preview before advancing Session.
+        if(session.gesture_active())session.cancel_gesture();
+        session.apply({SetArtboardLayout{composition_id,board_id,ArtboardLayout{Margin{left,0,0,0},std::nullopt}}},session.revision());
+    };
+    auto* stale_field=input("margin-left","30",false);
+    check(session.gesture_active()&&board().layout==std::nullopt,
+        "Margin preview remains a draft before an external revision");
+    const auto before_external=session.revision();external_margin(15);
+    QTest::keyClicks(stale_field,"1");QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==before_external+1&&!session.gesture_active()&&board().layout->margin->left==15&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="15",
+        "Typing into a stale layout draft rejects and refreshes without silently rebasing old fields");
+
+    stale_field=input("margin-left","35",false);const auto before_stale_apply=session.revision();external_margin(20);
+    QTest::keyClick(stale_field,Qt::Key_Return);QApplication::processEvents();QApplication::processEvents();
+    check(session.revision()==before_stale_apply+1&&!session.gesture_active()&&board().layout->margin->left==20&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="20",
+        "Applying a stale layout draft rejects and requires a fresh editor gesture");
+
+    const auto before_stale_editor=session.revision();external_margin(25);
+    input("margin-left","45",false);QApplication::processEvents();
+    check(session.revision()==before_stale_editor+1&&!session.gesture_active()&&board().layout->margin->left==25&&
+          session.preview_document()==session.document()&&window.statusBar()->currentMessage().contains("REVISION_CONFLICT")&&
+          visible_child<QLineEdit>(window,"margin-left")->text()=="25",
+        "An untouched Inspector built at an older revision cannot overwrite current layout values");
+
+    const Id margin_source_id="margin-ui-source",margin_source_twin_id="margin-ui-source-twin",
+        grid_y_source_id="grid-y-ui-source",grid_width_source_id="grid-width-ui-source",
+        grid_column_gutter_source_id="grid-column-gutter-ui-source",
+        grid_columns_source_board_id="grid-columns-ui-source-board",
+        grid_columns_source_grid_id="grid-columns-ui-source-grid",
+        grid_columns_twin_board_id="grid-columns-ui-twin-board",
+        grid_columns_twin_grid_id="grid-columns-ui-twin-grid";
+    ArtboardLayout grid_columns_source_layout;grid_columns_source_layout.grid=
+        Grid{grid_columns_source_grid_id,{0,0,100,100},3,3,0,0};
+    Artboard grid_columns_source_board{grid_columns_source_board_id,"Grid columns source",0,0,100,100};
+    grid_columns_source_board.layout=grid_columns_source_layout;
+    ArtboardLayout grid_columns_twin_layout;grid_columns_twin_layout.grid=
+        Grid{grid_columns_twin_grid_id,{0,0,100,100},2,2,0,0};
+    Artboard grid_columns_twin_board{grid_columns_twin_board_id,"Grid columns twin",0,0,100,100};
+    grid_columns_twin_board.layout=grid_columns_twin_layout;
+    session.apply({AddArtboard{composition_id,Artboard{margin_source_id,"Margin source",0,0,40,100},1},
+        AddArtboard{composition_id,Artboard{margin_source_twin_id,"Margin source",0,0,45,120},2},
+        AddArtboard{composition_id,Artboard{grid_column_gutter_source_id,"Grid column gutter source",0,0,10,20},3},
+        AddArtboard{composition_id,grid_columns_source_board,4},
+        AddArtboard{composition_id,grid_columns_twin_board,5}},
+        session.revision());
+    window.host.edited();QApplication::processEvents();
+    auto* source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    auto* margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
+    int source_width_choice=-1;
+    for(int i=0;i<source_choice->count();++i)
+        if(source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))source_width_choice=i;
+    const int source_width_candidate=source_width_choice<0?-1:source_choice->itemData(source_width_choice,Qt::UserRole).toInt();
+    check(source_width_choice>=0&&source_width_candidate==source_width_choice,
+        "Margin source list preserves the exact stable Artboard width Ref and original candidate index");
+    auto* margin_link_button=visible_child<QPushButton>(window,"margin-left-link");
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "An unlinked Margin source picker has no implicit first Artboard selection");
+    auto* margin_top_source_choice=visible_child<QComboBox>(window,"margin-top-link-source");
+    auto* margin_top_search=visible_child<QLineEdit>(window,"margin-top-link-source-search");
+    auto* margin_top_link_button=visible_child<QPushButton>(window,"margin-top-link");
+    check(margin_top_source_choice->currentIndex()==-1&&!margin_top_link_button->isEnabled(),
+        "An unlinked Margin top source picker has no implicit Artboard selection");
+    margin_top_search->setText("MARGIN SOURCE");QApplication::processEvents();
+    check(margin_top_source_choice->count()==4,
+        "Case-insensitive Margin top search keeps duplicate Artboard labels as separate sources");
+    margin_top_search->setText(margin_source_id.c_str());QApplication::processEvents();
+    check(margin_top_source_choice->currentIndex()==-1&&!margin_top_link_button->isEnabled(),
+        "A Margin top source hidden by the search is cleared and cannot be linked");
+    margin_top_search->clear();QApplication::processEvents();
+    check(margin_top_source_choice->currentIndex()==-1&&!margin_top_link_button->isEnabled(),
+        "Clearing the Margin top source search does not select a replacement");
+    const auto before_empty_margin_top_link=session.revision();QTest::mouseClick(margin_top_link_button,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_margin_top_link&&!board().layout->margin->top_driver,
+        "An empty Margin top source selection cannot commit another Artboard Ref");
+    margin_top_search->setText((margin_source_id+"/artboard.height").c_str());QApplication::processEvents();
+    int margin_top_source_index=-1;
+    for(int i=0;i<margin_top_source_choice->count();++i)
+        if(margin_top_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.height"))
+            margin_top_source_index=i;
+    check(margin_top_source_index>=0,"Margin top search exposes the exact stable Artboard height Ref");
+    margin_top_source_choice->setCurrentIndex(margin_top_source_index);QApplication::processEvents();
+    const auto before_margin_top_cancel=session.revision();click("margin-top-cancel");
+    check(session.revision()==before_margin_top_cancel&&!board().layout->margin->top_driver&&
+        window.canvas->active_artboard()==board_id,
+        "Cancel discards the Margin top source draft without changing the target Artboard");
+    margin_top_source_choice=visible_child<QComboBox>(window,"margin-top-link-source");
+    margin_top_search=visible_child<QLineEdit>(window,"margin-top-link-source-search");
+    margin_top_source_index=-1;
+    margin_top_search->setText((margin_source_id+"/artboard.height").c_str());QApplication::processEvents();
+    for(int i=0;i<margin_top_source_choice->count();++i)
+        if(margin_top_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.height"))
+            margin_top_source_index=i;
+    margin_top_source_choice->setCurrentIndex(margin_top_source_index);QApplication::processEvents();
+    const Ref margin_top_source_ref{margin_source_id,"","artboard.height"};
+    click("margin-top-link");
+    auto* driven_margin_top=visible_child<QLineEdit>(window,"margin-top");
+    auto* margin_top_status=visible_child<QLabel>(window,"margin-top-source-state");
+    check(driven_margin_top->isReadOnly()&&board().layout->margin->top==0&&
+        artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).driver==margin_top_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==100&&
+        margin_top_status->text().contains("Literal: 0")&&margin_top_status->text().contains("Evaluated: 100"),
+        "Margin top Inspector links by stable Artboard height, keeps its literal read-only and reports evaluation separately");
+    margin_top_search=visible_child<QLineEdit>(window,"margin-top-link-source-search");
+    margin_top_source_choice=visible_child<QComboBox>(window,"margin-top-link-source");
+    auto* margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");
+    margin_top_search->setText((margin_source_twin_id+"/artboard.height").c_str());QApplication::processEvents();
+    margin_top_source_index=-1;
+    for(int i=0;i<margin_top_source_choice->count();++i)
+        if(margin_top_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_twin_id+"/artboard.height"))
+            margin_top_source_index=i;
+    check(margin_top_source_index>=0,"Margin top picker can find a second stable source with the same display name");
+    margin_top_source_choice->setCurrentIndex(margin_top_source_index);QApplication::processEvents();
+    const auto before_unapproved_margin_top_replace=session.revision();click("margin-top-link");
+    check(session.revision()==before_unapproved_margin_top_replace&&
+        artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).driver==margin_top_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_TOP"),
+        "Replacing a Margin top source requires explicit Inspector authorization");
+    margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");margin_top_replace->setChecked(true);click("margin-top-link");
+    const Ref margin_top_twin_ref{margin_source_twin_id,"","artboard.height"};
+    check(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).driver==margin_top_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==120,
+        "Margin top Inspector replaces the source only after explicit authorization");
+    margin_top_search=visible_child<QLineEdit>(window,"margin-top-link-source-search");
+    margin_top_source_choice=visible_child<QComboBox>(window,"margin-top-link-source");
+    margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");
+    margin_top_search->setText((margin_source_id+"/artboard.height").c_str());QApplication::processEvents();
+    margin_top_source_index=-1;
+    for(int i=0;i<margin_top_source_choice->count();++i)
+        if(margin_top_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.height"))
+            margin_top_source_index=i;
+    margin_top_source_choice->setCurrentIndex(margin_top_source_index);QApplication::processEvents();
+    margin_top_replace->setChecked(true);click("margin-top-link");
+    margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");margin_top_replace->setChecked(false);
+    const QString margin_top_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.height\") - 20");
+    auto* margin_top_expression=visible_child<QPlainTextEdit>(window,"margin-top-expression");
+    auto* margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    margin_top_expression->setPlainText(margin_top_expression_text);QApplication::processEvents();
+    const auto before_unapproved_margin_top_expression=session.revision();
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_top_expression&&
+        board().layout->margin->top_driver==margin_top_source_ref&&!board().layout->margin->top_expression&&
+        margin_top_expression->toPlainText()==margin_top_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_TOP"),
+        "Margin top expression draft stays visible until an explicit source replacement is authorized");
+    margin_top_replace=visible_child<QCheckBox>(window,"margin-top-replace");margin_top_replace->setChecked(true);
+    margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_margin_top=visible_child<QLineEdit>(window,"margin-top");
+    margin_top_status=visible_child<QLabel>(window,"margin-top-source-state");
+    const Expression margin_top_expression_source{margin_top_expression_text.toStdString(),1};
+    check(session.revision()==before_unapproved_margin_top_expression+1&&driven_margin_top->isReadOnly()&&
+        !board().layout->margin->top_driver&&board().layout->margin->top_expression==margin_top_expression_source&&
+        artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).driver==std::nullopt&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==80&&
+        margin_top_status->text().contains("expression")&&margin_top_status->text().contains("Literal: 0")&&
+        margin_top_status->text().contains("Evaluated: 80"),
+        "Margin top Inspector applies the explicit du expression and retains a read-only literal plus evaluation");
+    margin_top_expression=visible_child<QPlainTextEdit>(window,"margin-top-expression");
+    margin_top_expression->setPlainText("ref(");QApplication::processEvents();
+    const auto before_invalid_margin_top_expression=session.revision();
+    margin_top_expression_apply=visible_child<QPushButton>(window,"margin-top-apply-expression");
+    QTest::mouseClick(margin_top_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_top_expression&&margin_top_expression->toPlainText()=="ref("&&
+        board().layout->margin->top_expression==margin_top_expression_source&&
+        window.statusBar()->currentMessage().contains("EXPRESSION_SYNTAX"),
+        "Invalid Margin top expression remains a draft without changing the active source");
+    click("margin-top-cancel-expression");
+    check(session.revision()==before_invalid_margin_top_expression&&
+        board().layout->margin->top_expression==margin_top_expression_source&&window.canvas->active_artboard()==board_id,
+        "Cancel discards an invalid Margin top expression draft and keeps the committed expression and selection");
+    source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
+    margin_link_button=visible_child<QPushButton>(window,"margin-left-link");
+    source_width_choice=-1;
+    margin_search->setText("MARGIN SOURCE");QApplication::processEvents();
+    check(source_choice->count()==4,"Case-insensitive Margin name search preserves duplicate labels as separate stable sources");
+    int filtered_source_width=-1;
+    for(int i=0;i<source_choice->count();++i)
+        if(source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            filtered_source_width=i;
+    check(filtered_source_width>=0&&source_choice->itemData(filtered_source_width,Qt::UserRole).toInt()==source_width_candidate,
+        "Filtering duplicate Margin labels keeps the selected source bound to its original candidate index");
+    source_choice->setCurrentIndex(filtered_source_width);QApplication::processEvents();
+    margin_search->setText("margin-ui-source-twin/artboard.height");QApplication::processEvents();
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "Filtering out a pending Margin source clears its selection and Link availability");
+    margin_search->clear();QApplication::processEvents();
+    check(source_choice->currentIndex()==-1&&!margin_link_button->isEnabled(),
+        "Clearing the Margin search does not restore a hidden source selection");
+    const auto before_empty_margin_link=session.revision();QTest::mouseClick(margin_link_button,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_margin_link&&!board().layout->margin->left_driver,
+        "An empty Margin source selection cannot commit a different Artboard Ref");
+    margin_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();source_choice->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_margin_cancel=session.revision();
+    check(session.revision()==before_margin_cancel&&!board().layout->margin->left_driver&&margin_link_button->isEnabled(),
+        "Choosing a Margin source enables explicit Link but remains a draft");
+    click("margin-left-cancel");
+    check(session.revision()==before_margin_cancel&&window.canvas->active_artboard()==board_id&&
+        !board().layout->margin->left_driver,"Cancel discards the Margin source draft and retains the target Artboard");
+    source_choice=visible_child<QComboBox>(window,"margin-left-link-source");
+    margin_search=visible_child<QLineEdit>(window,"margin-left-link-source-search");
+    margin_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();source_choice->setCurrentIndex(0);QApplication::processEvents();
+    click("margin-left-link");
+    const Ref margin_target_ref{board_id,"","margin.left"};
+    const Ref margin_source_ref{margin_source_id,"","artboard.width"};
+    auto* driven_left=visible_child<QLineEdit>(window,"margin-left");
+    auto* driven_status=visible_child<QLabel>(window,"margin-left-source-state");
+    check(session.revision()==before_margin_cancel+1&&driven_left->isReadOnly()&&driven_left->text()=="25"&&
+        artboard_layout_property(session.document(),margin_target_ref).driver==margin_source_ref&&
+        driven_status->text().contains("Literal: 25")&&driven_status->text().contains("Evaluated: 40"),
+        "Margin Inspector links by stable Ref, keeps the authored literal read-only and shows evaluated status separately");
+    auto* margin_right_source_choice=visible_child<QComboBox>(window,"margin-right-link-source");
+    auto* margin_right_search=visible_child<QLineEdit>(window,"margin-right-link-source-search");
+    auto* margin_right_link_button=visible_child<QPushButton>(window,"margin-right-link");
+    check(margin_right_source_choice->currentIndex()==-1&&!margin_right_link_button->isEnabled(),
+        "An unlinked Margin right source picker has no implicit first Artboard selection");
+    margin_right_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    int margin_right_source_index=-1;
+    for(int i=0;i<margin_right_source_choice->count();++i)
+        if(margin_right_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            margin_right_source_index=i;
+    check(margin_right_source_index>=0,"Margin right search exposes the exact stable Artboard width Ref");
+    margin_right_source_choice->setCurrentIndex(margin_right_source_index);QApplication::processEvents();
+    const auto before_margin_right_cancel=session.revision();click("margin-right-cancel");
+    check(session.revision()==before_margin_right_cancel&&!board().layout->margin->right_driver&&
+        window.canvas->active_artboard()==board_id,
+        "Cancel discards the Margin right source draft without changing the target Artboard");
+    margin_right_source_choice=visible_child<QComboBox>(window,"margin-right-link-source");
+    margin_right_search=visible_child<QLineEdit>(window,"margin-right-link-source-search");
+    margin_right_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    for(int i=0;i<margin_right_source_choice->count();++i)
+        if(margin_right_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            margin_right_source_index=i;
+    margin_right_source_choice->setCurrentIndex(margin_right_source_index);QApplication::processEvents();
+    const Ref margin_right_target_ref{board_id,"","margin.right"};
+    const Ref margin_right_source_ref{margin_source_id,"","artboard.width"};
+    click("margin-right-link");
+    auto* driven_margin_right=visible_child<QLineEdit>(window,"margin-right");
+    auto* margin_right_status=visible_child<QLabel>(window,"margin-right-source-state");
+    check(driven_margin_right->isReadOnly()&&board().layout->margin->right==0&&
+        artboard_layout_property(session.document(),margin_right_target_ref).driver==margin_right_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==40&&
+        margin_right_status->text().contains("Literal: 0")&&margin_right_status->text().contains("Evaluated: 40"),
+        "Margin right Inspector links by exact stable Ref, retains a read-only literal and reports evaluation separately");
+    margin_right_search=visible_child<QLineEdit>(window,"margin-right-link-source-search");
+    margin_right_source_choice=visible_child<QComboBox>(window,"margin-right-link-source");
+    auto* margin_right_replace=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_search->setText(QString::fromStdString(margin_source_twin_id+"/artboard.width"));QApplication::processEvents();
+    margin_right_source_index=-1;
+    for(int i=0;i<margin_right_source_choice->count();++i)
+        if(margin_right_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_twin_id+"/artboard.width"))
+            margin_right_source_index=i;
+    check(margin_right_source_index>=0,"Margin right picker can find a second stable source with the same display name");
+    margin_right_source_choice->setCurrentIndex(margin_right_source_index);QApplication::processEvents();
+    const auto before_unapproved_margin_right_replace=session.revision();click("margin-right-link");
+    check(session.revision()==before_unapproved_margin_right_replace&&
+        artboard_layout_property(session.document(),margin_right_target_ref).driver==margin_right_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_RIGHT"),
+        "Replacing a Margin right source requires explicit Inspector authorization");
+    margin_right_replace=visible_child<QCheckBox>(window,"margin-right-replace");margin_right_replace->setChecked(true);
+    click("margin-right-link");
+    const Ref margin_right_twin_ref{margin_source_twin_id,"","artboard.width"};
+    check(artboard_layout_property(session.document(),margin_right_target_ref).driver==margin_right_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==45,
+        "Margin right Inspector replaces the source only after explicit authorization");
+    margin_right_search=visible_child<QLineEdit>(window,"margin-right-link-source-search");
+    margin_right_source_choice=visible_child<QComboBox>(window,"margin-right-link-source");
+    margin_right_replace=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    margin_right_source_index=-1;
+    for(int i=0;i<margin_right_source_choice->count();++i)
+        if(margin_right_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            margin_right_source_index=i;
+    margin_right_source_choice->setCurrentIndex(margin_right_source_index);QApplication::processEvents();
+    margin_right_replace->setChecked(true);click("margin-right-link");
+    const QString margin_right_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10");
+    auto* margin_right_expression=visible_child<QPlainTextEdit>(window,"margin-right-expression");
+    auto* margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    margin_right_expression->setPlainText(margin_right_expression_text);QApplication::processEvents();
+    auto* margin_right_replace_expression=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_replace_expression->setChecked(false);
+    const auto before_unapproved_margin_right_expression=session.revision();
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_right_expression&&
+        board().layout->margin->right_driver==margin_right_source_ref&&!board().layout->margin->right_expression&&
+        margin_right_expression->toPlainText()==margin_right_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_RIGHT"),
+        "Margin right expression draft requires explicit replacement and preserves the link on failure");
+    margin_right_replace_expression=visible_child<QCheckBox>(window,"margin-right-replace");
+    margin_right_replace_expression->setChecked(true);
+    margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    const Expression margin_right_expression_source{margin_right_expression_text.toStdString(),1};
+    auto* driven_margin_right_expression=visible_child<QLineEdit>(window,"margin-right");
+    auto* margin_right_expression_status=visible_child<QLabel>(window,"margin-right-source-state");
+    check(session.revision()==before_unapproved_margin_right_expression+1&&driven_margin_right_expression->isReadOnly()&&
+        !board().layout->margin->right_driver&&board().layout->margin->right_expression==margin_right_expression_source&&
+        margin_right_expression_status->text().contains("expression")&&margin_right_expression_status->text().contains("Literal: 0")&&
+        margin_right_expression_status->text().contains("Evaluated: 50"),
+        "Margin right Inspector commits the explicit du expression while preserving the authored literal");
+    margin_right_expression=visible_child<QPlainTextEdit>(window,"margin-right-expression");
+    margin_right_expression->setPlainText("ref(");QApplication::processEvents();
+    const auto before_invalid_margin_right_expression=session.revision();
+    margin_right_expression_apply=visible_child<QPushButton>(window,"margin-right-apply-expression");
+    QTest::mouseClick(margin_right_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_right_expression&&margin_right_expression->toPlainText()=="ref("&&
+        board().layout->margin->right_expression==margin_right_expression_source&&window.canvas->active_artboard()==board_id,
+        "An invalid Margin right expression draft leaves committed source, revision and selection unchanged");
+    const auto before_margin_top_literal_attempt=session.revision();auto* margin_top_attempt=input("margin-top","5",true);
+    check(session.revision()==before_margin_top_literal_attempt&&margin_top_attempt->isReadOnly()&&
+        board().layout->margin->top==0&&!board().layout->margin->top_driver&&
+        board().layout->margin->top_expression==margin_top_expression_source&&
+        board().layout->margin->left==25&&board().layout->margin->left_driver==margin_source_ref,
+        "The expression-driven Margin top literal stays read-only while unrelated edits preserve both sources");
+    auto source_artboard=session.document().compositions.front().artboards[1];source_artboard.width=60;source_artboard.height=80;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==60&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==60&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==70&&
+        visible_child<QLabel>(window,"margin-left-source-state")->text().contains("Evaluated: 60")&&
+        visible_child<QLabel>(window,"margin-top-source-state")->text().contains("Evaluated: 60")&&
+        visible_child<QLabel>(window,"margin-right-source-state")->text().contains("Evaluated: 70"),
+        "Inspector statuses follow upstream width and height edits without changing authored insets");
+    auto* margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    auto* margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    auto* margin_bottom_link_button=visible_child<QPushButton>(window,"margin-bottom-link");
+    check(margin_bottom_source_choice->currentIndex()==-1&&!margin_bottom_link_button->isEnabled(),
+        "An unlinked Margin bottom source picker has no implicit first Artboard selection");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    int margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    check(margin_bottom_source_index>=0,"Margin bottom search exposes the exact stable Artboard width Ref");
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const auto before_margin_bottom_cancel=session.revision();click("margin-bottom-cancel");
+    check(session.revision()==before_margin_bottom_cancel&&!board().layout->margin->bottom_driver&&
+        window.canvas->active_artboard()==board_id,
+        "Cancel discards the Margin bottom source draft without changing the target Artboard");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const Ref margin_bottom_target_ref{board_id,"","margin.bottom"};
+    const Ref margin_bottom_source_ref{margin_source_id,"","artboard.width"};
+    click("margin-bottom-link");
+    auto* driven_margin_bottom=visible_child<QLineEdit>(window,"margin-bottom");
+    auto* margin_bottom_status=visible_child<QLabel>(window,"margin-bottom-source-state");
+    check(driven_margin_bottom->isReadOnly()&&board().layout->margin->bottom==0&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==60&&
+        margin_bottom_status->text().contains("link")&&margin_bottom_status->text().contains("Literal: 0")&&
+        margin_bottom_status->text().contains("Evaluated: 60"),
+        "Margin bottom Inspector links by exact stable Ref, keeps its literal read-only and reports evaluation separately");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    auto* margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_twin_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_twin_id+"/artboard.width"))margin_bottom_source_index=i;
+    check(margin_bottom_source_index>=0,"Margin bottom picker finds a second stable source with the same display name");
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    const auto before_unapproved_margin_bottom_replace=session.revision();click("margin-bottom-link");
+    check(session.revision()==before_unapproved_margin_bottom_replace&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_BOTTOM"),
+        "Replacing a Margin bottom source requires explicit Inspector authorization");
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(true);
+    click("margin-bottom-link");
+    const Ref margin_bottom_twin_ref{margin_source_twin_id,"","artboard.width"};
+    check(session.revision()==before_unapproved_margin_bottom_replace+1&&
+        artboard_layout_property(session.document(),margin_bottom_target_ref).driver==margin_bottom_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==45,
+        "Margin bottom Inspector replaces its source only after explicit authorization");
+    margin_bottom_source_choice=visible_child<QComboBox>(window,"margin-bottom-link-source");
+    margin_bottom_search=visible_child<QLineEdit>(window,"margin-bottom-link-source-search");
+    margin_bottom_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    margin_bottom_source_index=-1;
+    for(int i=0;i<margin_bottom_source_choice->count();++i)
+        if(margin_bottom_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))margin_bottom_source_index=i;
+    margin_bottom_source_choice->setCurrentIndex(margin_bottom_source_index);QApplication::processEvents();
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(true);
+    click("margin-bottom-link");
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(false);
+    const QString margin_bottom_expression_text=QString::fromStdString(
+        "ref(\""+margin_source_id+"\",\"\",\"artboard.height\") - 20");
+    auto* margin_bottom_expression=visible_child<QPlainTextEdit>(window,"margin-bottom-expression");
+    margin_bottom_expression->setPlainText(margin_bottom_expression_text);QApplication::processEvents();
+    auto* margin_bottom_expression_apply=visible_child<QPushButton>(window,"margin-bottom-apply-expression");
+    const auto before_unapproved_margin_bottom_expression=session.revision();
+    QTest::mouseClick(margin_bottom_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_bottom_expression&&
+        board().layout->margin->bottom_driver==margin_bottom_source_ref&&!board().layout->margin->bottom_expression&&
+        margin_bottom_expression->toPlainText()==margin_bottom_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_BOTTOM"),
+        "Margin bottom expression draft requires explicit replacement and preserves its link on failure");
+    margin_bottom_replace=visible_child<QCheckBox>(window,"margin-bottom-replace");margin_bottom_replace->setChecked(true);
+    margin_bottom_expression_apply=visible_child<QPushButton>(window,"margin-bottom-apply-expression");
+    QTest::mouseClick(margin_bottom_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    const Expression margin_bottom_expression_source{margin_bottom_expression_text.toStdString(),1};
+    driven_margin_bottom=visible_child<QLineEdit>(window,"margin-bottom");
+    margin_bottom_status=visible_child<QLabel>(window,"margin-bottom-source-state");
+    check(session.revision()==before_unapproved_margin_bottom_expression+1&&driven_margin_bottom->isReadOnly()&&
+        !board().layout->margin->bottom_driver&&board().layout->margin->bottom_expression==margin_bottom_expression_source&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==60&&
+        margin_bottom_status->text().contains("expression")&&margin_bottom_status->text().contains("Literal: 0")&&
+        margin_bottom_status->text().contains("Evaluated: 60"),
+        "Margin bottom Inspector applies the explicit du expression and keeps literal and evaluation separate");
+    margin_bottom_expression=visible_child<QPlainTextEdit>(window,"margin-bottom-expression");
+    margin_bottom_expression->setPlainText("ref(");QApplication::processEvents();
+    const auto before_invalid_margin_bottom_expression=session.revision();
+    margin_bottom_expression_apply=visible_child<QPushButton>(window,"margin-bottom-apply-expression");
+    QTest::mouseClick(margin_bottom_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_bottom_expression&&margin_bottom_expression->toPlainText()=="ref("&&
+        board().layout->margin->bottom_expression==margin_bottom_expression_source&&
+        window.statusBar()->currentMessage().contains("EXPRESSION_SYNTAX"),
+        "Invalid Margin bottom expression remains a draft without changing its committed source");
+    click("margin-bottom-cancel-expression");
+    check(session.revision()==before_invalid_margin_bottom_expression&&
+        board().layout->margin->bottom_expression==margin_bottom_expression_source&&window.canvas->active_artboard()==board_id,
+        "Cancel discards an invalid Margin bottom expression draft and retains the committed expression and selection");
+    click("grid-copy-margin-box");
+    check(board().layout->grid&&board().layout->grid->bounds.x==60&&board().layout->grid->bounds.y==60&&
+        board().layout->grid->bounds.width==evaluate_artboard(session.document().compositions.front(),board_id).width-130&&
+        board().layout->grid->bounds.height==evaluate_artboard(session.document().compositions.front(),board_id).height-120,
+        "Grid-to-Margin copy uses evaluated Margin left, top, right and bottom insets");
+    auto* grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    auto* grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
+    int grid_source_width_choice=-1;
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
+    const int grid_source_width_candidate=grid_source_width_choice<0?-1:grid_source_choice->itemData(grid_source_width_choice,Qt::UserRole).toInt();
+    check(grid_source_width_choice>=0&&grid_source_width_candidate==grid_source_width_choice,
+        "Grid x source list exposes the stable Artboard width Ref and original candidate index");
+    auto* grid_link_button=visible_child<QPushButton>(window,"grid-bounds-x-link");
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "An unlinked Grid x source picker has no implicit first Artboard selection");
+    grid_search->setText("MARGIN SOURCE");QApplication::processEvents();
+    check(grid_source_choice->count()==4,"Case-insensitive Grid source name search preserves duplicate Artboard labels");
+    int filtered_grid_width=-1;
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))
+            filtered_grid_width=i;
+    check(filtered_grid_width>=0&&grid_source_choice->itemData(filtered_grid_width,Qt::UserRole).toInt()==grid_source_width_candidate,
+        "Filtered Grid source retains its original candidate index across duplicate names");
+    grid_source_choice->setCurrentIndex(filtered_grid_width);QApplication::processEvents();
+    grid_search->setText("margin-ui-source-twin/artboard.height");QApplication::processEvents();
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "A Grid source hidden by a query is cleared and cannot be linked");
+    grid_search->clear();QApplication::processEvents();
+    check(grid_source_choice->currentIndex()==-1&&!grid_link_button->isEnabled(),
+        "Clearing the Grid source query does not select a replacement");
+    const auto before_empty_grid_link=session.revision();QTest::mouseClick(grid_link_button,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_empty_grid_link&&!board().layout->grid->bounds_x_driver,
+        "An empty Grid source selection cannot commit a different Artboard Ref");
+    grid_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();grid_source_choice->setCurrentIndex(0);QApplication::processEvents();
+    const auto before_grid_cancel=session.revision();
+    check(session.revision()==before_grid_cancel&&!board().layout->grid->bounds_x_driver&&grid_link_button->isEnabled(),
+        "Choosing a Grid x source enables explicit Link but remains a draft");
+    click("grid-bounds-x-cancel");
+    check(session.revision()==before_grid_cancel&&window.canvas->active_artboard()==board_id&&
+        !board().layout->grid->bounds_x_driver,"Cancel discards the Grid x source draft and retains the target Artboard");
+    grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    grid_search=visible_child<QLineEdit>(window,"grid-bounds-x-link-source-search");
+    grid_search->setText("margin-ui-source/artboard.width");QApplication::processEvents();grid_source_choice->setCurrentIndex(0);QApplication::processEvents();
+    click("grid-bounds-x-link");
+    const Ref grid_target_ref{board().layout->grid->id,"","grid.bounds.x"};
+    const Ref grid_source_ref{margin_source_id,"","artboard.width"};
+    auto* driven_grid_x=visible_child<QLineEdit>(window,"grid-x");
+    auto* grid_driven_status=visible_child<QLabel>(window,"grid-bounds-x-source-state");
+    check(session.revision()==before_grid_cancel+1&&driven_grid_x->isReadOnly()&&driven_grid_x->text()=="60"&&
+        artboard_layout_property(session.document(),grid_target_ref).driver==grid_source_ref&&
+        grid_driven_status->text().contains("Literal: 60")&&grid_driven_status->text().contains("Evaluated: 60"),
+        "Grid Inspector links by stable Ref, keeps authored x read-only and shows evaluated status separately");
+    source_artboard=session.document().compositions.front().artboards[1];source_artboard.width=80;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_target_ref).evaluated)==80&&
+        visible_child<QLabel>(window,"grid-bounds-x-source-state")->text().contains("Evaluated: 80"),
+        "Grid Inspector status follows upstream Artboard width without changing authored x");
+    const QString grid_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\")");
+    auto* grid_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-x-expression");
+    auto* grid_expression_apply=visible_child<QPushButton>(window,"grid-bounds-x-apply-expression");
+    auto* grid_replace_source=visible_child<QCheckBox>(window,"grid-bounds-x-replace");
+    grid_expression->setPlainText(grid_expression_text);QApplication::processEvents();
+    const auto before_unapproved_grid_expression=session.revision();QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_grid_expression&&board().layout->grid->bounds_x_driver==grid_source_ref&&
+        !board().layout->grid->bounds_x_expression&&grid_expression->toPlainText()==grid_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_X"),
+        "Grid expression replacement requires its visible explicit authorization and keeps the rejected draft");
+    grid_replace_source->setChecked(true);QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_grid_x=visible_child<QLineEdit>(window,"grid-x");grid_driven_status=visible_child<QLabel>(window,"grid-bounds-x-source-state");
+    check(session.revision()==before_unapproved_grid_expression+1&&driven_grid_x->isReadOnly()&&
+        !board().layout->grid->bounds_x_driver&&
+        board().layout->grid->bounds_x_expression==Expression{grid_expression_text.toStdString(),1}&&
+        grid_driven_status->text().contains("expression")&&grid_driven_status->text().contains("Literal: 60")&&
+        grid_driven_status->text().contains("Evaluated: 80"),
+        "Grid Inspector applies an explicit du expression while retaining the literal and reporting evaluated x");
+    grid_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-x-expression");grid_expression->setPlainText("ref(");
+    const auto before_invalid_grid_expression=session.revision();grid_expression_apply=visible_child<QPushButton>(window,"grid-bounds-x-apply-expression");
+    QTest::mouseClick(grid_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_grid_expression&&grid_expression->toPlainText()=="ref("&&
+        board().layout->grid->bounds_x_expression==Expression{grid_expression_text.toStdString(),1},
+        "Invalid Grid expression remains a draft without changing committed Session state");
+    click("grid-bounds-x-cancel-expression");
+    const auto before_refused_copy=session.revision();const auto document_before_refused_copy=session.document();
+    click("grid-copy-margin-box");
+    check(session.revision()==before_refused_copy&&session.document()==document_before_refused_copy&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_X"),
+        "Grid-to-Margin copy refuses to overwrite an expression-driven x literal with a different inset");
+    click("grid-bounds-x-unlink");
+    check(!board().layout->grid->bounds_x_driver&&!board().layout->grid->bounds_x_expression&&board().layout->grid->bounds.x==80,
+        "Grid x unlink freezes the expression's evaluated value into its literal");
+    click("grid-copy-margin-box");
+    check(board().layout->grid->bounds.x==80,"Grid-to-Margin copy succeeds after explicit unlink");
+    const QString margin_expression_text=QString::fromStdString("ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10");
+    auto* margin_expression=visible_child<QPlainTextEdit>(window,"margin-left-expression");
+    auto* margin_expression_apply=visible_child<QPushButton>(window,"margin-left-apply-expression");
+    auto* margin_replace_source=visible_child<QCheckBox>(window,"margin-left-replace");
+    margin_expression->setPlainText(margin_expression_text);QApplication::processEvents();
+    const auto before_unapproved_margin_expression=session.revision();
+    QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_unapproved_margin_expression&&board().layout->margin->left_driver==margin_source_ref&&
+        !board().layout->margin->left_expression&&margin_expression->toPlainText()==margin_expression_text&&
+        window.statusBar()->currentMessage().contains("DRIVEN_MARGIN_LEFT"),
+        "Margin expression replacement requires visible authorization and keeps the rejected draft");
+    margin_replace_source->setChecked(true);QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    auto* driven_margin_left=visible_child<QLineEdit>(window,"margin-left");
+    auto* margin_driven_status=visible_child<QLabel>(window,"margin-left-source-state");
+    check(session.revision()==before_unapproved_margin_expression+1&&driven_margin_left->isReadOnly()&&
+        !board().layout->margin->left_driver&&
+        board().layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
+        margin_driven_status->text().contains("expression")&&margin_driven_status->text().contains("Literal: 25")&&
+        margin_driven_status->text().contains("Evaluated: 90"),
+        "Margin Inspector applies a du expression, retains the literal and shows its evaluated inset");
+    margin_expression=visible_child<QPlainTextEdit>(window,"margin-left-expression");margin_expression->setPlainText("ref(");
+    const auto before_invalid_margin_expression=session.revision();
+    margin_expression_apply=visible_child<QPushButton>(window,"margin-left-apply-expression");
+    QTest::mouseClick(margin_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_invalid_margin_expression&&margin_expression->toPlainText()=="ref("&&
+        board().layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1},
+        "Invalid Margin expression stays as a draft without changing committed state");
+    click("margin-left-cancel-expression");
+    click("grid-copy-margin-box");
+    const auto first_grid_copy_eval=evaluate_artboard(session.document().compositions.front(),board_id);
+    const auto first_grid_copy_width=first_grid_copy_eval.width-first_grid_copy_eval.layout->margin->left-
+        first_grid_copy_eval.layout->margin->right;
+    check(board().layout->grid->bounds.x==first_grid_copy_eval.layout->margin->left&&
+        board().layout->grid->bounds.width==first_grid_copy_width,
+        "Grid-to-Margin copy uses evaluated left and right insets once (expected width="+
+            std::to_string(first_grid_copy_width)+")");
+    grid_source_choice=visible_child<QComboBox>(window,"grid-bounds-x-link-source");
+    for(int i=0;i<grid_source_choice->count();++i)
+        if(grid_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_id+"/artboard.width"))grid_source_width_choice=i;
+    grid_source_choice->setCurrentIndex(grid_source_width_choice);QApplication::processEvents();click("grid-bounds-x-link");
+    session.apply({AddArtboard{composition_id,Artboard{grid_y_source_id,"Grid y source",0,0,20,100},3},
+        AddArtboard{composition_id,Artboard{grid_width_source_id,"Grid width source",0,0,45,100},4}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    input("grid-height","400",true);
+    auto* grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
+    auto* grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
+    auto* grid_y_link_button=visible_child<QPushButton>(window,"grid-bounds-y-link");
+    auto* grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");
+    grid_y_search->setText("grid-y-ui-source/artboard.width");QApplication::processEvents();
+    int grid_y_source_index=-1;
+    for(int i=0;i<grid_y_source_choice->count();++i)
+        if(grid_y_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(grid_y_source_id+"/artboard.width"))
+            grid_y_source_index=i;
+    check(grid_y_source_index>=0,"Grid y source search exposes the exact stable Artboard width Ref");
+    grid_y_source_choice->setCurrentIndex(grid_y_source_index);QApplication::processEvents();
+    const auto before_grid_y_link=session.revision();click("grid-bounds-y-link");
+    const Ref grid_y_target_ref{board().layout->grid->id,"","grid.bounds.y"};
+    const Ref grid_y_source_ref{grid_y_source_id,"","artboard.width"};
+    auto* driven_grid_y=visible_child<QLineEdit>(window,"grid-y");
+    auto* grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
+    const auto linked_grid_y=artboard_layout_property(session.document(),grid_y_target_ref);
+    const auto linked_grid_y_details="revision="+std::to_string(session.revision())+
+        ", expected="+std::to_string(before_grid_y_link+1)+
+        ", readonly="+std::to_string(driven_grid_y->isReadOnly())+
+        ", literal_widget="+driven_grid_y->text().toStdString()+
+        ", source_kind="+linked_grid_y.source_kind+
+        ", source="+(linked_grid_y.driver?linked_grid_y.driver->object+"/"+linked_grid_y.driver->field:"none")+
+        ", evaluated="+std::to_string(std::get<double>(linked_grid_y.evaluated))+
+        ", state="+grid_y_status->text().toStdString();
+    check(session.revision()==before_grid_y_link+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="60"&&
+        linked_grid_y.driver==grid_y_source_ref&&
+        grid_y_status->text().contains("Literal: 60")&&grid_y_status->text().contains("Evaluated: 20"),
+        "Grid y Inspector links a searched stable Ref, keeps the literal read-only and shows evaluated status: "+
+            linked_grid_y_details);
+    auto grid_y_source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_y_source_id;});
+    grid_y_source_artboard.width=25;
+    session.apply({UpdateArtboard{composition_id,grid_y_source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
+        visible_child<QLabel>(window,"grid-bounds-y-source-state")->text().contains("Evaluated: 25"),
+        "Grid y Inspector status follows an upstream Artboard width change");
+    auto* grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    auto* grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_search->setText(QString::fromStdString(grid_width_source_id+"/artboard.width"));QApplication::processEvents();
+    int grid_width_source_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_width_source_id+"/artboard.width"))grid_width_source_index=i;
+    check(grid_width_source_index>=0,"Grid width search exposes the exact stable Artboard width Ref");
+    grid_width_source_choice->setCurrentIndex(grid_width_source_index);QApplication::processEvents();
+    const auto before_width_cancel=session.revision();click("grid-bounds-width-cancel");
+    check(session.revision()==before_width_cancel&&
+        !artboard_layout_property(session.document(),Ref{board().layout->grid->id,"","grid.bounds.width"}).driver,
+        "Cancel discards an uncommitted Grid width source draft");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    grid_width_search->setText(QString::fromStdString(grid_width_source_id+"/artboard.width"));QApplication::processEvents();
+    grid_width_source_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_width_source_id+"/artboard.width"))grid_width_source_index=i;
+    grid_width_source_choice->setCurrentIndex(grid_width_source_index);QApplication::processEvents();
+    const Ref grid_width_target_ref{board().layout->grid->id,"","grid.bounds.width"};
+    const Ref grid_width_source_ref{grid_width_source_id,"","artboard.width"};
+    auto* grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    const double grid_width_literal=std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).literal);
+    const auto before_width_link=session.revision();click("grid-bounds-width-link");
+    grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    auto width_state=artboard_layout_property(session.document(),grid_width_target_ref);
+    check(session.revision()==before_width_link+1&&grid_width_input->isReadOnly()&&
+        std::get<double>(width_state.literal)==grid_width_literal&&width_state.driver==grid_width_source_ref&&
+        std::get<double>(width_state.evaluated)==45&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Literal:")&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 45"),
+        "Grid width Inspector links the exact stable source and keeps its literal read-only beside evaluated status");
+    auto width_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_width_source_id;});
+    width_source_board.width=50;
+    session.apply({UpdateArtboard{composition_id,width_source_board}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).literal)==grid_width_literal&&
+        std::get<double>(artboard_layout_property(session.document(),grid_width_target_ref).evaluated)==50&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 50"),
+        "Grid width Inspector follows an upstream Artboard resize without changing its authored literal");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    auto* grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");
+    grid_width_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    int replacement_grid_width_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))replacement_grid_width_index=i;
+    grid_width_source_choice->setCurrentIndex(replacement_grid_width_index);QApplication::processEvents();
+    const Ref primary_grid_width_source_ref{margin_source_id,"","artboard.width"};
+    const auto before_width_replace=session.revision();click("grid-bounds-width-link");
+    check(session.revision()==before_width_replace&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==grid_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_WIDTH"),
+        "Replacing a Grid width source requires explicit Inspector authorization");
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");
+    grid_width_search=visible_child<QLineEdit>(window,"grid-bounds-width-link-source-search");
+    grid_width_source_choice=visible_child<QComboBox>(window,"grid-bounds-width-link-source");
+    grid_width_search->setText(QString::fromStdString(margin_source_id+"/artboard.width"));QApplication::processEvents();
+    replacement_grid_width_index=-1;
+    for(int i=0;i<grid_width_source_choice->count();++i)
+        if(grid_width_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_id+"/artboard.width"))replacement_grid_width_index=i;
+    grid_width_source_choice->setCurrentIndex(replacement_grid_width_index);QApplication::processEvents();
+    grid_width_replace->setChecked(true);click("grid-bounds-width-link");
+    const auto replaced_grid_width=artboard_layout_property(session.document(),grid_width_target_ref);
+    const auto grid_width_replace_details="revision="+std::to_string(session.revision())+", expected="+
+        std::to_string(before_width_replace+1)+", replace="+std::to_string(grid_width_replace->isChecked())+
+        ", source="+(replaced_grid_width.driver?replaced_grid_width.driver->object+"/"+replaced_grid_width.driver->field:"none")+
+        ", evaluated="+std::to_string(std::get<double>(replaced_grid_width.evaluated))+
+        ", status="+window.statusBar()->currentMessage().toStdString();
+    check(session.revision()==before_width_replace+1&&
+        replaced_grid_width.driver==primary_grid_width_source_ref&&
+        std::get<double>(replaced_grid_width.evaluated)==80,
+        "Grid width Inspector replaces its source only after explicit authorization: "+grid_width_replace_details);
+    auto* grid_width_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-width-expression");
+    const auto grid_width_expression_text="ref(\""+margin_source_id+"\",\"\",\"artboard.width\") + 10";
+    grid_width_expression->setPlainText(QString::fromStdString(grid_width_expression_text));
+    const auto before_width_expression=session.revision();
+    check(session.revision()==before_width_expression&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==primary_grid_width_source_ref,
+        "Grid width expression remains a separate draft until Apply");
+    click("grid-bounds-width-cancel-expression");
+    grid_width_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-width-expression");
+    grid_width_expression->setPlainText(QString::fromStdString(grid_width_expression_text));
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");grid_width_replace->setChecked(false);
+    click("grid-bounds-width-apply-expression");
+    check(session.revision()==before_width_expression&&
+        artboard_layout_property(session.document(),grid_width_target_ref).driver==primary_grid_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_WIDTH"),
+        "Replacing a Grid width link with an expression requires explicit Inspector authorization");
+    grid_width_replace=visible_child<QCheckBox>(window,"grid-bounds-width-replace");grid_width_replace->setChecked(true);
+    click("grid-bounds-width-apply-expression");
+    auto width_expression_state=artboard_layout_property(session.document(),grid_width_target_ref);
+    check(session.revision()==before_width_expression+1&&!width_expression_state.driver&&
+        width_expression_state.expression==Expression{grid_width_expression_text,1}&&
+        std::get<double>(width_expression_state.literal)==grid_width_literal&&
+        std::get<double>(width_expression_state.evaluated)==90&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("expression")&&
+        visible_child<QLabel>(window,"grid-bounds-width-source-state")->text().contains("Evaluated: 90"),
+        "Grid width Inspector applies an authorized expression and shows its exact source and evaluated value");
+    const auto before_width_edit=session.revision();grid_width_input=visible_child<QLineEdit>(window,"grid-width");
+    grid_width_input->setFocus();QTest::keyClick(grid_width_input,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(grid_width_input,"99");QTest::keyClick(grid_width_input,Qt::Key_Return);QApplication::processEvents();
+    const auto width_after_readonly=artboard_layout_property(session.document(),grid_width_target_ref);
+    const auto width_readonly_details="revision="+std::to_string(session.revision())+", expected="+
+        std::to_string(before_width_edit)+", readonly="+std::to_string(grid_width_input->isReadOnly())+
+        ", text="+grid_width_input->text().toStdString()+", literal="+
+        std::to_string(std::get<double>(width_after_readonly.literal))+", expected literal="+
+        std::to_string(grid_width_literal)+", source="+width_after_readonly.source_kind;
+    check(session.revision()==before_width_edit&&grid_width_input->isReadOnly()&&
+        std::get<double>(width_after_readonly.literal)==grid_width_literal&&
+        width_after_readonly.expression==Expression{grid_width_expression_text,1},
+        "A driven Grid width field refuses direct edits without changing its source or authored literal: "+width_readonly_details);
+    grid_y_search=visible_child<QLineEdit>(window,"grid-bounds-y-link-source-search");
+    grid_y_source_choice=visible_child<QComboBox>(window,"grid-bounds-y-link-source");
+    grid_y_search->setText("margin-ui-source-twin/artboard.width");QApplication::processEvents();
+    int twin_grid_y_index=-1;
+    for(int i=0;i<grid_y_source_choice->count();++i)
+        if(grid_y_source_choice->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(margin_source_twin_id+"/artboard.width"))
+            twin_grid_y_index=i;
+    check(twin_grid_y_index>=0,"Grid y search can select a second stable source without ambiguous display names");
+    grid_y_source_choice->setCurrentIndex(twin_grid_y_index);QApplication::processEvents();
+    const auto before_unapproved_y_replace=session.revision();click("grid-bounds-y-link");
+    check(session.revision()==before_unapproved_y_replace&&
+        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_Y"),
+        "Replacing Grid y source requires visible explicit authorization");
+    grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");grid_y_replace->setChecked(true);click("grid-bounds-y-link");
+    const Ref grid_y_twin_ref{margin_source_twin_id,"","artboard.width"};
+    check(session.revision()==before_unapproved_y_replace+1&&
+        artboard_layout_property(session.document(),grid_y_target_ref).driver==grid_y_twin_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==45,
+        "Grid y Inspector replaces a source only after explicit authorization");
+    const auto grid_y_expression_text=QString::fromStdString("ref(\""+grid_y_source_id+"\",\"\",\"artboard.width\")");
+    auto* grid_y_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-y-expression");
+    auto* grid_y_expression_apply=visible_child<QPushButton>(window,"grid-bounds-y-apply-expression");
+    grid_y_replace=visible_child<QCheckBox>(window,"grid-bounds-y-replace");
+    const auto before_grid_y_draft=session.revision();grid_y_expression->setPlainText(grid_y_expression_text);QApplication::processEvents();
+    check(session.revision()==before_grid_y_draft&&board().layout->grid->bounds_y_driver==grid_y_twin_ref,
+        "Grid y expression stays a draft while a link remains active");
+    QTest::mouseClick(grid_y_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_grid_y_draft&&board().layout->grid->bounds_y_driver==grid_y_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_Y"),
+        "Replacing the Grid y link with an expression requires visible authorization");
+    grid_y_replace->setChecked(true);QTest::mouseClick(grid_y_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    driven_grid_y=visible_child<QLineEdit>(window,"grid-y");grid_y_status=visible_child<QLabel>(window,"grid-bounds-y-source-state");
+    check(session.revision()==before_grid_y_draft+1&&driven_grid_y->isReadOnly()&&driven_grid_y->text()=="60"&&
+        !board().layout->grid->bounds_y_driver&&
+        board().layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
+        std::get<double>(artboard_layout_property(session.document(),grid_y_target_ref).evaluated)==25&&
+        grid_y_status->text().contains("expression")&&grid_y_status->text().contains("Literal: 60")&&
+        grid_y_status->text().contains("Evaluated: 25"),
+        "Grid y Inspector applies an explicit du expression and retains the literal plus evaluated status");
+    auto* grid_height_source_choice=visible_child<QComboBox>(window,"grid-bounds-height-link-source");
+    auto* grid_height_search=visible_child<QLineEdit>(window,"grid-bounds-height-link-source-search");
+    auto* grid_height_link_button=visible_child<QPushButton>(window,"grid-bounds-height-link");
+    auto* grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");
+    auto* grid_height_input=visible_child<QLineEdit>(window,"grid-height");
+    const Ref grid_height_target_ref{board().layout->grid->id,"","grid.bounds.height"};
+    const double grid_height_literal=std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).literal);
+    const Ref grid_height_source_ref{grid_y_source_id,"","artboard.height"};
+    check(grid_height_source_choice->currentIndex()==-1&&!grid_height_link_button->isEnabled()&&
+        !grid_height_input->isReadOnly()&&window.findChild<QGroupBox*>("grid-bounds-height-source")!=nullptr,
+        "Unlinked Grid height presents a source draft with no implicit Artboard selection");
+    grid_height_search->setText(QString::fromStdString(grid_y_source_id+"/artboard.height"));QApplication::processEvents();
+    int grid_height_source_index=-1;
+    for(int i=0;i<grid_height_source_choice->count();++i)
+        if(grid_height_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_y_source_id+"/artboard.height"))grid_height_source_index=i;
+    check(grid_height_source_index>=0,"Grid height search exposes the exact stable Artboard height Ref");
+    grid_height_source_choice->setCurrentIndex(grid_height_source_index);QApplication::processEvents();
+    const auto before_grid_height_cancel=session.revision();click("grid-bounds-height-cancel");
+    check(session.revision()==before_grid_height_cancel&&
+        !artboard_layout_property(session.document(),grid_height_target_ref).driver,
+        "Cancel discards an uncommitted Grid height source draft");
+    grid_height_source_choice=visible_child<QComboBox>(window,"grid-bounds-height-link-source");
+    grid_height_search=visible_child<QLineEdit>(window,"grid-bounds-height-link-source-search");
+    grid_height_link_button=visible_child<QPushButton>(window,"grid-bounds-height-link");
+    grid_height_search->setText(QString::fromStdString(grid_y_source_id+"/artboard.height"));QApplication::processEvents();
+    grid_height_source_index=-1;
+    for(int i=0;i<grid_height_source_choice->count();++i)
+        if(grid_height_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_y_source_id+"/artboard.height"))grid_height_source_index=i;
+    grid_height_source_choice->setCurrentIndex(grid_height_source_index);QApplication::processEvents();
+    const auto before_grid_height_link=session.revision();click("grid-bounds-height-link");
+    grid_height_input=visible_child<QLineEdit>(window,"grid-height");
+    auto linked_grid_height=artboard_layout_property(session.document(),grid_height_target_ref);
+    check(session.revision()==before_grid_height_link+1&&grid_height_input->isReadOnly()&&
+        std::get<double>(linked_grid_height.literal)==grid_height_literal&&linked_grid_height.driver==grid_height_source_ref&&
+        std::get<double>(linked_grid_height.evaluated)==100&&
+        visible_child<QLabel>(window,"grid-bounds-height-source-state")->text().contains("Literal: 400")&&
+        visible_child<QLabel>(window,"grid-bounds-height-source-state")->text().contains("Evaluated: 100"),
+        "Grid height Inspector links the exact Artboard height Ref and shows its read-only literal plus evaluated value");
+    auto grid_height_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==grid_y_source_id;});
+    grid_height_source_board.height=110;
+    session.apply({UpdateArtboard{composition_id,grid_height_source_board}},session.revision());window.host.edited();QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).literal)==grid_height_literal&&
+        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).evaluated)==110&&
+        visible_child<QLabel>(window,"grid-bounds-height-source-state")->text().contains("Evaluated: 110"),
+        "Grid height Inspector follows an upstream Artboard resize without changing its authored literal");
+    grid_height_source_choice=visible_child<QComboBox>(window,"grid-bounds-height-link-source");
+    grid_height_search=visible_child<QLineEdit>(window,"grid-bounds-height-link-source-search");
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");
+    grid_height_search->setText(QString::fromStdString(margin_source_twin_id+"/artboard.height"));QApplication::processEvents();
+    int replacement_grid_height_index=-1;
+    for(int i=0;i<grid_height_source_choice->count();++i)
+        if(grid_height_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(margin_source_twin_id+"/artboard.height"))replacement_grid_height_index=i;
+    check(replacement_grid_height_index>=0,"Grid height search can select a distinct stable Artboard height Ref");
+    grid_height_source_choice->setCurrentIndex(replacement_grid_height_index);QApplication::processEvents();
+    const auto before_grid_height_replace=session.revision();click("grid-bounds-height-link");
+    check(session.revision()==before_grid_height_replace&&
+        artboard_layout_property(session.document(),grid_height_target_ref).driver==grid_height_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_HEIGHT"),
+        "Replacing a Grid height source requires visible explicit authorization");
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");grid_height_replace->setChecked(true);
+    click("grid-bounds-height-link");
+    check(session.revision()==before_grid_height_replace+1&&
+        artboard_layout_property(session.document(),grid_height_target_ref).driver==Ref{margin_source_twin_id,"","artboard.height"}&&
+        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).evaluated)==120,
+        "Grid height Inspector replaces the source only after explicit authorization");
+    grid_height_source_choice=visible_child<QComboBox>(window,"grid-bounds-height-link-source");
+    grid_height_search=visible_child<QLineEdit>(window,"grid-bounds-height-link-source-search");
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");
+    grid_height_search->setText(QString::fromStdString(grid_y_source_id+"/artboard.height"));QApplication::processEvents();
+    grid_height_source_index=-1;
+    for(int i=0;i<grid_height_source_choice->count();++i)
+        if(grid_height_source_choice->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_y_source_id+"/artboard.height"))grid_height_source_index=i;
+    grid_height_source_choice->setCurrentIndex(grid_height_source_index);QApplication::processEvents();
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");grid_height_replace->setChecked(true);
+    click("grid-bounds-height-link");
+    const QString grid_height_expression_text=QString::fromStdString("ref(\""+grid_y_source_id+"\",\"\",\"artboard.height\") + 10");
+    auto* grid_height_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-height-expression");
+    auto* grid_height_expression_apply=visible_child<QPushButton>(window,"grid-bounds-height-apply-expression");
+    grid_height_replace=visible_child<QCheckBox>(window,"grid-bounds-height-replace");
+    grid_height_expression->setPlainText(grid_height_expression_text);QApplication::processEvents();
+    const auto before_grid_height_expression=session.revision();grid_height_replace->setChecked(false);
+    QTest::mouseClick(grid_height_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    check(session.revision()==before_grid_height_expression&&
+        artboard_layout_property(session.document(),grid_height_target_ref).driver==grid_height_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_BOUNDS_HEIGHT"),
+        "Replacing the Grid height link with an expression requires visible authorization");
+    grid_height_replace->setChecked(true);QTest::mouseClick(grid_height_expression_apply,Qt::LeftButton);QApplication::processEvents();
+    grid_height_input=visible_child<QLineEdit>(window,"grid-height");
+    const auto expressed_grid_height=artboard_layout_property(session.document(),grid_height_target_ref);
+    auto* grid_height_expression_state=visible_child<QLabel>(window,"grid-bounds-height-source-state");
+    check(session.revision()==before_grid_height_expression+1&&grid_height_input->isReadOnly()&&
+        !expressed_grid_height.driver&&expressed_grid_height.expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        std::get<double>(expressed_grid_height.literal)==grid_height_literal&&
+        std::get<double>(expressed_grid_height.evaluated)==120&&
+        grid_height_expression_state->text().contains("expression")&&
+        grid_height_expression_state->text().contains("Literal: 400")&&
+        grid_height_expression_state->text().contains("Evaluated: 120"),
+        "Grid height Inspector applies the exact expression and keeps its driven numeric field read-only");
+    grid_height_expression=visible_child<QPlainTextEdit>(window,"grid-bounds-height-expression");
+    grid_height_expression->setPlainText("500");QApplication::processEvents();
+    const auto before_grid_height_expression_cancel=session.revision();click("grid-bounds-height-cancel-expression");
+    check(session.revision()==before_grid_height_expression_cancel&&
+        artboard_layout_property(session.document(),grid_height_target_ref).expression==
+            Expression{grid_height_expression_text.toStdString(),1},
+        "Cancel discards an uncommitted Grid height expression draft");
+    grid_height_input=visible_child<QLineEdit>(window,"grid-height");
+    const auto before_grid_height_readonly=session.revision();grid_height_input->setFocus();
+    QTest::keyClick(grid_height_input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(grid_height_input,"999");
+    QTest::keyClick(grid_height_input,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_grid_height_readonly&&grid_height_input->isReadOnly()&&
+        !board().layout->grid->bounds_height_driver&&
+        board().layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).literal)==grid_height_literal&&
+        std::get<double>(artboard_layout_property(session.document(),grid_height_target_ref).evaluated)==120,
+        "An expression-driven Grid height refuses direct edits and retains its exact source and authored literal");
+    input("grid-columns","2",true);
+    check(!board().layout->grid->bounds_height_driver&&
+        board().layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        artboard_layout_property(session.document(),grid_height_target_ref).expression==
+            Expression{grid_height_expression_text.toStdString(),1},
+        "Applying sibling Grid fields preserves the height expression in Inspector draft state");
+    const Ref grid_column_gutter_target_ref{board().layout->grid->id,"","grid.column_gutter"};
+    const Ref grid_column_gutter_height_source_ref{grid_column_gutter_source_id,"","artboard.height"};
+    const Ref grid_column_gutter_width_source_ref{grid_column_gutter_source_id,"","artboard.width"};
+    const double grid_column_gutter_literal=std::get<double>(
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).literal);
+    auto* grid_column_gutter_input=visible_child<QLineEdit>(window,"grid-column-gutter");
+    auto* grid_column_gutter_picker=visible_child<QComboBox>(window,"grid-column-gutter-link-source");
+    auto* grid_column_gutter_search=visible_child<QLineEdit>(window,"grid-column-gutter-link-source-search");
+    auto* grid_column_gutter_link=visible_child<QPushButton>(window,"grid-column-gutter-link");
+    check(grid_column_gutter_picker->currentIndex()==-1&&!grid_column_gutter_link->isEnabled()&&
+        !grid_column_gutter_input->isReadOnly(),
+        "An unlinked Grid column gutter starts with an empty source draft and an editable literal");
+    grid_column_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"));
+    QApplication::processEvents();
+    int grid_column_gutter_height_index=-1;
+    for(int i=0;i<grid_column_gutter_picker->count();++i)
+        if(grid_column_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"))grid_column_gutter_height_index=i;
+    check(grid_column_gutter_height_index>=0,"Grid column gutter source search exposes the exact stable Artboard height Ref");
+    grid_column_gutter_picker->setCurrentIndex(grid_column_gutter_height_index);QApplication::processEvents();
+    const auto before_grid_column_gutter_cancel=session.revision();click("grid-column-gutter-cancel");
+    check(session.revision()==before_grid_column_gutter_cancel&&
+        !artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver,
+        "Cancel discards the Grid column gutter source draft");
+    grid_column_gutter_picker=visible_child<QComboBox>(window,"grid-column-gutter-link-source");
+    grid_column_gutter_search=visible_child<QLineEdit>(window,"grid-column-gutter-link-source-search");
+    grid_column_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"));
+    QApplication::processEvents();grid_column_gutter_height_index=-1;
+    for(int i=0;i<grid_column_gutter_picker->count();++i)
+        if(grid_column_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"))grid_column_gutter_height_index=i;
+    grid_column_gutter_picker->setCurrentIndex(grid_column_gutter_height_index);QApplication::processEvents();
+    const auto before_grid_column_gutter_link=session.revision();click("grid-column-gutter-link");
+    auto* linked_grid_column_gutter_input=visible_child<QLineEdit>(window,"grid-column-gutter");
+    auto* grid_column_gutter_status=visible_child<QLabel>(window,"grid-column-gutter-source-state");
+    auto linked_grid_column_gutter=artboard_layout_property(session.document(),grid_column_gutter_target_ref);
+    check(session.revision()==before_grid_column_gutter_link+1&&linked_grid_column_gutter_input->isReadOnly()&&
+        std::get<double>(linked_grid_column_gutter.literal)==grid_column_gutter_literal&&
+        linked_grid_column_gutter.driver==grid_column_gutter_height_source_ref&&
+        std::get<double>(linked_grid_column_gutter.evaluated)==20&&
+        grid_column_gutter_status->text().contains("Literal: "+QString::number(grid_column_gutter_literal,'g',15))&&
+        grid_column_gutter_status->text().contains("Evaluated: 20"),
+        "Grid column gutter Inspector links the exact Artboard height Ref and keeps its authored literal read-only");
+    const auto before_grid_column_gutter_edit=session.revision();
+    linked_grid_column_gutter_input->setFocus();QTest::keyClick(linked_grid_column_gutter_input,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(linked_grid_column_gutter_input,"99");QTest::keyClick(linked_grid_column_gutter_input,Qt::Key_Return);
+    QApplication::processEvents();
+    check(session.revision()==before_grid_column_gutter_edit&&linked_grid_column_gutter_input->isReadOnly()&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_height_source_ref,
+        "A linked Grid column gutter refuses direct Inspector edits");
+    auto gutter_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==grid_column_gutter_source_id;
+        });
+    gutter_source_board.height=30;
+    session.apply({UpdateArtboard{composition_id,gutter_source_board}},session.revision());window.host.edited();
+    QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==30&&
+        visible_child<QLabel>(window,"grid-column-gutter-source-state")->text().contains("Evaluated: 30"),
+        "Grid column gutter Inspector follows an Artboard resize without changing its authored literal");
+    grid_column_gutter_picker=visible_child<QComboBox>(window,"grid-column-gutter-link-source");
+    grid_column_gutter_search=visible_child<QLineEdit>(window,"grid-column-gutter-link-source-search");
+    auto* grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"));
+    QApplication::processEvents();int grid_column_gutter_width_index=-1;
+    for(int i=0;i<grid_column_gutter_picker->count();++i)
+        if(grid_column_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"))grid_column_gutter_width_index=i;
+    check(grid_column_gutter_width_index>=0,"Grid column gutter Inspector can choose a distinct replacement Artboard field");
+    grid_column_gutter_picker->setCurrentIndex(grid_column_gutter_width_index);QApplication::processEvents();
+    const auto before_unapproved_grid_column_gutter_replace=session.revision();click("grid-column-gutter-link");
+    check(session.revision()==before_unapproved_grid_column_gutter_replace&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_height_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMN_GUTTER"),
+        "Replacing a Grid column gutter source requires visible explicit authorization");
+    grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_replace->setChecked(true);click("grid-column-gutter-link");
+    check(session.revision()==before_unapproved_grid_column_gutter_replace+1&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==10,
+        "Grid column gutter Inspector replaces its source only after explicit authorization");
+    input("grid-columns","3",true);
+    check(board().layout->grid->columns==3&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==10,
+        "Applying sibling Grid fields preserves the exact column gutter source");
+    const std::string grid_column_gutter_expression_text="ref(\""+grid_column_gutter_source_id+
+        "\",\"\",\"artboard.width\") + 10";
+    auto* grid_column_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-column-gutter-expression");
+    auto* grid_column_gutter_apply_expression=visible_child<QPushButton>(window,"grid-column-gutter-apply-expression");
+    grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_expression_input->setPlainText(QString::fromStdString(grid_column_gutter_expression_text));
+    const auto before_grid_column_gutter_expression_cancel=session.revision();click("grid-column-gutter-cancel");
+    check(session.revision()==before_grid_column_gutter_expression_cancel&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_column_gutter_target_ref).expression,
+        "Cancel discards an uncommitted Grid column gutter expression draft");
+    grid_column_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-column-gutter-expression");
+    grid_column_gutter_apply_expression=visible_child<QPushButton>(window,"grid-column-gutter-apply-expression");
+    grid_column_gutter_replace=visible_child<QCheckBox>(window,"grid-column-gutter-replace");
+    grid_column_gutter_expression_input->setPlainText(QString::fromStdString(grid_column_gutter_expression_text));
+    const auto before_unapproved_grid_column_gutter_expression=session.revision();click("grid-column-gutter-apply-expression");
+    check(session.revision()==before_unapproved_grid_column_gutter_expression&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).driver==grid_column_gutter_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMN_GUTTER"),
+        "Replacing a Grid column gutter link with an expression requires visible explicit authorization");
+    grid_column_gutter_replace->setChecked(true);click("grid-column-gutter-apply-expression");
+    auto expressed_grid_column_gutter=artboard_layout_property(session.document(),grid_column_gutter_target_ref);
+    grid_column_gutter_input=visible_child<QLineEdit>(window,"grid-column-gutter");
+    grid_column_gutter_status=visible_child<QLabel>(window,"grid-column-gutter-source-state");
+    check(session.revision()==before_unapproved_grid_column_gutter_expression+1&&grid_column_gutter_input->isReadOnly()&&
+        !expressed_grid_column_gutter.driver&&
+        expressed_grid_column_gutter.expression==Expression{grid_column_gutter_expression_text,1}&&
+        std::get<double>(expressed_grid_column_gutter.literal)==grid_column_gutter_literal&&
+        std::get<double>(expressed_grid_column_gutter.evaluated)==20&&
+        grid_column_gutter_status->text().contains("expression")&&grid_column_gutter_status->text().contains("Evaluated: 20"),
+        "Inspector applies the exact column gutter expression while keeping its authored numeric field read-only");
+    input("grid-rows","2",true);
+    check(!board().layout->grid->column_gutter_driver&&
+        board().layout->grid->column_gutter_expression==Expression{grid_column_gutter_expression_text,1}&&
+        artboard_layout_property(session.document(),grid_column_gutter_target_ref).expression==
+            Expression{grid_column_gutter_expression_text,1},
+        "Applying sibling Grid fields preserves the column gutter expression in Inspector draft state");
+    const Ref grid_row_gutter_target_ref{board().layout->grid->id,"","grid.row_gutter"};
+    const Ref grid_row_gutter_height_source_ref{grid_column_gutter_source_id,"","artboard.height"};
+    const Ref grid_row_gutter_width_source_ref{grid_column_gutter_source_id,"","artboard.width"};
+    const double grid_row_gutter_literal=std::get<double>(
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal);
+    auto* grid_row_gutter_input=visible_child<QLineEdit>(window,"grid-row-gutter");
+    auto* grid_row_gutter_picker=visible_child<QComboBox>(window,"grid-row-gutter-link-source");
+    auto* grid_row_gutter_search=visible_child<QLineEdit>(window,"grid-row-gutter-link-source-search");
+    auto* grid_row_gutter_link=visible_child<QPushButton>(window,"grid-row-gutter-link");
+    check(grid_row_gutter_picker->currentIndex()==-1&&!grid_row_gutter_link->isEnabled()&&
+        !grid_row_gutter_input->isReadOnly(),
+        "An unlinked Grid row gutter starts with an empty source draft and an editable literal");
+    grid_row_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"));
+    QApplication::processEvents();int grid_row_gutter_height_index=-1;
+    for(int i=0;i<grid_row_gutter_picker->count();++i)
+        if(grid_row_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"))grid_row_gutter_height_index=i;
+    check(grid_row_gutter_height_index>=0,"Grid row gutter search exposes the exact stable Artboard height Ref");
+    grid_row_gutter_picker->setCurrentIndex(grid_row_gutter_height_index);QApplication::processEvents();
+    const auto before_grid_row_gutter_cancel=session.revision();click("grid-row-gutter-cancel");
+    check(session.revision()==before_grid_row_gutter_cancel&&
+        !artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver,
+        "Cancel discards the Grid row gutter source draft");
+    grid_row_gutter_picker=visible_child<QComboBox>(window,"grid-row-gutter-link-source");
+    grid_row_gutter_search=visible_child<QLineEdit>(window,"grid-row-gutter-link-source-search");
+    grid_row_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"));
+    QApplication::processEvents();grid_row_gutter_height_index=-1;
+    for(int i=0;i<grid_row_gutter_picker->count();++i)
+        if(grid_row_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.height"))grid_row_gutter_height_index=i;
+    grid_row_gutter_picker->setCurrentIndex(grid_row_gutter_height_index);QApplication::processEvents();
+    const auto before_grid_row_gutter_link=session.revision();click("grid-row-gutter-link");
+    auto* linked_grid_row_gutter_input=visible_child<QLineEdit>(window,"grid-row-gutter");
+    auto* grid_row_gutter_status=visible_child<QLabel>(window,"grid-row-gutter-source-state");
+    auto linked_grid_row_gutter=artboard_layout_property(session.document(),grid_row_gutter_target_ref);
+    check(session.revision()==before_grid_row_gutter_link+1&&linked_grid_row_gutter_input->isReadOnly()&&
+        std::get<double>(linked_grid_row_gutter.literal)==grid_row_gutter_literal&&
+        linked_grid_row_gutter.driver==grid_row_gutter_height_source_ref&&
+        std::get<double>(linked_grid_row_gutter.evaluated)==30&&
+        grid_row_gutter_status->text().contains("Literal: "+QString::number(grid_row_gutter_literal,'g',15))&&
+        grid_row_gutter_status->text().contains("Evaluated: 30"),
+        "Grid row gutter Inspector links the exact Artboard height Ref and keeps its authored literal read-only");
+    const auto before_grid_row_gutter_edit=session.revision();
+    linked_grid_row_gutter_input->setFocus();QTest::keyClick(linked_grid_row_gutter_input,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(linked_grid_row_gutter_input,"99");QTest::keyClick(linked_grid_row_gutter_input,Qt::Key_Return);
+    QApplication::processEvents();
+    check(session.revision()==before_grid_row_gutter_edit&&linked_grid_row_gutter_input->isReadOnly()&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_height_source_ref,
+        "A linked Grid row gutter refuses direct Inspector edits");
+    input("grid-rows","2",true);
+    check(board().layout->grid->rows==2&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_height_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==30,
+        "Applying sibling Grid fields preserves the exact row gutter source");
+    grid_row_gutter_picker=visible_child<QComboBox>(window,"grid-row-gutter-link-source");
+    grid_row_gutter_search=visible_child<QLineEdit>(window,"grid-row-gutter-link-source-search");
+    auto* grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"));
+    QApplication::processEvents();int grid_row_gutter_width_index=-1;
+    for(int i=0;i<grid_row_gutter_picker->count();++i)
+        if(grid_row_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"))grid_row_gutter_width_index=i;
+    check(grid_row_gutter_width_index>=0,"Grid row gutter Inspector can choose a distinct replacement Artboard field");
+    grid_row_gutter_picker->setCurrentIndex(grid_row_gutter_width_index);QApplication::processEvents();
+    const auto before_unapproved_grid_row_gutter_replace=session.revision();click("grid-row-gutter-link");
+    check(session.revision()==before_unapproved_grid_row_gutter_replace&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_height_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROW_GUTTER"),
+        "Replacing a Grid row gutter source requires visible explicit authorization");
+    grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_replace->setChecked(true);click("grid-row-gutter-link");
+    check(session.revision()==before_unapproved_grid_row_gutter_replace+1&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==10,
+        "Grid row gutter Inspector replaces its source only after explicit authorization");
+    const std::string grid_row_gutter_expression_text="ref(\""+grid_column_gutter_source_id+
+        "\",\"\",\"artboard.height\") + 0";
+    auto* grid_row_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-row-gutter-expression");
+    auto* grid_row_gutter_apply_expression=visible_child<QPushButton>(window,"grid-row-gutter-apply-expression");
+    grid_row_gutter_expression_input->setPlainText(QString::fromStdString(grid_row_gutter_expression_text));
+    const auto before_grid_row_gutter_expression_cancel=session.revision();click("grid-row-gutter-cancel");
+    check(session.revision()==before_grid_row_gutter_expression_cancel&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_row_gutter_target_ref).expression,
+        "Cancel discards an uncommitted Grid row gutter expression draft");
+    grid_row_gutter_expression_input=visible_child<QPlainTextEdit>(window,"grid-row-gutter-expression");
+    grid_row_gutter_apply_expression=visible_child<QPushButton>(window,"grid-row-gutter-apply-expression");
+    grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_expression_input->setPlainText(QString::fromStdString(grid_row_gutter_expression_text));
+    const auto before_unapproved_grid_row_gutter_expression=session.revision();click("grid-row-gutter-apply-expression");
+    check(session.revision()==before_unapproved_grid_row_gutter_expression&&
+        artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROW_GUTTER"),
+        "Replacing a Grid row gutter link with an expression requires visible explicit authorization");
+    grid_row_gutter_replace->setChecked(true);click("grid-row-gutter-apply-expression");
+    auto expressed_grid_row_gutter=artboard_layout_property(session.document(),grid_row_gutter_target_ref);
+    grid_row_gutter_input=visible_child<QLineEdit>(window,"grid-row-gutter");
+    grid_row_gutter_status=visible_child<QLabel>(window,"grid-row-gutter-source-state");
+    check(session.revision()==before_unapproved_grid_row_gutter_expression+1&&grid_row_gutter_input->isReadOnly()&&
+        !expressed_grid_row_gutter.driver&&expressed_grid_row_gutter.expression==Expression{grid_row_gutter_expression_text,1}&&
+        std::get<double>(expressed_grid_row_gutter.literal)==grid_row_gutter_literal&&
+        std::get<double>(expressed_grid_row_gutter.evaluated)==30&&
+        grid_row_gutter_status->text().contains("expression")&&grid_row_gutter_status->text().contains("Evaluated: 30"),
+        "Inspector applies the exact row gutter expression while keeping its authored numeric field read-only");
+    grid_row_gutter_picker=visible_child<QComboBox>(window,"grid-row-gutter-link-source");
+    grid_row_gutter_search=visible_child<QLineEdit>(window,"grid-row-gutter-link-source-search");
+    grid_row_gutter_replace=visible_child<QCheckBox>(window,"grid-row-gutter-replace");
+    grid_row_gutter_search->setText(QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"));
+    QApplication::processEvents();grid_row_gutter_width_index=-1;
+    for(int i=0;i<grid_row_gutter_picker->count();++i)
+        if(grid_row_gutter_picker->itemData(i,Qt::ToolTipRole).toString()==
+            QString::fromStdString(grid_column_gutter_source_id+"/artboard.width"))grid_row_gutter_width_index=i;
+    check(grid_row_gutter_width_index>=0,"Grid row gutter link draft remains available beside the expression editor");
+    grid_row_gutter_picker->setCurrentIndex(grid_row_gutter_width_index);QApplication::processEvents();
+    grid_row_gutter_replace->setChecked(true);click("grid-row-gutter-link");
+    check(artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver==grid_row_gutter_width_source_ref&&
+        !artboard_layout_property(session.document(),grid_row_gutter_target_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).evaluated)==10,
+        "Explicit Grid row gutter link replacement clears its prior expression");
+    gutter_source_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==grid_column_gutter_source_id;
+        });
+    gutter_source_board.width=20;
+    session.apply({UpdateArtboard{composition_id,gutter_source_board}},session.revision());window.host.edited();
+    QApplication::processEvents();
+    check(std::get<double>(artboard_layout_property(session.document(),grid_column_gutter_target_ref).evaluated)==30&&
+        visible_child<QLabel>(window,"grid-column-gutter-source-state")->text().contains("Evaluated: 30"),
+        "Grid column gutter Inspector readback follows its width expression after an Artboard resize");
+    const Ref grid_columns_target_ref{board().layout->grid->id,"","grid.columns"};
+    const Ref grid_columns_source_ref{grid_columns_source_grid_id,"","grid.columns"};
+    const Ref grid_columns_twin_ref{grid_columns_twin_grid_id,"","grid.columns"};
+    const auto grid_columns_literal=std::get<std::size_t>(artboard_layout_property(session.document(),grid_columns_target_ref).literal);
+    auto* grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");reveal(window,grid_columns_input);
+    auto* grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    auto* grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    auto select_grid_columns_source=[&](const Ref& ref,QLineEdit*& search,QComboBox*& picker) {
+        search->setText(QString::fromStdString(ref.object+"/"+ref.field));QApplication::processEvents();
+        int index=-1;
+        for(int i=0;i<picker->count();++i)
+            if(picker->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(ref.object+"/"+ref.field))index=i;
+        check(index>=0,"Grid columns source search exposes the exact stable Grid Ref");
+        picker->setCurrentIndex(index);QApplication::processEvents();
+    };
+    check(!grid_columns_input->isReadOnly()&&grid_columns_picker->currentIndex()==-1,
+        "Literal Grid columns starts editable with no implicit source selection");
+    select_grid_columns_source(grid_columns_source_ref,grid_columns_search,grid_columns_picker);
+    const auto before_grid_columns_cancel=session.revision();click("grid-columns-cancel");
+    check(session.revision()==before_grid_columns_cancel&&
+        !artboard_layout_property(session.document(),grid_columns_target_ref).driver,
+        "Cancel discards a searched Grid columns source draft without changing the Session");
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_source_ref,grid_columns_search,grid_columns_picker);
+    click("grid-columns-link");
+    grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");
+    auto* grid_columns_state=visible_child<QLabel>(window,"grid-columns-source-state");
+    auto linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(session.revision()==before_grid_columns_cancel+1&&grid_columns_input->isReadOnly()&&
+        std::get<std::size_t>(linked_grid_columns.literal)==grid_columns_literal&&
+        linked_grid_columns.driver==grid_columns_source_ref&&std::get<std::size_t>(linked_grid_columns.evaluated)==3&&
+        grid_columns_state->text().contains("Literal: "+QString::number(static_cast<qulonglong>(grid_columns_literal)))&&
+        grid_columns_state->text().contains("Evaluated: 3"),
+        "Grid columns Inspector links the exact same-field stable Grid Ref and keeps the authored integer read-only");
+    const auto before_grid_columns_edit=session.revision();grid_columns_input->setFocus();
+    QTest::keyClick(grid_columns_input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(grid_columns_input,"99");
+    QTest::keyClick(grid_columns_input,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_grid_columns_edit&&grid_columns_input->isReadOnly()&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_source_ref,
+        "A linked Grid columns literal refuses direct Inspector edits");
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_twin_ref,grid_columns_search,grid_columns_picker);
+    auto* grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    const auto before_unapproved_grid_columns_replace=session.revision();click("grid-columns-link");
+    check(session.revision()==before_unapproved_grid_columns_replace&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMNS"),
+        "Replacing a Grid columns source requires visible explicit authorization");
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-link");
+    linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(session.revision()==before_unapproved_grid_columns_replace+1&&linked_grid_columns.driver==grid_columns_twin_ref&&
+        std::get<std::size_t>(linked_grid_columns.evaluated)==2,
+        "Grid columns Inspector replaces its source only after explicit authorization");
+    const std::string grid_columns_expression_text="ref(\""+grid_columns_twin_grid_id+
+        "\",\"\",\"grid.columns\") + 1";
+    auto* grid_columns_expression_input=visible_child<QPlainTextEdit>(window,"grid-columns-expression");
+    grid_columns_expression_input->setPlainText(QString::fromStdString(grid_columns_expression_text));
+    const auto before_grid_columns_expression_cancel=session.revision();click("grid-columns-cancel-expression");
+    check(session.revision()==before_grid_columns_expression_cancel&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_twin_ref&&
+        !artboard_layout_property(session.document(),grid_columns_target_ref).expression,
+        "Cancel discards a Grid columns expression draft without changing its linked source");
+    grid_columns_expression_input=visible_child<QPlainTextEdit>(window,"grid-columns-expression");
+    grid_columns_expression_input->setPlainText(QString::fromStdString(grid_columns_expression_text));
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(false);
+    const auto before_unapproved_grid_columns_expression=session.revision();click("grid-columns-apply-expression");
+    check(session.revision()==before_unapproved_grid_columns_expression&&
+        artboard_layout_property(session.document(),grid_columns_target_ref).driver==grid_columns_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_COLUMNS"),
+        "Replacing a Grid columns link with an expression requires explicit Inspector authorization");
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-apply-expression");
+    auto expressed_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    grid_columns_input=visible_child<QLineEdit>(window,"grid-columns");
+    grid_columns_state=visible_child<QLabel>(window,"grid-columns-source-state");
+    check(session.revision()==before_unapproved_grid_columns_expression+1&&grid_columns_input->isReadOnly()&&
+        !expressed_grid_columns.driver&&expressed_grid_columns.expression==Expression{grid_columns_expression_text,1}&&
+        std::get<std::size_t>(expressed_grid_columns.literal)==grid_columns_literal&&
+        std::get<std::size_t>(expressed_grid_columns.evaluated)==3&&
+        grid_columns_state->text().contains("expression")&&grid_columns_state->text().contains("Evaluated: 3"),
+        "Inspector applies the exact unitless Grid columns expression and keeps its authored integer read-only");
+    click("artboard-duplicate");const auto expression_duplicate_id=window.canvas->active_artboard();
+    const auto expression_duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==expression_duplicate_id;
+        });
+    check(expression_duplicate!=session.document().compositions.front().artboards.end()&&
+        expression_duplicate->layout&&expression_duplicate->layout->grid&&
+        expression_duplicate->layout->grid->id!=grid_columns_target_ref.object&&
+        expression_duplicate->layout->grid->columns_expression==Expression{grid_columns_expression_text,1}&&
+        artboard_layout_property(session.document(),Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).expression==
+            Expression{grid_columns_expression_text,1}&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).literal)==grid_columns_literal&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{expression_duplicate->layout->grid->id,"","grid.columns"}).evaluated)==3,
+        "Duplicate replays the exact Grid columns expression and authored count onto its new stable Grid ID");
+    session.apply({DeleteArtboard{composition_id,expression_duplicate_id}},session.revision());window.host.edited();
+    window.canvas->set_active_artboard(composition_id,board_id,false);QApplication::processEvents();
+    grid_columns_search=visible_child<QLineEdit>(window,"grid-columns-link-source-search");reveal(window,grid_columns_search);
+    grid_columns_picker=visible_child<QComboBox>(window,"grid-columns-link-source");reveal(window,grid_columns_picker);
+    select_grid_columns_source(grid_columns_twin_ref,grid_columns_search,grid_columns_picker);
+    grid_columns_replace=visible_child<QCheckBox>(window,"grid-columns-replace");reveal(window,grid_columns_replace);
+    grid_columns_replace->setChecked(true);click("grid-columns-link");
+    linked_grid_columns=artboard_layout_property(session.document(),grid_columns_target_ref);
+    check(linked_grid_columns.driver==grid_columns_twin_ref&&!linked_grid_columns.expression&&
+        std::get<std::size_t>(linked_grid_columns.evaluated)==2,
+        "Explicit Grid columns link replacement clears the Inspector expression source");
+    const Ref grid_rows_target_ref{board().layout->grid->id,"","grid.rows"};
+    const Ref grid_rows_source_ref{grid_columns_source_grid_id,"","grid.rows"};
+    const Ref grid_rows_twin_ref{grid_columns_twin_grid_id,"","grid.rows"};
+    const auto grid_rows_literal=std::get<std::size_t>(artboard_layout_property(session.document(),grid_rows_target_ref).literal);
+    auto* grid_rows_input=visible_child<QLineEdit>(window,"grid-rows");reveal(window,grid_rows_input);
+    auto* grid_rows_search=visible_child<QLineEdit>(window,"grid-rows-link-source-search");reveal(window,grid_rows_search);
+    auto* grid_rows_picker=visible_child<QComboBox>(window,"grid-rows-link-source");reveal(window,grid_rows_picker);
+    auto select_grid_rows_source=[&](const Ref& ref,QLineEdit*& search,QComboBox*& picker) {
+        search->setText(QString::fromStdString(ref.object+"/"+ref.field));QApplication::processEvents();
+        int index=-1;
+        for(int i=0;i<picker->count();++i)
+            if(picker->itemData(i,Qt::ToolTipRole).toString()==QString::fromStdString(ref.object+"/"+ref.field))index=i;
+        check(index>=0,"Grid rows source search exposes the exact stable Grid Ref");
+        picker->setCurrentIndex(index);QApplication::processEvents();
+    };
+    check(!grid_rows_input->isReadOnly()&&grid_rows_picker->currentIndex()==-1,
+        "Literal Grid rows starts editable with no implicit source selection");
+    select_grid_rows_source(grid_rows_source_ref,grid_rows_search,grid_rows_picker);
+    const auto before_grid_rows_cancel=session.revision();click("grid-rows-cancel");
+    check(session.revision()==before_grid_rows_cancel&&
+        !artboard_layout_property(session.document(),grid_rows_target_ref).driver,
+        "Cancel discards a searched Grid rows source draft without changing the Session");
+    grid_rows_search=visible_child<QLineEdit>(window,"grid-rows-link-source-search");reveal(window,grid_rows_search);
+    grid_rows_picker=visible_child<QComboBox>(window,"grid-rows-link-source");reveal(window,grid_rows_picker);
+    select_grid_rows_source(grid_rows_source_ref,grid_rows_search,grid_rows_picker);
+    click("grid-rows-link");
+    grid_rows_input=visible_child<QLineEdit>(window,"grid-rows");
+    auto* grid_rows_state=visible_child<QLabel>(window,"grid-rows-source-state");
+    auto linked_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
+    check(session.revision()==before_grid_rows_cancel+1&&grid_rows_input->isReadOnly()&&
+        std::get<std::size_t>(linked_grid_rows.literal)==grid_rows_literal&&
+        linked_grid_rows.driver==grid_rows_source_ref&&std::get<std::size_t>(linked_grid_rows.evaluated)==3&&
+        grid_rows_state->text().contains("Literal: "+QString::number(static_cast<qulonglong>(grid_rows_literal)))&&
+        grid_rows_state->text().contains("Evaluated: 3"),
+        "Grid rows Inspector links the exact same-field stable Grid Ref and keeps the authored integer read-only");
+    const auto before_grid_rows_edit=session.revision();grid_rows_input->setFocus();
+    QTest::keyClick(grid_rows_input,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(grid_rows_input,"99");
+    QTest::keyClick(grid_rows_input,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_grid_rows_edit&&grid_rows_input->isReadOnly()&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_source_ref,
+        "A linked Grid rows literal refuses direct Inspector edits");
+    grid_rows_search=visible_child<QLineEdit>(window,"grid-rows-link-source-search");reveal(window,grid_rows_search);
+    grid_rows_picker=visible_child<QComboBox>(window,"grid-rows-link-source");reveal(window,grid_rows_picker);
+    select_grid_rows_source(grid_rows_twin_ref,grid_rows_search,grid_rows_picker);
+    auto* grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    const auto before_unapproved_grid_rows_replace=session.revision();click("grid-rows-link");
+    check(session.revision()==before_unapproved_grid_rows_replace&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_source_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROWS"),
+        "Replacing a Grid rows source requires visible explicit authorization");
+    grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    grid_rows_replace->setChecked(true);click("grid-rows-link");
+    linked_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
+    check(session.revision()==before_unapproved_grid_rows_replace+1&&linked_grid_rows.driver==grid_rows_twin_ref&&
+        std::get<std::size_t>(linked_grid_rows.evaluated)==2,
+        "Grid rows Inspector replaces its source only after explicit authorization");
+    auto grid_rows_twin_board=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){
+            return value.id==grid_columns_twin_board_id;
+        });
+    check(grid_rows_twin_board.id==grid_columns_twin_board_id&&grid_rows_twin_board.layout&&
+        grid_rows_twin_board.layout->grid&&grid_rows_twin_board.layout->grid->id==grid_columns_twin_grid_id&&
+        !grid_rows_twin_board.layout->grid->rows_driver,
+        "The replacement Grid rows source is an unlinked stable Grid on its separate source Artboard");
+    grid_rows_twin_board.layout->grid->rows=4;
+    try { session.apply({UpdateArtboard{composition_id,grid_rows_twin_board}},session.revision()); }
+    catch(const Error& error) {
+        throw std::runtime_error("Updating the separate Grid rows source failed: target="+grid_rows_target_ref.object+
+            " source="+grid_columns_twin_grid_id+" incoming="+grid_rows_twin_board.layout->grid->id+
+            " cause="+error.what());
+    }
+    window.host.edited();
+    QApplication::processEvents();
+    check(std::get<std::size_t>(artboard_layout_property(session.document(),grid_rows_target_ref).evaluated)==4&&
+        visible_child<QLabel>(window,"grid-rows-source-state")->text().contains("Evaluated: 4"),
+        "Grid rows Inspector readback follows source count changes while preserving the target literal");
+    const std::string grid_rows_expression_text="ref(\""+grid_rows_twin_ref.object+"\",\"\",\"grid.rows\") + 1";
+    auto* grid_rows_expression_input=visible_child<QPlainTextEdit>(window,"grid-rows-expression");
+    grid_rows_expression_input->setPlainText(QString::fromStdString(grid_rows_expression_text));
+    const auto before_grid_rows_expression_cancel=session.revision();click("grid-rows-cancel-expression");
+    check(session.revision()==before_grid_rows_expression_cancel&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_twin_ref&&
+        !artboard_layout_property(session.document(),grid_rows_target_ref).expression,
+        "Cancel discards a Grid rows expression draft without changing its linked source");
+    grid_rows_expression_input=visible_child<QPlainTextEdit>(window,"grid-rows-expression");
+    grid_rows_expression_input->setPlainText(QString::fromStdString(grid_rows_expression_text));
+    grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    grid_rows_replace->setChecked(false);
+    const auto before_unapproved_grid_rows_expression=session.revision();click("grid-rows-apply-expression");
+    check(session.revision()==before_unapproved_grid_rows_expression&&
+        artboard_layout_property(session.document(),grid_rows_target_ref).driver==grid_rows_twin_ref&&
+        window.statusBar()->currentMessage().contains("DRIVEN_GRID_ROWS"),
+        "Replacing a Grid rows link with an expression requires explicit Inspector authorization");
+    grid_rows_replace=visible_child<QCheckBox>(window,"grid-rows-replace");reveal(window,grid_rows_replace);
+    grid_rows_replace->setChecked(true);click("grid-rows-apply-expression");
+    auto expressed_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
+    grid_rows_input=visible_child<QLineEdit>(window,"grid-rows");
+    grid_rows_state=visible_child<QLabel>(window,"grid-rows-source-state");
+    check(session.revision()==before_unapproved_grid_rows_expression+1&&grid_rows_input->isReadOnly()&&
+        !expressed_grid_rows.driver&&expressed_grid_rows.expression==Expression{grid_rows_expression_text,1}&&
+        std::get<std::size_t>(expressed_grid_rows.literal)==grid_rows_literal&&
+        std::get<std::size_t>(expressed_grid_rows.evaluated)==5&&
+        grid_rows_state->text().contains("expression")&&grid_rows_state->text().contains("Evaluated: 5"),
+        "Inspector applies the exact Grid rows expression and keeps its authored integer read-only");
+    click("artboard-duplicate");const auto duplicate_id=window.canvas->active_artboard();
+    const auto duplicate=std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==duplicate_id;});
+    check(duplicate!=session.document().compositions.front().artboards.end()&&duplicate->layout&&
+        duplicate->layout->margin->left_expression==Expression{margin_expression_text.toStdString(),1}&&
+        duplicate->layout->margin->top_expression==margin_top_expression_source&&!duplicate->layout->margin->top_driver&&
+        !duplicate->layout->margin->right_driver&&
+        duplicate->layout->margin->right_expression==margin_right_expression_source&&
+        !duplicate->layout->margin->bottom_driver&&
+        duplicate->layout->margin->bottom_expression==margin_bottom_expression_source&&
+        duplicate->layout->grid->id!=board().layout->grid->id&&
+        duplicate->layout->grid->columns_driver==grid_columns_twin_ref&&
+        !duplicate->layout->grid->rows_driver&&
+        duplicate->layout->grid->rows_expression==Expression{grid_rows_expression_text,1}&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{duplicate->layout->grid->id,"","grid.rows"}).literal)==grid_rows_literal&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{duplicate->layout->grid->id,"","grid.rows"}).evaluated)==5&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),
+            Ref{duplicate->layout->grid->id,"","grid.columns"}).literal)==grid_columns_literal&&
+        !duplicate->layout->grid->column_gutter_driver&&
+        duplicate->layout->grid->column_gutter_expression==Expression{grid_column_gutter_expression_text,1}&&
+        duplicate->layout->grid->row_gutter_driver==grid_row_gutter_width_source_ref&&
+        duplicate->layout->grid->bounds_x_driver==grid_source_ref&&
+        !duplicate->layout->grid->bounds_height_driver&&
+        duplicate->layout->grid->bounds_height_expression==Expression{grid_height_expression_text.toStdString(),1}&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).literal)==grid_width_literal&&
+        !duplicate->layout->grid->bounds_y_driver&&
+        duplicate->layout->grid->bounds_y_expression==Expression{grid_y_expression_text.toStdString(),1}&&
+        !duplicate->layout->grid->bounds_width_driver&&
+        duplicate->layout->grid->bounds_width_expression==Expression{grid_width_expression_text,1}&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.height"}).evaluated)==120&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.width"}).evaluated)==90&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.left"}).evaluated)==90&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.x"}).evaluated)==80&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate->layout->grid->id,"","grid.bounds.y"}).evaluated)==25&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.top"}).evaluated)==60&&
+        artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).expression==margin_right_expression_source&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.right"}).evaluated)==
+            artboard_size_property(session.document(),margin_right_source_ref).evaluated+10&&
+        artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).expression==margin_bottom_expression_source&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{duplicate_id,"","margin.bottom"}).evaluated)==
+            artboard_size_property(session.document(),Ref{margin_source_id,"","artboard.height"}).evaluated-20,
+        "Duplicate frame replays Margin and Grid x/y/width/height/column-gutter expression sources onto the new stable Grid ID");
+    const Id duplicate_grid_id=duplicate->layout->grid->id;
+    const Ref duplicate_grid_column_gutter_ref{duplicate_grid_id,"","grid.column_gutter"};
+    const Ref duplicate_grid_row_gutter_ref{duplicate_grid_id,"","grid.row_gutter"};
+    const Ref duplicate_grid_columns_ref{duplicate_grid_id,"","grid.columns"};
+    const Ref duplicate_grid_rows_ref{duplicate_grid_id,"","grid.rows"};
+    const auto before_duplicate_grid_columns_unlink=session.revision();click("grid-columns-unlink");
+    check(session.revision()==before_duplicate_grid_columns_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_columns_ref).driver&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),duplicate_grid_columns_ref).literal)==2&&
+        !visible_child<QLineEdit>(window,"grid-columns")->isReadOnly(),
+        "Unlinking duplicated Grid columns freezes its evaluated count into the copied literal");
+    const auto before_duplicate_grid_rows_unlink=session.revision();click("grid-rows-unlink");
+    check(session.revision()==before_duplicate_grid_rows_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_rows_ref).driver&&
+        !artboard_layout_property(session.document(),duplicate_grid_rows_ref).expression&&
+        std::get<std::size_t>(artboard_layout_property(session.document(),duplicate_grid_rows_ref).literal)==5&&
+        !visible_child<QLineEdit>(window,"grid-rows")->isReadOnly(),
+        "Unlinking duplicated Grid rows freezes its expression-evaluated count into the copied literal");
+    const auto before_duplicate_row_gutter_unlink=session.revision();click("grid-row-gutter-unlink");
+    check(session.revision()==before_duplicate_row_gutter_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).driver&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_row_gutter_ref).literal)==20&&
+        !visible_child<QLineEdit>(window,"grid-row-gutter")->isReadOnly(),
+        "Unlinking the duplicated Grid row gutter freezes its evaluated value into the authored literal");
+    const Ref duplicate_grid_height_ref{duplicate_grid_id,"","grid.bounds.height"};
+    const auto before_duplicate_height_unlink=session.revision();click("grid-bounds-height-unlink");
+    check(session.revision()==before_duplicate_height_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_height_ref).driver&&
+        !artboard_layout_property(session.document(),duplicate_grid_height_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_height_ref).literal)==120&&
+        !visible_child<QLineEdit>(window,"grid-height")->isReadOnly(),
+        "Unlinking the duplicated Grid height freezes its evaluated value into the authored literal");
+    const auto before_duplicate_column_gutter_unlink=session.revision();click("grid-column-gutter-unlink");
+    check(session.revision()==before_duplicate_column_gutter_unlink+1&&
+        !artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).driver&&
+        !artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).expression&&
+        std::get<double>(artboard_layout_property(session.document(),duplicate_grid_column_gutter_ref).literal)==30&&
+        !visible_child<QLineEdit>(window,"grid-column-gutter")->isReadOnly(),
+        "Unlinking the duplicated Grid column gutter expression freezes its evaluated value into the authored literal");
+    auto* artboards=window.findChild<QListWidget*>("artboards");QListWidgetItem* original_row=nullptr;
+    for(int i=0;i<artboards->count();++i)
+        if(artboards->item(i)->data(Qt::UserRole+1).toString().toStdString()==board_id)original_row=artboards->item(i);
+    check(original_row!=nullptr,"Original linked target remains in the Artboard navigator after duplication");
+    QTest::mouseClick(artboards->viewport(),Qt::LeftButton,Qt::NoModifier,artboards->visualItemRect(original_row).center());QApplication::processEvents();
+    click("artboard-edit");
+    driven_left=visible_child<QLineEdit>(window,"margin-left");
+    const auto before_readonly_attempt=session.revision();driven_left->setFocus();QTest::keyClick(driven_left,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(driven_left,"99");QTest::keyClick(driven_left,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_readonly_attempt&&driven_left->isReadOnly()&&board().layout->margin->left==25,
+        ("A driven Margin left field refuses direct Inspector edits without changing the source or literal: rev="+
+            std::to_string(session.revision())+" expected="+std::to_string(before_readonly_attempt)+
+            " readonly="+std::to_string(driven_left->isReadOnly())+" field="+driven_left->text().toStdString()+
+            " literal="+std::to_string(board().layout->margin->left)).c_str());
+    driven_margin_right=visible_child<QLineEdit>(window,"margin-right");
+    const auto before_margin_right_literal_attempt=session.revision();driven_margin_right->setFocus();
+    QTest::keyClick(driven_margin_right,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(driven_margin_right,"99");
+    QTest::keyClick(driven_margin_right,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_margin_right_literal_attempt&&driven_margin_right->isReadOnly()&&
+        !board().layout->margin->right_driver&&board().layout->margin->right_expression==margin_right_expression_source,
+        "A driven Margin right field refuses direct Inspector edits while retaining its source and literal");
+    driven_margin_bottom=visible_child<QLineEdit>(window,"margin-bottom");
+    const auto before_margin_bottom_literal_attempt=session.revision();driven_margin_bottom->setFocus();
+    QTest::keyClick(driven_margin_bottom,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(driven_margin_bottom,"99");
+    QTest::keyClick(driven_margin_bottom,Qt::Key_Return);QApplication::processEvents();
+    check(session.revision()==before_margin_bottom_literal_attempt&&driven_margin_bottom->isReadOnly()&&
+        board().layout->margin->bottom==0&&!board().layout->margin->bottom_driver&&
+        board().layout->margin->bottom_expression==margin_bottom_expression_source,
+        "A driven Margin bottom field refuses direct Inspector edits while retaining its source and literal");
+    click("margin-left-unlink");
+    check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression,
+        "Inspector Unlink freezes the expression's evaluated inset into its literal");
+    click("margin-top-unlink");
+    const auto frozen_margin_top=artboard_layout_property(session.document(),Ref{board_id,"","margin.top"});
+    check(std::get<double>(frozen_margin_top.literal)==60&&!frozen_margin_top.driver&&!frozen_margin_top.expression&&
+        frozen_margin_top.source_kind=="literal"&&std::get<double>(frozen_margin_top.evaluated)==60,
+        "Margin top Inspector Unlink freezes its evaluated expression value and returns the field to an editable literal");
+    click("margin-right-unlink");
+    const auto frozen_margin_right=artboard_layout_property(session.document(),margin_right_target_ref);
+    check(!frozen_margin_right.driver&&std::get<double>(frozen_margin_right.literal)==std::get<double>(frozen_margin_right.evaluated)&&
+        frozen_margin_right.source_kind=="literal",
+        "Margin right Inspector Unlink freezes the evaluated source into its authored literal");
+    click("margin-bottom-unlink");
+    const auto frozen_margin_bottom=artboard_layout_property(session.document(),margin_bottom_target_ref);
+    check(!frozen_margin_bottom.driver&&std::get<double>(frozen_margin_bottom.literal)==
+        std::get<double>(frozen_margin_bottom.evaluated)&&frozen_margin_bottom.source_kind=="literal"&&
+        std::get<double>(frozen_margin_bottom.evaluated)==60,
+        "Margin bottom Inspector Unlink freezes the evaluated source into its authored literal");
+    source_artboard=*std::find_if(session.document().compositions.front().artboards.begin(),
+        session.document().compositions.front().artboards.end(),[&](const Artboard& value){return value.id==margin_source_id;});
+    source_artboard.width=100;source_artboard.height=95;
+    session.apply({UpdateArtboard{composition_id,source_artboard}},session.revision());window.host.edited();QApplication::processEvents();
+    check(board().layout->margin->left==90&&!board().layout->margin->left_driver&&!board().layout->margin->left_expression&&
+        std::get<double>(artboard_layout_property(session.document(),margin_target_ref).evaluated)==90&&
+        std::get<double>(artboard_layout_property(session.document(),Ref{board_id,"","margin.top"}).evaluated)==60&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).literal)==
+            std::get<double>(frozen_margin_right.evaluated)&&
+        std::get<double>(artboard_layout_property(session.document(),margin_right_target_ref).evaluated)==
+            std::get<double>(frozen_margin_right.evaluated)&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).literal)==
+            std::get<double>(frozen_margin_bottom.evaluated)&&
+        std::get<double>(artboard_layout_property(session.document(),margin_bottom_target_ref).evaluated)==
+            std::get<double>(frozen_margin_bottom.evaluated),
+        "Unlinked Margin left, top, right and bottom remain frozen when their former sources change");
+
+    click("grid-bounds-x-unlink");click("grid-bounds-y-unlink");click("grid-bounds-width-unlink");
+    click("grid-bounds-height-unlink");click("grid-column-gutter-unlink");click("grid-row-gutter-unlink");
+    click("grid-columns-unlink");click("grid-rows-unlink");
+    const auto unlinked_original_grid_rows=artboard_layout_property(session.document(),grid_rows_target_ref);
+    check(!artboard_layout_property(session.document(),grid_row_gutter_target_ref).driver&&
+        std::get<double>(artboard_layout_property(session.document(),grid_row_gutter_target_ref).literal)==20&&
+        !unlinked_original_grid_rows.driver&&!unlinked_original_grid_rows.expression&&
+        std::get<std::size_t>(unlinked_original_grid_rows.literal)==5,
+        "Unlink the original expression-driven Grid rows and row gutter before replacing its stable Grid ID in recovery setup");
+    session.apply({SetArtboardLayout{composition_id,board_id,
+                       ArtboardLayout{Margin{25,0,0,0},Grid{"recovery-grid",{25,0,100,100},2,1,10,0}}},
+                   AddGuide{composition_id,{"recovery-guide","Recovery","y",25}}},session.revision());
+    window.host.edited();window.host.recover();
+    const auto recovery_path=window.host.persistence()["recovery_file"].toString();
+    const auto protected_document=session.document();
+    check(window.host.persistence()["recovery_revision"].toInteger(-1)==session.revision()&&
+          load_native(recovery_path).document==protected_document,
+        "Recovery protects the committed native layout and Guide state at the exact revision");
+    window.host.open_recovery(recovery_path);QApplication::processEvents();
+    check(session.document()==protected_document&&board().layout->margin->left==25&&
+          board().layout->grid->id=="recovery-grid"&&session.document().compositions.front().guides.front().id=="recovery-guide"&&
+          window.host.file_path.isEmpty(),
+        "Opening the owned recovery restores authored layout without overwriting its source");
+}
+
+void text_authoring(Window& window) {
+    auto& session=window.host.session;named_action(window,"add-text")->trigger();QApplication::processEvents();
+    const auto id=window.canvas->selected_object;
+    check(session.document().objects.at(id).text.has_value(),"Add Text creates editable source in active composition");
+    auto* content=visible_child<QPushButton>(window,"edit-text-content");const auto revision=session.revision();
+    bool typed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor){dialog->reject();return;}
+        editor->setPlainText(QString::fromUtf8("\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\nNect 2026"));
+        typed=true;dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    content->click();QApplication::processEvents();
+    check(typed&&session.revision()==revision+1&&session.document().objects.at(id).text->content.find("Nect 2026")!=std::string::npos,"Unicode content editor commits one shared undo step");
+    const auto authored=session.document().objects.at(id).text->content;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");editor->setPlainText("Uncommitted draft");
+        window.host.recover();window.refresh();typed=editor->toPlainText()=="Uncommitted draft";
+        dialog->reject();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(typed&&session.document().objects.at(id).text->content==authored&&session.revision()==revision+1,"Recovery and Inspector refresh retain IME draft; cancel leaves document unchanged");
+    bool conflict=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");editor->setPlainText("GUI draft");
+        auto next=*session.document().objects.at(id).text;next.content="External edit";
+        session.apply({UpdateText{id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        conflict=dialog->isVisible()&&editor->toPlainText()=="GUI draft"&&dialog->findChild<QLabel*>("text-editor-status")->text().contains("changed elsewhere");dialog->reject();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(conflict&&session.document().objects.at(id).text->content=="External edit","Concurrent API content edit rejects overwrite and preserves the draft for copying");
+    const auto direction_draft_revision=session.revision();bool direction_draft_staged=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);direction_draft_staged=session.revision()==direction_draft_revision&&
+            session.document().objects.at(id).text->direction=="horizontal";dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_draft_staged&&session.revision()==direction_draft_revision&&session.document().objects.at(id).text->direction=="horizontal",
+        "Text direction selector stages a draft and Cancel leaves Session bytes and revision unchanged");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->direction=="vertical"&&session.revision()==direction_draft_revision+1,
+        "Applying the Text direction draft commits one shared Session revision");
+    const auto initial_layout_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        dialog->findChild<QComboBox*>("text-layout-editor")->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->layout=="frame"&&session.revision()==initial_layout_revision+1,
+        "Applying a staged Text sizing choice commits one Session revision");
+    check(visible_child<QLabel>(window,"text-layout-status")->text().contains("SVG exports glyph outlines"),"Inspector discloses export text projection");
+    QApplication::setActiveWindow(&window);QApplication::processEvents();
+    const Ref font_size{id,"","text.font_size"};auto* size=field<QLineEdit>(window,font_size);reveal(window,size);size->setFocus();
+    const auto scroll=window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value();const auto focused_before=size->hasFocus();
+    size->selectAll();QTest::keyClicks(size,"52");QTest::keyClick(size,Qt::Key_Return);QApplication::processEvents();
+    check(field<QLineEdit>(window,font_size)->hasFocus()&&window.findChild<QScrollArea*>("inspector-scroll")->verticalScrollBar()->value()==scroll,
+        "Numeric Return preserves focus and Inspector scroll position after rebuilding text controls");
+    named_action(window,"add-stroke")->trigger();QApplication::processEvents();check(session.document().objects.at(id).stack.size()==2,"Text supports the common editable paint stack");
+    const auto text_stroke=session.document().objects.at(id).stack.back().id;
+    auto* text_cap=visible_child<QComboBox>(window,("stroke-line-cap-"+text_stroke).c_str());reveal(window,text_cap);
+    text_cap->setCurrentIndex(text_cap->findData("square"));QApplication::processEvents();
+    check(session.document().objects.at(id).text&&session.document().objects.at(id).stack.back().line_cap=="square"&&
+        session.document().objects.at(id).stack.back().version==2,
+        "Text source remains editable while its Stroke Inspector commits style");
+    auto* family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    const auto original_family=family->currentText();auto* font_model=family->completer()->model();
+    check(font_model&&font_model->rowCount()>1,"Font completion can discover installed families before opening the dropdown");
+    auto font_revision=session.revision();family->setFocus();QTest::keyClick(family,Qt::Key_F4);QApplication::processEvents();
+    check(family->view()->isVisible()&&family->model()==font_model&&family->currentText()==original_family&&session.revision()==font_revision,
+        "Keyboard font popup attaches the shared installed model without changing the authored family or revision");
+    family->hidePopup();QApplication::processEvents();
+    const QString missing_family="Nect Missing Font Family 2026";
+    family->lineEdit()->setFocus();family->lineEdit()->selectAll();QTest::keyClicks(family->lineEdit(),missing_family);
+    QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
+    check(session.document().objects.at(id).text->family==missing_family.toStdString()&&session.revision()==font_revision+1,
+        "Manual missing-family entry preserves the exact authored string as one edit");
+    family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    check(family->completer()->model()==font_model,"Inspector refresh reuses the same installed-font model for completion");
+    font_revision=session.revision();family->showPopup();QApplication::processEvents();
+    check(family->model()==font_model&&family->currentText()==missing_family&&session.revision()==font_revision,
+        "Opening a missing-family dropdown keeps its authored value instead of selecting an installed replacement");
+    family->hidePopup();QApplication::processEvents();
+    window.refresh();QApplication::processEvents();family=visible_child<QComboBox>(window,"text-family");reveal(window,family);
+    check(family->model()!=font_model&&family->completer()->model()==font_model,
+        "Rebuilt family editor keeps completion available without eagerly attaching the popup model");
+    family->lineEdit()->setFocus();family->lineEdit()->selectAll();QTest::keyClicks(family->lineEdit(),original_family);
+    QTest::keyClick(family->lineEdit(),Qt::Key_Return);QApplication::processEvents();
+    check(session.document().objects.at(id).text->family==original_family.toStdString()&&session.revision()==font_revision+1,
+        "An installed family entered with inline completion commits exactly once");
+    auto family_source_text=default_text(new_id(),"Weight source");family_source_text.weight=700;family_source_text.family="Linked Family A";family_source_text.locale="ar-SA";
+    const auto source_id=new_id(),source_name=std::string("Weight source");const auto composition=session.document().compositions.front().id;
+    session.apply({CreateText{composition,"",source_id,source_name,family_source_text}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* direction_driver_button=visible_child<QToolButton>(window,"text-direction-driver");bool chose_direction_source=false;
+    check(!visible_child<QComboBox>(window,"text-direction")->isEnabled()&&direction_driver_button->menu()->actions().size()==3,
+        "Text direction Inspector exposes a staged enum display and explicit edit/link/unlink menu");
+    const auto direction_before=session.document().objects.at(id);const auto direction_revision_before=session.revision();
+    bool rejected_direction_draft=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-direction-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-direction-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        combo->setCurrentIndex(0);
+        search->setText("no matching stable ref");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        rejected_direction_draft=dialog->isVisible()&&combo->currentIndex()<0&&
+            dialog->findChild<QLabel*>("text-direction-source-status")->text().contains("visible Text direction source");
+        dialog->reject();
+    });
+    direction_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(rejected_direction_draft&&session.revision()==direction_revision_before&&
+        session.document().objects.at(id)==direction_before,
+        "Hidden or empty Text direction source rejects without changing authored state");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-direction-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-direction-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_id).toUpper()+" / TEXT.DIRECTION");
+        if(combo->count()!=1||combo->itemData(0).toInt()!=0)return;
+        combo->setCurrentIndex(0);
+        window.canvas->set_selection(source_id,"");
+        buttons->button(QDialogButtonBox::Apply)->click();chose_direction_source=true;
+    });
+    direction_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    window.canvas->set_selection(id,"");window.host.edited();QApplication::processEvents();
+    check(chose_direction_source&&session.document().objects.at(id).text->direction=="vertical"&&
+        session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"}&&
+        evaluate_text_direction(session.document(),id)=="horizontal"&&
+        visible_child<QLabel>(window,"text-direction-state")->text().contains("Literal: vertical")&&
+        visible_child<QLabel>(window,"text-direction-state")->text().contains("Evaluated: horizontal"),
+        "Text Direction Inspector links the same field and reports literal, source and evaluated enum");
+    auto changed_direction_source=*session.document().objects.at(source_id).text;changed_direction_source.direction="vertical";
+    session.apply({UpdateText{source_id,changed_direction_source}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto linked_direction_revision=session.revision();bool direction_cancel_safe=false,direction_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-direction-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        direction_cancel_safe=session.revision()==linked_direction_revision&&
+            session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"};dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_cancel_safe&&session.revision()==linked_direction_revision&&
+        session.document().objects.at(id).text->direction_driver->link==Ref{source_id,"","text.direction"},
+        "Cancel discards both a direction draft and its staged unlink");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* status=dialog->findChild<QLabel*>("text-direction-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        direction_apply_failed=dialog->isVisible()&&session.revision()==linked_direction_revision&&
+            session.document().objects.at(id).text->direction_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(direction_apply_failed,"Failed driven direction Apply retains the driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-direction-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-direction-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-direction-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-direction-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->direction_driver&&session.document().objects.at(id).text->direction=="horizontal"&&
+        session.revision()==linked_direction_revision+1,"Direction unlink and edit commit as one atomic Session revision");
+    changed_direction_source=*session.document().objects.at(source_id).text;changed_direction_source.direction="horizontal";
+    session.apply({UpdateText{source_id,changed_direction_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->direction=="horizontal"&&!session.document().objects.at(id).text->direction_driver,
+        "Unlinked direction remains frozen when its former source changes");
+    auto* layout_driver_button=visible_child<QToolButton>(window,"text-layout-driver");bool chose_layout_source=false;
+    check(!visible_child<QComboBox>(window,"text-layout")->isEnabled()&&layout_driver_button->menu()->actions().size()==3,
+        "Text sizing Inspector exposes a staged enum display and explicit edit/link/unlink menu");
+    const auto layout_before=session.document().objects.at(id);const auto layout_revision_before=session.revision();
+    bool rejected_layout_draft=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-layout-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-layout-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        combo->setCurrentIndex(0);search->setText("no matching stable ref");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        rejected_layout_draft=dialog->isVisible()&&combo->currentIndex()<0&&
+            dialog->findChild<QLabel*>("text-layout-source-status")->text().contains("visible Text sizing source");
+        dialog->reject();
+    });
+    layout_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(rejected_layout_draft&&session.revision()==layout_revision_before&&session.document().objects.at(id)==layout_before,
+        "Hidden Text sizing source rejects without changing authored state");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-source-dialog");if(!dialog)return;
+        auto* search=dialog->findChild<QLineEdit*>("text-layout-source-search");
+        auto* combo=dialog->findChild<QComboBox*>("text-layout-source");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();
+        if(!search||!combo||!buttons)return;
+        search->setText(QString::fromStdString(source_id).toUpper()+" / TEXT.LAYOUT");
+        if(combo->count()!=1||combo->itemData(0).toInt()!=0)return;
+        combo->setCurrentIndex(0);window.canvas->set_selection(source_id,"");
+        buttons->button(QDialogButtonBox::Apply)->click();chose_layout_source=true;
+    });
+    layout_driver_button->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    window.canvas->set_selection(id,"");window.host.edited();QApplication::processEvents();
+    check(chose_layout_source&&session.document().objects.at(id).text->layout=="frame"&&
+        session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"}&&
+        evaluate_text_layout(session.document(),id)=="auto"&&
+        visible_child<QLabel>(window,"text-layout-state")->text().contains("Literal: frame")&&
+        visible_child<QLabel>(window,"text-layout-state")->text().contains("Evaluated: auto"),
+        "Text Sizing Inspector links the same field and reports literal, source and evaluated enum");
+    auto changed_layout_source=*session.document().objects.at(source_id).text;changed_layout_source.layout="frame";
+    session.apply({UpdateText{source_id,changed_layout_source}},session.revision());window.host.edited();QApplication::processEvents();
+    const auto linked_layout_revision=session.revision();bool layout_cancel_safe=false,layout_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-layout-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(0);
+        layout_cancel_safe=session.revision()==linked_layout_revision&&
+            session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"};dialog->reject();
+    });
+    layout_driver_button=visible_child<QToolButton>(window,"text-layout-driver");layout_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(layout_cancel_safe&&session.revision()==linked_layout_revision&&
+        session.document().objects.at(id).text->layout_driver->link==Ref{source_id,"","text.layout"},
+        "Cancel discards both a sizing draft and its staged unlink");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* status=dialog->findChild<QLabel*>("text-layout-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        layout_apply_failed=dialog->isVisible()&&session.revision()==linked_layout_revision&&
+            session.document().objects.at(id).text->layout_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(layout_apply_failed,"Failed driven sizing Apply retains the driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-layout-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-layout-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-layout-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-layout-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->layout_driver&&session.document().objects.at(id).text->layout=="frame"&&
+        session.revision()==linked_layout_revision+1,"Sizing unlink and edit commit as one atomic Session revision");
+    changed_layout_source=*session.document().objects.at(source_id).text;changed_layout_source.layout="auto";
+    session.apply({UpdateText{source_id,changed_layout_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->layout=="frame"&&!session.document().objects.at(id).text->layout_driver,
+        "Unlinked Text sizing remains frozen when its former source changes");
+    auto* alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");
+    check(!visible_child<QComboBox>(window,"text-alignment")->isEnabled()&&alignment_driver_button->menu()->actions().size()==3,
+        "Text alignment Inspector exposes a staged enum control and explicit edit/link/unlink menu");
+    const auto alignment_draft_revision=session.revision();bool alignment_cancel_safe=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");if(!editor){dialog->reject();return;}
+        editor->setCurrentIndex(1);alignment_cancel_safe=session.revision()==alignment_draft_revision&&
+            session.document().objects.at(id).text->alignment=="start";dialog->reject();
+    });
+    alignment_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_cancel_safe&&session.revision()==alignment_draft_revision&&session.document().objects.at(id).text->alignment=="start",
+        "Text alignment Cancel discards the staged choice without changing authored state or revision");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        dialog->findChild<QComboBox*>("text-alignment-editor")->setCurrentIndex(1);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    alignment_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->alignment=="center"&&session.revision()==alignment_draft_revision+1,
+        "Applying a staged Text alignment choice commits one Session revision");
+    alignment_driver_button=visible_child<QToolButton>(window,"text-alignment-driver");
+    const auto alignment_source_pick=choose_text_source(window,alignment_driver_button,{source_id,"","text.alignment"},QString::fromStdString(source_name));
+    check(alignment_source_pick.opened&&alignment_source_pick.friendly_search&&alignment_source_pick.stable_id_search&&alignment_source_pick.stable_path_search&&
+        alignment_source_pick.draft_unchanged&&alignment_source_pick.applied&&alignment_source_pick.restored_selection&&
+        session.document().objects.at(id).text->alignment=="center"&&
+        session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"}&&
+        evaluate_text_alignment(session.document(),id)=="start"&&
+        visible_child<QLabel>(window,"text-alignment-state")->text().contains("Literal: center")&&
+        visible_child<QLabel>(window,"text-alignment-state")->text().contains("Evaluated: start"),
+        "Text alignment Inspector links the same field and reports literal, source and evaluated choices");
+    auto changed_alignment_source=*session.document().objects.at(source_id).text;changed_alignment_source.alignment="center";
+    session.apply({UpdateText{source_id,changed_alignment_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_alignment(session.document(),id)=="center"&&
+        visible_child<QComboBox>(window,"text-alignment")->currentText()=="Center",
+        "Text alignment Inspector follows its linked source edit");
+    const auto linked_alignment_revision=session.revision();bool alignment_cancel_with_driver=false,alignment_apply_failed=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        alignment_cancel_with_driver=session.revision()==linked_alignment_revision&&
+            session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"};dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_cancel_with_driver&&session.revision()==linked_alignment_revision&&
+        session.document().objects.at(id).text->alignment_driver->link==Ref{source_id,"","text.alignment"},
+        "Cancel discards staged Text alignment unlink and edit");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* status=dialog->findChild<QLabel*>("text-alignment-editor-status");
+        editor->setCurrentIndex(0);dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        alignment_apply_failed=dialog->isVisible()&&session.revision()==linked_alignment_revision&&
+            session.document().objects.at(id).text->alignment_driver.has_value()&&status->text().contains("unlink option");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_apply_failed,"Failed driven Text alignment Apply retains its driver and Session revision");
+    bool alignment_stale_preserved=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        auto* status=dialog->findChild<QLabel*>("text-alignment-editor-status");if(!editor||!unlink||!status)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        auto next=*session.document().objects.at(source_id).text;next.alignment="end";
+        session.apply({UpdateText{source_id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        alignment_stale_preserved=dialog->isVisible()&&session.document().objects.at(id).text->alignment_driver.has_value()&&
+            session.revision()==linked_alignment_revision+1&&status->text().contains("changed while the alignment editor was open");dialog->reject();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(alignment_stale_preserved,"Stale Text alignment Apply leaves the committed driver and evaluation untouched");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-alignment-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-alignment-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-alignment-driver");
+        if(!editor||!unlink)return;
+        unlink->setChecked(true);editor->setCurrentIndex(2);
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+    });
+    visible_child<QToolButton>(window,"text-alignment-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->alignment_driver&&session.document().objects.at(id).text->alignment=="end"&&
+        session.revision()==linked_alignment_revision+2,"Text alignment unlink and edit commit as one atomic Session revision");
+    changed_alignment_source=*session.document().objects.at(source_id).text;changed_alignment_source.alignment="center";
+    session.apply({UpdateText{source_id,changed_alignment_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document().objects.at(id).text->alignment=="end"&&!session.document().objects.at(id).text->alignment_driver,
+        "Unlinked Text alignment stays frozen when its former source changes");
+    auto* locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");
+    check(visible_child<QLineEdit>(window,"text-locale")->isReadOnly()&&locale_driver_button->menu()->actions().size()==3,
+        "Text locale Inspector exposes a staged literal display and explicit edit/link/unlink menu");
+    const auto locale_initial_revision=session.revision();bool locale_cancel_safe=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");if(!editor){dialog->reject();return;}
+        editor->setText("fr-FR");locale_cancel_safe=session.revision()==locale_initial_revision&&
+            session.document().objects.at(id).text->locale=="ja-JP";dialog->reject();});
+    locale_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_cancel_safe&&session.revision()==locale_initial_revision&&session.document().objects.at(id).text->locale=="ja-JP",
+        "Text locale Cancel discards its staged string without changing authored state or revision");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        dialog->findChild<QLineEdit*>("text-locale-editor")->setText("fr-FR");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");locale_driver_button->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(session.document().objects.at(id).text->locale=="fr-FR"&&session.revision()==locale_initial_revision+1,
+        "Applying a staged Text locale commits one shared Session revision");
+    locale_driver_button=visible_child<QToolButton>(window,"text-locale-driver");
+    const auto locale_pick=choose_text_source(window,locale_driver_button,{source_id,"","text.locale"},QString::fromStdString(source_name));
+    check(locale_pick.restored_selection&&locale_pick.inspector_visible,
+        "Locale source Apply restores the target selection and rebuilds its Inspector");
+    const bool chose_locale_source=locale_pick.opened&&locale_pick.friendly_search&&locale_pick.stable_path_search&&locale_pick.browsed&&locale_pick.applied;
+    check(chose_locale_source&&session.document().objects.at(id).text->locale=="fr-FR"&&
+        session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"}&&
+        evaluate_text_locale(session.document(),id)=="ar-SA"&&
+        visible_child<QLineEdit>(window,"text-locale")->text()=="ar-SA"&&
+        visible_child<QLabel>(window,"text-locale-state")->text().contains("Literal: fr-FR")&&
+        visible_child<QLabel>(window,"text-locale-state")->text().contains("Evaluated: ar-SA"),
+        "Text locale Inspector links the same field and shows literal, source and evaluated value");
+    const auto linked_locale_revision=session.revision();bool locale_apply_failed=false,locale_cancel_with_driver=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* status=dialog->findChild<QLabel*>("text-locale-editor-status");
+        editor->setText("de-DE");dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        locale_apply_failed=dialog->isVisible()&&session.revision()==linked_locale_revision&&
+            session.document().objects.at(id).text->locale_driver.has_value()&&status->text().contains("unlink option");dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_apply_failed,"Failed driven Text locale Apply retains its driver and Session revision");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-locale-driver");
+        unlink->setChecked(true);editor->setText("de-DE");locale_cancel_with_driver=session.revision()==linked_locale_revision&&
+            session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"};dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_cancel_with_driver&&session.revision()==linked_locale_revision&&
+        session.document().objects.at(id).text->locale_driver->link==Ref{source_id,"","text.locale"},
+        "Cancel discards both a staged locale edit and its staged unlink");
+    bool locale_stale_preserved=false;
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QLineEdit*>("text-locale-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-locale-driver");
+        auto* status=dialog->findChild<QLabel*>("text-locale-editor-status");unlink->setChecked(true);editor->setText("de-DE");
+        auto next=*session.document().objects.at(source_id).text;next.locale="ja-JP";
+        session.apply({UpdateText{source_id,next}},session.revision());window.host.edited();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        locale_stale_preserved=dialog->isVisible()&&session.document().objects.at(id).text->locale_driver.has_value()&&
+            session.revision()==linked_locale_revision+1&&status->text().contains("changed while the locale editor was open");dialog->reject();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(locale_stale_preserved,"Stale Text locale Apply preserves the committed driver and evaluation");
+    QTimer::singleShot(0,&window,[&]{auto* dialog=window.findChild<QDialog*>("text-locale-dialog");if(!dialog)return;
+        dialog->findChild<QCheckBox*>("unlink-text-locale-driver")->setChecked(true);
+        dialog->findChild<QLineEdit*>("text-locale-editor")->setText("en-GB");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();});
+    visible_child<QToolButton>(window,"text-locale-driver")->menu()->actions().front()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->locale_driver&&session.document().objects.at(id).text->locale=="en-GB"&&
+        session.revision()==linked_locale_revision+2,"Text locale unlink and edit commit as one atomic Session revision");
+    auto* locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");
+    const auto locale_pick_again=choose_text_source(window,locale_menu_button,{source_id,"","text.locale"},QString::fromStdString(source_name));
+    check(locale_pick_again.restored_selection&&locale_pick_again.inspector_visible,
+        "Locale source Apply after unlink restores the target selection and Inspector");
+    const bool chose_locale_source_again=locale_pick_again.applied;
+    locale_menu_button=visible_child<QToolButton>(window,"text-locale-driver");locale_menu_button->menu()->actions().at(2)->trigger();QApplication::processEvents();
+    auto changed_locale_source=*session.document().objects.at(source_id).text;changed_locale_source.locale="ar-SA";
+    session.apply({UpdateText{source_id,changed_locale_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(chose_locale_source_again&&!session.document().objects.at(id).text->locale_driver&&
+        session.document().objects.at(id).text->locale=="ja-JP",
+        "Unlink locale freezes the evaluated value while later source changes leave it unchanged");
+    auto* family_driver=visible_child<QToolButton>(window,"text-family-driver");
+    check(visible_child<QComboBox>(window,"text-family")->isEnabled()&&family_driver->menu()->actions().size()==2,
+        "Text family Inspector exposes a literal control and link/edit menu");
+    const auto family_pick=choose_text_source(window,family_driver,{source_id,"","text.family"},QString::fromStdString(source_name));
+    check(family_pick.restored_selection&&family_pick.inspector_visible,
+        "Family source Apply restores the target selection and Inspector");
+    const bool chose_family_source=family_pick.opened&&family_pick.friendly_search&&family_pick.stable_path_search&&family_pick.browsed&&family_pick.applied;
+    check(chose_family_source&&session.document().objects.at(id).text->family==original_family.toStdString()&&
+        session.document().objects.at(id).text->family_driver->link==Ref{source_id,"","text.family"}&&
+        evaluate_text_family(session.document(),id)=="Linked Family A"&&
+        !visible_child<QComboBox>(window,"text-family")->isEnabled()&&
+        visible_child<QLabel>(window,"text-family-state")->text().contains("Evaluated: Linked Family A"),
+        "Text Family Inspector links through Session and reports literal, source and evaluated family");
+    auto changed_family_source=*session.document().objects.at(source_id).text;changed_family_source.family="Linked Family revised";
+    session.apply({UpdateText{source_id,changed_family_source}},session.revision());window.host.edited();QApplication::processEvents();
+    bool family_apply_failed=false,family_cancel_safe=false;
+    const auto before_family_draft=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-family-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-family-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-family-driver");
+        if(!editor||!unlink)return;
+        editor->setEditText("");unlink->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        family_apply_failed=dialog->isVisible()&&session.revision()==before_family_draft&&
+            session.document().objects.at(id).text->family_driver&&dialog->findChild<QLabel*>("text-family-editor-status")->text().contains("limit");
+        editor->setEditText("Canceled family draft");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+        family_cancel_safe=!dialog->isVisible()&&session.revision()==before_family_draft&&
+            session.document().objects.at(id).text->family==original_family.toStdString()&&
+            session.document().objects.at(id).text->family_driver->link==Ref{source_id,"","text.family"};
+    });
+    family_driver=visible_child<QToolButton>(window,"text-family-driver");family_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(family_apply_failed&&family_cancel_safe,
+        "Invalid Apply and Cancel keep the linked family literal, driver and Session revision intact");
+    bool family_unlink_applied=false;
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-family-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QComboBox*>("text-family-editor");auto* unlink=dialog->findChild<QCheckBox*>("unlink-text-family-driver");
+        if(!editor||!unlink)return;
+        editor->setEditText("Chosen family");unlink->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        family_unlink_applied=!dialog->isVisible()&&session.revision()==before_family_draft+1&&
+            session.document().objects.at(id).text->family=="Chosen family"&&
+            !session.document().objects.at(id).text->family_driver;
+    });
+    family_driver=visible_child<QToolButton>(window,"text-family-driver");family_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(family_unlink_applied&&visible_child<QComboBox>(window,"text-family")->isEnabled(),
+        "Family unlink and selected font commit together in one Session revision");
+    changed_family_source=*session.document().objects.at(source_id).text;changed_family_source.family="Later Family source";
+    session.apply({UpdateText{source_id,changed_family_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->family_driver&&evaluate_text_family(session.document(),id)=="Chosen family",
+        "Inspector family unlink freezes the chosen family after later source changes");
+    auto weight_source=*session.document().objects.at(source_id).text;
+    auto* weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    check(visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&weight_driver->menu()->actions().size()==3,
+        "Text Weight Inspector exposes a literal control and a link/unlink menu");
+    const auto weight_source_pick=choose_text_source(window,weight_driver,{source_id,"","text.weight"},QString::fromStdString(source_name));
+    check(weight_source_pick.opened&&weight_source_pick.friendly_search&&weight_source_pick.stable_id_search&&weight_source_pick.stable_path_search&&
+        weight_source_pick.draft_unchanged&&weight_source_pick.applied&&weight_source_pick.restored_selection&&
+        session.document().objects.at(id).text->weight_driver->link==Ref{source_id,"","text.weight"}&&
+        evaluate_text_weight(session.document(),id)==700&&visible_child<QSpinBox>(window,"text-weight")->value()==700&&
+        !visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&visible_child<QLabel>(window,"text-weight-state")->text().contains("Evaluated: 700"),
+        "Text Weight Inspector links through Session and displays the evaluated integer");
+    auto changed_weight_source=*session.document().objects.at(source_id).text;changed_weight_source.weight=300;
+    session.apply({UpdateText{source_id,changed_weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(visible_child<QSpinBox>(window,"text-weight")->value()==300&&
+        visible_child<QLabel>(window,"text-weight-state")->text().contains("Literal: 400"),
+        "Text Weight Inspector follows source edits while retaining the target literal");
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");weight_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    changed_weight_source=*session.document().objects.at(source_id).text;changed_weight_source.weight=500;
+    session.apply({UpdateText{source_id,changed_weight_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->weight_driver&&session.document().objects.at(id).text->weight==300&&
+        evaluate_text_weight(session.document(),id)==300&&visible_child<QSpinBox>(window,"text-weight")->isEnabled(),
+        "Inspector unlink freezes the evaluated weight and restores its literal editor");
+    bool weight_expression_applied=false;
+    const auto weight_expression_source="ref(\""+source_id+"\",\"\",\"text.weight\") + 100";
+    const auto before_weight_expression=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-weight-expression-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");if(!editor)return;
+        editor->setPlainText(QString::fromStdString(weight_expression_source));
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        weight_expression_applied=!dialog->isVisible()&&session.revision()==before_weight_expression+1;
+    });
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(weight_expression_applied&&
+        session.document().objects.at(id).text->weight_expression==Expression{weight_expression_source,1}&&
+        session.document().objects.at(id).text->weight==300&&evaluate_text_weight(session.document(),id)==600&&
+        !visible_child<QSpinBox>(window,"text-weight")->isEnabled()&&
+        visible_child<QLabel>(window,"text-weight-state")->text().contains("Evaluated: 600"),
+        "Inspector Apply commits exact Text weight expression while preserving the authored integer");
+    bool weight_invalid_rejected=false;
+    const auto weight_expression_bytes=encode(session.document());const auto weight_expression_revision=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-weight-expression-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-weight-expression-draft");
+        auto* replace=dialog->findChild<QCheckBox*>("text-weight-expression-replace");
+        if(!editor||!replace)return;
+        editor->setPlainText("1.5");replace->click();
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        weight_invalid_rejected=dialog->isVisible()&&session.revision()==weight_expression_revision&&
+            dialog->findChild<QLabel*>("text-weight-expression-status")->text().contains("OUT_OF_RANGE");
+        dialog->reject();
+    });
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().at(1)->trigger();QApplication::processEvents();
+    check(weight_invalid_rejected&&session.revision()==weight_expression_revision&&
+        encode(session.document())==weight_expression_bytes,
+        "Invalid Text weight expression Apply and Cancel preserve the prior source and Session revision");
+    weight_driver=visible_child<QToolButton>(window,"text-weight-driver");
+    weight_driver->menu()->actions().back()->trigger();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->weight_expression&&
+        session.document().objects.at(id).text->weight==600,
+        "Inspector unlink freezes the evaluated Text weight expression in one step");
+    TextWeightBatch single_weight_offset;
+    single_weight_offset.mode=TextWeightBatchMode::link;single_weight_offset.targets={{id,"","text.weight"}};
+    single_weight_offset.source=Ref{source_id,"","text.weight"};single_weight_offset.relative=true;
+    single_weight_offset.replace_driver=true;
+    session.apply({LinkTextWeight::batch_command(std::move(single_weight_offset))},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const auto weight_status=visible_child<QLabel>(window,"text-weight-state")->text();
+    check(weight_status.contains("link to "+QString::fromStdString(source_name)+" ("+QString::fromStdString(source_id)+")")&&
+        weight_status.contains("offset +100"),
+        "Single-Text Inspector reports the linked weight source and its signed offset");
+    session.apply({UnlinkTextWeight{{id,"","text.weight"}}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    auto content_source=*session.document().objects.at(source_id).text;content_source.content="Linked source content";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    auto* content_driver=visible_child<QToolButton>(window,"text-content-driver");
+    const auto content_pick=choose_text_source(window,content_driver,{source_id,"","text.content"},QString::fromStdString(source_name));
+    check(content_pick.restored_selection&&content_pick.inspector_visible,
+        "Content source Apply restores the target selection and Inspector");
+    const bool chose_content_source=content_pick.opened&&content_pick.friendly_search&&content_pick.stable_path_search&&content_pick.browsed&&content_pick.applied;
+    check(chose_content_source&&session.document().objects.at(id).text->content=="External edit"&&
+        session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+        evaluate_text_content(session.document(),id)=="Linked source content"&&
+        visible_child<QLabel>(window,"text-preview")->text()=="Linked source content",
+        "Text Content Inspector links through Session and previews the evaluated string while preserving its literal");
+    content_source=*session.document().objects.at(source_id).text;content_source.content="Revised linked source";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    bool canceled_unlink=false,blocked_draft=false,unlink_staged=false,committed_draft=false;
+    const auto before_content_edit=session.revision();
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor)return;
+        editor->setPlainText("Canceled draft");
+        auto* unlink_button=dialog->findChild<QPushButton*>("unlink-text-content-driver");
+        if(!unlink_button||!unlink_button->isVisible())return;
+        unlink_button->click();
+        canceled_unlink=editor->toPlainText()=="Canceled draft"&&
+            session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+            session.document().objects.at(id).text->content=="External edit"&&session.revision()==before_content_edit;
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Cancel)->click();
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(canceled_unlink&&session.revision()==before_content_edit&&session.document().objects.at(id).text->content_driver,
+        "Cancel discards a staged unlink and text draft without changing the Session");
+    QTimer::singleShot(0,&window,[&]{
+        auto* dialog=window.findChild<QDialog*>("text-editor-dialog");if(!dialog)return;
+        auto* editor=dialog->findChild<QPlainTextEdit*>("text-content-editor");if(!editor)return;
+        editor->setPlainText("Draft across unlink");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        blocked_draft=dialog->isVisible()&&editor->toPlainText()=="Draft across unlink"&&
+            dialog->findChild<QLabel*>("text-editor-status")->text().contains("Unlink")&&session.revision()==before_content_edit;
+        auto* unlink_button=dialog->findChild<QPushButton*>("unlink-text-content-driver");
+        if(!unlink_button||!unlink_button->isVisible())return;
+        unlink_button->click();
+        unlink_staged=editor->toPlainText()=="Draft across unlink"&&
+            session.document().objects.at(id).text->content_driver->link==Ref{source_id,"","text.content"}&&
+            session.document().objects.at(id).text->content=="External edit"&&session.revision()==before_content_edit&&
+            dialog->findChild<QLabel*>("text-editor-status")->text().contains("staged");
+        dialog->findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Apply)->click();
+        committed_draft=!dialog->isVisible()&&session.document().objects.at(id).text->content=="Draft across unlink"&&
+            !session.document().objects.at(id).text->content_driver&&session.revision()==before_content_edit+1;
+    });
+    visible_child<QPushButton>(window,"edit-text-content")->click();QApplication::processEvents();
+    check(blocked_draft&&unlink_staged&&committed_draft,
+        "The content editor stages unlink, then commits the freeze and text draft in one Session revision");
+    content_source=*session.document().objects.at(source_id).text;content_source.content="Later source content";
+    session.apply({UpdateText{source_id,content_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(!session.document().objects.at(id).text->content_driver&&
+        evaluate_text_content(session.document(),id)=="Draft across unlink",
+        "Inspector content unlink keeps the committed draft frozen after later source edits");
+}
+void text_weight_batch_inspector(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    auto source=default_text("weight-batch-ui-a-source","Source");source.weight=100;
+    auto target_b=default_text("weight-batch-ui-b-source","Target B");target_b.weight=140;
+    auto target_c=default_text("weight-batch-ui-c-source","Target C");target_c.weight=200;
+    session.apply({CreateText{composition,"","weight-batch-ui-a","Weight source",source},
+        CreateText{composition,"","weight-batch-ui-b","Weight target B",target_b},
+        CreateText{composition,"","weight-batch-ui-c","Weight target C",target_c}},session.revision());
+    window.host.edited();
+    const std::vector<Canvas::Selection> selection{{"weight-batch-ui-b",""},{"weight-batch-ui-c",""}};
+    window.canvas->set_selections(selection);QApplication::processEvents();
+    auto* input=visible_child<QLineEdit>(window,"text-weight-batch-value");
+    check(input->text().isEmpty()&&input->placeholderText().contains("+=10"),
+        "Multi-Text Inspector starts a shared weight draft for the captured target selection");
+    const auto initial=session.document();const auto initial_revision=session.revision();
+    input->setText("+=10");visible_child<QPushButton>(window,"text-weight-batch-cancel")->click();
+    check(session.document()==initial&&session.revision()==initial_revision&&input->text().isEmpty(),
+        "Cancel discards the relative weight draft without changing selected Text values");
+    input->setText("+=800");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.document()==initial&&session.revision()==initial_revision&&window.canvas->selections()==selection&&
+        visible_child<QLabel>(window,"text-weight-batch-status")->text().startsWith("OUT_OF_RANGE"),
+        "A failed multi-Text draft keeps the captured selection, authored weights and revision unchanged");
+    input->setText("400");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.revision()==initial_revision+1&&evaluate_text_weight(session.document(),"weight-batch-ui-b")==400&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==400,
+        "Inspector absolute value applies one shared integer to all captured Text targets");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "Undo restores each target's distinct literal after an absolute shared edit");
+    input=visible_child<QLineEdit>(window,"text-weight-batch-value");
+    const auto relative_edit_revision=session.revision();
+    input->setText("+=10");visible_child<QPushButton>(window,"text-weight-batch-apply")->click();QApplication::processEvents();
+    check(session.revision()==relative_edit_revision+1&&evaluate_text_weight(session.document(),"weight-batch-ui-b")==150&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==210&&window.canvas->selections()==selection,
+        "Inspector applies += to each captured target in one revision and preserves the selection");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "One Undo restores every Text weight edited by the shared Inspector draft");
+    session.redo(session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_weight(session.document(),"weight-batch-ui-b")==150&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==210&&window.canvas->selections()==selection,
+        "One Redo reapplies the shared Inspector weight edit to all captured Text targets");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==initial&&window.canvas->selections()==selection,
+        "A second Undo restores the draft baseline before source browsing");
+    const auto picker_revision=session.revision();
+
+    bool browsed=false,cancelled=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        browsed=window.canvas->selected_object=="weight-batch-ui-a";
+        cancelled=true;buttons->button(QDialogButtonBox::Cancel)->click();
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(1)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(browsed&&cancelled&&window.canvas->selections()==selection&&session.document()==initial&&
+        session.revision()==picker_revision,
+        "Source browsing may change the visible selection, while Cancel restores the captured targets without mutation");
+
+    bool relative_linked=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        buttons->button(QDialogButtonBox::Apply)->click();relative_linked=true;
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(1)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(relative_linked&&window.canvas->selections()==selection&&
+        session.document().objects.at("weight-batch-ui-b").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},40}&&
+        session.document().objects.at("weight-batch-ui-c").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},100},
+        "Relative source choice links the pre-browsing Text targets with independent offsets");
+    auto updated_source=*session.document().objects.at("weight-batch-ui-a").text;updated_source.weight=120;
+    session.apply({UpdateText{"weight-batch-ui-a",updated_source}},session.revision());window.host.edited();QApplication::processEvents();
+    check(evaluate_text_weight(session.document(),"weight-batch-ui-b")==160&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==220,
+        "Shared Inspector relative links preserve each selected Text's source difference");
+    visible_child<QPushButton>(window,"text-weight-batch-unlink")->click();QApplication::processEvents();QTest::qWait(25);
+    check(session.document().objects.at("weight-batch-ui-b").text->weight==160&&
+        session.document().objects.at("weight-batch-ui-c").text->weight==220&&
+        !session.document().objects.at("weight-batch-ui-b").text->weight_driver&&
+        !session.document().objects.at("weight-batch-ui-c").text->weight_driver,
+        "Inspector Unlink freezes each selected evaluated weight in one batch");
+
+    bool absolute_linked=false;
+    QTimer::singleShot(0,&window,[&] {
+        auto* dialog=window.findChild<QDialog*>("text-source-picker");if(!dialog)return;
+        auto* list=dialog->findChild<QListWidget*>("text-source-picker-list");
+        auto* buttons=dialog->findChild<QDialogButtonBox*>();if(!list||!buttons)return;
+        QListWidgetItem* source_item=nullptr;
+        for(int i=0;i<list->count();++i) {
+            const auto ref=QJsonDocument::fromJson(list->item(i)->data(Qt::UserRole).toByteArray()).object();
+            if(ref.value("object").toString()=="weight-batch-ui-a")source_item=list->item(i);
+        }
+        if(!source_item)return;list->setCurrentItem(source_item);QApplication::processEvents();
+        buttons->button(QDialogButtonBox::Apply)->click();absolute_linked=true;
+    });
+    visible_child<QToolButton>(window,"text-weight-batch-driver")->menu()->actions().at(0)->trigger();QApplication::processEvents();QTest::qWait(25);
+    check(absolute_linked&&window.canvas->selections()==selection&&
+        session.document().objects.at("weight-batch-ui-b").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},0}&&
+        session.document().objects.at("weight-batch-ui-c").text->weight_driver==TextWeightDriver{Ref{"weight-batch-ui-a","","text.weight"},0}&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-b")==120&&
+        evaluate_text_weight(session.document(),"weight-batch-ui-c")==120,
+        "Absolute source choice links all captured Text targets with zero offsets");
+}
+
+void text_path_authoring(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point start,end;start.id="ui-path-start";start.x.literal=40;start.y.literal=100;
+    end.id="ui-path-end";end.x.literal=520;end.y.literal=100;
+    auto source=default_text("ui-text-source","Canvas");source.parameters.at("font_size").literal=24;
+    session.apply({CreatePath{composition,"","ui-path","Guide Curve",{{"ui-contour",false,{start,end}}}},
+        CreateText{composition,"","ui-text","Path Label",source}},session.revision());
+    window.host.edited();window.canvas->set_selection("ui-text");QApplication::processEvents();
+    auto* contour=visible_child<QComboBox>(window,"text-path-contour");
+    const auto stable=contour->findData(QStringLiteral("ui-path\nui-contour"));
+    check(stable>=0&&contour->itemText(stable).contains("ui-path")&&contour->itemText(stable).contains("ui-contour"),
+        "Text on Path Inspector displays explicit stable Path and Contour IDs");
+    const auto before_refusal=session.document();const auto refusal_revision=session.revision();
+    contour->setCurrentIndex(0);visible_child<QPushButton>(window,"text-path-apply")->click();QApplication::processEvents();
+    check(session.revision()==refusal_revision&&session.document()==before_refusal&&
+        window.statusBar()->currentMessage().startsWith("MISSING_PATH_ATTACHMENT"),
+        "Inspector refuses attachment until a specific same-Composition Path/Contour is chosen");
+
+    const auto detached_pixels=Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false);
+    contour=visible_child<QComboBox>(window,"text-path-contour");contour->setCurrentIndex(stable);
+    const auto attach_revision=session.revision();visible_child<QPushButton>(window,"text-path-apply")->click();QApplication::processEvents();
+    QTest::qWait(25); // Let the deferred Text Inspector and Qt layout/show cycle settle.
+    check(session.revision()==attach_revision+1&&
+        session.document().objects.at("ui-text").text->path_attachment==TextPathAttachment{"ui-path","ui-contour","distance",0,0,false},
+        "Inspector attaches by stable IDs through one shared Session edit");
+    const auto attached_pixels=Canvas::render_artboard(session.document(),composition,window.canvas->active_artboard(),1,false);
+    const auto attached_svg=export_svg(session.document(),composition,window.canvas->active_artboard());
+    check(attached_pixels!=detached_pixels&&attached_svg.find("Text outlined for SVG")!=std::string::npos&&
+        attached_svg.find("<text") == std::string::npos,
+        "Canvas and SVG render the same real Text-on-Path shape while native retains editable Text");
+    QTemporaryDir native_dir;check(native_dir.isValid(),"Text-on-Path creates a disposable cold-reopen directory");
+    const auto native_path=native_dir.path()+"/text-path.nect";window.host.save(native_path);
+    QApplication::processEvents();QTest::qWait(25);
+    visible_child<QPushButton>(window,"text-path-detach");
+    Host cold_reopen(native_dir.path()+"/recovery");cold_reopen.open(native_path);
+    check(cold_reopen.session.document()==session.document()&&
+        cold_reopen.session.document().objects.at("ui-text").text->path_attachment->contour=="ui-contour",
+        "Native 0.27 cold reopen preserves exact editable Text and stable Contour attachment IDs");
+    const auto attached_document=session.document();const auto detach_revision=session.revision();
+    visible_child<QPushButton>(window,"text-path-detach")->click();QApplication::processEvents();
+    check(session.revision()==detach_revision+1&&!session.document().objects.at("ui-text").text->path_attachment&&
+        session.document().objects.at("ui-text").text->content=="Canvas",
+        "Inspector detaches in one Session edit and preserves authored Text");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==attached_document,"Inspector detach has one exact Undo step");
+}
+QPointF knob_point(double degrees) {
+    const auto radians=degrees*std::acos(-1.0)/180.0;
+    return {22.0+16.0*std::sin(radians),22.0-16.0*std::cos(radians)};
+}
+void knob_mouse(QWidget* knob,QEvent::Type type,QPointF local,Qt::MouseButton button,Qt::MouseButtons buttons) {
+    const QPointF global=QPointF(knob->mapToGlobal(QPoint(0,0)))+local;
+    QMouseEvent event(type,local,global,button,buttons,Qt::NoModifier);
+    QApplication::sendEvent(knob,&event);QApplication::processEvents();
+}
+void p02d_utility_acceptance(Window& window) {
+    auto& session=window.host.session;
+    const auto composition=session.document().compositions.front().id;
+    const auto artboard=session.document().compositions.front().artboards.front().id;
+    auto find_board=[&](const Document& document)->const Artboard& {
+        const auto owner=std::find_if(document.compositions.begin(),document.compositions.end(),[&](const Composition& value){return value.id==composition;});
+        check(owner!=document.compositions.end(),"Layout fixture composition remains present");
+        const auto item=std::find_if(owner->artboards.begin(),owner->artboards.end(),[&](const Artboard& value){return value.id==artboard;});
+        check(item!=owner->artboards.end(),"Layout fixture Artboard remains present");return *item;
+    };
+    auto board=session.document().compositions.front().artboards.front();
+    board.width=960;board.height=640;
+    session.apply({UpdateArtboard{composition,board},
+        SetArtboardLayout{composition,artboard,ArtboardLayout{Margin{40,30,50,35},Grid{"utility-grid",{40,30,870,575},3,2,10,10}}},
+        AddGuide{composition,Guide{"utility-guide","Utility guide","x",70}}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    const Document setup_document=session.document();
+    const auto revision=session.revision();
+    auto* strip=window.findChild<QScrollArea*>("canvas-utility-scroll");
+    auto* guides=window.findChild<QToolButton*>("utility-show-guides");
+    auto* grid=window.findChild<QToolButton*>("utility-show-grid");
+    auto* snap=window.findChild<QToolButton*>("utility-snap");
+    auto* zoom=window.findChild<QDoubleSpinBox*>("canvas-zoom-percent");
+    auto* readback=window.findChild<QLabel*>("canvas-output-readback");
+    auto* fit=window.findChild<QToolButton*>("utility-fit");
+    auto* setup=window.findChild<QToolButton*>("utility-setup");
+    auto* keys=window.findChild<QToolButton*>("utility-shortcut-help");
+    check(strip&&guides&&grid&&snap&&zoom&&readback&&fit&&setup&&keys,"Utility strip exposes every fixed control");
+    check(readback->text().contains("960 × 640")||readback->accessibleDescription().contains("960 × 640"),
+        (std::string("Utility readback names active Artboard output dimensions: ")+readback->text().toStdString()+" / "+readback->accessibleDescription().toStdString()).c_str());
+    guides->setChecked(false);grid->setChecked(true);snap->setChecked(true);QApplication::processEvents();
+    check(!window.canvas->show_guides()&&window.canvas->show_grid()&&window.canvas->snap_enabled(),
+        "Guide visibility, Grid visibility and Snap remain independent view states");
+    snap->click();QApplication::processEvents();
+    check(!window.canvas->snap_enabled()&&window.canvas->show_grid(),"Snap can turn OFF while the Grid overlay stays ON");
+    zoom->setValue(75);QApplication::processEvents();
+    check(std::abs(window.canvas->zoom()-0.75)<1e-9,"Zoom control updates view scale");
+    fit->click();QApplication::processEvents();
+    check(session.revision()==revision,"Overlay, Snap, Fit and zoom changes create no document revision");
+
+    window.resize(1000,650);QApplication::processEvents();
+    auto* bar=strip->horizontalScrollBar();
+    check(bar->maximum()>0&&strip->height()>=58&&strip->viewport()->height()>=30,
+        "Narrow Utility Strip scrolls horizontally with enough height for controls and scrollbar");
+    const auto stable_setup_rect=setup->geometry();
+    strip->ensureWidgetVisible(setup);QApplication::processEvents();
+    check(setup->visibleRegion().contains(setup->rect().center()),"Setup remains reachable at the horizontal end of the narrow strip");
+    QTest::mouseMove(setup,setup->rect().center());QTest::qWait(150);
+    check(setup->geometry()==stable_setup_rect,"Hover feedback leaves the Setup hit target geometry stable");
+    strip->ensureWidgetVisible(keys);QApplication::processEvents();
+    check(keys->visibleRegion().contains(keys->rect().center()),"Shortcut help remains reachable at narrow width");
+
+    strip->ensureWidgetVisible(setup);QApplication::processEvents();setup->click();QApplication::processEvents();
+    auto* popup=visible_child<QDialog>(window,"utility-setup-popover");
+    auto* screen=popup->screen();check(screen!=nullptr,"Setup popup has an assigned screen");
+    const auto available=screen->availableGeometry();
+    check(popup->width()<=std::min(480,std::max(1,available.width()-16))&&
+        popup->geometry().left()>=available.left()&&popup->geometry().right()<=available.right(),
+        "Setup popup width and position fit a narrow available screen");
+    check(visible_child<QGroupBox>(window,"layout-margin")&&visible_child<QGroupBox>(window,"layout-grid")&&
+        visible_child<QGroupBox>(window,"composition-guides"),"Setup popover reuses the existing Margin, Grid and Guide editors");
+    auto* popup_scroll=popup->findChild<QScrollArea*>("utility-setup-scroll");
+    check(popup_scroll!=nullptr,"Setup popover scrolls its existing editor content");
+    auto popup_field=[&](const char* name)->QLineEdit* {
+        for(auto* field:window.findChildren<QLineEdit*>(QString::fromLatin1(name)))if(popup->isAncestorOf(field))return field;
+        return nullptr;
+    };
+    auto* margin=popup_field("margin-left");check(margin!=nullptr,"Setup popover owns an existing Margin editor");
+    popup_scroll->ensureWidgetVisible(margin);QApplication::processEvents();
+    check(margin->isVisible(),"Setup popover exposes its Margin field inside the scroll viewport");
+    margin->setFocus();QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);
+    QTest::keyClicks(margin,"50");QApplication::processEvents();
+    const auto& preview=find_board(session.preview_document());
+    check(preview.layout&&preview.layout->margin&&preview.layout->margin->left==50&&session.revision()==revision,
+        "Margin editing previews transiently without changing authored revision");
+    QTest::keyClick(margin,Qt::Key_Escape);QApplication::processEvents();
+    check(!session.gesture_active()&&session.preview_document()==session.document()&&session.revision()==revision,
+        "Escape cancels a Margin preview atomically");
+
+    margin=popup_field("margin-left");check(margin!=nullptr,"Escape refresh keeps the Margin editor in Setup");popup_scroll->ensureWidgetVisible(margin);margin->setFocus();
+    QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(margin,"55");QApplication::processEvents();
+    popup->reject();QApplication::processEvents();
+    check(!session.gesture_active()&&session.preview_document()==session.document()&&session.revision()==revision,
+        "Closing Setup cancels its active transient draft");
+
+    setup->click();QApplication::processEvents();popup=visible_child<QDialog>(window,"utility-setup-popover");
+    popup_scroll=popup->findChild<QScrollArea*>("utility-setup-scroll");
+    margin=popup_field("margin-left");check(margin!=nullptr,"Reopened Setup exposes its Margin editor");popup_scroll->ensureWidgetVisible(margin);margin->setFocus();
+    QTest::keyClick(margin,Qt::Key_A,Qt::ControlModifier);QTest::keyClicks(margin,"50");QApplication::processEvents();
+    visible_child<QPushButton>(window,"margin-apply")->click();QApplication::processEvents();
+    const auto& committed=find_board(session.document());
+    check(session.revision()==revision+1&&committed.layout&&committed.layout->margin&&committed.layout->margin->left==50,
+        "Margin Apply commits one authored transaction");
+    check(committed.layout->grid&&committed.layout->grid->id=="utility-grid"&&committed.layout->grid->bounds.x==40,
+        "Margin edits preserve the independently authored Grid bounds and identity");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(session.document()==setup_document,"Setup commit is one exact Undo");
+    if(auto* active=window.findChild<QDialog*>("utility-setup-popover"))active->reject();QApplication::processEvents();
+}
+void p02d_shortcut_acceptance(Window& window) {
+    auto* draw=named_action(window,"draw-path");
+    check(draw->shortcuts().contains(QKeySequence("P"))&&draw->shortcuts().contains(QKeySequence("G")),
+        "P and G are aliases on the existing Draw Path action");
+    check(named_action(window,"transform-selection")->shortcut()==QKeySequence("Ctrl+Shift+T"),
+        "Existing Nect rotate/scale shortcut remains Ctrl+Shift+T");
+    QLineEdit text(&window);text.show();text.setFocus();QApplication::processEvents();QTest::keyClick(&text,Qt::Key_G);
+    check(text.text()=="g"&&!window.canvas->draw_mode(),"G typed in a focused text field stays text input");text.hide();
+    window.canvas->setFocus();QApplication::processEvents();QTest::keyClick(window.canvas,Qt::Key_P);
+    check(window.canvas->draw_mode(),"P enters Draw Path on the Canvas");QTest::keyClick(window.canvas,Qt::Key_Escape);
+    QTest::keyClick(window.canvas,Qt::Key_G);check(window.canvas->draw_mode(),"G enters the same Draw Path mode");
+    QTest::keyClick(window.canvas,Qt::Key_Escape);
+    named_action(window,"shortcut-help")->trigger();QApplication::processEvents();
+    auto* help=visible_child<QDialog>(window,"shortcut-help-dialog");QString copy;
+    for(auto* label:help->findChildren<QLabel*>())copy+=label->text()+"\n";
+    check(copy.contains("P = Position")&&copy.contains("G = Pen / Mask Feather")&&copy.contains("Ctrl+Shift+T = Effect Controls"),
+        "Shortcut help explicitly names both Nect shortcuts and their AE collisions");help->close();QApplication::processEvents();
+}
+void p02d_repeater_knob_acceptance(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point point;point.id="knob-point";point.x.literal=120;point.y.literal=120;
+    const Ref rotation=operation_ref("knob-object","knob-repeater","rotation");
+    session.apply({CreatePath{composition,"","knob-object","Knob",{{"knob-contour",false,{point}}}},
+        AddOperation{"knob-object",default_operation("knob-repeater","nect.shape.repeater"),1}},session.revision());
+    window.host.edited();window.canvas->set_selection("knob-object");QApplication::processEvents();
+    auto* numeric=field<QLineEdit>(window,rotation);
+    auto* knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(knob->property("nect-reference").toByteArray()==reference(rotation),"Knob and numeric editor carry the identical stable Rotation Ref");
+    const auto knob_hit_target=knob->geometry();
+    const auto knob_global=QPointF(knob->mapToGlobal(QPoint(0,0)))+QPointF(22,22);
+    QEnterEvent pointer_enter({22,22},{22,22},knob_global);QApplication::sendEvent(knob,&pointer_enter);QTest::qWait(150);
+    auto* hover=qobject_cast<QGraphicsOpacityEffect*>(knob->graphicsEffect());
+    check(hover&&hover->opacity()>=0.99&&knob->geometry()==knob_hit_target,
+        "Knob hover fades smoothly without changing its stable hit target");
+    QEvent pointer_leave(QEvent::Leave);QApplication::sendEvent(knob,&pointer_leave);QTest::qWait(150);
+    knob->setFocus();QApplication::processEvents();
+    check(knob->hasFocus()&&std::abs(hover->opacity()-0.90)<0.01&&knob->geometry()==knob_hit_target,
+        "Knob focus stays available as hover fades away without geometry movement");
+    edit_number(window,rotation,"725");
+    check(std::abs(evaluate(session.document()).at(rotation)-725)<1e-12,"Numeric rotation preserves exact unwrapped 725 degrees");
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(knob->accessibleDescription().contains("indicator 5 degrees"),"Knob indicates 725 degrees modulo 360");
+    const auto plus_ten_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,{22,6},Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseMove,knob_point(10),Qt::NoButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(10),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==plus_ten_revision+1&&std::abs(evaluate(session.document()).at(rotation)-735)<1e-9,
+        "A +10 degree dial drag commits 735 degrees in exactly one revision");
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    numeric=field<QLineEdit>(window,rotation);
+    check(numeric->text().toDouble()==735&&knob->accessibleDescription().contains("indicator 15 degrees"),
+        "Knob drag refreshes exact numeric editor and modulo indicator from the same Ref");
+    session.undo(session.revision());window.host.edited();QApplication::processEvents();
+    check(std::abs(evaluate(session.document()).at(rotation)-725)<1e-12,"One Undo restores numeric rotation 725");
+
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    const auto whole_turn_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    for(int angle=45;angle<=360;angle+=45)knob_mouse(knob,QEvent::MouseMove,knob_point(angle%360),Qt::NoButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(0),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==whole_turn_revision+1&&std::abs(evaluate(session.document()).at(rotation)-1085)<1e-8,
+        "Sampled full-circle travel adds 360 degrees without wrapping the authored value");
+
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    const auto cancel_revision=session.revision();
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseMove,knob_point(25),Qt::NoButton,Qt::LeftButton);
+    check(std::abs(evaluate(session.preview_document()).at(rotation)-1110)<0.5,"Live angle drag previews through the shared Session gesture");
+    QTest::keyClick(knob,Qt::Key_Escape);QApplication::processEvents();
+    check(session.revision()==cancel_revision&&!session.gesture_active()&&std::abs(evaluate(session.document()).at(rotation)-1085)<1e-8,
+        "Escape cancels knob preview with no revision or partial authored change");
+
+    const auto old_knob_revision=session.revision();
+    session.apply({Set{rotation,1100}},session.revision());
+    knob_mouse(knob,QEvent::MouseButtonPress,knob_point(0),Qt::LeftButton,Qt::LeftButton);
+    knob_mouse(knob,QEvent::MouseButtonRelease,knob_point(0),Qt::LeftButton,Qt::NoButton);
+    check(session.revision()==old_knob_revision+1&&!session.gesture_active()&&
+        window.statusBar()->currentMessage().startsWith("REVISION_CONFLICT")&&evaluate(session.document()).at(rotation)==1100,
+        "A stale knob refuses to start and leaves external authored value intact");
+    window.host.edited();QApplication::processEvents();
+
+    edit_number(window,rotation,"-999999999");
+    check(evaluate(session.document()).at(rotation)==-999999999,
+        "Signed near-limit numeric rotation stays unwrapped in the authored Ref");
+    const auto bounded_revision=session.revision();
+    edit_number(window,rotation,"1000000001");
+    check(session.revision()==bounded_revision&&evaluate(session.document()).at(rotation)==-999999999,
+        "Out-of-range rotation rejects without a partial authored edit");
+    window.host.edited();QApplication::processEvents();
+    const Ref source_rotation=operation_ref("knob-object","knob-repeater-source","rotation");
+    session.apply({AddOperation{"knob-object",default_operation("knob-repeater-source","nect.shape.repeater"),2},
+        Set{source_rotation,120},Link{rotation,{source_rotation,1,0,"copy_local_value"}}},session.revision());
+    window.host.edited();QApplication::processEvents();
+    knob=visible_child<QWidget>(window,"repeater-angle-knob-knob-repeater");reveal(window,knob);
+    check(!knob->isEnabled()&&std::abs(evaluate(session.document()).at(rotation)-120)<1e-12,
+        "Driven rotation disables the dial and uses the same evaluated Ref");
+}
+void group_path_follow_inspector(Window& window) {
+    auto& session=window.host.session;const auto composition=session.document().compositions.front().id;
+    Point first;first.id="ui-follow-first";first.x.literal=0;first.y.literal=0;
+    Point last;last.id="ui-follow-last";last.x.literal=300;last.y.literal=20;
+    auto rectangle=default_primitive("ui-follow-rect-source","nect.shape.rectangle");
+    auto text=default_text("ui-follow-text-source","Editable Text B");
+    session.apply({CreatePrimitive{composition,"","ui-follow-rect","Rectangle A",rectangle},
+        CreateText{composition,"","ui-follow-text","Editable Text B",text},
+        CreatePath{composition,"","ui-follow-path","Guide",{{"ui-follow-contour",false,{first,last}}}},
+        GroupContiguous{composition,"",{"ui-follow-rect","ui-follow-text"},"ui-follow-group","Follow Group"}},session.revision());
+    window.host.edited();window.canvas->set_selection("ui-follow-group");QApplication::processEvents();
+    auto* path=visible_child<QComboBox>(window,"group-path-follow-source");
+    auto* contour=visible_child<QComboBox>(window,"group-path-follow-contour");
+    auto* mode=visible_child<QComboBox>(window,"group-path-follow-start-mode");
+    check(path->findData("ui-follow-path")>=0&&contour->findData("ui-follow-contour")>=0,
+        "Group Path Follow inspector offers the stable authored Path and Contour IDs");
+    path->setCurrentIndex(path->findData("ui-follow-path"));
+    mode->setCurrentIndex(mode->findData("normalized"));
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-start")->setValue(.2);
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-normal-offset")->setValue(3);
+    visible_child<QCheckBox>(window,"group-path-follow-reversed")->setChecked(true);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    const auto attached=session.document().objects.at("ui-follow-group").path_follow;
+    check(attached&&attached->path=="ui-follow-path"&&attached->contour=="ui-follow-contour"&&
+        attached->start_mode=="normalized"&&attached->start==.2&&attached->normal_offset==3&&attached->reversed,
+        "Inspector Apply attaches the selected source and authored relation settings through Session");
+    const auto relation_id=attached->id;
+    auto* child=visible_child<QCheckBox>(window,"group-path-follow-item-ui-follow-rect");child->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->items.contains("ui-follow-rect"),
+        "Child checkbox adds the stable child Object ID to the relation");
+    auto* distance=visible_child<QDoubleSpinBox>(window,"group-path-follow-distance-ui-follow-rect");
+    distance->setValue(18);distance->setFocus();QTest::keyClick(distance,Qt::Key_Return);settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Child distance editor commits the exact item value through the shared Session command");
+    check(window.canvas->selected_object=="ui-follow-group","Item edits preserve Group selection in the Inspector");
+    auto* tangent=visible_child<QCheckBox>(window,"group-path-follow-tangent-ui-follow-rect");
+    reveal(window,tangent);tangent->click();settle_rebuilt_inspector();
+    check(!session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").follow_tangent,
+        "Tangent checkbox commits per-child orientation behavior");
+    visible_child<QDoubleSpinBox>(window,"group-path-follow-start")->setValue(.4);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->id==relation_id&&
+        session.document().objects.at("ui-follow-group").path_follow->start==.4&&
+        session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Inspector Update retains the stable relation ID and child item values");
+    auto precise=*session.document().objects.at("ui-follow-group").path_follow;
+    precise.start=.412345678901234;precise.normal_offset=3.12345678901234;
+    session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"ui-follow-group",precise}}},session.revision());
+    window.host.edited();settle_rebuilt_inspector();
+    visible_child<QCheckBox>(window,"group-path-follow-reversed")->setChecked(false);
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    const auto preserved=session.document().objects.at("ui-follow-group").path_follow;
+    check(preserved->start==precise.start&&preserved->normal_offset==precise.normal_offset,
+        "Inspector update of another setting preserves exact unedited relation numbers");
+    precise.start=.4;precise.normal_offset=3;precise.reversed=false;
+    session.apply({GroupPathFollowCommand{UpdateGroupPathFollow{"ui-follow-group",precise}}},session.revision());
+    window.host.edited();settle_rebuilt_inspector();
+    const auto before_deform=session.document();const auto mode_revision=session.revision();
+    auto* follow_mode=visible_child<QComboBox>(window,"group-path-follow-mode");
+    follow_mode->setCurrentIndex(follow_mode->findData("deform"));
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.revision()==mode_revision+1&&session.document().objects.at("ui-follow-group").path_follow->mode=="deform"&&
+        session.document().objects.at("ui-follow-rect")==before_deform.objects.at("ui-follow-rect"),
+        "Inspector switches shared relation to deform in one command without baking child source");
+    auto* axis=visible_child<QComboBox>(window,"group-path-deform-axis");axis->setCurrentIndex(axis->findData("y"));
+    visible_child<QPushButton>(window,"group-path-follow-apply")->click();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->deform_axis=="y","Inspector reads and updates retained deform axis");
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    check(session.document()==before_deform,"One Undo per Inspector switch restores the exact prior rigid relation and source");
+    const auto group_children=session.document().objects.at("ui-follow-group").children;
+    const auto rectangle_transform=session.document().objects.at("ui-follow-rect").transform;
+    const auto text_transform=session.document().objects.at("ui-follow-text").transform;
+    visible_child<QPushButton>(window,"group-path-follow-clear")->click();settle_rebuilt_inspector();
+    check(!session.document().objects.at("ui-follow-group").path_follow&&
+        session.document().objects.at("ui-follow-group").children==group_children&&
+        session.document().objects.at("ui-follow-rect").transform==rectangle_transform&&
+        session.document().objects.at("ui-follow-text").transform==text_transform,
+        "Clear removes only the relation and does not bake transforms or rewrite hierarchy");
+    session.undo(session.revision());window.host.edited();settle_rebuilt_inspector();
+    check(session.document().objects.at("ui-follow-group").path_follow->id==relation_id&&
+        session.document().objects.at("ui-follow-group").path_follow->start==.4&&
+        session.document().objects.at("ui-follow-group").path_follow->items.at("ui-follow-rect").distance==18,
+        "Undo restores the exact Group Path Follow relation and item values");
+}
+int main(int argc,char** argv) {
+    qputenv("QT_QPA_PLATFORM","offscreen");QApplication app(argc,argv);
+    try {
+        QTemporaryDir temp;Window w(temp.path());w.show();QApplication::processEvents();
+        auto& s=w.host.session;const auto comp=s.document().compositions.front().id;
+        Point a,b;a.id="a1";a.x.literal=100;a.y.literal=180;b.id="b1";b.x.literal=200;b.y.literal=250;
+        s.apply({CreatePath{comp,"","a","Target",{{"ca",false,{a}}}},CreatePath{comp,"","b","Source",{{"cb",false,{b}}}}},0);
+        w.canvas->set_selection("a","a1");w.host.edited();QApplication::processEvents();
+        const Ref target{"a","a1","x"},source{"b","b1","y"};
+        auto* input=field<QLineEdit>(w,target);input->setFocus();QTest::keyClicks(input,"draft");
+        const auto draft=input->text();QTest::qWait(1100);
+        check(input->text()==draft&&input->hasFocus(),"Recovery status must not replace focused input drafts");
+        check(s.revision()==1,"Incomplete draft is not committed by recovery");
+        input->setText("100");input->setModified(false);
+        auto* whip=field<QPushButton>(w,target);
+        QTest::mousePress(whip,Qt::LeftButton,Qt::NoModifier,whip->rect().center());
+        auto* tree=w.findChild<QTreeWidget*>();check(tree!=nullptr,"Object tree exists");
+        QTreeWidgetItem* item=nullptr;
+        for(int i=0;i<tree->topLevelItemCount();++i)if(tree->topLevelItem(i)->data(0,Qt::UserRole)=="b")item=tree->topLevelItem(i);
+        check(item!=nullptr,"Source row exists");
+        move(w,tree->viewport()->mapToGlobal(tree->visualItemRect(item).center()));
+        check(w.canvas->selected_object=="b","Pick-whip can inspect another object without changing its target");
+        auto* source_field=field<QLineEdit>(w,source);
+        if(!source_field->visibleRegion().contains(source_field->rect().center())) {
+            auto* scroll=w.findChild<QScrollArea*>("inspector-scroll");
+            qWarning()<<"WHIP GEOMETRY"<<"field"<<source_field->geometry()<<"global"<<source_field->mapToGlobal(QPoint())
+                <<"region"<<source_field->visibleRegion()<<"viewport"<<scroll->viewport()->geometry()
+                <<"viewport-global"<<scroll->viewport()->mapToGlobal(QPoint())<<"content"<<scroll->widget()->geometry()
+                <<"scroll"<<scroll->verticalScrollBar()->value()<<scroll->verticalScrollBar()->maximum();
+            for(QWidget* widget=source_field;widget&&widget!=scroll->viewport();widget=widget->parentWidget())
+                qWarning()<<"WHIP PARENT"<<widget->metaObject()->className()<<widget->geometry()<<widget->minimumSizeHint()<<widget->minimumSize();
+            for(auto* combo:w.findChildren<QComboBox*>())if(combo->isVisible())
+                qWarning()<<"WHIP COMBO"<<combo->geometry()<<combo->minimumSizeHint()<<combo->sizeHint();
+        }
+        check(source_field->visibleRegion().contains(source_field->rect().center()),
+            "Cross-object pick-whip exposes source coordinates inside the scrolled Inspector");
+        release(w,source_field->mapToGlobal(source_field->rect().center()));
+        if(s.revision()!=2||evaluate(s.document()).at(target)!=250)
+            std::cerr<<"revision="<<s.revision()<<" value="<<evaluate(s.document()).at(target)
+                <<" status="<<w.statusBar()->currentMessage().toStdString()<<'\n';
+        check(s.revision()==2&&evaluate(s.document()).at(target)==250,"Pick-whip commits one shared command");
+        check(nect::property(s.document(),target).binding->source==source,"Pick-whip persists stable source ID");
+        check(w.canvas->selected_object=="a","Pick-whip returns to target context");
+        s.undo(2);w.host.edited();QApplication::processEvents();
+        check(evaluate(s.document()).at(target)==100&&!nect::property(s.document(),target).binding,"Pick-whip undo restores target");
+        whip=field<QPushButton>(w,target);QTest::mousePress(whip,Qt::LeftButton,Qt::NoModifier,whip->rect().center());
+        move(w,tree->viewport()->mapToGlobal(tree->visualItemRect(tree->topLevelItem(1)).center()));
+        QTest::keyClick(&w,Qt::Key_Escape);QApplication::processEvents();
+        check(s.revision()==3&&!nect::property(s.document(),target).binding&&w.canvas->selected_object=="a",
+            "Pick-whip cancellation preserves document and restores context");
+        primitive_authoring(w);ellipse_creation_preconditions();
+        stack_authoring(w);
+        {Window circle_handles(temp.path()+"/circle-handles");circle_handles.show();QApplication::processEvents();
+            circle_source_handle_inspector(circle_handles);circle_handles.hide();}
+        w.hide();Window point_expressions(temp.path()+"/point-expressions");point_expressions.show();QApplication::processEvents();
+        generated_point_expression(point_expressions);point_expressions.hide();
+        Window source_picker(temp.path()+"/source-picker");source_picker.show();QApplication::processEvents();
+        scalar_source_path_picker(source_picker);source_picker.hide();
+        {Window enabled_links(temp.path()+"/enabled-links");enabled_links.show();QApplication::processEvents();
+            single_operation_enabled_source(enabled_links);point_edit_enabled_source(enabled_links);
+            point_edit_enabled_expression(enabled_links);enabled_links.hide();}
+        Window gradients(temp.path()+"/gradient");gradients.show();QApplication::processEvents();gradient_authoring(gradients);
+        gradients.hide();Window boards(temp.path()+"/artboards");boards.show();QApplication::processEvents();artboard_authoring(boards);
+        boards.hide();
+        Window text_sources(temp.path()+"/text-string-sources");text_sources.show();QApplication::processEvents();
+        text_string_source_picker_contract(text_sources);text_remaining_source_picker_contract(text_sources);text_sources.hide();
+        Window texts(temp.path()+"/texts");texts.show();QApplication::processEvents();text_authoring(texts);
+        texts.hide();Window text_weight_batch(temp.path()+"/text-weight-batch");text_weight_batch.show();QApplication::processEvents();
+        text_weight_batch_inspector(text_weight_batch);text_weight_batch.hide();
+        Window path_text(temp.path()+"/text-path");path_text.show();QApplication::processEvents();text_path_authoring(path_text);
+        path_text.hide();Window layout(temp.path()+"/layout");layout.show();QApplication::processEvents();
+        auto& layout_session=layout.host.session;const auto layout_comp=layout_session.document().compositions.front().id;
+        Point left,right;left.id="layout-left-point";left.x.literal=30;left.y.literal=40;right.id="layout-right-point";right.x.literal=160;right.y.literal=100;
+        layout_session.apply({CreatePath{layout_comp,"","layout-left","Left",{{"layout-left-contour",false,{left}}}},CreatePath{layout_comp,"","layout-right","Right",{{"layout-right-contour",false,{right}}}}},0);
+        layout.host.edited();layout.canvas->set_selections({{"layout-left",""},{"layout-right",""}});
+        const auto layout_before=layout_session.document();named_action(layout,"align-selection-x-min")->trigger();
+        check(layout_session.revision()==2&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==-130,"GUI alignment uses Session world translation");
+        layout_session.undo(2);layout.host.edited();check(layout_session.document()==layout_before,"GUI alignment is one Undo");
+        layout.canvas->set_selection("layout-left","layout-left-point");named_action(layout,"align-artboard-x-center")->trigger();
+        check(layout_session.revision()==3&&layout.statusBar()->currentMessage().startsWith("INVALID_SELECTION"),"Point selection cannot silently align whole object");
+        layout.canvas->set_selections({{"layout-left",""},{"layout-right",""}});QApplication::processEvents();
+        visible_child<QComboBox>(layout,"alignment-target")->setCurrentIndex(1);
+        visible_child<QPushButton>(layout,"quick-align-x-center")->click();
+        const auto aligned_values=evaluate(layout_session.document());
+        const auto active_board=evaluate_artboard(layout_session.document().compositions.front(),layout.canvas->active_artboard());
+        const auto board_center=active_board.x+active_board.width/2;
+        check(layout_session.revision()==4&&aligned_values.at({"layout-left","","transform.tx"})==board_center-30&&aligned_values.at({"layout-right","","transform.tx"})==board_center-160,"Quick alignment buttons share the Artboard Session command");
+        layout_session.undo(4);layout.host.edited();
+        Point third;third.id="layout-third-point";third.x.literal=400;third.y.literal=200;
+        layout_session.apply({CreatePath{layout_comp,"","layout-third","Third",{{"layout-third-contour",false,{third}}}}},5);layout.host.edited();
+        layout.canvas->set_selections({{"layout-third",""},{"layout-left",""},{"layout-right",""}});QApplication::processEvents();
+        const auto before_spacing=layout_session.document();
+        auto* layout_reference=visible_child<QComboBox>(layout,"alignment-target");layout_reference->setCurrentIndex(layout_reference->findData("selection"));
+        visible_child<QPushButton>(layout,"quick-distribute-x")->click();
+        check(layout_session.revision()==7&&evaluate(layout_session.document()).at({"layout-right","","transform.tx"})==55,"Selection distribution uses the explicit Selection reference");
+        layout_session.undo(7);layout.host.edited();check(layout_session.document()==before_spacing,"GUI spacing is one Undo");
+        layout.canvas->set_selection("layout-left");QApplication::processEvents();
+        // Ordinary text editing retains Ctrl+A; Canvas selection remains intact.
+        QLineEdit shortcut_text(&layout);shortcut_text.setText("editable draft");shortcut_text.show();shortcut_text.setFocus();QApplication::processEvents();
+        QTest::keyClick(&shortcut_text,Qt::Key_A,Qt::ControlModifier);
+        check(shortcut_text.selectedText()=="editable draft"&&layout.canvas->selected_objects()==std::vector<Id>{"layout-left"},"Ctrl+A remains local to a text field");
+        shortcut_text.hide();layout.canvas->setFocus();
+        named_action(layout,"fit-selection")->trigger();check(layout.canvas->zoom()==64,"Fit Selection menu frames degenerate point geometry");
+        check(layout_session.revision()==8,"View/selection actions preserve authored revision");
+        layout.canvas->set_selection("layout-left","layout-left-point");
+        layout.canvas->nudge_selection(3,4);
+        check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"Canvas notification retains exact committed projection");
+        const auto original_status=layout.host.status_changed;bool reentered=false;
+        layout.host.status_changed=[&]{
+            if(!reentered){reentered=true;layout_session.apply({Set{{"layout-right","layout-right-point","x"},777}},layout_session.revision());}
+            if(original_status)original_status();
+        };
+        layout.canvas->nudge_selection(1,0);
+        layout.host.status_changed=original_status;
+        check(reentered&&layout.canvas->evaluated_values().at({"layout-right","layout-right-point","x"})==777,"Reentrant revision change forces normal full projection");
+        layout_session.undo(layout_session.revision());layout.host.edited();
+        check(layout.canvas->evaluated_values()==evaluate(layout_session.document()),"External Undo refreshes projection after Canvas notification scope ends");
+        layout.hide();Window folders(temp.path()+"/folders");folders.show();QApplication::processEvents();folder_action(folders);
+        folders.hide();Window batch_rename(temp.path()+"/batch-rename");batch_rename.show();QApplication::processEvents();batch_rename_action(batch_rename);
+        batch_rename.hide();Window sort_paint_order(temp.path()+"/sort-paint-order");sort_paint_order.show();QApplication::processEvents();sort_paint_order_action(sort_paint_order);
+        sort_paint_order.hide();Window move_out(temp.path()+"/move-out");move_out.show();QApplication::processEvents();move_out_action(move_out);
+        move_out.hide();Window transfer(temp.path()+"/folder-transfer");transfer.show();QApplication::processEvents();adjacent_folder_transfer_action(transfer);
+        transfer.hide();Window chosen_transfer(temp.path()+"/chosen-transfer");chosen_transfer.show();QApplication::processEvents();explicit_folder_transfer_action(chosen_transfer);
+        chosen_transfer.hide();Window folder_preview(temp.path()+"/folder-preview");folder_preview.show();QApplication::processEvents();batch_folder_preview_action(folder_preview);
+        folder_preview.hide();Window stacking(temp.path()+"/stacking");stacking.show();QApplication::processEvents();stacking_authoring(stacking);
+        stacking.hide();Window layout_setup(temp.path()+"/layout-setup");layout_setup.show();QApplication::processEvents();
+        layout_setup_previews_commit_and_recovers(layout_setup);layout_setup.hide();
+        Window layout_refs(temp.path()+"/layout-references");layout_refs.show();QApplication::processEvents();
+        auto& refs_session=layout_refs.host.session;const auto refs_comp=refs_session.document().compositions.front().id;
+        const auto refs_art=refs_session.document().compositions.front().artboards.front().id;
+        Point ref_a;ref_a.id="ref-a-point";ref_a.x.literal=30;ref_a.y.literal=30;
+        Point ref_b;ref_b.id="ref-b-point";ref_b.x.literal=100;ref_b.y.literal=30;
+        refs_session.apply({SetArtboardLayout{refs_comp,refs_art,ArtboardLayout{std::nullopt,Grid{"layout-grid",{0,0,100,100},1,1,0,0}}},
+            AddGuide{refs_comp,Guide{"layout-guide","Vertical guide","x",80}},
+            CreatePath{refs_comp,"","ref-a","Reference A",{{"ref-a-contour",false,{ref_a}}}},
+            CreatePath{refs_comp,"","ref-b","Reference B",{{"ref-b-contour",false,{ref_b}}}}},0);
+        layout_refs.host.edited();layout_refs.canvas->set_selections({{"ref-a",""},{"ref-b",""}});QApplication::processEvents();
+        auto* reference_picker=visible_child<QComboBox>(layout_refs,"alignment-target");
+        check(reference_picker->findData("grid:layout-grid")>=0&&reference_picker->findData("guide:layout-guide")>=0&&
+            reference_picker->findData("key_object:ref-a")>=0&&reference_picker->itemText(reference_picker->findData("grid:layout-grid")).contains("layout-grid"),
+            "Inspector exposes stable Artboard/Grid/Guide/key identities before Apply");
+        const auto refs_before=refs_session.document();const auto refs_revision=refs_session.revision();
+        reference_picker->setCurrentIndex(reference_picker->findData("guide:layout-guide"));
+        check(visible_child<QPushButton>(layout_refs,"quick-align-x-min")->isEnabled()&&
+            !visible_child<QPushButton>(layout_refs,"quick-align-y-min")->isEnabled(),"Guide alignment enables only its declared axis");
+        visible_child<QPushButton>(layout_refs,"quick-align-x-min")->click();
+        check(refs_session.revision()==refs_revision+1,"Guide alignment commits through one Session command");
+        refs_session.undo(refs_session.revision());layout_refs.host.edited();QApplication::processEvents();check(refs_session.document()==refs_before,"Guide alignment is one exact Undo");
+        reference_picker=visible_child<QComboBox>(layout_refs,"alignment-target");reference_picker->setCurrentIndex(reference_picker->findData("key_object:ref-a"));
+        auto* spacing_draft=visible_child<QLineEdit>(layout_refs,"distribution-spacing");auto* key_distribute=visible_child<QPushButton>(layout_refs,"quick-distribute-x");
+        check(!key_distribute->isEnabled(),"Key-object Distribute is disabled until explicit spacing is entered");
+        spacing_draft->setText("15");check(refs_session.revision()==refs_revision+2&&refs_session.document()==refs_before,"Spacing entry remains a non-mutating draft");
+        check(key_distribute->isEnabled(),"Finite nonnegative key spacing enables Distribute");
+        const auto key_object_before=refs_session.document().objects.at("ref-a");key_distribute->click();
+        check(refs_session.revision()==refs_revision+3&&refs_session.document().objects.at("ref-a")==key_object_before,
+            "Key-object UI distribution applies explicit spacing and keeps its key fixed");
+        const auto key_result=refs_session.document();refs_session.undo(refs_session.revision());layout_refs.host.edited();
+        check(refs_session.document()==refs_before&&key_result!=refs_before,"Key-object distribution is one Undo");layout_refs.hide();
+        Window p02d(temp.path()+"/p02d");p02d.show();QApplication::processEvents();
+        p02d_utility_acceptance(p02d);p02d_shortcut_acceptance(p02d);p02d.hide();
+        Window repeater(temp.path()+"/p02d-repeater");repeater.show();QApplication::processEvents();
+        p02d_repeater_knob_acceptance(repeater);repeater.hide();
+        Window follow(temp.path()+"/group-path-follow");follow.show();QApplication::processEvents();
+        group_path_follow_inspector(follow);follow.hide();
+        std::cout<<"PASS Inspector, P02-D strip/setup/knob/shortcuts, Group Path Follow, shapes/gradients, frames, Text editing and draft/focus preservation\n";return 0;
+    } catch(const std::exception& e) {std::cerr<<e.what()<<'\n';return 1;}
+}

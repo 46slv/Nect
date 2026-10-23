@@ -1,0 +1,137 @@
+name: Verify Windows desktop
+on:
+  push:
+    branches: [main]
+    paths:
+      - desktop/**
+      - .github/workflows/verify-windows.yml
+  pull_request:
+    paths:
+      - desktop/**
+      - .github/workflows/verify-windows.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: nect-desktop-windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+          package-manager-cache: false
+      - name: Select Rust toolchain
+        run: |
+          rustup default stable
+          rustup component add rustfmt
+      - name: Install desktop dependencies
+        id: dependencies
+        run: npm ci
+      - name: Provision Japanese acceptance font capability
+        id: japanese-font-capability
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 10
+        shell: pwsh
+        run: ./scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing
+      # Report each validation failure without suppressing the native build.
+      - name: Check acceptance Rust formatting
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          rustfmt --edition 2021 --check src-tauri/src/main.rs src-tauri/src/acceptance_storage.rs
+      - name: Check frontend formatting
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run format:check
+      - name: Check native build configuration
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run check:native-build
+      - name: Build frontend
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm run build
+      - name: Build Windows app without packaging
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          npx --yes @tauri-apps/cli@2.12.3 build --no-bundle --ci -- --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $standalone = 'src-tauri/target/release/nect-svg-desktop.exe'
+          if (-not (Test-Path -LiteralPath $standalone -PathType Leaf)) { throw 'Standalone app is missing' }
+          $binaries = @($standalone) | ForEach-Object {
+            $file = Get-Item -LiteralPath $_
+            [ordered]@{
+              name = $file.Name
+              bytes = $file.Length
+              sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+          }
+          [ordered]@{
+            commit = $env:GITHUB_SHA
+            run_id = $env:GITHUB_RUN_ID
+            run_attempt = $env:GITHUB_RUN_ATTEMPT
+            native_app_acceptance = 'NOT RUN; compilation only, no installer or release'
+            isolation_tests = 'native-isolation-rust.log'
+            binaries = @($binaries)
+          } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 test-results/native-acceptance-build.json
+      - name: Run native Rust tests
+        id: native-tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          cargo test --locked --manifest-path src-tauri/Cargo.toml -- --nocapture 2>&1 | Tee-Object -FilePath test-results/native-isolation-rust.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check native font smoke evidence
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.native-tests.outcome == 'success' }}
+        run: node tests/native-font-smoke.js
+      - name: Run frontend unit and DOM tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: npm test
+      - name: Run actual Chrome interaction tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        shell: pwsh
+        env:
+          CHROMIUM_PATH: C:\Program Files\Google\Chrome\Application\chrome.exe
+        run: |
+          $server = Start-Process -FilePath node -ArgumentList "node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5173" -PassThru
+          try {
+            $ready = $false
+            for ($i=0; $i -lt 30; $i++) {
+              try { Invoke-WebRequest http://127.0.0.1:5173 -UseBasicParsing | Out-Null; $ready = $true; break } catch { Start-Sleep -Seconds 1 }
+            }
+            if (-not $ready) { throw 'Editor server did not start' }
+            npm run test:e2e
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Stop-Process -Id $server.Id -ErrorAction SilentlyContinue }
+      - name: Preserve bounded development evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: nect-desktop-windows-verification-${{ github.sha }}
+          path: |
+            desktop/test-results/*.png
+            desktop/test-results/workflow-*.json
+            desktop/test-results/workflow-*.svg
+            desktop/test-results/japanese-*.json
+            desktop/test-results/japanese-*.svg
+            desktop/test-results/native-isolation-rust.log
+            desktop/test-results/native-acceptance-build.json
+            desktop/test-results/windows-japanese-font-capability.json
+            desktop/test-results/windows-japanese-font-capability-dism.log*
+            desktop/tests/fixtures/fonts/OFL.txt
+            desktop/tests/fixtures/fonts/README.md
+            desktop/src-tauri/Cargo.lock
+          if-no-files-found: ignore
+          retention-days: 1

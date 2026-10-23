@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 49,
+  "name": "Keyer + Mask — editable example",
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "gridAnchor": "center",
+    "gridAngle": 0,
+    "gridOpacity": 0.25,
+    "snap": false,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": true,
+    "snapArtwork": false
+  },
+  "width": 80,
+  "height": 80,
+  "layers": [
+    {
+      "id": "keyer-mask-layer",
+      "name": "Keyer + Mask",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "allowEmptyOutput": false,
+      "nodes": [
+        {
+          "id": "example-image",
+          "type": "Image",
+          "name": "Source image",
+          "position": [
+            40,
+            40
+          ],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                80,
+                80
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": "",
+          "asset": "image-keyer-mask-example"
+        },
+        {
+          "id": "example-keyer",
+          "type": "Keyer",
+          "name": "Remove green",
+          "position": [
+            350,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Image",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "example-image"
+            },
+            "keyColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#00ff00",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "tolerance": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "softness": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "example-mask-shape",
+          "type": "Rectangle",
+          "name": "Mask rectangle",
+          "position": [
+            40,
+            360
+          ],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                40,
+                40
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                56,
+                56
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "example-mask",
+          "type": "Mask",
+          "name": "Shape mask",
+          "position": [
+            660,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "example-keyer"
+            },
+            "mask": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "example-mask-shape"
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "example-output",
+          "type": "Output",
+          "name": "Masked output",
+          "position": [
+            970,
+            40
+          ],
+          "width": 264,
+          "collapsed": true,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "example-mask"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "example-output"
+    }
+  ],
+  "imageAssets": {
+    "image-keyer-mask-example": {
+      "name": "synthetic-green-red-alpha.png",
+      "mime": "image/png",
+      "width": 80,
+      "height": 80,
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAFAAAABQCAYAAACOEfKtAAABUklEQVR4Ae3bQQrDMAxEUR+9N3dJQdsMOIio8AjBm7Ew6vePA81ae/a11/pMvtfs9q09uXnX2jTwIeEaqIHvOhKBCETg7UHKU/i2PfkQpYEamCnpTCAQgZ185doIRGCmpDOBQAR28pVrIxCBmZLOBAIR2MlXro1ABGZKOhMIRGAnX7k2AhGYKelMIBCBnXzl2ghEYKakM4FABHbylWsjEIGZks4EAhHYyVeujUAEZko6EwhEYCdfufZev08drs8dRt7/8B/pkY2rH1QDH5KtgRr4rhsRiEAE3p4U62k3dbSFbWFb2BbOL2Tnianuq3VxIAdyIAeeGy7PLNdMHTmQAzmQA7PJzhNT3Vfr4kAO5EAOPDdcnlmumTpyIAdyIAdmk50nprqv1sWBHMiBHHhuuDyzXDN15EAO5EAOzCY7T0x1X62LAzmQAznw3HB5Zrlm6vgFU3y286cVCa0AAAAASUVORK5CYII="
+    }
+  }
+}

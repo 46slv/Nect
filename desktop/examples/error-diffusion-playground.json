@@ -1,0 +1,1405 @@
+{
+  "schemaVersion": 19,
+  "name": "Error Diffusion Comparison",
+  "width": 816,
+  "height": 312,
+  "layers": [
+    {
+      "id": "error-diffusion-0",
+      "name": "White paper",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-0:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [408, 156],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [816, 312],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-0:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-0:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ffffff",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-0:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-0:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-0:n2"
+    },
+    {
+      "id": "error-diffusion-1",
+      "name": "Label / Ordered vs Error Diffusion",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-1:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 40],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 25,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Ordered vs Error Diffusion",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-1:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-1:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#20323d",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-1:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-1:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-1:n2"
+    },
+    {
+      "id": "error-diffusion-2",
+      "name": "Label / Same grayscale field and pitch; two distinct dithering algorithms",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-2:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 66],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Same grayscale field and pitch; two distinct dithering algorithms",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-2:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-2:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-2:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-2:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-2:n2"
+    },
+    {
+      "id": "error-diffusion-3",
+      "name": "01  SOURCE GRADIENT",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-3:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [128, 184],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-3:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-3:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [32, 184],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [224, 184],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-3:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-3:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-3:n2"
+    },
+    {
+      "id": "error-diffusion-4",
+      "name": "Label / 01  SOURCE GRADIENT",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-4:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "01  SOURCE GRADIENT",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-4:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-4:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-4:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-4:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-4:n2"
+    },
+    {
+      "id": "error-diffusion-5",
+      "name": "Label / linear gradient",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-5:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [32, 274],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "linear gradient",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-5:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-5:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-5:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-5:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-5:n2"
+    },
+    {
+      "id": "error-diffusion-6",
+      "name": "02  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-6:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [408, 184],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-6:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-6:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [312, 184],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [504, 184],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-6:n2",
+          "type": "Ordered Dither",
+          "name": "Ordered Dither",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-6:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [312, 120],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-6:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [798, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-6:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-6:n3"
+    },
+    {
+      "id": "error-diffusion-7",
+      "name": "Label / 02  ORDERED DITHER",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-7:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [312, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "02  ORDERED DITHER",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-7:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-7:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-7:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-7:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-7:n2"
+    },
+    {
+      "id": "error-diffusion-8",
+      "name": "Label / fixed Bayer 8×8 thresholds",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-8:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [312, 274],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "fixed Bayer 8×8 thresholds",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-8:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-8:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-8:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-8:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-8:n2"
+    },
+    {
+      "id": "error-diffusion-9",
+      "name": "03  ERROR DIFFUSION",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-9:n0",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [688, 184],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [192, 128],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-9:n1",
+          "type": "Linear Gradient Fill",
+          "name": "Linear Gradient Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-9:n0"
+            },
+            "start": {
+              "type": "Vector2",
+              "value": [592, 184],
+              "expression": "",
+              "locked": false
+            },
+            "end": {
+              "type": "Vector2",
+              "value": [784, 184],
+              "expression": "",
+              "locked": false
+            },
+            "startColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#080808",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            },
+            "endColor": {
+              "type": "Color",
+              "value": {
+                "hex": "#f8f8f8",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-9:n2",
+          "type": "Error Diffusion Dither",
+          "name": "Error Diffusion Dither",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-9:n1"
+            },
+            "pitch": {
+              "type": "Scalar",
+              "value": 8,
+              "expression": "",
+              "locked": false
+            },
+            "invert": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            },
+            "gridOrigin": {
+              "type": "Vector2",
+              "value": [592, 120],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-9:n3",
+          "type": "Output",
+          "name": "Output",
+          "position": [798, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-9:n2"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-9:n3"
+    },
+    {
+      "id": "error-diffusion-10",
+      "name": "Label / 03  ERROR DIFFUSION",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-10:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [592, 106],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 14,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "03  ERROR DIFFUSION",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-10:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-10:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#263740",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-10:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-10:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-10:n2"
+    },
+    {
+      "id": "error-diffusion-11",
+      "name": "Label / Floyd–Steinberg, forward raster scan",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "nodes": [
+        {
+          "id": "error-diffusion-11:n0",
+          "type": "Text",
+          "name": "Text",
+          "position": [48, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "position": {
+              "type": "Vector2",
+              "value": [592, 274],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Scalar",
+              "value": 12,
+              "expression": "",
+              "locked": false
+            },
+            "letterSpacing": {
+              "type": "Scalar",
+              "value": 0,
+              "expression": "",
+              "locked": false
+            },
+            "lineSpacing": {
+              "type": "Scalar",
+              "value": 1.2,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Floyd–Steinberg, forward raster scan",
+          "font": "default",
+          "writingMode": "horizontal-tb",
+          "alignment": "start",
+          "kerning": true,
+          "referenceBounds": "visible",
+          "crossAlignment": "origin",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-11:n1",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [298, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-11:n0"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#697984",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "error-diffusion-11:n2",
+          "type": "Output",
+          "name": "Output",
+          "position": [548, 56],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "error-diffusion-11:n1"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "error-diffusion-11:n2"
+    }
+  ]
+}
