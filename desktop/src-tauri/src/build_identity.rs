@@ -21,6 +21,7 @@ pub struct BuildIdentity {
 
 impl BuildIdentity {
     pub fn compiled(app_id: &str, version: Option<&str>, isolated: bool) -> Self {
+        let commit = option_env!("NECT_BUILD_COMMIT").filter(|value| !value.is_empty());
         Self {
             authority: "native",
             integrity: if app_id == "com.nect.svg" && version == Some(env!("CARGO_PKG_VERSION")) {
@@ -30,8 +31,8 @@ impl BuildIdentity {
             },
             app_id: "com.nect.svg",
             app_version: env!("CARGO_PKG_VERSION"),
-            commit: None,
-            build_id: None,
+            commit,
+            build_id: commit,
             build_flavor: if cfg!(feature = "recovery-acceptance-test") {
                 "recovery-acceptance-test"
             } else {
@@ -80,7 +81,7 @@ mod tests {
         );
     }
     #[test]
-    fn isolation_is_independent_of_build_flavor_and_provenance_stays_unknown() {
+    fn isolation_is_independent_of_build_flavor_and_channel_package_provenance() {
         let identity =
             BuildIdentity::compiled("com.nect.svg", Some(env!("CARGO_PKG_VERSION")), true);
         assert_eq!(identity.integrity, "verified");
@@ -89,7 +90,17 @@ mod tests {
         assert_eq!(identity.channel_authority, "unknown");
         assert_eq!(identity.package_kind, "unknown");
         assert_eq!(identity.package_authority, "unknown");
-        assert_eq!(identity.commit, None);
-        assert_eq!(identity.build_id, None);
+    }
+    #[test]
+    fn compiled_commit_matches_the_ci_receipt_source_or_is_unknown() {
+        let identity =
+            BuildIdentity::compiled("com.nect.svg", Some(env!("CARGO_PKG_VERSION")), false);
+        let expected = if option_env!("GITHUB_ACTIONS") == Some("true") {
+            option_env!("GITHUB_SHA")
+        } else {
+            None
+        };
+        assert_eq!(identity.commit, expected);
+        assert_eq!(identity.build_id, expected);
     }
 }
