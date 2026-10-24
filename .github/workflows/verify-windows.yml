@@ -47,6 +47,12 @@ jobs:
         shell: pwsh
         run: ./scripts/prepare-windows-japanese-fonts.ps1 -InstallIfMissing
       # Report each validation failure without suppressing the native build.
+      - name: Run offline native artifact verifier tests
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          ./tests/verify-native-artifact.test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check acceptance Rust formatting
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
@@ -79,6 +85,7 @@ jobs:
           }
           [ordered]@{
             commit = $env:GITHUB_SHA
+            tree = (git rev-parse 'HEAD^{tree}').Trim()
             run_id = $env:GITHUB_RUN_ID
             run_attempt = $env:GITHUB_RUN_ATTEMPT
             native_app_acceptance = 'NOT RUN; compilation only, no installer or release'
@@ -133,5 +140,6 @@ jobs:
             desktop/tests/fixtures/fonts/OFL.txt
             desktop/tests/fixtures/fonts/README.md
             desktop/src-tauri/Cargo.lock
+            desktop/src-tauri/target/release/nect-svg-desktop.exe
           if-no-files-found: ignore
           retention-days: 1

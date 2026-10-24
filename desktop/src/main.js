@@ -51,6 +51,7 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
+import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
@@ -13900,6 +13901,7 @@ app.addEventListener('click', async (event) => {
 // Keep the command surface compact without changing command ownership.
 const commandMenuObserver = new MutationObserver(() => {
   ensureCommandMenus(app, document);
+  ensureBuildInfo(app, document);
 });
 commandMenuObserver.observe(app, { childList: true });
 app.append(document.createComment('command-menu-init'));

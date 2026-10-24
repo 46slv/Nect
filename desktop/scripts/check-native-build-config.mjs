@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { checkedBuildVersion } from './build-version.mjs';
 
 const [config, cargo, packageJson] = await Promise.all([
   readFile('src-tauri/tauri.conf.json', 'utf8'),
@@ -8,6 +9,7 @@ const [config, cargo, packageJson] = await Promise.all([
 const tauri = JSON.parse(config);
 const pkg = JSON.parse(packageJson);
 const checks = {
+  versionConsistency: Boolean(checkedBuildVersion(process.cwd())),
   frontendDist: tauri.build?.frontendDist === '../dist',
   customProtocolFeature: /custom-protocol\s*=\s*\[\s*"tauri\/custom-protocol"\s*\]/.test(cargo),
   releaseCommandUsesTauriCli:

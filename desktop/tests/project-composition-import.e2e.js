@@ -47,7 +47,7 @@ try {
     projectMenu = projectSummary.locator('xpath=..'),
     importMenu = importSummary.locator('xpath=..'),
     exportMenu = exportSummary.locator('xpath=..');
-  assert.deepEqual(menuLabels, ['Project', 'Import', 'Export']);
+  assert.deepEqual(menuLabels, ['Project', 'Import', 'Export', 'Build']);
   await projectSummary.click();
   assert.equal(await projectMenu.evaluate((menu) => menu.open), true);
   await importSummary.click();
