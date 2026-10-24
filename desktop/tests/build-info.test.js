@@ -16,6 +16,26 @@ test('native query success and failure are lazy, cached, read-only IPC', () => {
     );
     assert.equal(run.status, 0, run.stdout + run.stderr);
     assert.match(run.stdout, /one read-only query/);
+    if (mode === 'success') console.log(run.stdout.trim());
+  }
+});
+
+test('native CI commit display and honest fallbacks use the same read-only query', () => {
+  for (const mode of [
+    'missing-commit',
+    'invalid-commit',
+    'newline-commit',
+    'invalid-identity',
+    'browser-identity',
+    'dev-server',
+  ]) {
+    const run = spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL('./helpers/build-info-native-fixture.mjs', import.meta.url)), mode],
+      { encoding: 'utf8', timeout: 10000 },
+    );
+    assert.equal(run.status, 0, run.stdout + run.stderr);
+    assert.match(run.stdout, /one read-only query/);
   }
 });
 
@@ -81,6 +101,8 @@ test('Build menu is read-only, browser honest and idempotent', async () => {
   menu.dispatchEvent(new window.Event('toggle'));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.match(menu.textContent, /Browser preview/);
+  assert.equal(menu.querySelector('[data-build-commit]').textContent, 'Commit unknown');
+  assert.equal(menu.querySelector('[data-build-commit]').getAttribute('title'), null);
   assert.match(menu.textContent, /Update checks not configured/);
   assert.equal(app.querySelector('[data-document]').textContent, 'authored document');
   assert.equal(menu.querySelectorAll('button,input,a').length, 0);
