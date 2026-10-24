@@ -7337,7 +7337,10 @@ app.addEventListener('click', async (e) => {
               // Accepted tokens stay active; every rejected/stale Open is retired.
               await documents.releaseUnused(opened?.binding);
             }
-          } else document.querySelector('#open-file').click();
+          } else {
+            document.querySelector('#open-file').value = '';
+            document.querySelector('#open-file').click();
+          }
           break;
         case 'add-composition':
           addComposition();
