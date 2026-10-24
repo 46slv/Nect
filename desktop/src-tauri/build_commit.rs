@@ -7,7 +7,11 @@ pub fn github_commit<'a>(
         return Ok(None);
     }
     let sha = sha.ok_or("Missing GitHub Actions checkout SHA")?;
-    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if sha.len() != 40
+        || !sha
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return Err("Invalid GitHub Actions checkout SHA");
     }
     Ok(Some(sha))

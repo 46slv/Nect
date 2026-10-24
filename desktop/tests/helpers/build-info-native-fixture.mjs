@@ -64,6 +64,8 @@ for (let i = 0; i < 2; i++) {
             ? 'Native development build'
             : 'Native build';
   assert.ok(menu.textContent.includes(runtime));
+  if (mode !== 'failure' && mode !== 'browser-identity')
+    assert.match(menu.textContent, /Version 0\.1\.0/);
   const trusted = mode === 'success' || mode === 'dev-server';
   const commit = menu.querySelector('[data-build-commit]');
   assert.equal(
