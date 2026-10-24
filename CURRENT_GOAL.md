@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Joystick viewport direction
+## ACTIVE CHECKPOINT - Approved offline integration
 
-Goal: Make the Graph joystick move the viewport toward the tilt direction, so visible content moves the opposite way; keep the knob tracking the finger.
+Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
 
-Current phase: Sole writer on codex/joystick-screen-direction-20261024 from the current main tree. Offline preview work is preserved separately in draft PR86, and PR84 is unchanged. The user's explicit viewport clarification supersedes the earlier content-motion interpretation.
+Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
 
-Proven: The old content-grab sign fails the new shipped-app directional assertion; the final corrected source passes29 focused controller/app/other-navigation tests. Four axes and all four diagonals cover mouse and touch, document/history neutrality, knob tracking, fractional accumulation, bounds and stop paths. Full frontend aggregate passed2363/0fail/5skip, format/config/build passed. Local Chrome launch closed before page creation; real-browser behavior and native UI are NOT_RUN locally and must be established separately by CI/acceptance.
+Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
 
-Next task: Complete aggregate/build/format and real-browser verification where available, preserve the exact candidate, publish a separate development commit and draft PR. Continue PR86 exact-head CI observation without changing its source.
+Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
 
-Approach: Change only the joystick's viewport adapter from subtracting to adding its CSS-pixel delta. Keep the input vector, speed/deadzone/capture/release/Cancel logic and ordinary drag-pan unchanged. Assert real-browser node rectangle movement opposite the viewport in all eight directions.
+Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
 
-Done for next: Separate reviewable diff/branch/head/tree/draft PR, validation results and explicit screenshot/native UI gaps.
+Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
 
-State: Local base ff8bceabc3082766a2219c922d3781dba4d2128e/tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5 is identical to remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Other worktrees are preserved.
+State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
 
-Authority: Current delegated priority fix and later trusted user clarification authorize scoped implementation/testing/commit/normal push/draft PR. No main merge, release/install, updater/provider, credentials, settings/security or user-session mutation.
+Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
 
-Handoff: CONTINUE_CURRENT_TASK. Supported image preparation succeeded but materialization failed first during download, then once during unsupported Windows os.setxattr; no readable image remained. Screenshot NOT_INSPECTED, native UI NOT_RUN. Explicit viewport semantics remove the screenshot requirement as an implementation blocker. See desktop/docs/graph-joystick-navigation.md.
+Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.
