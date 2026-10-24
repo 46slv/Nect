@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
+#[cfg(test)]
+#[path = "../build_commit.rs"]
+mod build_commit;
 mod build_identity;
 #[cfg(test)]
 #[path = "../build_identity_config.rs"]

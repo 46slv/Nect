@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Project import expression identity repair
+## ACTIVE CHECKPOINT - Approved offline integration
 
-Goal: Fix Issue85 so imported, renamed node references in expressions follow the new ID, while unrelated external/dangling targets and authored syntax retain their semantics.
+Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
 
-Current phase: Sole writer on codex/project-import-expression-refs-20261024 from the current main tree. Deterministic pre-fix regression failed on stale Circle ref; noncollision control passed. Initial focused56 and aggregate2371/0fail/5skip passed. An accepted descriptor-alias case then reproduced an out-of-scope metadata/layer rewrite; copying JSON occurrences independently closes it, with final focused57/57 passed. Final aggregate and review of that bounded repair follow.
+Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
 
-Proven: The shared import helper remaps only copied Scalar/Vector2/Color expressions using the source layer's actual imported node IDs. Existing matcher grammar, parser/validator/schema, other source/destination state and both Session transaction boundaries are retained. No changes mixed with PR84/86/87.
+Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
 
-Next task: Complete focused/aggregate/build/config/format checks and independent scoped review; preserve exact diff/head/tree and publish a development commit/draft PR with exact-head CI evidence or precise blockers.
+Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
 
-Approach: Reuse the established quoted-ID matching contract. Copy validated JSON occurrences independently, preserve primitives/own keys, then add same-layer expression remapping after collision allocation; enumerate existing parameter, point and remap-edit descriptors. Test actual Project and legacy Session dispatch, evaluation, Undo/Redo, JSON reopening and unchanged non-node/cross-layer/external/unselected/dangling references.
+Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
 
-Done for next: Proven pre-fix failure and corrected behavior, preserved controls, clean isolated branch, review/draft PR, exact remote head/tree and CI with native UI limits.
+Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
 
-State: Source base ff8bceabc3082766a2219c922d3781dba4d2128e/tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5 equals remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Issue85 is open/unassigned with no duplicate matching PR at admission. Existing worktrees are preserved; no protected-main mutation.
+State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
 
-Authority: Current delegated Issue85 maintenance instruction and standing Nect development permission cover scoped edits/tests/commit/normal dev push/draft PR and independent read-only review. No main merge, release/install, unrelated feature, updater/provider, settings/security/credentials or user-session changes.
+Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
 
-Handoff: CONTINUE_CURRENT_TASK through checks/review/draft/CI. Native UI/OS dialogs/physical rendering and actual filesystem save/reopen remain NOT_RUN; JSON roundtrip and Session tests are separate evidence. See desktop/docs/project-import-expression-refs.md.
+Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.

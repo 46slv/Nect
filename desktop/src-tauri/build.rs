@@ -1,3 +1,4 @@
+mod build_commit;
 mod build_identity_config;
 mod build_identity_sources;
 mod recovery_build_profile;
@@ -8,6 +9,14 @@ fn main() {
     println!("cargo:rerun-if-changed=build_identity_sources.rs");
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let effective = build_identity_sources::checked_config(root, env!("CARGO_PKG_VERSION"));
+    println!("cargo:rerun-if-env-changed=GITHUB_ACTIONS");
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    let actions = std::env::var("GITHUB_ACTIONS").ok();
+    let sha = std::env::var("GITHUB_SHA").ok();
+    let commit = build_commit::github_commit(actions.as_deref(), sha.as_deref())
+        .expect("Invalid CI build provenance");
+    // Always override any inherited value, including when provenance is unknown.
+    println!("cargo:rustc-env=NECT_BUILD_COMMIT={}", commit.unwrap_or(""));
     println!(
         "cargo:rustc-env=NECT_BUILD_TARGET={}",
         std::env::var("TARGET").expect("Missing native target")

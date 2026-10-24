@@ -64,9 +64,12 @@ export function ensureBuildInfo(app, document) {
   runtime.textContent = desktop ? 'Native identity' : 'Browser preview';
   const version = document.createElement('p');
   version.textContent = `Frontend ${frontendVersion}`;
+  const commit = document.createElement('p');
+  commit.dataset.buildCommit = '';
+  commit.textContent = 'Commit unknown';
   const updates = document.createElement('div');
   renderDiscovery(updates, validateDiscovery({ provider }), document);
-  content.append(runtime, version, updates);
+  content.append(runtime, version, commit, updates);
   menu.append(summary, content);
   menu.addEventListener('toggle', () => {
     if (!menu.open) return;
@@ -79,6 +82,17 @@ export function ensureBuildInfo(app, document) {
         identity?.authority === 'native'
           ? `Version ${identity.appVersion}`
           : `Frontend ${frontendVersion}`;
+      const nativeCommit =
+        identity?.authority === 'native' &&
+        identity.integrity === 'verified' &&
+        typeof identity.commit === 'string' &&
+        identity.commit.length === 40 &&
+        /^[0-9a-f]{40}$/.test(identity.commit)
+          ? identity.commit
+          : null;
+      commit.textContent = nativeCommit ? `Commit ${nativeCommit.slice(0, 8)}` : 'Commit unknown';
+      if (nativeCommit) commit.title = nativeCommit;
+      else commit.removeAttribute('title');
       renderDiscovery(updates, validateDiscovery({ identity, provider }), document);
     });
   });
