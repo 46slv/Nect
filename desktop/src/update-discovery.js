@@ -154,3 +154,49 @@ export function validateDiscovery(input) {
     return result(stage);
   }
 }
+
+// Offline preview fixtures only. Schema 2 wraps the unchanged schema 1 audience.
+// Time is an explicit epoch-millisecond input; this function never reads a clock.
+export function validatePreviewDiscovery(input) {
+  let stage = 'PROVIDER_INVALID';
+  try {
+    const provider = input?.provider;
+    if (provider == null) return result('NO_PROVIDER', 'unconfigured');
+    const context = {
+      provider,
+      get identity() {
+        return input.identity;
+      },
+      get request() {
+        return input.request;
+      },
+    };
+    const admission = validateDiscovery(context);
+    if (admission.reason !== 'SOURCE_MISSING') return admission;
+    if (context.identity.channel !== 'preview') return result('CHANNEL_UNSUPPORTED');
+    stage = 'MALFORMED_SOURCE';
+    const response = input.response;
+    if (keys(response, ['kind']) && response.kind === 'transport-error')
+      return result('PROVIDER_ERROR');
+    if (response == null) return result('SOURCE_MISSING');
+    if (
+      !keys(response, ['schema', 'expiresAt', 'discovery']) ||
+      response.schema !== 2 ||
+      !Number.isSafeInteger(response.expiresAt) ||
+      response.expiresAt <= 0 ||
+      !record(response.discovery) ||
+      !['candidate', 'no-update'].includes(response.discovery.kind)
+    )
+      return result('MALFORMED_SOURCE');
+    const discovery = validateDiscovery({ ...context, response: response.discovery });
+    if (!['update_advisory', 'no_update_reported_by_source'].includes(discovery.state))
+      return discovery;
+    stage = 'CLOCK_INVALID';
+    const now = input.now;
+    if (!Number.isSafeInteger(now) || now < 0) return result('CLOCK_INVALID');
+    if (now >= response.expiresAt) return result('SOURCE_EXPIRED');
+    return discovery;
+  } catch {
+    return result(stage);
+  }
+}

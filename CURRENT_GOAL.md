@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Offline update identity and metadata validation
+## ACTIVE CHECKPOINT - Offline preview update check
 
-Goal: Implement the newly authorized bounded offline identity, pure validator and informational UI slice. Actual updater application remains outside scope.
+Goal: Add an offline preview metadata envelope with injected time/expiry validation and a fixture-only check/retry UI, reusing existing identity, scope, version and literal rendering rules.
 
-Current phase: Resumed same single implementation writer. Published the preserved provider/notes work bounds normally at remote118c77d, matching local7145d48 tree1c5a3427. Recovered terminal old-run diagnostics and applied its remaining exact Rust formatting changes plus two Build-menu expectation repairs.
+Current phase: Sole writer on a separate branch from the current main tree. PR84 remains unchanged and is not a dependency. Focused tests passed; final aggregate checks and draft publication follow.
 
-Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
+Proven: Production provider remains null. The new fixture client is outside the production import graph. Existing schema1 validation remains unchanged; schema2 accepts only an expiring envelope around it. No source, clock, identity or request factory is obtained implicitly.
 
-Next task: Publish the bounded exact-CI formatting/menu-test repair on the same PR82 branch with expected remote118c77daab9a202e7b0adb6ce093f97fe9add530, verify the new remote tree and CI formatting/test results, then return the accepted source tree and explicit remaining gaps. Do not hold a completed follow-up merely to preserve an older CI.
+Next task: Complete focused/aggregate checks, preserve exact source and test evidence, then publish a development commit and draft PR. Report actual CI separately from local fixtures.
 
-Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
+Approach: Reuse validateDiscovery and renderDiscovery. Require native preview eligibility, exact audience, positive safe-integer expiry and injected safe-integer time. Fail closed for malformed/expired metadata. Clear stale advisory during an explicit check, permit a fresh-request retry after failure, ignore overlapping and disposed results.
 
-Done for next: Concrete reviewed diff, exact branch/head/tree, executed check evidence, development PR and explicit native acceptance gaps delivered to parent.
+Done for next: Reviewable diff, exact branch/head/tree, commands/results and draft PR; explicit remaining native UI and live distribution dependencies.
 
-State: Writable isolated task-21 checkout, same branch and single writer. Terminal old CI preserved: native compilation passed, Rust44/44, frontend2345 pass/2 menu-expectation failures/4 skip. Exact formatter diff is recovered and applied. An unchanged browser atomicity helper produced a separate diagnostic mismatch; no lifecycle product code was changed. Local Cargo cache/rustfmt limitations remain recorded.
+State: codex/preview-discovery-offline-20261024; local source base ff8bceabc3082766a2219c922d3781dba4d2128e has tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5, identical to remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Other worktrees are preserved.
 
-Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
+Authority: Current delegated preview-increment instruction and standing Nect development permission cover edits/tests/commit/normal push/draft PR. No main merge, release, live provider/feed, download/install/restart, keys, credentials, CSP/security, lifecycle/preferences or user-session changes.
 
-Handoff: CONTINUE_CURRENT_TASK through normal publication and new exact-head CI readback, then return this bounded slice. Native UI NOT_RUN. No updater application, production provider, lifecycle or session scope expansion.
+Handoff: CONTINUE_CURRENT_TASK through draft publication and exact-head check evidence. Native UI NOT_RUN remains a local acceptance wait; live delivery needs explicit native preview version/channel, durable distribution, signing/bootstrap and safe apply/rollback decisions. See desktop/docs/preview-update-check.md.
