@@ -4975,9 +4975,9 @@ function mountGraphPanJoystick() {
     pan(delta) {
       const current = [viewport.scrollLeft, viewport.scrollTop];
       if (!observed || current.some((value, axis) => value !== observed[axis])) intent = current;
-      // Content moves with the knob, so viewport scrolling has the opposite sign.
+      // Move the viewport toward the knob; visible content travels the other way.
       // Retain fractional intent even on browsers rounding native scroll offsets.
-      intent = intent.map((value, axis) => Math.max(0, value - delta[axis]));
+      intent = intent.map((value, axis) => Math.max(0, value + delta[axis]));
       if (
         intent[0] + viewport.clientWidth > viewport.scrollWidth ||
         intent[1] + viewport.clientHeight > viewport.scrollHeight

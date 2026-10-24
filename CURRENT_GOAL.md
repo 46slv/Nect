@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Offline update identity and metadata validation
+## ACTIVE CHECKPOINT - Joystick viewport direction
 
-Goal: Implement the newly authorized bounded offline identity, pure validator and informational UI slice. Actual updater application remains outside scope.
+Goal: Make the Graph joystick move the viewport toward the tilt direction, so visible content moves the opposite way; keep the knob tracking the finger.
 
-Current phase: Resumed same single implementation writer. Published the preserved provider/notes work bounds normally at remote118c77d, matching local7145d48 tree1c5a3427. Recovered terminal old-run diagnostics and applied its remaining exact Rust formatting changes plus two Build-menu expectation repairs.
+Current phase: Sole writer on codex/joystick-screen-direction-20261024 from the current main tree. Offline preview work is preserved separately in draft PR86, and PR84 is unchanged. The user's explicit viewport clarification supersedes the earlier content-motion interpretation.
 
-Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
+Proven: The old content-grab sign fails the new shipped-app directional assertion; the final corrected source passes29 focused controller/app/other-navigation tests. Four axes and all four diagonals cover mouse and touch, document/history neutrality, knob tracking, fractional accumulation, bounds and stop paths. Full frontend aggregate passed2363/0fail/5skip, format/config/build passed. Local Chrome launch closed before page creation; real-browser behavior and native UI are NOT_RUN locally and must be established separately by CI/acceptance.
 
-Next task: Publish the bounded exact-CI formatting/menu-test repair on the same PR82 branch with expected remote118c77daab9a202e7b0adb6ce093f97fe9add530, verify the new remote tree and CI formatting/test results, then return the accepted source tree and explicit remaining gaps. Do not hold a completed follow-up merely to preserve an older CI.
+Next task: Complete aggregate/build/format and real-browser verification where available, preserve the exact candidate, publish a separate development commit and draft PR. Continue PR86 exact-head CI observation without changing its source.
 
-Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
+Approach: Change only the joystick's viewport adapter from subtracting to adding its CSS-pixel delta. Keep the input vector, speed/deadzone/capture/release/Cancel logic and ordinary drag-pan unchanged. Assert real-browser node rectangle movement opposite the viewport in all eight directions.
 
-Done for next: Concrete reviewed diff, exact branch/head/tree, executed check evidence, development PR and explicit native acceptance gaps delivered to parent.
+Done for next: Separate reviewable diff/branch/head/tree/draft PR, validation results and explicit screenshot/native UI gaps.
 
-State: Writable isolated task-21 checkout, same branch and single writer. Terminal old CI preserved: native compilation passed, Rust44/44, frontend2345 pass/2 menu-expectation failures/4 skip. Exact formatter diff is recovered and applied. An unchanged browser atomicity helper produced a separate diagnostic mismatch; no lifecycle product code was changed. Local Cargo cache/rustfmt limitations remain recorded.
+State: Local base ff8bceabc3082766a2219c922d3781dba4d2128e/tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5 is identical to remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Other worktrees are preserved.
 
-Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
+Authority: Current delegated priority fix and later trusted user clarification authorize scoped implementation/testing/commit/normal push/draft PR. No main merge, release/install, updater/provider, credentials, settings/security or user-session mutation.
 
-Handoff: CONTINUE_CURRENT_TASK through normal publication and new exact-head CI readback, then return this bounded slice. Native UI NOT_RUN. No updater application, production provider, lifecycle or session scope expansion.
+Handoff: CONTINUE_CURRENT_TASK. Supported image preparation succeeded but materialization failed first during download, then once during unsupported Windows os.setxattr; no readable image remained. Screenshot NOT_INSPECTED, native UI NOT_RUN. Explicit viewport semantics remove the screenshot requirement as an implementation blocker. See desktop/docs/graph-joystick-navigation.md.
