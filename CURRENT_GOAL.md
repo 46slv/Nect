@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — Offline update identity and metadata validation
+## ACTIVE CHECKPOINT - Project import expression identity repair
 
-Goal: Implement the newly authorized bounded offline identity, pure validator and informational UI slice. Actual updater application remains outside scope.
+Goal: Fix Issue85 so imported, renamed node references in expressions follow the new ID, while unrelated external/dangling targets and authored syntax retain their semantics.
 
-Current phase: Resumed same single implementation writer. Published the preserved provider/notes work bounds normally at remote118c77d, matching local7145d48 tree1c5a3427. Recovered terminal old-run diagnostics and applied its remaining exact Rust formatting changes plus two Build-menu expectation repairs.
+Current phase: Sole writer on codex/project-import-expression-refs-20261024 from the current main tree. Deterministic pre-fix regression failed on stale Circle ref; noncollision control passed. Initial focused56 and aggregate2371/0fail/5skip passed. An accepted descriptor-alias case then reproduced an out-of-scope metadata/layer rewrite; copying JSON occurrences independently closes it, with final focused57/57 passed. Final aggregate and review of that bounded repair follow.
 
-Proven: Native-authoritative read-only identity query, strict exact build version checks, pure assessIdentity/validateDiscovery/validateVersionSet and small Build menu implemented. Production provider is null. Focused tests, related Recovery/menu/lifecycle/editor DOM tests, both frontend modes and eight standalone Rust checks passed, with one inherited symlink fixture skip. Exact commands, results and boundaries are in desktop/docs/offline-update-identity.md.
+Proven: The shared import helper remaps only copied Scalar/Vector2/Color expressions using the source layer's actual imported node IDs. Existing matcher grammar, parser/validator/schema, other source/destination state and both Session transaction boundaries are retained. No changes mixed with PR84/86/87.
 
-Next task: Publish the bounded exact-CI formatting/menu-test repair on the same PR82 branch with expected remote118c77daab9a202e7b0adb6ce093f97fe9add530, verify the new remote tree and CI formatting/test results, then return the accepted source tree and explicit remaining gaps. Do not hold a completed follow-up merely to preserve an older CI.
+Next task: Complete focused/aggregate/build/config/format checks and independent scoped review; preserve exact diff/head/tree and publish a development commit/draft PR with exact-head CI evidence or precise blockers.
 
-Approach: Immutable native facts come from compiled version/features/protocol and successfully prepared RunStorage. Channel/package provenance stays unknown. Closed source-scoped test fixtures produce literal advisory metadata only; no production fixture setting or transport exists.
+Approach: Reuse the established quoted-ID matching contract. Copy validated JSON occurrences independently, preserve primitives/own keys, then add same-layer expression remapping after collision allocation; enumerate existing parameter, point and remap-edit descriptors. Test actual Project and legacy Session dispatch, evaluation, Undo/Redo, JSON reopening and unchanged non-node/cross-layer/external/unselected/dangling references.
 
-Done for next: Concrete reviewed diff, exact branch/head/tree, executed check evidence, development PR and explicit native acceptance gaps delivered to parent.
+Done for next: Proven pre-fix failure and corrected behavior, preserved controls, clean isolated branch, review/draft PR, exact remote head/tree and CI with native UI limits.
 
-State: Writable isolated task-21 checkout, same branch and single writer. Terminal old CI preserved: native compilation passed, Rust44/44, frontend2345 pass/2 menu-expectation failures/4 skip. Exact formatter diff is recovered and applied. An unchanged browser atomicity helper produced a separate diagnostic mismatch; no lifecycle product code was changed. Local Cargo cache/rustfmt limitations remain recorded.
+State: Source base ff8bceabc3082766a2219c922d3781dba4d2128e/tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5 equals remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Issue85 is open/unassigned with no duplicate matching PR at admission. Existing worktrees are preserved; no protected-main mutation.
 
-Authority: Current delegated instruction and trusted user authorization permit this bounded implementation, development commit/push/draft PR. No protected main merge, release, force/history rewrite, updater application, network/feed/provider settings, download URL, updater plugin, background task, new permission/CSP relaxation/version bump or document/session/lifecycle/preferences changes.
+Authority: Current delegated Issue85 maintenance instruction and standing Nect development permission cover scoped edits/tests/commit/normal dev push/draft PR and independent read-only review. No main merge, release/install, unrelated feature, updater/provider, settings/security/credentials or user-session changes.
 
-Handoff: CONTINUE_CURRENT_TASK through normal publication and new exact-head CI readback, then return this bounded slice. Native UI NOT_RUN. No updater application, production provider, lifecycle or session scope expansion.
+Handoff: CONTINUE_CURRENT_TASK through checks/review/draft/CI. Native UI/OS dialogs/physical rendering and actual filesystem save/reopen remain NOT_RUN; JSON roundtrip and Session tests are separate evidence. See desktop/docs/project-import-expression-refs.md.
