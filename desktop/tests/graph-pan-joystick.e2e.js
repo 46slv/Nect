@@ -41,13 +41,22 @@ try {
     .evaluate((el) => [el.offsetLeft, el.offsetTop]);
   for (const [dx, dy] of [
     [18, 0],
+    [-18, 0],
     [0, -18],
+    [0, 18],
+    [18, -18],
+    [18, 18],
+    [-18, -18],
     [-18, 18],
   ]) {
     await viewport.evaluate((el) => el.scrollTo(500, 500));
     const box = await stick.boundingBox(),
       x = box.x + box.width / 2,
       y = box.y + box.height / 2;
+    const contentBefore = await page.locator(`.node[data-id="${nodeId}"]`).evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return [rect.x, rect.y];
+    });
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.mouse.move(x + dx, y + dy);
@@ -55,14 +64,26 @@ try {
       ([dx, dy]) => {
         const el = document.querySelector('.graph-scroll');
         return (
-          (!dx || Math.sign(500 - el.scrollLeft) === Math.sign(dx)) &&
-          (!dy || Math.sign(500 - el.scrollTop) === Math.sign(dy))
+          (!dx || Math.sign(el.scrollLeft - 500) === Math.sign(dx)) &&
+          (!dy || Math.sign(el.scrollTop - 500) === Math.sign(dy))
         );
       },
       [dx, dy],
     );
     await page.mouse.up();
     const stopped = await scroll();
+    const contentAfter = await page.locator(`.node[data-id="${nodeId}"]`).evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return [rect.x, rect.y];
+    });
+    for (const [axis, direction] of [dx, dy].entries()) {
+      assert.equal(Math.sign(stopped[axis] - 500), Math.sign(direction), 'view follows tilt');
+      assert.equal(
+        Math.sign(contentAfter[axis] - contentBefore[axis]),
+        direction ? -Math.sign(direction) : 0,
+        'visible content moves opposite the view',
+      );
+    }
     await page.waitForTimeout(80);
     assert.deepEqual(await scroll(), stopped, 'release stops motion');
     assert.equal(await saved(), original, 'pointer navigation is document/history neutral');
@@ -74,9 +95,9 @@ try {
     if (zoomStep === '200%')
       for (let i = 0; i < 4; i++) await page.locator('[data-action="graph-zoom-in"]').click();
     await stick.focus();
-    await page.keyboard.down('ArrowLeft');
+    await page.keyboard.down('ArrowRight');
     await page.waitForFunction(() => document.querySelector('.graph-scroll').scrollLeft > 10);
-    await page.keyboard.up('ArrowLeft');
+    await page.keyboard.up('ArrowRight');
     assert.deepEqual(
       await page
         .locator(`.node[data-id="${nodeId}"]`)
@@ -100,7 +121,7 @@ try {
   );
   assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   console.log(
-    'Graph joystick: direction, release, zoom limits, geometry/history and placement passed',
+    'Graph joystick: viewport follows tilt in all8directions; content moves opposite; release, zoom, geometry/history and placement passed',
   );
 } finally {
   await browser.close();
