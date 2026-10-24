@@ -164,32 +164,42 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   assert.equal(frames.size, 0, 'startup settles without joystick idle loop');
   document.activeElement?.blur();
   const element = stick();
-  for (const [dx, dy] of [
-    [18, 0],
-    [-18, 0],
-    [0, -18],
-    [0, 18],
-    [18, -18],
-  ]) {
-    viewport.scrollLeft = viewport.scrollTop = 500;
-    fire(element, 'pointerdown');
-    fire(document, 'pointermove', 640 + dx, 240 + dy);
-    flush(0);
-    flush(20);
-    assert.equal(Math.sign(500 - viewport.scrollLeft), Math.sign(dx));
-    assert.equal(Math.sign(500 - viewport.scrollTop), Math.sign(dy));
-    win.joystickRefresh();
-    assert.equal(stick(), element, 'scroll/navigation refresh never replaces active control');
-    fire(document, 'pointerup');
-    element.click();
-    assert.equal(stick(), element, 'ending click does not close panels or rerender');
-    invariant();
-    assert.equal(frames.size, 0);
-  }
-  // Nonnegative origin is the same as wheel/direct pan: right/down content
-  // travel clamps without moving nodes to invent room above/left of the origin.
+  for (const pointerType of ['mouse', 'touch'])
+    for (const [dx, dy] of [
+      [18, 0],
+      [-18, 0],
+      [0, -18],
+      [0, 18],
+      [18, -18],
+      [18, 18],
+      [-18, -18],
+      [-18, 18],
+    ]) {
+      viewport.scrollLeft = viewport.scrollTop = 500;
+      fire(element, 'pointerdown', 640, 240, { pointerType });
+      fire(document, 'pointermove', 640 + dx, 240 + dy, { pointerType });
+      flush(0);
+      flush(20);
+      assert.equal(Math.sign(viewport.scrollLeft - 500), Math.sign(dx), 'view moves with tilt X');
+      assert.equal(Math.sign(viewport.scrollTop - 500), Math.sign(dy), 'view moves with tilt Y');
+      const knob = element
+        .querySelector('span')
+        .style.transform.match(/-?\d+(?:\.\d+)?/g)
+        .map(Number);
+      assert.equal(Math.sign(knob[0]), Math.sign(dx), 'knob follows the finger X');
+      assert.equal(Math.sign(knob[1]), Math.sign(dy), 'knob follows the finger Y');
+      win.joystickRefresh();
+      assert.equal(stick(), element, 'scroll/navigation refresh never replaces active control');
+      fire(document, 'pointerup', 640 + dx, 240 + dy, { pointerType });
+      element.click();
+      assert.equal(stick(), element, 'ending click does not close panels or rerender');
+      invariant();
+      assert.equal(frames.size, 0);
+    }
+  // Looking left/up at the nonnegative origin clamps without moving nodes
+  // to invent room above/left of the origin.
   viewport.scrollLeft = viewport.scrollTop = 0;
-  fire(element, 'pointerdown', 658, 258);
+  fire(element, 'pointerdown', 622, 222);
   flush(0);
   flush(20);
   fire(document, 'pointerup');
@@ -202,7 +212,7 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   for (let i = 1; i <= 60; i++) flush((i * 1000) / 60);
   fire(document, 'pointerup');
   assert.ok(
-    viewport.scrollLeft >= 467 && viewport.scrollLeft <= 469,
+    viewport.scrollLeft >= 531 && viewport.scrollLeft <= 533,
     'low-speed movement is not rounded away each frame',
   );
   invariant();
