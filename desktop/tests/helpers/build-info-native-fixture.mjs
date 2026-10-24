@@ -5,7 +5,15 @@ const window = new Window();
 globalThis.window = window;
 globalThis.isTauri = true;
 const calls = [];
-const identity = {
+const mode = process.argv[2];
+// Same public checkout value used by the CI receipt, including PR merge checkouts.
+const receiptCommit =
+  process.env.GITHUB_ACTIONS === 'true'
+    ? process.env.GITHUB_SHA
+    : 'd0d9c9265a1628983f727715bc205a44aaa5c0a6';
+assert.match(receiptCommit, /^[0-9a-f]{40}$/);
+assert.equal(receiptCommit.length, 40);
+const identity = Object.freeze({
   authority: 'native',
   integrity: 'verified',
   appVersion: '0.1.0',
@@ -13,11 +21,22 @@ const identity = {
   assetMode: 'static',
   runtimeIsolation: 'ordinary',
   channel: null,
-};
+  commit:
+    mode === 'missing-commit'
+      ? null
+      : mode === 'invalid-commit'
+        ? '<script>invalid</script>'
+        : receiptCommit,
+  buildId: receiptCommit,
+  ...(mode === 'newline-commit' ? { commit: `${receiptCommit}\n` } : {}),
+  ...(mode === 'invalid-identity' ? { integrity: 'invalid' } : {}),
+  ...(mode === 'browser-identity' ? { authority: 'browser' } : {}),
+  ...(mode === 'dev-server' ? { assetMode: 'dev-server' } : {}),
+});
 window.__TAURI_INTERNALS__ = {
   invoke: async (command, args) => {
     calls.push({ command, args });
-    if (process.argv[2] === 'failure') throw Error('Query failed');
+    if (mode === 'failure') throw Error('Query failed');
     return identity;
   },
 };
@@ -34,10 +53,26 @@ for (let i = 0; i < 2; i++) {
   menu.open = true;
   menu.dispatchEvent(new window.Event('toggle'));
   await wait();
-  assert.match(
-    menu.textContent,
-    process.argv[2] === 'failure' ? /Native identity query failed/ : /Native buildVersion 0\.1\.0/,
+  const runtime =
+    mode === 'failure'
+      ? 'Native identity query failed'
+      : mode === 'invalid-identity'
+        ? 'Native identity invalid'
+        : mode === 'browser-identity'
+          ? 'Browser preview'
+          : mode === 'dev-server'
+            ? 'Native development build'
+            : 'Native build';
+  assert.ok(menu.textContent.includes(runtime));
+  if (mode !== 'failure' && mode !== 'browser-identity')
+    assert.match(menu.textContent, /Version 0\.1\.0/);
+  const trusted = mode === 'success' || mode === 'dev-server';
+  const commit = menu.querySelector('[data-build-commit]');
+  assert.equal(
+    commit.textContent,
+    trusted ? `Commit ${receiptCommit.slice(0, 8)}` : 'Commit unknown',
   );
+  assert.equal(commit.getAttribute('title'), trusted ? receiptCommit : null);
   assert.match(menu.textContent, /Update checks not configured/);
   assert.equal(app.querySelector('[data-document]').textContent, 'unchanged');
   assert.equal(menu.querySelectorAll('input,button,a').length, 0);
@@ -46,4 +81,6 @@ assert.equal(calls.length, 1);
 assert.equal(calls[0].command, 'query_build_identity');
 assert.deepEqual(calls[0].args, {});
 await window.happyDOM.abort();
+if (mode === 'success')
+  console.log(`receipt checkout ${receiptCommit}; rendered Commit ${receiptCommit.slice(0, 8)}`);
 console.log('one read-only query; cached across rerender; no provider or authored changes');

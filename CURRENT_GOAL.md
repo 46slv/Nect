@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Offline preview update check
+## ACTIVE CHECKPOINT - Approved offline integration
 
-Goal: Add an offline preview metadata envelope with injected time/expiry validation and a fixture-only check/retry UI, reusing existing identity, scope, version and literal rendering rules.
+Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
 
-Current phase: Sole writer on a separate branch from the current main tree. PR84 remains unchanged and is not a dependency. Focused tests passed; final aggregate checks and draft publication follow.
+Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
 
-Proven: Production provider remains null. The new fixture client is outside the production import graph. Existing schema1 validation remains unchanged; schema2 accepts only an expiring envelope around it. No source, clock, identity or request factory is obtained implicitly.
+Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
 
-Next task: Complete focused/aggregate checks, preserve exact source and test evidence, then publish a development commit and draft PR. Report actual CI separately from local fixtures.
+Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
 
-Approach: Reuse validateDiscovery and renderDiscovery. Require native preview eligibility, exact audience, positive safe-integer expiry and injected safe-integer time. Fail closed for malformed/expired metadata. Clear stale advisory during an explicit check, permit a fresh-request retry after failure, ignore overlapping and disposed results.
+Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
 
-Done for next: Reviewable diff, exact branch/head/tree, commands/results and draft PR; explicit remaining native UI and live distribution dependencies.
+Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
 
-State: codex/preview-discovery-offline-20261024; local source base ff8bceabc3082766a2219c922d3781dba4d2128e has tree2eee60355c3179b9a14aed2557b6f2a9d2eaaeb5, identical to remote main d0d9c9265a1628983f727715bc205a44aaa5c0a6. Other worktrees are preserved.
+State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
 
-Authority: Current delegated preview-increment instruction and standing Nect development permission cover edits/tests/commit/normal push/draft PR. No main merge, release, live provider/feed, download/install/restart, keys, credentials, CSP/security, lifecycle/preferences or user-session changes.
+Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
 
-Handoff: CONTINUE_CURRENT_TASK through draft publication and exact-head check evidence. Native UI NOT_RUN remains a local acceptance wait; live delivery needs explicit native preview version/channel, durable distribution, signing/bootstrap and safe apply/rollback decisions. See desktop/docs/preview-update-check.md.
+Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.

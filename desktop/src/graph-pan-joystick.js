@@ -57,7 +57,7 @@ export function createGraphPanJoystick({ container, viewport, canPan, pan, onLay
   const help = doc.createElement('span');
   help.id = 'graph-pan-joystick-help';
   help.className = 'visually-hidden';
-  help.textContent = 'Drag or hold arrow keys to pan in that direction. Release or Escape to stop.';
+  help.textContent = 'Drag or hold arrow keys to move the view. Release or Escape to stop.';
   element.append(knob, help);
   container.append(element);
   let pointer = null,

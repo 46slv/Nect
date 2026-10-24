@@ -165,12 +165,12 @@ try {
     const beforeStick = await scroll();
     const beforeNode = await position();
     await page.locator('.graph-pan-joystick').focus();
-    await page.keyboard.down('ArrowLeft');
+    await page.keyboard.down('ArrowRight');
     await page.waitForFunction(
       (before) => document.querySelector('.graph-scroll').scrollLeft > before + 10,
       beforeStick[0],
     );
-    await page.keyboard.up('ArrowLeft');
+    await page.keyboard.up('ArrowRight');
     assert.ok((await scroll())[0] > beforeStick[0]);
     assert.deepEqual(await position(), beforeNode);
   }
