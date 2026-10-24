@@ -5,6 +5,10 @@ import { makeVariableFontAsset } from '../src/fonts.js';
 import { migrateLegacyDocumentToCompositionProject } from '../src/composition-project-model.js';
 import { compoundFixture } from './fixtures/contour-navigation.js';
 import { activateCommand } from './command-menu-actions.js';
+import {
+  observeProjectRejection,
+  projectFileRejections,
+} from './helpers/project-file-rejections.js';
 
 // Called by the standard blank-artwork browser case. Synthetic files go through
 // the visible menus and browser chooser; this does not exercise native dialogs.
@@ -38,6 +42,24 @@ export async function verifyProjectFileAtomicity(page) {
     await (
       await choosing
     ).setFiles({ name, mimeType: 'application/json', buffer: Buffer.from(text) });
+  };
+  const rejectFile = async (action, text, name, diagnostic, needsImport = false) => {
+    const prefix = action === 'open' ? 'Open rejected;' : 'Composition import rejected;';
+    const observation = await page.evaluateHandle(observeProjectRejection, { name, prefix });
+    try {
+      await chooseFile(action, text, name);
+      if (action === 'import-composition' && needsImport)
+        await page.locator('dialog[open] button[value="import"]').click();
+      await page.waitForFunction((observed) => observed.text !== null, observation);
+      assert.equal(
+        await page.locator('.status .message').textContent(),
+        await observation.evaluate((observed) => observed.text),
+      );
+      assert.match(await page.locator('.status .message').textContent(), diagnostic);
+    } finally {
+      await observation.evaluate((observed) => observed.dispose());
+      await observation.dispose();
+    }
   };
   const open = async (text) => {
     const previous = await page.evaluate(() => window.nect.commandState.sessionId);
@@ -83,36 +105,10 @@ export async function verifyProjectFileAtomicity(page) {
     assert.equal(baseline.points.length, 16);
     await refresh();
     assert.deepEqual(await state(), baseline, 'normal panel refresh preserves selection');
-    // Keep the rejected source independent of the selected destination path;
-    // only the intended invalid node should need import remapping/validation.
-    const validCandidate = migrateLegacyDocumentToCompositionProject(blankDocument());
-    const invalidGraph = structuredClone(validCandidate);
-    invalidGraph.compositions[0].layers[0].nodes[0].type = 'Not a Nect node';
-    const invalidEnvelope = structuredClone(before);
-    invalidEnvelope.compositions[0].width = 0;
-    const inactive = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
-    inactive.id = 'invalid-inactive-composition';
-    inactive.layers[0].nodes[0].type = 'Not a Nect node';
-    const invalidInactive = {
-      ...structuredClone(validCandidate),
-      compositions: [...validCandidate.compositions, inactive],
-    };
+    const rejections = projectFileRejections();
     for (const action of ['open', 'import-composition']) {
-      for (const [name, text, diagnostic, needsImport] of [
-        ['malformed', '{invalid JSON', /JSON|property name/i, false],
-        ['dimensions', JSON.stringify(invalidEnvelope), /Invalid Composition width/, false],
-        ['active-graph', JSON.stringify(invalidGraph), /Invalid node/, true],
-        ['inactive-graph', JSON.stringify(invalidInactive), /Invalid node/, true],
-      ]) {
-        await chooseFile(action, text, `${name}.json`);
-        if (action === 'import-composition' && needsImport)
-          await page.locator('dialog[open] button[value="import"]').click();
-        const prefix = action === 'open' ? 'Open rejected;' : 'Composition import rejected;';
-        await page.waitForFunction(
-          (prefix) => document.querySelector('.status .message')?.textContent.startsWith(prefix),
-          prefix,
-        );
-        assert.match(await page.locator('.status .message').textContent(), diagnostic);
+      for (const [name, text, diagnostic, needsImport] of rejections) {
+        await rejectFile(action, text, `${name}.json`, diagnostic, needsImport);
         assert.deepEqual(await state(), baseline, `${action}/${name}: immediate atomicity`);
         // A failed Open can leave stale selected rows on screen even after its
         // internal point selection was cleared. Force a normal non-editing render.
@@ -189,15 +185,16 @@ export async function verifyProjectFileAtomicity(page) {
   assert.match(svg, /<path/);
   const inactive = migrateLegacyDocumentToCompositionProject(blankDocument()).compositions[0];
   inactive.id = 'invalid-variable-inactive';
-  inactive.layers[0].nodes[0].type = 'Not a Nect node';
+  inactive.layers[0].nodes.push({ ...node('Rectangle', 0, 0), type: 'Not a Nect node' });
   const invalid = structuredClone(baseline.project);
   invalid.compositions.push(inactive);
   invalid.compositions[0].layers[0].nodes.find((n) => n.id === text.id).text = 'AW';
-  await chooseFile('open', JSON.stringify(invalid), 'invalid-variable-project.json');
-  await page.waitForFunction(() =>
-    document.querySelector('.status .message')?.textContent.startsWith('Open rejected;'),
+  await rejectFile(
+    'open',
+    JSON.stringify(invalid),
+    'invalid-variable-project.json',
+    /Invalid node/,
   );
-  assert.match(await page.locator('.status .message').textContent(), /Invalid node/);
   assert.deepEqual(
     await state(),
     baseline,
