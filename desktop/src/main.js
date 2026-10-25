@@ -6288,19 +6288,34 @@ async function openCompositionImportDialog() {
         input.type = 'file';
         input.accept = '.json,application/json';
         input.hidden = true;
-        document.body.append(input);
+        let claimed = false;
+        const claim = () => {
+          if (claimed) return false;
+          claimed = true;
+          input.onchange = null;
+          input.oncancel = null;
+          input.remove();
+          return true;
+        };
+        input.oncancel = () => {
+          if (claim()) resolve(null);
+        };
         input.onchange = async () => {
+          if (!claim()) return;
           try {
             const file = input.files?.[0];
             if (file && file.size > MAX_PROJECT_BYTES) throw Error('Project exceeds 50 MB');
             resolve(file ? { name: file.name, contents: await file.text() } : null);
           } catch (error) {
             reject(error);
-          } finally {
-            input.remove();
           }
         };
-        input.click();
+        try {
+          document.body.append(input);
+          input.click();
+        } catch (error) {
+          if (claim()) reject(error);
+        }
       });
   if (!opened) return;
   let source;
