@@ -11,7 +11,7 @@ import {
   setCharacterStyles,
 } from '../src/core.js';
 
-test('maintained ink gap inspector applies, preserves typography editability, scrubs and cancels atomically', async () => {
+test('maintained ink gap inspector applies, preserves typography editability, scrubs and cancels atomically', async (context) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of [
@@ -359,5 +359,58 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   });
   assert.equal(q('[data-arrangement-apply]').disabled, true);
   assert.equal(q('[data-arrangement-gap]').disabled, true);
+  const blankChangeThenApply = () => {
+    const input = q('.inspector-body [data-arrangement-gap]');
+    input.value = '';
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    assert.equal(input.value, '10', 'blur/change restores the previous display value');
+    q('.inspector-body [data-arrangement-apply]').click();
+  };
+  await context.test(
+    'blank change followed by Apply preserves off state and allows retry',
+    async () => {
+      await load();
+      const baseline = state(),
+        before = saved();
+      blankChangeThenApply();
+      assert.deepEqual(state(), baseline, 'the first Apply cannot enable the restored gap');
+      q('.inspector-body [data-arrangement-apply]').click();
+      assert.equal(read().characterArrangement.gap, 10, 'a second explicit Apply may retry');
+      undo();
+      assert.equal(saved(), before);
+
+      await load();
+      const input = q('.inspector-body [data-arrangement-gap]');
+      input.value = '';
+      input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      input.value = '0';
+      input.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      q('.inspector-body [data-arrangement-apply]').click();
+      assert.equal(read().characterArrangement.gap, 0, 'new valid input permits Apply immediately');
+      gaps(0);
+    },
+  );
+  await context.test('blank change followed by Apply preserves a pending Text draft', async () => {
+    await load();
+    const pending = q('.inspector-body [data-text]');
+    pending.focus();
+    pending.setSelectionRange(3, 3);
+    pending.dispatchEvent(
+      new win.InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: 'W' }),
+    );
+    pending.value = 'AgWW';
+    pending.dispatchEvent(
+      new win.InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'W' }),
+    );
+    const baseline = state();
+    blankChangeThenApply();
+    assert.deepEqual(state(), baseline, 'the first Apply cannot flush the Text draft');
+    assert.equal(pending.isConnected, true);
+    assert.equal(pending.value, 'AgWW');
+    assert.equal(read().text, 'AgW');
+    q('.inspector-body [data-arrangement-apply]').click();
+    assert.equal(read().text, 'AgWW', 'a second explicit Apply may commit the pending draft');
+    assert.equal(read().characterArrangement.gap, 10);
+  });
   await win.happyDOM.close();
 });
