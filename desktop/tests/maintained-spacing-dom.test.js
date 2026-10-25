@@ -11,7 +11,7 @@ import {
   setCharacterStyles,
 } from '../src/core.js';
 
-test('maintained ink gap inspector applies, preserves typography editability, scrubs and cancels atomically', async () => {
+test('maintained ink gap inspector applies, preserves typography editability, scrubs and cancels atomically', async (context) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of [
@@ -138,6 +138,58 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
     for (let i = 1; i < chars.length; i++)
       assert.ok(Math.abs(chars[i].bounds[0] - chars[i - 1].bounds[2] - expected) < 1e-7);
   };
+  const state = () => ({
+    project: win.nect.projectSnapshot(),
+    command: win.nect.commandState,
+    file: win.nect.fileState,
+    gesture: win.nect.gestureState,
+    selectedNodes: [...document.querySelectorAll('.node.selected')].map((el) => el.dataset.id),
+    characterMode: q('[data-character-mode]').getAttribute('aria-pressed'),
+    selectedCharacters: [...(q('[data-character-selection]')?.selectedOptions || [])].map(
+      (o) => o.value,
+    ),
+    undoDisabled: q('[data-action="undo"]').disabled,
+    redoDisabled: q('[data-action="redo"]').disabled,
+  });
+  const rejectInvalidGaps = () => {
+    const before = state(),
+      expected = String(read().characterArrangement?.gap ?? 10);
+    const panel = '.inspector-body',
+      selector = `${panel} [data-arrangement-gap]`;
+    for (const draft of [
+      { value: '' },
+      { value: '   ', type: 'text' },
+      { value: '-', type: 'text' },
+      { value: 'NaN', type: 'text' },
+      { value: 'Infinity', type: 'text' },
+      { value: '1e309', type: 'text' },
+      { value: '-1' },
+      { value: '100000.1' },
+      { value: '17', badInput: true },
+    ]) {
+      for (const action of ['change', 'apply']) {
+        const input = q(selector);
+        input.type = draft.type || 'number';
+        input.value = draft.value;
+        // HappyDOM cannot produce a browser's partial-number badInput state.
+        if (draft.badInput)
+          Object.defineProperty(input, 'validity', {
+            configurable: true,
+            value: { badInput: true },
+          });
+        input.focus();
+        if (action === 'change') input.dispatchEvent(new win.Event('change', { bubbles: true }));
+        else q(`${panel} [data-arrangement-apply]`).click();
+        if (draft.badInput) delete input.validity;
+        input.type = 'number';
+        const label = `${panel} ${action} ${JSON.stringify(draft)}`;
+        assert.deepEqual(state(), before, `${label} preserves document, history and selection`);
+        assert.equal(q(selector), input, `${label} keeps the current control`);
+        assert.equal(input.value, expected, `${label} restores the previous gap`);
+        assert.match(q('.status .message').textContent, /0.*100000/, `${label} shows feedback`);
+      }
+    }
+  };
   await load();
   assert.equal(q('[data-arrangement-apply]').disabled, false);
   assert.equal(q('[data-arrangement-gap]').value, '10');
@@ -153,6 +205,7 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   redo();
   assert.equal(saved(), applied);
   mode();
+  rejectInvalidGaps();
   assert.equal(q('[data-character-axis="0"]').disabled, true);
   assert.equal(q('[data-character-axis="1"]').disabled, false);
   assert.equal(q('[data-character-style="tracking"]').disabled, true);
@@ -178,8 +231,22 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   const updated = saved();
   undo();
   assert.equal(saved(), sized);
+  rejectInvalidGaps();
   redo();
   assert.equal(saved(), updated);
+  for (const gap of [0, 0.5, 100000]) {
+    const previous = saved();
+    change('[data-arrangement-gap]', gap);
+    assert.equal(read().characterArrangement.gap, gap);
+    gaps(gap);
+    const committed = saved();
+    undo();
+    assert.equal(saved(), previous);
+    redo();
+    assert.equal(saved(), committed);
+    undo();
+    assert.equal(saved(), previous);
+  }
   scrub(q('[data-arrangement-gap]'));
   gaps(27);
   undo();
@@ -242,6 +309,16 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   gaps(17);
   assert.equal(read().characterArrangement.ids.length, 4);
   await load();
+  rejectInvalidGaps();
+  const withoutArrangement = saved();
+  change('.inspector-body [data-arrangement-gap]', '0');
+  assert.equal(saved(), withoutArrangement, 'a valid draft does not enable maintained gaps');
+  q('.inspector-body [data-arrangement-apply]').click();
+  assert.equal(read().characterArrangement.gap, 0);
+  gaps(0);
+  undo();
+  assert.equal(saved(), withoutArrangement);
+  await load();
   change('.inspector-body [data-arrangement-gap]', 23);
   assert.equal(read().characterArrangement, undefined, 'typing a draft never enables mode');
   q('.inspector-body [data-arrangement-apply]').click();
@@ -259,6 +336,9 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   pending.dispatchEvent(
     new win.InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'W' }),
   );
+  rejectInvalidGaps();
+  assert.equal(pending.value, 'AgWW', 'invalid gaps preserve the pending Text draft');
+  assert.equal(read().text, 'AgW', 'invalid gaps never flush the pending Text draft');
   q('.inspector-body [data-arrangement-apply]').click();
   assert.equal(read().text, 'AgWW');
   assert.equal(read().characterArrangement.ids.length, 4);
@@ -279,5 +359,58 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
   });
   assert.equal(q('[data-arrangement-apply]').disabled, true);
   assert.equal(q('[data-arrangement-gap]').disabled, true);
+  const blankChangeThenApply = () => {
+    const input = q('.inspector-body [data-arrangement-gap]');
+    input.value = '';
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+    assert.equal(input.value, '10', 'blur/change restores the previous display value');
+    q('.inspector-body [data-arrangement-apply]').click();
+  };
+  await context.test(
+    'blank change followed by Apply preserves off state and allows retry',
+    async () => {
+      await load();
+      const baseline = state(),
+        before = saved();
+      blankChangeThenApply();
+      assert.deepEqual(state(), baseline, 'the first Apply cannot enable the restored gap');
+      q('.inspector-body [data-arrangement-apply]').click();
+      assert.equal(read().characterArrangement.gap, 10, 'a second explicit Apply may retry');
+      undo();
+      assert.equal(saved(), before);
+
+      await load();
+      const input = q('.inspector-body [data-arrangement-gap]');
+      input.value = '';
+      input.dispatchEvent(new win.Event('change', { bubbles: true }));
+      input.value = '0';
+      input.dispatchEvent(new win.InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      q('.inspector-body [data-arrangement-apply]').click();
+      assert.equal(read().characterArrangement.gap, 0, 'new valid input permits Apply immediately');
+      gaps(0);
+    },
+  );
+  await context.test('blank change followed by Apply preserves a pending Text draft', async () => {
+    await load();
+    const pending = q('.inspector-body [data-text]');
+    pending.focus();
+    pending.setSelectionRange(3, 3);
+    pending.dispatchEvent(
+      new win.InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: 'W' }),
+    );
+    pending.value = 'AgWW';
+    pending.dispatchEvent(
+      new win.InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'W' }),
+    );
+    const baseline = state();
+    blankChangeThenApply();
+    assert.deepEqual(state(), baseline, 'the first Apply cannot flush the Text draft');
+    assert.equal(pending.isConnected, true);
+    assert.equal(pending.value, 'AgWW');
+    assert.equal(read().text, 'AgW');
+    q('.inspector-body [data-arrangement-apply]').click();
+    assert.equal(read().text, 'AgWW', 'a second explicit Apply may commit the pending draft');
+    assert.equal(read().characterArrangement.gap, 10);
+  });
   await win.happyDOM.close();
 });

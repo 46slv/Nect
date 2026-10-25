@@ -3058,6 +3058,26 @@ function arrangementControls(n) {
     disabled = current().locked || !eligibility?.eligible;
   return `<section class="character-arrangement" aria-label="Maintain equal ink gaps"><h4>Maintain equal ink gaps</h4><label>Gap · Text-local px<input type="number" min="0" max="100000" step="any" data-scrub-step="1" data-arrangement-gap="${n.id}" aria-label="Maintained ink gap" value="${n.characterArrangement?.gap ?? 10}" ${current().locked ? 'disabled' : ''}></label><button data-arrangement-apply="${n.id}" ${disabled ? 'disabled' : ''}>${n.characterArrangement ? 'Reapply to current text' : 'Apply'}</button>${n.characterArrangement ? `<button data-arrangement-clear="${n.id}" ${current().locked ? 'disabled' : ''}>Disable maintained gaps</button>` : ''}<output data-arrangement-status role="status">${esc(status?.suspended ? 'Suspended: ' + status.reason : status?.active ? 'Active · equal ink gaps' : reason || 'Off · Apply to the whole line or column')}</output><p class="font-note">Text-local ink gaps; downstream effects may change visible spacing. Font and size remain editable. Maintained ink gaps control spacing; disable to edit tracking, kerning or axial positions. Disable restores authored positions and may move letters.</p></section>`;
 }
+const rejectedArrangementGaps = new WeakSet();
+function readArrangementGap(input, applying = false) {
+  const rejected = rejectedArrangementGaps.delete(input),
+    gap = Number(input.value);
+  if (
+    !input.value.trim() ||
+    input.validity?.badInput ||
+    !Number.isFinite(gap) ||
+    gap < 0 ||
+    gap > 100000
+  ) {
+    if (!applying) rejectedArrangementGaps.add(input);
+    const n = current().nodes.find((n) => n.id === input.dataset.arrangementGap);
+    input.value = String(n?.characterArrangement?.gap ?? 10);
+    notify('Gap must be a number from 0 to 100000 px', true);
+    return null;
+  }
+  // Blur/change may have restored the display immediately before this Apply click.
+  return applying && rejected ? null : gap;
+}
 function flushArrangementText(nodeId, scope) {
   const draft = textDrafts.get(nodeId);
   if (draft?.composition) {
@@ -6908,10 +6928,15 @@ app.addEventListener('click', async (e) => {
   }
   if (d.arrangementApply || d.arrangementClear) {
     if (b.disabled) return;
-    const nodeId = d.arrangementApply || d.arrangementClear,
-      gap = Number(
-        b.closest('.character-arrangement')?.querySelector('[data-arrangement-gap]')?.value,
+    const nodeId = d.arrangementApply || d.arrangementClear;
+    let gap;
+    if (d.arrangementApply) {
+      gap = readArrangementGap(
+        b.closest('.character-arrangement').querySelector('[data-arrangement-gap]'),
+        true,
       );
+      if (gap === null) return;
+    }
     if (!flushArrangementText(nodeId, b.closest('.text-controls'))) return;
     commandChange(
       d.arrangementClear ? 'clear-character-arrangement' : 'set-character-arrangement',
@@ -8810,6 +8835,7 @@ app.addEventListener('keyup', (e) => {
     settleNativeTextMovement(e.target);
 });
 app.addEventListener('input', (e) => {
+  if (e.target.dataset.arrangementGap) rejectedArrangementGaps.delete(e.target);
   if (e.target.matches('[data-expression]') && !e.isComposing) {
     const f = e.target.closest('.field');
     if (f?.dataset.type === 'Color') colorDraftValidity(e.target, f.dataset.node, f.dataset.key);
@@ -9027,12 +9053,13 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (d.arrangementGap) {
-    const n = current().nodes.find((n) => n.id === d.arrangementGap);
-    if (!n?.characterArrangement) return;
+    const n = current().nodes.find((n) => n.id === d.arrangementGap),
+      gap = readArrangementGap(el);
+    if (gap === null || !n?.characterArrangement) return;
     if (!flushArrangementText(n.id, el.closest('.text-controls'))) return;
     commandChange(
       'set-character-arrangement',
-      { nodeId: n.id, gap: Number(el.value), updateGap: true },
+      { nodeId: n.id, gap, updateGap: true },
       'Maintained ink gap updated',
     );
     return;
