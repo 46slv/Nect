@@ -4,6 +4,8 @@ Status: source implementation and focused automated verification on 2026-10-17. 
 
 ## Product boundary and smallest useful mode
 
+The gap input accepts finite numbers from 0 to 100000 inclusive. Blank, browser-invalid, nonfinite and out-of-range input is rejected before changing the document or committing a pending Text draft, both on change and Apply/Reapply. The control restores the stored gap, or the initial 10 px when the mode is off, and reports the allowed range. Explicit `0` remains valid; clearing the field never requests zero spacing.
+
 Add an explicit **Maintain equal ink gaps** action to one selected Text. Initial scope is the entire Text containing at least two mapped, nonempty glyphs on exactly one hard line (horizontal X), or one vertical column (vertical Y). Do not add this to every Text, implicitly enable it after snapping, or infer a constraint from coincident positions. No arbitrary subset/group constraint in v1.
 
 The user supplies a nonnegative gap in **Text-local px** (document units, not CSS screen pixels), initially 10 px. Explicit Apply is required; preview can show the proposed arrangement. A gap control is sufficient; no automatic estimate is necessary. Bounds mean the actual outline's axis extrema, including per-character width/height/rotation/scale, but excluding strokes, effects and selection cells. This is equal geometric ink-box spacing, not optical spacing, side-bearing equality or baseline spacing. Curved/diagonal glyphs can still look uneven.
