@@ -66,9 +66,12 @@ Windows CI has passed Rust/Tauri compilation, NSIS packaging and actual Chrome i
 
 ```sh
 node cli/export.js project.json artwork.svg
+node cli/export.js --composition composition-b project.json artwork-b.svg
 ```
 
-The CLI validates the project, loads its embedded fonts and the bundled licensed font, evaluates it without a browser/DOM and writes an SVG. It refuses to overwrite an existing output. No service, cloud deployment or Nect integration is enabled by this repository.
+The CLI accepts legacy single-Document JSON and saved Composition projects. A project with multiple Compositions requires `--composition <id>` using the saved Composition ID; names and the last active GUI tab are not selectors. With one Composition, the flag may be omitted. An unknown ID, duplicate flag, unknown option or extra positional argument is an error. Use `--help` for usage and `--` before positional file names that start with `-`.
+
+Every Composition passes the shared core validator, including unselected Compositions, before the selected one is rendered. The CLI loads embedded fonts and the bundled licensed font, evaluates without a browser/DOM and writes one SVG. It preserves the input file, enforces the 50 MB input limit and refuses to overwrite an existing output. Invalid input, selection or rendering exits with status 1 before any output write; success and `--help` exit with status 0. No service, cloud deployment or Nect integration is enabled by this repository.
 
 For a practical editable exercise, open `examples/vr-converters.json`; it retains V curves, R Boolean/counter operations, secondary Remap and editable text in separate compositions.
 
