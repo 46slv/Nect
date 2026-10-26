@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Approved offline integration
+## ACTIVE CHECKPOINT - Manual update review gate
 
-Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
+Goal: Share the existing preview-check orchestration with the Build interface and establish an explicit candidate-review/confirmation boundary while production remains unconfigured.
 
-Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
+Current phase: Manual review gate implementation and local verification complete. Recovery owner 01a176cf-8ae4-7dd2-86bc-7f2f090519c7 completed prior owner 01a16f70's released draft in the same isolated checkout. Production retains literal provider=null and supplies no source/preparation adapter.
 
-Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
+Proven: Focused controller/fixture/discovery/Build/version tests44/44 pass. Three regressions reproduced synchronous cancellation, disposal re-entry and late validation overwriting cancellation; all pass after generation/terminal guards. Final frontend aggregate2398 PASS/0 FAIL/5 SKIP (2403 total), full formatting, native-build configuration4/4 and Vite build pass. The initial aggregate2396 PASS/1 FAIL/5 SKIP failed only because the bundle lacked historical49283bca; importing canonical history resolved it (angled-grid7/7 and final aggregate PASS). Existing native05102869 acceptance belongs to a different, older candidate. New updater native UI remains NOT_RUN.
 
-Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
+Next task: Review the development PR and its exact-head CI. The bounded manual gate is complete locally; live update delivery requires separate authority and the dependencies below. Exact publication head/result is recorded in the owner checkpoint and recovery RESULTS.md. No main integration in this scope.
 
-Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
+Approach: Reuse discovery/version/audience/expiry validation and literal rendering. Frozen review context/request/response, single-use confirmation, new-request retry, cancellation/disposal and late completion handling. Preparation remains injected test code only.
 
-Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
+Done for next: Local focused/aggregate/frontend/config checks completed, no production updater side effects, and canonical-parent development candidate preserved. Remote CI and native UI must retain their own observed status.
 
-State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
+State: Original bundle HEAD453cb1956bbd6e73509127f14293aed0e1d55816 and canonical main6652b91cca5c138c4c929b689a9b484db4bfd52c share tree62d4923e6e489c30b420c5f0f86b43288bb52ca3. Preserve the local candidate on codex/manual-update-review-gate and publish an identical-tree commit with canonical main as parent on codex/manual-update-review-gate-recovery. No history rewrite, synthetic ancestry push or other-worktree mutation.
 
-Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
+Authority: Current recovery scope and existing development permissions cover local implementation/tests, commit and development PR. No production provider/feed/network/download/install/restart, native updater command, dependency/security changes, main merge or release.
 
-Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.
+Handoff: CONTINUE_CURRENT_TASK. Live delivery requires native-authoritative preview version/channel policy, durable trusted distribution/signing/package/bootstrap and a separately approved install/save/rollback lifecycle. See desktop/docs/preview-update-check.md.
