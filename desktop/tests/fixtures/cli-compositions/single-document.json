@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 24,
+  "name": "CLI format probe",
+  "width": 160,
+  "height": 120,
+  "layers": [
+    {
+      "id": "a-layer",
+      "name": "a-triangle",
+      "visible": true,
+      "locked": false,
+      "fill": "#ff0000",
+      "nodes": [
+        {
+          "id": "a-curve",
+          "type": "Curve",
+          "name": "Curve",
+          "position": [40, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "closed": {
+              "type": "Boolean",
+              "value": true,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [
+            {
+              "id": "a-point-1",
+              "position": {
+                "type": "Vector2",
+                "value": [10, 10],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "a-point-2",
+              "position": {
+                "type": "Vector2",
+                "value": [70, 10],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            },
+            {
+              "id": "a-point-3",
+              "position": {
+                "type": "Vector2",
+                "value": [10, 50],
+                "expression": "",
+                "locked": false
+              },
+              "handleA": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleB": {
+                "type": "Vector2",
+                "value": [0, 0],
+                "expression": "",
+                "locked": false
+              },
+              "handleType": "corner"
+            }
+          ],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "a-fill",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [340, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "a-curve"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#ff0000",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "a-output",
+          "type": "Output",
+          "name": "Output",
+          "position": [640, 40],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "a-fill"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "a-output"
+    }
+  ]
+}
