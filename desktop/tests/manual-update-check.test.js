@@ -245,6 +245,47 @@ test('disposal is terminal before subscribers are notified', async () => {
   assert.equal(h.controller.getState().state, 'disposed');
 });
 
+test('refresh preserves disposal, cancellation and new checks started during validation', async (t) => {
+  for (const callback of ['clock', 'readContext']) {
+    for (const action of ['dispose', 'cancel', 'check']) {
+      await t.test(`${callback}: ${action}`, async () => {
+        let armed = false;
+        let newer;
+        const intervene = () => {
+          if (!armed) return false;
+          armed = false;
+          newer = h.controller[action]();
+          return true;
+        };
+        const h = harness({
+          clock: () =>
+            callback === 'clock' && intervene() ? h.fixture.response.expiresAt : h.live.now,
+          readContext: () =>
+            callback === 'readContext' && intervene()
+              ? { ...h.live.context, provider: null }
+              : h.live.context,
+        });
+        const original = await h.controller.check();
+        armed = true;
+        const refreshed = h.controller.refresh();
+        const expected = { dispose: 'disposed', cancel: 'idle', check: 'checking' }[action];
+        assert.equal(refreshed.state, expected);
+        assert.equal(h.controller.getState().state, expected);
+        if (action === 'check') {
+          const latest = await newer;
+          assert.equal(latest.state, 'update_advisory');
+          assert.ok(latest.reviewId > original.reviewId);
+          await h.controller.confirm(latest.reviewId);
+          assert.equal(h.calls.prepare, 1);
+        } else {
+          await h.controller.confirm(original.reviewId);
+          assert.equal(h.calls.prepare, 0);
+        }
+      });
+    }
+  }
+});
+
 test('preparation completion revalidates expiry/context and respects cancellation during validation', async () => {
   for (const mode of ['expiry', 'context', 'cancel-in-clock']) {
     const gate = deferred();

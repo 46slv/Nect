@@ -112,7 +112,10 @@ export function createManualUpdateCheck({
   }
   function refresh() {
     if (disposed || !review) return getState();
-    const outcome = validateCurrent(review);
+    const bound = review;
+    const operation = generation;
+    const outcome = validateCurrent(bound);
+    if (disposed || operation !== generation || review !== bound) return getState();
     if (outcome.state !== 'update_advisory') {
       generation++;
       review = null;
