@@ -13,7 +13,8 @@ function deferred() {
 function fixture() {
   let text = 'saved',
     draft = false;
-  const choices = [], writes = [];
+  const choices = [],
+    writes = [];
   const lifecycle = new DocumentLifecycle({
     read: () => text,
     hasDraft: () => draft,
