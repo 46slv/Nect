@@ -6,10 +6,10 @@
 - `src/fonts.js`, `src/text-layout.js`: bounded local font assets and deterministic Japanese/Latin outline layout, shared by editor and CLI. See [typography](typography.md).
 - `src/main.js`, `src/style.css`: browser editor. Canvas and graph mutate the same document. No second geometry source of truth exists.
 - `src/svg-import.js`: strict browser/XML adapter for basic SVG shapes and compound path data. It rejects unsupported attributes/elements rather than silently changing rendering.
-- `src/composition-project-model.js`: dependency-free, isolated model for an outer Composition envelope, legacy migration, validated JSON round-tripping, and active-Composition bridging to/from a single Document. It is not used by the operational project validator, serializer, storage, Open/Save, UI, import, or export; the operational project format remains the single root frame below.
+- `src/composition-project-model.js`: dependency-free outer Composition envelope validation, legacy Document migration, JSON round-tripping, and active-Composition projection to/from a single Document. The editor uses it for project Open/Save and Composition import. `src/composition-session-owner{,-core}.js` owns project-wide history and a core command Session for the active Document; it also validates inactive Documents before accepting the project.
 - `src/storage.js`: thin browser-download / Tauri-command adapter. Native destinations are selected by the user; the frontend does not receive a general filesystem API.
 - `src-tauri/`: Tauri 2 host and Windows NSIS configuration. Chosen for small distribution and reusable existing browser UI. This is a scaffold pending compilation and Windows interaction verification.
-- `cli/export.js`: Node headless adapter. It supplies fonts and calls the same core API. Future cloud rendering should wrap this adapter with request limits, timeouts and isolation; no endpoint exists yet.
+- `cli/export.js`: Node headless adapter for single-Document JSON. It supplies fonts and calls the same core API. Future cloud rendering should wrap this adapter with request limits, timeouts and isolation; no endpoint exists yet.
 - Future Nect adapter: exchange versioned documents and evaluated Path values across an explicit boundary. Do not couple the engine to Nect's renderer, UI store, authentication or Electron/Tauri bridge.
 
 ## Public API
@@ -22,13 +22,13 @@
 
 `pathData(path)`, `pathArea(path)`, `exportSVG(document, fonts, { unit })` consume plain geometry. SVG export units default to `px`; explicit `mm` or `cm` writes physical root dimensions while the zero-origin `viewBox` remains in canonical document px. `exportSVG` refuses any erroneous visible composition, and emits nonzero-filled compound paths. `exportScene` and `exportSVG` validate and migrate a detached document copy, leaving the caller's authored state and asset metadata unchanged, including frozen Session views and legacy inputs. Scene layers belong to that detached copy; compare stable layer IDs rather than object identity. Export retains validation errors and does not commit migrations to the source document.
 
-`serialize(document)` creates JSON. `deserialize(text)` parses and validates a candidate before editor replacement. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes and 96 MB of distinct font bytes; immutable font assets are shared across snapshots. Pointer gestures are one change each.
+Core `serialize(document)` and `deserialize(text)` operate on a single Document. The editor's `deserializeProject` accepts the Composition envelope or migrates a legacy Document; `serializeProject` saves the envelope from `session.projectSnapshot()`. `History.apply(fn)` snapshots before mutations, rolls back thrown mutations and clears redo only for actual changes. History is bounded to 100 changes and 96 MB of distinct font bytes; immutable font assets are shared across snapshots. Pointer gestures are one change each.
 
 ## Project schema
 
-Operational root: `{schemaVersion, name, width, height, layers, fontAssets?}`. The schema version tracks supported node/document features. The isolated Composition model utility has its own envelope version and does not change this saved format. The artboard ratio is independent from the 16:9 workspace design.
+Saved editor root: `{schemaVersion, compositionSchemaVersion, name, compositions, fontAssets?, imageAssets?, nodePresets?}`. Each outer Composition stores `{id, name, width, height, layers, editor?}`. `compositionSchemaVersion` versions the envelope separately from node/document features in `schemaVersion`. Core validation/evaluation and SVG/PNG rendering consume a single Document projection with root `width`, `height`, `layers` and optional `editor`, plus shared project fields. Legacy single-Document JSON migrates into one outer Composition on editor open; the current CLI still expects that single-Document form. The artboard ratio is independent from the 16:9 workspace design.
 
-Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). One layer equals one composition. No implicit node sharing.
+Layer: `{id, name, visible, locked, fill, nodes, output}`. Layer order is paint order (last is front). Each layer owns a separate graph within its outer Composition (artboard/tab). No implicit node sharing.
 
 Node: `{id, type, name, position, params, points, operation, edits, text, font}`. `position` is graph UI position, not artwork position.
 
