@@ -262,7 +262,8 @@ test('fixture UI has no automatic check; user failure/retry uses a fresh audienc
     assert.equal(ui.element.querySelector('pre').textContent, notes);
     assert.equal(ui.element.querySelectorAll('a,script,img,input').length, 0);
     assert.match(ui.element.textContent, /fixture-build-11/);
-    assert.equal(ui.element.querySelectorAll('button').length, 1);
+    assert.equal(ui.element.querySelectorAll('button:not([hidden])').length, 2);
+    assert.equal(ui.element.querySelectorAll('button')[1].textContent, 'Cancel');
     assert.equal(ui.document.querySelector('[data-document]').textContent, 'Unchanged document');
     const detached = ui.controller.getState();
     detached.advisory.notes = 'changed';

@@ -1,5 +1,6 @@
 import { desktop, queryBuildIdentity } from './storage.js';
-import { validateDiscovery } from './update-discovery.js';
+import { createManualUpdateCheck } from './manual-update-check.js';
+import { mountManualUpdateCheck } from './manual-update-view.js';
 
 // Production has no provider, settings, fixture injection or transport.
 const provider = null;
@@ -68,7 +69,12 @@ export function ensureBuildInfo(app, document) {
   commit.dataset.buildCommit = '';
   commit.textContent = 'Commit unknown';
   const updates = document.createElement('div');
-  renderDiscovery(updates, validateDiscovery({ provider }), document);
+  const updateCheck = mountManualUpdateCheck({
+    element: updates,
+    document,
+    controller: createManualUpdateCheck({ provider }),
+    renderDiscovery,
+  });
   content.append(runtime, version, commit, updates);
   menu.append(summary, content);
   menu.addEventListener('toggle', () => {
@@ -93,7 +99,7 @@ export function ensureBuildInfo(app, document) {
       commit.textContent = nativeCommit ? `Commit ${nativeCommit.slice(0, 8)}` : 'Commit unknown';
       if (nativeCommit) commit.title = nativeCommit;
       else commit.removeAttribute('title');
-      renderDiscovery(updates, validateDiscovery({ identity, provider }), document);
+      updateCheck.refresh();
     });
   });
   header.append(menu);

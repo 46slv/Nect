@@ -1,6 +1,6 @@
 # Offline preview update check
 
-This increment is an offline fixture client and pure metadata validation. It does not enable updates. The production Build menu still has its private `provider = null`; native channel and package authority stay unknown. `preview-update-check.js` is outside the production entry graph. It has no default provider, source, native identity, request factory or clock, and no runtime fixture setting. PR84's separate Build commit display is not a dependency.
+The Build menu and offline fixture client share a DOM-free manual-check controller and a small view. The production Build menu retains its private `provider = null`, so it displays only the unconfigured status and never calls a source or preparation adapter. Native channel and package authority stay unknown. `preview-update-check.js` remains a compatibility adapter outside the production entry graph, with no production fixture setting, source or preparation implementation. This increment does not enable updates.
 
 ## Contract
 
@@ -26,18 +26,24 @@ First-match order preserves null-provider dominance, provider/identity/request a
 
 Rendering reuses `renderDiscovery` and its cautious source wording. Notes/build labels stay literal; there are no download/install controls. This fixture client's identity is synthetic test data, not renderer authority supplied to native code. There is no app entry point or switch that activates it in production.
 
+## Manual review and confirmation
+
+`createManualUpdateCheck` binds each review to frozen copies of the admitted provider/configuration, native identity, request and validated response. `readContext` supplies the current provider/identity to revalidate at completion, refresh and confirmation. Only the exact current `reviewId` can consume consent. Changed context, expired metadata, cancellation, disposal, a new check or a reused request ID cannot authorize preparation. Cancelling a pending source or preparation does not abort external work, but generation checks prevent its late result from restoring a review or consent. Cancellation/disposal during a synchronous state notification also stops adapter invocation.
+
+An injected **test-only** `prepare` adapter exposes the explicit confirmation boundary. It is invoked at most once per review, with immutable validated metadata, and its result is revalidated. Completion means only that this adapter returned; it is not a downloaded package, verified publisher, installation eligibility or ready-to-install claim. Missing/failed preparation consumes consent; retry requires another successful check and explicit confirmation. Production supplies neither adapter and gains no renderer-configurable source seam or native updater command.
+
 ## Verification and remaining dependency
 
 Run from desktop:
 
 ```sh
-node --test tests/preview-update-check.test.js tests/update-discovery.test.js tests/build-info.test.js tests/build-version.test.js
+node --test tests/manual-update-check.test.js tests/preview-update-check.test.js tests/update-discovery.test.js tests/build-info.test.js tests/build-version.test.js
 node --test tests/*.test.js
 node node_modules/prettier/bin/prettier.cjs --check .
 node scripts/check-native-build-config.mjs
 node node_modules/vite/bin/vite.js build
 ```
 
-The focused tests cover frozen inputs, expiry boundaries for both report kinds, invalid clocks/expiry, guard precedence, every audience field, wrong/unknown channels, same/older/numerically newer previews, malformed schemas/URLs, literal text, failure/retry, in-flight expiry, duplicate clicks and disposed/stale results. Existing aggregate frontend/DOM tests pick up the new test file without a workflow change. Synthetic DOM fixtures are not native WebView2 or visual acceptance; native UI remains NOT_RUN. Existing unchanged artifact verifier ZIP tests need no local repeat for this JS-only change.
+The focused tests cover frozen inputs, expiry boundaries for both report kinds, invalid clocks/expiry, guard precedence, every audience field, wrong/unknown channels, same/older/numerically newer previews, malformed schemas/URLs, literal text, failure/retry, in-flight expiry, duplicate clicks, context/consent invalidation, single-use confirmation, preparation failure and disposed/stale results. Three regressions first reproduced adapter calls after synchronous cancellation, re-entry during disposal, and cancellation being overwritten during final validation. They pass with terminal/generation guards. The refresh regression also covers clock/readContext callbacks that dispose, cancel or start a new check during validation; refresh preserves the resulting state and the new review can still be confirmed. Existing aggregate frontend/DOM tests pick up the new test file without a workflow change. Synthetic DOM fixtures are not native WebView2 or visual acceptance; native UI for this increment remains NOT_RUN. Existing unchanged artifact verifier ZIP tests need no local repeat for this JS-only change.
 
 Before live delivery, choose monotonically ordered preview versions above the current0.1.0, an explicit native preview build contract, durable immutable distribution, metadata/signature trust and key custody, package/bootstrap strategy, and save/cancel/apply/rollback/data compatibility rules. One-day Actions artifacts are not a live feed. No version bump, keys, feed, download, installation, restart, permissions/CSP, lifecycle/preferences or user data changes belong to this increment.
