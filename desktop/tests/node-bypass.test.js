@@ -90,6 +90,7 @@ const supported = [
   'Fill',
   'Linear Gradient Fill',
   'Radial Gradient Fill',
+  'Angular Gradient Fill',
   'Halftone',
   'Ordered Dither',
   'Error Diffusion Dither',
@@ -104,6 +105,7 @@ for (const type of supported)
         'Fill',
         'Linear Gradient Fill',
         'Radial Gradient Fill',
+        'Angular Gradient Fill',
         'Halftone',
         'Ordered Dither',
         'Error Diffusion Dither',
@@ -161,6 +163,7 @@ test('bypass skips broken effect parameters and secondary dependencies, then res
   for (const [type, key] of [
     ['Transform', 'scale'],
     ['Polar Transform', 'width'],
+    ['Angular Gradient Fill', 'angle'],
     ['Closed Path Offset', 'amount'],
     ['Fill', 'color'],
     ['Math', 'b'],
