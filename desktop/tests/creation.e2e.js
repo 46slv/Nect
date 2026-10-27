@@ -18,8 +18,8 @@ try {
   // Regression for a render crash after committing an unconnected Mask.
   // Use real keyboard and pointer events, not a direct create-node command.
   await page.evaluate(async () => {
-    const { document } = await import('/src/core.js');
-    window.nect.load(JSON.stringify(document()));
+    const { blankDocument } = await import('/src/core.js');
+    window.nect.load(JSON.stringify(blankDocument()));
   });
   const beforeMask = await page.evaluate(() => JSON.stringify(window.nect.document));
   const addByEnter = async (type) => {
