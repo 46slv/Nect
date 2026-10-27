@@ -52,6 +52,6 @@ test('search keeps type IDs, Japanese aliases, NFKC, AND matching and alphabetic
   );
   assert.deepEqual(
     searchNodeItems(labeled, 'transform').map((item) => item.id),
-    ['Vector Transform', 'Transform'],
+    ['Vector Transform', 'Polar Transform', 'Transform'],
   );
 });

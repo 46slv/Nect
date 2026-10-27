@@ -1,0 +1,244 @@
+{
+  "schemaVersion": 27,
+  "name": "Polar Transform — wrap a strip into a ring",
+  "editor": {
+    "guides": [],
+    "visible": true,
+    "locked": false,
+    "gridVisible": false,
+    "gridSize": 8,
+    "gridAnchor": "center",
+    "gridAngle": 0,
+    "gridOpacity": 0.25,
+    "snap": false,
+    "snapGuides": true,
+    "snapArtboard": true,
+    "snapGrid": true,
+    "snapArtwork": false
+  },
+  "width": 960,
+  "height": 540,
+  "layers": [
+    {
+      "id": "layer-d2495d44-7956-47f4-a983-326897a8c674",
+      "name": "Composition 1",
+      "visible": true,
+      "locked": false,
+      "fill": "#36434e",
+      "allowEmptyOutput": true,
+      "nodes": [
+        {
+          "id": "node-73a51e40-2370-415b-9e80-3203799b864b",
+          "type": "Rectangle",
+          "name": "Rectangle",
+          "position": [
+            40,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "center": {
+              "type": "Vector2",
+              "value": [
+                480,
+                320
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "size": {
+              "type": "Vector2",
+              "value": [
+                960,
+                100
+              ],
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-6a600765-8c18-4e03-806e-f351f6df1c4a",
+          "type": "Resample Path",
+          "name": "Resample Path",
+          "position": [
+            340,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-73a51e40-2370-415b-9e80-3203799b864b"
+            },
+            "count": {
+              "type": "Scalar",
+              "value": 256,
+              "expression": "",
+              "locked": false
+            },
+            "spacing": {
+              "type": "Scalar",
+              "value": 24,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "count",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-fc2f879e-2b45-4082-9c44-527bc1c00b88",
+          "type": "Polar Transform",
+          "name": "Polar Transform",
+          "position": [
+            640,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "Path",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-6a600765-8c18-4e03-806e-f351f6df1c4a"
+            },
+            "origin": {
+              "type": "Vector2",
+              "value": [
+                0,
+                0
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "center": {
+              "type": "Vector2",
+              "value": [
+                480,
+                270
+              ],
+              "expression": "",
+              "locked": false
+            },
+            "width": {
+              "type": "Scalar",
+              "value": 960,
+              "expression": "",
+              "locked": false
+            },
+            "height": {
+              "type": "Scalar",
+              "value": 540,
+              "expression": "",
+              "locked": false
+            },
+            "radius": {
+              "type": "Scalar",
+              "value": 270,
+              "expression": "",
+              "locked": false
+            },
+            "angle": {
+              "type": "Scalar",
+              "value": -90,
+              "expression": "",
+              "locked": false
+            },
+            "inverse": {
+              "type": "Boolean",
+              "value": false,
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-ec24cd6d-64bb-469d-ba6b-fee85ba8ec7e",
+          "type": "Fill",
+          "name": "Fill",
+          "position": [
+            940,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-fc2f879e-2b45-4082-9c44-527bc1c00b88"
+            },
+            "color": {
+              "type": "Color",
+              "value": {
+                "hex": "#506e82",
+                "alpha": 1
+              },
+              "expression": "",
+              "locked": false
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        },
+        {
+          "id": "node-41446753-2639-4002-b5d2-2bce46a6e1e5",
+          "type": "Output",
+          "name": "Output",
+          "position": [
+            1240,
+            40
+          ],
+          "width": 264,
+          "collapsed": false,
+          "params": {
+            "path": {
+              "type": "PaintedPath",
+              "value": null,
+              "expression": "",
+              "locked": false,
+              "source": "node-ec24cd6d-64bb-469d-ba6b-fee85ba8ec7e"
+            }
+          },
+          "points": [],
+          "operation": "subtract",
+          "edits": [],
+          "text": "Nect",
+          "font": "default",
+          "rawPath": ""
+        }
+      ],
+      "output": "node-41446753-2639-4002-b5d2-2bce46a6e1e5"
+    }
+  ]
+}

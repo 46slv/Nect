@@ -90,7 +90,7 @@ test('category picker scopes candidates only; keyboard, cancellation, stale elem
   assert.equal($('.picker-category'), null);
   assert.deepEqual(
     [...document.querySelectorAll('.picker-option')].map((row) => row.dataset.id),
-    ['Transform', 'Vector Transform'],
+    ['Polar Transform', 'Transform', 'Vector Transform'],
   );
   assert.equal(commits, 0);
   search('Fill');
