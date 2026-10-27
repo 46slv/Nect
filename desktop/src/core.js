@@ -146,6 +146,11 @@ import {
 } from './guides.js';
 import { createLinearGradientFill, renderLinearGradientFill } from './linear-gradient.js';
 import { createRadialGradientFill, renderRadialGradientFill } from './radial-gradient.js';
+import {
+  ANGULAR_KEYS,
+  createAngularGradientFill,
+  renderAngularGradientFill,
+} from './angular-gradient.js';
 export {
   guideDefaults,
   guideSettings,
@@ -450,6 +455,18 @@ export const definitions = {
     startColor: p('Color', { hex: '#fff3b0', alpha: 1 }),
     endColor: p('Color', { hex: '#d94862', alpha: 1 }),
   },
+  'Angular Gradient Fill': {
+    path: p('PaintedPath', null),
+    center: p('Vector2', [480, 270]),
+    angle: p('Scalar', -90),
+    clockwise: p('Boolean', true),
+    startColor: p('Color', { hex: '#ff0000', alpha: 1 }),
+    color1: p('Color', { hex: '#00ff00', alpha: 1 }),
+    position1: p('Scalar', 1 / 3),
+    color2: p('Color', { hex: '#0000ff', alpha: 1 }),
+    position2: p('Scalar', 2 / 3),
+    endColor: p('Color', { hex: '#ff0000', alpha: 1 }),
+  },
   Halftone: {
     path: p('PaintedPath', null),
     pitch: p('Scalar', 16),
@@ -527,6 +544,9 @@ export function linearGradientSettings(read) {
   return createLinearGradientFill(
     Object.fromEntries(['start', 'end', 'startColor', 'endColor'].map((key) => [key, read(key)])),
   );
+}
+export function angularGradientSettings(read) {
+  return createAngularGradientFill(Object.fromEntries(ANGULAR_KEYS.map((key) => [key, read(key)])));
 }
 export function radialGradientSettings(read) {
   return createRadialGradientFill(
@@ -770,6 +790,7 @@ export function outputType(n, port) {
       'Fill',
       'Linear Gradient Fill',
       'Radial Gradient Fill',
+      'Angular Gradient Fill',
       'Halftone',
       'Ordered Dither',
       'Error Diffusion Dither',
@@ -837,6 +858,7 @@ const bypassInputs = Object.freeze({
   Fill: 'path',
   'Linear Gradient Fill': 'path',
   'Radial Gradient Fill': 'path',
+  'Angular Gradient Fill': 'path',
   Halftone: 'path',
   'Ordered Dither': 'path',
   'Error Diffusion Dither': 'path',
@@ -4029,6 +4051,7 @@ export function evaluate(
         if (n.type === 'Fill') result.fill = read('color');
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
+        if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
@@ -5075,6 +5098,7 @@ export function validate(doc) {
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);
+      if (n.type === 'Angular Gradient Fill') angularGradientSettings((key) => n.params[key].value);
       if (
         isImageDither(n.type) ||
         ['Halftone', 'Ordered Dither', 'Line Screen', 'Error Diffusion Dither'].includes(n.type)
@@ -5409,7 +5433,9 @@ export function renderElement(
         ? renderLinearGradientFill(fill, gradientId, precision)
         : fill?.kind === 'radial-gradient'
           ? renderRadialGradientFill(fill, gradientId, precision)
-          : null;
+          : fill?.kind === 'angular-gradient'
+            ? renderAngularGradientFill(fill, gradientId, value, precision)
+            : null;
   if (fill && !gradient) assertValue('Color', fill);
   if (stroke) {
     if (stroke.kind !== undefined && stroke.kind !== 'solid')

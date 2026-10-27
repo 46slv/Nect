@@ -97,9 +97,11 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/reference-status-help.e2e.js',
     'tests/canvas-transient-panels.e2e.js',
     'tests/browser-open-retry.e2e.js',
+    'tests/angular-gradient.e2e.js',
+    'tests/polar-transform.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 58);
-  assert.equal(new Set(browserTestFiles).size, 58);
+  assert.equal(browserTestFiles.length, 60);
+  assert.equal(new Set(browserTestFiles).size, 60);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

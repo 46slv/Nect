@@ -37,7 +37,8 @@ test('search keeps type IDs, Japanese aliases, NFKC, AND matching and alphabetic
   for (const query of ['Join Geometry', 'Join Paths', '独立パス'])
     assert.equal(searchNodeItems(items, query)[0].id, 'Join Geometry');
   assert.equal(searchNodeItems(items, '角丸')[0].id, 'Corner Round');
-  assert.equal(searchNodeItems(items, 'ＦＩＬＬ')[0].id, 'Fill');
+  assert.deepEqual(searchNodeItems(items, 'ＦＩＬＬ'), searchNodeItems(items, 'Fill'));
+  assert.ok(searchNodeItems(items, 'ＦＩＬＬ').some((item) => item.id === 'Fill'));
   assert.equal(searchNodeItems(items, 'linear 塗り')[0].id, 'Linear Gradient Fill');
   assert.deepEqual(searchNodeItems(items, '角丸', 'transform'), []);
   assert.ok(searchNodeItems(items, 'ベクトル').every((item) => item.categoryId === 'value'));

@@ -35,6 +35,14 @@ export const nodeCategories = [
 ];
 export const nodeCatalog = [
   {
+    typeId: 'Angular Gradient Fill',
+    categoryId: 'paint',
+    labelJa: '角度グラデーション',
+    aliases: ['Conic Gradient', 'Angle Gradient', 'Angular Gradient Fill', '円錐', '角度', '塗り'],
+    description: '中心の周りを4色で巡る角度グラデーション。',
+    creationRoute: 'add',
+  },
+  {
     typeId: 'Polar Transform',
     categoryId: 'transform',
     labelJa: '極座標変換',
