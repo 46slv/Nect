@@ -35,6 +35,14 @@ try {
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));
   await radius.fill('0');
   await radius.press('Tab');
+  // Rejected edits restore the field on the app's next scheduled render.
+  await page.waitForFunction(
+    (id) =>
+      document.querySelector(
+        `.inspector-body .field[data-node="${id}"][data-key="radius"] [data-value]`,
+      )?.value === '270',
+    id,
+  );
   assert.equal(await radius.inputValue(), '270');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
   for (const [action, ext] of [
