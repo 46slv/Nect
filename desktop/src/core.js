@@ -76,6 +76,7 @@ import { autoHandlesGeometry } from './auto-handles-geometry.js';
 import { taperGeometry } from './taper-geometry.js';
 import { bendGeometry } from './bend-geometry.js';
 import { twistGeometry } from './twist-geometry.js';
+import { polarSettings, polarTransformGeometry } from './polar-transform.js';
 import { waveGeometry } from './wave-geometry.js';
 import { puckerBloatGeometry } from './pucker-bloat-geometry.js';
 import { dashIntervals } from './dash-intervals.js';
@@ -329,6 +330,16 @@ export const definitions = {
   Taper: { path: p('Path', null), amount: p('Scalar', 0) },
   'Bend Points': { path: p('Path', null), angle: p('Scalar', 0) },
   'Twist Points': { path: p('Path', null), angle: p('Scalar', 0) },
+  'Polar Transform': {
+    path: p('Path', null),
+    origin: p('Vector2', [0, 0]),
+    center: p('Vector2', [480, 270]),
+    width: p('Scalar', 960),
+    height: p('Scalar', 540),
+    radius: p('Scalar', 270),
+    angle: p('Scalar', -90),
+    inverse: p('Boolean', false),
+  },
   'Auto Handles': { path: p('Path', null), strength: p('Scalar', 1) },
   'Reverse Path': { path: p('Path', null) },
   'Wave Points': {
@@ -810,6 +821,7 @@ const bypassInputs = Object.freeze({
   Taper: 'path',
   'Bend Points': 'path',
   'Twist Points': 'path',
+  'Polar Transform': 'path',
   'Auto Handles': 'path',
   'Wave Points': 'path',
   'Simplify Path': 'path',
@@ -3315,6 +3327,25 @@ export function evaluate(
         );
         result.unstable = true;
         result.fingerprint = fingerprint(signature(result));
+      } else if (n.type === 'Polar Transform') {
+        const source = read('path');
+        result = polarTransformGeometry(
+          source,
+          Object.fromEntries(
+            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
+              key,
+              read(key),
+            ]),
+          ),
+        );
+        result.characterOccurrences = routeCharacters(
+          source,
+          n.id,
+          null,
+          'Canvas character editing is unavailable through Polar Transform; edit the source Text',
+        );
+        result.unstable = true;
+        result.fingerprint = fingerprint(signature(result));
       } else if (n.type === 'Twist Points') {
         const source = read('path');
         result = twistGeometry(source, {
@@ -4320,6 +4351,7 @@ export function assertClosedOffsetChange(
     'Taper',
     'Bend Points',
     'Twist Points',
+    'Polar Transform',
     'Auto Handles',
     'Instance on Points',
     'Luminance Instances',
@@ -5031,6 +5063,15 @@ export function validate(doc) {
       )
         throw Error(
           'Wave Points needs amplitude within ±100000 px, wavelength 0.0001–100000 px and phase within ±360 degrees',
+        );
+      if (n.type === 'Polar Transform')
+        polarSettings(
+          Object.fromEntries(
+            ['origin', 'center', 'width', 'height', 'radius', 'angle', 'inverse'].map((key) => [
+              key,
+              n.params[key].value,
+            ]),
+          ),
         );
       if (n.type === 'Linear Gradient Fill') linearGradientSettings((key) => n.params[key].value);
       if (n.type === 'Radial Gradient Fill') radialGradientSettings((key) => n.params[key].value);

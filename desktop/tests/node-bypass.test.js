@@ -73,6 +73,7 @@ const supported = [
   'Taper',
   'Bend Points',
   'Twist Points',
+  'Polar Transform',
   'Set Closure',
   'Boolean',
   'Join Geometry',
@@ -159,6 +160,7 @@ test('unsupported nodes and scalar-output Vector Math fail closed; operation cha
 test('bypass skips broken effect parameters and secondary dependencies, then restores their errors', () => {
   for (const [type, key] of [
     ['Transform', 'scale'],
+    ['Polar Transform', 'width'],
     ['Closed Path Offset', 'amount'],
     ['Fill', 'color'],
     ['Math', 'b'],
