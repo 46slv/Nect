@@ -24,6 +24,9 @@ try {
       out = l.nodes[0];
     c.params.center.value = [480, 270];
     c.params.radius.value = 200;
+    c.position = [40, 40];
+    g.position = [340, 40];
+    out.position = [640, 40];
     l.nodes.unshift(c, g);
     connect(l, c.id, g.id, 'path');
     connect(l, g.id, out.id, 'path');
@@ -39,7 +42,15 @@ try {
   await page.waitForFunction(
     (id) =>
       window.nect.document.layers[0].nodes.find((n) => n.id === id).params.position1.value ===
-      1 / 3,
+        1 / 3 &&
+      Math.abs(
+        Number(
+          document.querySelector(
+            `.inspector-body .field[data-node="${id}"][data-key="position1"] [data-value]`,
+          )?.value,
+        ) -
+          1 / 3,
+      ) < 1e-12,
     id,
   );
   assert.ok(Math.abs(Number(await position.inputValue()) - 1 / 3) < 1e-12);

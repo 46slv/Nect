@@ -62,6 +62,7 @@ export const browserTestFiles = Object.freeze([
   'tests/canvas-transient-panels.e2e.js',
   'tests/browser-open-retry.e2e.js',
   'tests/angular-gradient.e2e.js',
+  'tests/polar-transform.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
