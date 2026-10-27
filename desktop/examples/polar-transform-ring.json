@@ -31,28 +31,19 @@
           "id": "node-73a51e40-2370-415b-9e80-3203799b864b",
           "type": "Rectangle",
           "name": "Rectangle",
-          "position": [
-            40,
-            40
-          ],
+          "position": [40, 40],
           "width": 264,
           "collapsed": false,
           "params": {
             "center": {
               "type": "Vector2",
-              "value": [
-                480,
-                320
-              ],
+              "value": [480, 320],
               "expression": "",
               "locked": false
             },
             "size": {
               "type": "Vector2",
-              "value": [
-                960,
-                100
-              ],
+              "value": [960, 100],
               "expression": "",
               "locked": false
             }
@@ -68,10 +59,7 @@
           "id": "node-6a600765-8c18-4e03-806e-f351f6df1c4a",
           "type": "Resample Path",
           "name": "Resample Path",
-          "position": [
-            340,
-            40
-          ],
+          "position": [340, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -106,10 +94,7 @@
           "id": "node-fc2f879e-2b45-4082-9c44-527bc1c00b88",
           "type": "Polar Transform",
           "name": "Polar Transform",
-          "position": [
-            640,
-            40
-          ],
+          "position": [640, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -122,19 +107,13 @@
             },
             "origin": {
               "type": "Vector2",
-              "value": [
-                0,
-                0
-              ],
+              "value": [0, 0],
               "expression": "",
               "locked": false
             },
             "center": {
               "type": "Vector2",
-              "value": [
-                480,
-                270
-              ],
+              "value": [480, 270],
               "expression": "",
               "locked": false
             },
@@ -180,10 +159,7 @@
           "id": "node-ec24cd6d-64bb-469d-ba6b-fee85ba8ec7e",
           "type": "Fill",
           "name": "Fill",
-          "position": [
-            940,
-            40
-          ],
+          "position": [940, 40],
           "width": 264,
           "collapsed": false,
           "params": {
@@ -215,10 +191,7 @@
           "id": "node-41446753-2639-4002-b5d2-2bce46a6e1e5",
           "type": "Output",
           "name": "Output",
-          "position": [
-            1240,
-            40
-          ],
+          "position": [1240, 40],
           "width": 264,
           "collapsed": false,
           "params": {
