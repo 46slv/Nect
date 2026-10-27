@@ -12,6 +12,7 @@ const pass = new Set([
   'Stroke',
   'Linear Gradient Fill',
   'Radial Gradient Fill',
+  'Angular Gradient Fill',
   'Convert to Path',
 ]);
 // Resolve one unambiguous geometry route. Branching/generators/instances stay

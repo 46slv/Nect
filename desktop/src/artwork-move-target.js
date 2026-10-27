@@ -2,7 +2,11 @@ import { transformExtensions } from './transform-affine.js';
 import { definitions, evaluate, outputType, pathBounds, socketCompatible } from './core.js';
 
 const shapes = new Set(['Circle', 'Ellipse', 'Rectangle', 'Polygon', 'Star']);
-const gradients = new Set(['Linear Gradient Fill', 'Radial Gradient Fill']);
+const gradients = new Set([
+  'Linear Gradient Fill',
+  'Radial Gradient Fill',
+  'Angular Gradient Fill',
+]);
 // Movement-only budget: larger authored Curves remain intact and source-editable.
 export const CURVE_ARTWORK_MOVE_POINT_LIMIT = 128;
 const finitePoint = (value) =>

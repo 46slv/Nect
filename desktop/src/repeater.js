@@ -293,6 +293,7 @@ export function assertRepeaterRoute(value, node) {
       'Stroke',
       'Linear Gradient Fill',
       'Radial Gradient Fill',
+      'Angular Gradient Fill',
       'Transform',
       'Output',
     ].includes(node.type)

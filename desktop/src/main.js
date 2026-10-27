@@ -1517,6 +1517,11 @@ function numericLimits(n, key) {
     key === 'gridOrigin'
   )
     return [-100000, 100000];
+  if (n.type === 'Angular Gradient Fill') {
+    if (key === 'center') return [-100000, 100000];
+    if (key === 'angle') return [-360, 360];
+    if (key === 'position1' || key === 'position2') return [0, 1];
+  }
   if (n.type === 'Radial Gradient Fill') {
     if (key === 'center') return [-100000, 100000];
     if (key === 'radius') return [0.0001, 100000];
@@ -2323,7 +2328,7 @@ function field(n, key, q, inspector = false) {
     control = (q.type === 'Vector2' ? displayed : [displayed])
       .map(
         (v, i) =>
-          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(n.type === 'Radial Gradient Fill' || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
+          `<input type="number" step="${n.type === 'Subdivide Path' && key === 'segments' ? '1' : 'any'}" ${numericAttributes(n, key)} data-value-factor="${factor}" aria-label="${esc(n.name + ' ' + name + (q.type === 'Vector2' ? (i ? ' Y' : ' X') : ''))}" data-value data-axis="${i}" value="${Number(['Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type) || (n.type === 'Geometry Repeater' && key === 'rotation') ? v : ((v * factor).toFixed?.(3) ?? v))}" ${locked ? 'disabled' : ''}>`,
       )
       .join('');
   if (angleDial && !q.source && !q.expression) control += repeaterAngleControl(n, q);
@@ -3397,6 +3402,8 @@ function offsetControls(n) {
     : '';
 }
 function gradientControls(n) {
+  if (n.type === 'Angular Gradient Fill')
+    return '<p class="font-note">Four editable color stops around Center in artboard px. Position1/2 are fractions with 0 &lt; Position1 &lt; Position2 &lt; 1. Angle uses degrees: 0 right, positive clockwise; Clockwise reverses traversal. Start/End colors meet at the seam; match them for a seamless loop. Premultiplied encoded-sRGB interpolation. Shared SVG/PNG/viewer rendering uses 720 vector sectors (0.5° approximation), not native SVG conic gradients. Fill only; solid Stroke survives. Save JSON for editable stops. SVG pattern reimport and luminance modifiers are not supported yet.</p>';
   if (n.type === 'Radial Gradient Fill')
     return '<p class="font-note">Two colors in absolute artboard coordinates (px). Concentric circular ramp with radius from 0.0001 to 100000 px; center coordinates ±100000 px. No focal offsets or elliptical transform. Geometry / Transform / Repeater go before paint; repeated copies share one ramp. Each stop keeps its alpha. Save JSON to preserve the full procedural graph. Import SVG reopens our exported two-stop gradients as editable paths and paint nodes.</p>';
   return n.type === 'Linear Gradient Fill'
@@ -9632,9 +9639,12 @@ app.addEventListener('change', async (e) => {
           if (
             q.type !== 'Boolean' &&
             !el.value.trim() &&
-            (['Linear Gradient Fill', 'Radial Gradient Fill', 'Closed Path Offset'].includes(
-              n.type,
-            ) ||
+            ([
+              'Linear Gradient Fill',
+              'Radial Gradient Fill',
+              'Angular Gradient Fill',
+              'Closed Path Offset',
+            ].includes(n.type) ||
               (n.type === 'Stroke' && field.dataset.key === 'width') ||
               (n.type === 'Geometry Repeater' && field.dataset.key === 'rotation'))
           )
