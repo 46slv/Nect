@@ -115,3 +115,18 @@ test('persistent preferred height clamps temporarily while a tool is visible', (
   assert.equal(f.root.querySelector('.layers').style.height, '186px');
   f.window.happyDOM.abort();
 });
+
+test('viewport movement realigns the portal even when sidebar size is unchanged', () => {
+  const f = fixture();
+  const panel = f.open();
+  const slot = f.root.querySelector('[data-workspace-asset-slot]');
+  let left = 675;
+  slot.getBoundingClientRect = () => ({ left, top: 180, width: 290, height: 240 });
+  f.controller.refresh();
+  assert.equal(panel.style.left, '675px');
+  left = 575;
+  f.window.dispatchEvent(new f.window.Event('resize'));
+  assert.equal(panel.style.left, '575px');
+  assert.equal(panel.style.width, '290px');
+  f.window.happyDOM.abort();
+});

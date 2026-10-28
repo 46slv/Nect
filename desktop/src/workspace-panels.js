@@ -21,6 +21,7 @@ export function createWorkspacePanels({
 }) {
   let root,
     observer,
+    view,
     preferredHeight = 160,
     resizing = null;
   try {
@@ -90,7 +91,16 @@ export function createWorkspacePanels({
 
   function attach(nextRoot) {
     observer?.disconnect();
+    view?.removeEventListener('resize', refresh);
+    if (resizing) {
+      preferredHeight = resizing.previous;
+      resizing = null;
+    }
     root = nextRoot;
+    view = root.ownerDocument.defaultView;
+    // A fixed-width sidebar can move without resizing (e.g. 1000 → 900 px).
+    // ResizeObserver alone cannot keep the body-mounted portal aligned.
+    view?.addEventListener('resize', refresh);
     const workspace = root.querySelector('.workspace');
     const right = root.querySelector('.right');
     const layers = right?.querySelector('.layers');
@@ -194,6 +204,7 @@ export function createWorkspacePanels({
     if (ResizeObserver) {
       observer = new ResizeObserver(refresh);
       observer.observe(right);
+      observer.observe(workspace);
     }
   }
 
