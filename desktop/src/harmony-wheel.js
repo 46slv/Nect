@@ -9,7 +9,7 @@ export const DEFAULT_HARMONY_WHEEL = Object.freeze({
 });
 const keys = Object.keys(DEFAULT_HARMONY_WHEEL);
 const norm = (h) => ((h % 360) + 360) % 360;
-function settings(value) {
+export function normalizeHarmonyWheel(value) {
   if (
     !value ||
     typeof value !== 'object' ||
@@ -39,6 +39,7 @@ function settings(value) {
     throw Error('Harmony does not fit the selected hue cells');
   return { ...value, hueRotation: norm(value.hueRotation) };
 }
+const settings = normalizeHarmonyWheel;
 function cellsFor(s) {
   const n = s.hueSteps;
   if (s.harmony === 'complementary') return [0, n / 2, n / 2];

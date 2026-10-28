@@ -3804,6 +3804,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   const canvasEditorFocused = canvasEditor === document.activeElement;
   const inspectorScroll = resetView ? 0 : document.querySelector('.inspector')?.scrollTop || 0;
   const layersScroll = resetView ? 0 : document.querySelector('.layers')?.scrollTop || 0;
+  const colorsScroll = resetView ? 0 : app.querySelector('.shared-colors-panel')?.scrollTop || 0;
   const guideScroll = resetView
     ? [0, 0]
     : ['.guides-panel', '.guide-list'].map(
@@ -4035,6 +4036,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (canvasEditorFocused && canvasEditor?.isConnected) canvasEditor.focus({ preventScroll: true });
   document.querySelector('.inspector').scrollTop = inspectorScroll;
   document.querySelector('.layers').scrollTop = layersScroll;
+  const colorsPanel = app.querySelector('.shared-colors-panel');
+  if (colorsPanel) colorsPanel.scrollTop = colorsScroll;
   ['.guides-panel', '.guide-list'].forEach((selector, index) => {
     const el = document.querySelector(selector);
     if (el) el.scrollTop = guideScroll[index];

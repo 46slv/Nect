@@ -26,8 +26,8 @@ Session transaction. Targets and values are preflighted together; no-op edits
 retain Redo, stale revisions fail closed, and one Undo restores the entire batch.
 This is an application primitive, not automatic adoption of generated proposals.
 
-Still required: full harmony recipe and dependency design, wheel controls,
-contrast/semantic guards, and full-system browser/native acceptance. These heuristics cannot guarantee aesthetically correct colors.
+The harmony wheel and version-2 recipe are described in [harmony-wheel-core.md](harmony-wheel-core.md).
+Still required: contrast/semantic guards and full-system browser/native acceptance. These heuristics cannot guarantee aesthetically correct colors.
 
 ## Transient saturation preview
 
@@ -63,3 +63,10 @@ Whole native project save/reopen retains controls, while importing selected node
 or compositions keeps the receiving project's design and imports referenced color
 values rather than replacing its palette policy. Full wheel relationships, role
 authoring and contrast guards remain separate unfinished work.
+
+Schema56 version2 extends the design with discrete wheel settings and stable-ID
+palette coordinates/roles. The same preview keeps current alpha/Keep literals;
+managed chromatic slots use their authored wheel coordinates rather than feeding
+quantized output colors back into the next proposal. Unmanaged shared colors retain
+the existing current-color behavior. UI Apply preserves version2 rather than
+silently downgrading the recipe to version1.

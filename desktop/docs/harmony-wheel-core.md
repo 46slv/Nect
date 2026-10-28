@@ -1,8 +1,9 @@
-# Harmony wheel model (unconnected foundation)
+# Harmony wheel model and preview panel
 
 `harmony-wheel.js` implements the accepted v1.1 mock's Triadic, Complementary,
-Analogous and Split Complementary cell relationships. It is a pure model, not a
-panel or saved recipe. No production UI imports it yet.
+Analogous and Split Complementary cell relationships. The pure model now backs Shared Colors
+version-2 recipe controls (schema56). Browser/native acceptance must be checked
+separately from the geometry and DOM tests.
 
 The five closed settings are harmony, hueSteps (3–72), hueRotation (bounded
 degrees), lightnessSteps (1–12), and lightnessRange (0–1, centered on 0.5).
@@ -27,5 +28,24 @@ explicitly aggregate unrelated identities into Other rather than silently guessi
 The derived visual grid uses bounded proposal batches and can contain more than
 256 cells; the authored palette remains limited to 256 colors. Visual grid colors
 use Primary weighting without area correction. Role/area-weighted palette outputs
-can differ from a grid cell's swatch. Full control wiring, drag interactions,
-recipe persistence and contrast/semantic guards remain unfinished.
+can differ from a grid cell's swatch. The panel supports radial ring drags, keyboard/selected-color alternatives,
+controlled drafts, and atomic recipe/color Apply. Contrast/semantic guards remain
+unimplemented. Native dialog and screen acceptance are separate.
+
+## Authoring boundary
+
+Create palette adds three chromatic colors and two neutrals without replacing
+existing colors or bindings. Add palette color appends a stable ID. Both actions
+are one Session transaction; explicit invalid kinds and budget overflow reject.
+Draft changes must be applied or reloaded before adding colors, preventing silent
+draft loss.
+
+Schema56 `colorDesign.version=2` adds a closed wheel settings object and palette
+entries to version1's profile/colorfulness/area/Keep fields. Palette entries refer
+to existing IDs, not names or registry positions. Geometry choices and roles
+persist together with resolved literal colors. Imported compositions retain the
+receiving policy. Pointer/keyboard edits and preview are view drafts until Apply.
+Shared Colors scroll position is preserved across renders, so a partially scrolled
+wheel does not jump during dragging. Old fields cannot retarget a newly selected
+color. Full renderer attribution, print/ICC and universal design correctness are
+not claimed.

@@ -1,8 +1,17 @@
+import {
+  DEFAULT_HARMONY_WHEEL,
+  normalizeHarmonyWheel,
+  wheelPoint,
+  resolveHarmonyPalette,
+} from './harmony-wheel.js';
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
 export const COLOR_DESIGN_SCHEMA_VERSION = 55;
+export const HARMONY_DESIGN_SCHEMA_VERSION = 56;
 export const colorSlotCommands = new Set([
   'create-color-slot',
+  'create-harmony-palette',
+  'add-harmony-color',
   'rename-color-slot',
   'set-color-slot',
   'set-color-slots',
@@ -31,15 +40,24 @@ function name(value) {
 export function validateColorDesign(doc, slots) {
   const design = doc.colorDesign;
   if (design === undefined) return;
-  const keys = ['version', 'profile', 'colorfulness', 'areaAware', 'lockedSlotIds'];
+  const wheelDesign = design?.version === 2;
+  const keys = [
+    'version',
+    'profile',
+    'colorfulness',
+    'areaAware',
+    'lockedSlotIds',
+    ...(wheelDesign ? ['wheel', 'palette'] : []),
+  ];
   if (
-    doc.schemaVersion < COLOR_DESIGN_SCHEMA_VERSION ||
+    doc.schemaVersion <
+      (wheelDesign ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION) ||
     !design ||
     typeof design !== 'object' ||
     Array.isArray(design) ||
     Object.keys(design).length !== keys.length ||
     Object.keys(design).some((key) => !keys.includes(key)) ||
-    design.version !== 1 ||
+    ![1, 2].includes(design.version) ||
     !['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].includes(design.profile) ||
     !Number.isFinite(design.colorfulness) ||
     design.colorfulness < 0 ||
@@ -48,12 +66,46 @@ export function validateColorDesign(doc, slots) {
     !Array.isArray(design.lockedSlotIds) ||
     design.lockedSlotIds.length > 256
   )
-    throw Error('Invalid saved color design; requires schemaVersion 55');
+    throw Error(
+      `Invalid saved color design; requires schemaVersion ${wheelDesign ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION}`,
+    );
   const seen = new Set();
   for (const id of design.lockedSlotIds) {
     if (typeof id !== 'string' || !slots.has(id) || seen.has(id))
       throw Error('Invalid saved color lock reference');
     seen.add(id);
+  }
+  if (wheelDesign) {
+    normalizeHarmonyWheel(design.wheel);
+    if (!Array.isArray(design.palette) || !design.palette.length || design.palette.length > 256)
+      throw Error('Invalid harmony palette');
+    const paletteIds = new Set();
+    for (const entry of design.palette) {
+      if (
+        !entry ||
+        typeof entry !== 'object' ||
+        Array.isArray(entry) ||
+        !slots.has(entry.id) ||
+        paletteIds.has(entry.id) ||
+        !['Primary', 'Secondary', 'Accent', 'Background', 'Text'].includes(entry.role) ||
+        !['chromatic', 'neutral'].includes(entry.kind)
+      )
+        throw Error('Invalid harmony palette reference');
+      paletteIds.add(entry.id);
+      const fields =
+        entry.kind === 'neutral'
+          ? ['id', 'kind', 'L', 'role']
+          : ['id', 'kind', 'position', 'ring', 'role'];
+      if (
+        Object.keys(entry).length !== fields.length ||
+        Object.keys(entry).some((key) => !fields.includes(key))
+      )
+        throw Error('Invalid harmony palette fields');
+      if (entry.kind === 'neutral') {
+        if (!Number.isFinite(entry.L) || entry.L < 0 || entry.L > 1)
+          throw Error('Invalid neutral lightness');
+      } else wheelPoint(design.wheel, entry.position, entry.ring);
+    }
   }
 }
 export function validateColorSlots(doc) {
@@ -98,6 +150,85 @@ export function resolveColorSlot(doc, id) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'create-harmony-palette' || type === 'add-harmony-color') {
+    const creating = type === 'create-harmony-palette';
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      Array.isArray(payload) ||
+      Object.keys(payload).some((key) => !(creating ? [] : ['name', 'kind']).includes(key))
+    )
+      throw Error('Invalid harmony command payload');
+    if (slots.size + (creating ? 5 : 1) > 256) throw Error('Shared Color slot budget exceeded');
+    if (!creating && doc.colorDesign?.version !== 2) throw Error('Create a harmony palette first');
+    const design = creating
+      ? {
+          version: 2,
+          profile: 'balanced',
+          colorfulness: 0.72,
+          areaAware: true,
+          lockedSlotIds: [],
+          wheel: { ...DEFAULT_HARMONY_WHEEL },
+          palette: [],
+        }
+      : structuredClone(doc.colorDesign);
+    const newEntries = [];
+    const middle = Math.floor(design.wheel.lightnessSteps / 2);
+    if (creating) {
+      for (let position = 0; position < 3; position++)
+        newEntries.push({
+          id: makeId(),
+          kind: 'chromatic',
+          position,
+          ring: Math.min(design.wheel.lightnessSteps - 1, middle + (position === 1 ? 1 : 0)),
+          role: ['Primary', 'Secondary', 'Accent'][position],
+        });
+      newEntries.push(
+        { id: makeId(), kind: 'neutral', L: 0.94, role: 'Background' },
+        { id: makeId(), kind: 'neutral', L: 0.1, role: 'Text' },
+      );
+    } else {
+      const kind = payload.kind === undefined ? 'chromatic' : payload.kind;
+      if (!['chromatic', 'neutral'].includes(kind)) throw Error('Invalid harmony color kind');
+      if (payload.name !== undefined) name(payload.name);
+      newEntries.push(
+        kind === 'neutral'
+          ? { id: makeId(), kind, L: 0.5, role: 'Background' }
+          : {
+              id: makeId(),
+              kind,
+              position: design.palette.filter((entry) => entry.kind === 'chromatic').length % 3,
+              ring: middle,
+              role: 'Secondary',
+            },
+      );
+    }
+    const generated = resolveHarmonyPalette(design.wheel, newEntries, {
+      profile: design.profile,
+      colorfulness: design.colorfulness,
+      areaAware: design.areaAware,
+    }).colors;
+    const added = generated.map((row, index) => ({
+      id: row.id,
+      name: creating
+        ? ['C1', 'C2', 'C3', 'Background', 'Text'][index]
+        : (payload.name ?? `Color ${slots.size + 1}`),
+      value: { ...row.value },
+    }));
+    design.palette.push(...newEntries);
+    const colors = [...(doc.colorSlots || []), ...added];
+    const nextVersion = Math.max(doc.schemaVersion, HARMONY_DESIGN_SCHEMA_VERSION);
+    validateColorSlots({
+      ...doc,
+      schemaVersion: nextVersion,
+      colorSlots: colors,
+      colorDesign: design,
+    });
+    doc.colorSlots = colors;
+    doc.colorDesign = design;
+    doc.schemaVersion = nextVersion;
+    return { slotId: added[0].id, slotIds: added.map((slot) => slot.id) };
+  }
   if (type === 'set-color-slots') {
     if (!Array.isArray(payload.updates) || payload.updates.length > 256)
       throw Error('Expected a bounded shared Color update list');
@@ -120,7 +251,10 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       validateColorDesign(
         {
           ...doc,
-          schemaVersion: Math.max(doc.schemaVersion, COLOR_DESIGN_SCHEMA_VERSION),
+          schemaVersion: Math.max(
+            doc.schemaVersion,
+            design?.version === 2 ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION,
+          ),
           colorDesign: design,
         },
         slots,
@@ -130,7 +264,10 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     for (const update of updates) update.slot.value = update.value;
     if (design !== undefined) {
       doc.colorDesign = design;
-      doc.schemaVersion = Math.max(doc.schemaVersion, COLOR_DESIGN_SCHEMA_VERSION);
+      doc.schemaVersion = Math.max(
+        doc.schemaVersion,
+        design.version === 2 ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION,
+      );
     }
     return { slotIds: [...seen] };
   }

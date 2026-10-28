@@ -1,6 +1,7 @@
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
   COLOR_DESIGN_SCHEMA_VERSION,
+  HARMONY_DESIGN_SCHEMA_VERSION,
   colorSlotCommands,
   validateColorSlots,
   validateColorSlotBinding,
@@ -4691,7 +4692,8 @@ export function validate(doc) {
       doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION &&
       doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_SLOTS_SCHEMA_VERSION &&
-      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION)
+      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
+      doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
