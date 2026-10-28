@@ -53,3 +53,19 @@ typed atomic commands and existing Undo/save/reopen contracts.
 partial opacity, Other, stable IDs, integer rounding, nonmutation and rejection.
 The seven focused cases pass; this is unit evidence, not a browser or real
 artboard pixel measurement.
+
+## Renderer bridge checkpoint
+
+`colorCoveragePasses` is an experimental, unimported adapter using the production
+`renderElement` implementation. Tests feed real `exportScene` Rectangle/Fill/Stroke
+outputs. The adapter preserves scene order, splits fill before stroke, bounds the
+pass count, and clips SVG viewports to the artboard. Caller bindings must be explicit
+stable provenance; absent bindings remain Other. It does not derive identity from
+HEX, create authored Color references, or rasterize pixels yet.
+
+Groups, masks, gradients, images and repeater appearance currently reject the whole
+measurement. This is intentionally narrower than the renderer. Twelve focused tests
+pass, but actual raster alpha comparison and native/UI integration remain unverified.
+
+SVG width/height are document-space bounds, not allocation dimensions. A rasterizer
+must independently downsample to the 262144-pixel budget before allocating buffers.
