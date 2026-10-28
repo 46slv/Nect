@@ -327,6 +327,18 @@ try {
   assert.equal(await saved(), beforeChroma, 'preview is not an authored edit');
   assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeChromaState);
   assert.equal(proposed.length, 2);
+  await page.setViewportSize({ width: 900, height: 960 });
+  await page.locator('[data-chroma-apply]').scrollIntoViewIfNeeded();
+  const previewBounds = await page.locator('[data-chroma-apply]').evaluate((el) => {
+    const button = el.getBoundingClientRect();
+    const panel = el.closest('.shared-colors-panel').getBoundingClientRect();
+    return {
+      visible: button.top >= panel.top && button.bottom <= panel.bottom,
+      viewportWidth: window.innerWidth,
+    };
+  });
+  assert.equal(previewBounds.visible, true, 'preview Apply is inside the scrollable panel');
+  assert.equal(previewBounds.viewportWidth, 900);
   await page.screenshot({ path: resolve(output, 'chroma-preview-narrow.png'), fullPage: true });
   await page.locator('[data-chroma-cancel]').click();
   assert.equal(await saved(), beforeChroma);
