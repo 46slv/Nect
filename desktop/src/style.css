@@ -435,7 +435,26 @@ header {
 }
 .text-numeric-field > label {
   font-size: 12px;
-  letter-spacing: -0.5px;
+  letter-spacing: normal;
+}
+.text-inspector-details {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.text-inspector-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.text-inspector .text-controls > .field:first-child {
+  margin-top: 0;
+}
+.text-inspector .text-controls > .mini {
+  margin: 3px 2px 5px 0;
+}
+.text-inspector .text-controls textarea {
+  min-height: 64px;
 }
 .wires {
   position: absolute;

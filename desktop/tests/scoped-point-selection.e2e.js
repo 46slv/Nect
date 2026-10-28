@@ -250,6 +250,7 @@ try {
   connect(bl, bf.id, bo.id, 'path');
   await page.evaluate((s) => window.nect.load(s), serialize(b));
   await inspect(bt.id);
+  await openMoreTypography(page);
   await page.locator('.inspector-body [data-bake-text-outline]').click();
   const owned = JSON.parse(await saved()).layers[0].nodes.find((n) => n.id === bt.id),
     bakedBefore = await checkpoint();
@@ -327,3 +328,4 @@ try {
 } finally {
   await browser.close();
 }
+import { openMoreTypography } from './helpers/text-inspector.js';

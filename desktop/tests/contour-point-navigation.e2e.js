@@ -212,6 +212,7 @@ try {
   await page.evaluate((s) => window.nect.load(s), serialize(bakedDoc));
   await inspect(bt.id);
   // Existing explicit conversion is fixture preparation, not a new navigation command.
+  await openMoreTypography(page);
   await page.locator('.inspector-body [data-bake-text-outline]').click();
   const baked = JSON.parse(await saved()).layers[0].nodes.find((n) => n.id === bt.id),
     bakedBefore = await saved(),
@@ -266,3 +267,4 @@ try {
 } finally {
   await browser.close();
 }
+import { openMoreTypography } from './helpers/text-inspector.js';

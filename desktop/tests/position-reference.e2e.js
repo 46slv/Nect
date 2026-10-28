@@ -1,4 +1,5 @@
 import { activateCommand } from './command-menu-actions.js';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -35,6 +36,7 @@ try {
   await inspector.locator('[data-text]').fill('A much longer headline');
   await inspector.locator('[data-text]').press('Tab');
   for (const b of await bounds()) assert.ok(Math.abs(b[0][2] - 780) < 0.00002);
+  await openMoreTypography(page);
   await inspector
     .locator('[data-text-symbol="crossAlignment"][data-text-symbol-value="end"]')
     .click();
@@ -42,6 +44,7 @@ try {
   await page.locator('[data-action="undo"]').click();
   assert.equal(await inspector.locator('[data-cross-alignment]').inputValue(), 'origin');
   await page.locator('[data-action="redo"]').click();
+  await openMoreTypography(page);
   await inspector
     .locator('[data-text-symbol="referenceBounds"][data-text-symbol-value="advance"]')
     .click();

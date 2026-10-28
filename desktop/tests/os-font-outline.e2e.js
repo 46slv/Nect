@@ -101,6 +101,7 @@ try {
   await page.waitForFunction(() => window.nect);
   await page.evaluate((contents) => window.nect.load(contents), serialize(doc));
   await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
+  await openMoreTypography(page);
   await page.locator('.inspector-body [data-os-text-outline]').click();
   const dialog = page.getByRole('dialog', { name: 'OS font outlines' });
   await dialog.getByRole('combobox').fill(raw.family);
@@ -153,3 +154,4 @@ try {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
 }
+import { openMoreTypography } from './helpers/text-inspector.js';

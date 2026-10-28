@@ -21,7 +21,7 @@ export const beginRecovery = async () => 'system-font-test';
 export const writeRecovery = async () => Date.now(), listRecovery = async () => [];
 export const readRecovery = async () => '', acknowledgeRecovery = async () => {};
 export const listSystemFonts = async () => [
-  ['system-0', 'Japanese fixture', null], ['system-1', 'DejaVu Sans', null],
+  ['system-0', 'Japanese fixture', null, {localizedNames:['日本語テスト', 'ＭＳ テスト']}], ['system-1', 'DejaVu Sans', null],
   ['system-2', 'Variable font', 'Variable fonts unsupported']
 ];
 export async function readSystemFont(id) {
@@ -59,6 +59,19 @@ try {
   assert.equal(await picker().count(), 1);
   assert.equal(await page.locator('[data-system-font]').count(), 0);
   assert.equal(await picker().locator('option[value="system-2"]').isDisabled(), true);
+  const beforeSearch = (await state()).document;
+  await picker().click();
+  await page.locator('.search-panel input[type="search"]').fill('日本語テスト');
+  await page.waitForFunction(
+    () => document.querySelectorAll('.search-panel [role="option"]').length === 1,
+  );
+  assert.match(await page.locator('.search-panel [role="option"]').innerText(), /Japanese fixture/);
+  await page.locator('.search-panel input[type="search"]').fill('MS テスト');
+  await page.waitForFunction(
+    () => document.querySelectorAll('.search-panel [role="option"]').length === 1,
+  );
+  await page.locator('.search-panel .picker-cancel').click();
+  assert.equal((await state()).document, beforeSearch);
   await picker().selectOption('system-0');
   await page.waitForFunction(() =>
     document.querySelector('.message').textContent.includes('Loaded Nect'),

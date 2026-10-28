@@ -3,6 +3,7 @@ use std::{collections::HashSet, fs::File, io::{Read, Seek, SeekFrom}, path::{Pat
 const MAX_FONT: usize = 20_000_000;
 const MAX_SOURCE: u64 = 128_000_000;
 const MAX_FILES: usize = 4096;
+const MAX_LOCALIZED_NAMES: usize = 64;
 type Identity = (u64, Option<std::time::SystemTime>, Option<std::time::SystemTime>);
 type Entry = (PathBuf, PathBuf, u32, Identity);
 fn identity(file: &File) -> Result<Identity, String> {
@@ -59,6 +60,7 @@ pub struct FontMetadata {
     subfamily: Option<String>,
     full_name: Option<String>,
     post_script_name: Option<String>,
+    localized_names: Vec<String>,
     weight_class: Option<u16>,
     width_class: Option<u16>,
     fs_selection: Option<u16>,
@@ -122,6 +124,21 @@ fn read_names(b: &[u8], metadata: &mut FontMetadata) {
     metadata.subfamily = pick(17).or_else(|| pick(2));
     metadata.full_name = pick(4);
     metadata.post_script_name = pick(6);
+    // Search aliases supplement, rather than replace, the stable primary names.
+    // Apply the same Unicode/encoding/language-tag validation to every locale.
+    let mut seen = HashSet::new();
+    for i in 0..count {
+        if metadata.localized_names.len() >= MAX_LOCALIZED_NAMES { break; }
+        let p = 6+i*12;
+        let platform = u16be(b,p);
+        let encoding = u16be(b,p+2);
+        let language = u16be(b,p+4);
+        if ![1,2,4,6,16,17].contains(&u16be(b,p+6)) ||
+            !((platform == 0 && encoding <= 6) || (platform == 3 && [0,1,10].contains(&encoding))) { continue; }
+        if language >= 0x8000 && !matches!(tags.get((language-0x8000) as usize),Some(Some(_))) { continue; }
+        let Some(name) = name_string(b,strings+u16be(b,p+10) as usize,u16be(b,p+8) as usize) else { continue };
+        if seen.insert(name.clone()) { metadata.localized_names.push(name); }
+    }
 }
 fn face_metadata(file: &mut File, dir: &[u8]) -> FontMetadata {
     let mut metadata = FontMetadata::default();
@@ -191,6 +208,93 @@ fn roots() -> Vec<PathBuf> {
     if let Some(u) = std::env::var_os("LOCALAPPDATA") { roots.push(PathBuf::from(u).join("Microsoft/Windows/Fonts")); }
     roots
 }
+fn font_extension(path: &Path) -> bool {
+    path.extension().and_then(|s| s.to_str()).map(|s|
+        ["ttf","otf","ttc","otc"].contains(&s.to_ascii_lowercase().as_str())
+    ).unwrap_or(false)
+}
+fn local_absolute(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Prefix};
+        path.is_absolute() && matches!(path.components().next(),
+            Some(Component::Prefix(p)) if matches!(p.kind(),Prefix::Disk(_) | Prefix::VerbatimDisk(_)))
+    }
+    #[cfg(not(windows))]
+    { path.is_absolute() }
+}
+// Registry strings never become directory-scan roots. Only these exact files
+// enter the opaque catalog; relative registrations resolve within known roots.
+fn registered_candidates(values: Vec<PathBuf>, allowed_roots: &[PathBuf]) -> Vec<(PathBuf,PathBuf)> {
+    let mut result = vec![];
+    let mut seen = HashSet::new();
+    for value in values.into_iter().take(MAX_FILES) {
+        if !font_extension(&value) { continue; }
+        let candidates = if local_absolute(&value) { vec![value] }
+        else if value.components().count() == 1 && matches!(value.components().next(),Some(std::path::Component::Normal(_))) {
+            allowed_roots.iter().map(|root| root.join(&value)).collect()
+        } else { continue };
+        for candidate in candidates {
+            let Ok(path) = candidate.canonicalize() else { continue };
+            if !local_absolute(&path) || !seen.insert(path.clone()) { continue; }
+            let Some(root) = path.parent().map(Path::to_path_buf) else { continue };
+            if open_font(&path,&root).is_ok() { result.push((path,root)); }
+        }
+    }
+    result
+}
+#[cfg(not(windows))]
+fn registered_fonts() -> Vec<PathBuf> { vec![] }
+#[cfg(windows)]
+fn registered_fonts() -> Vec<PathBuf> {
+    use std::{ffi::c_void, os::windows::ffi::OsStringExt};
+    type Hkey = *mut c_void;
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn RegOpenKeyExW(key: Hkey, subkey: *const u16, options: u32, access: u32, result: *mut Hkey) -> i32;
+        fn RegEnumValueW(key: Hkey, index: u32, name: *mut u16, name_len: *mut u32, reserved: *mut u32,
+            kind: *mut u32, data: *mut u8, data_len: *mut u32) -> i32;
+        fn RegCloseKey(key: Hkey) -> i32;
+    }
+    #[link(name = "kernel32")]
+    extern "system" { fn ExpandEnvironmentStringsW(source: *const u16, target: *mut u16, size: u32) -> u32; }
+    let key: Vec<u16> = "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts\0".encode_utf16().collect();
+    let mut result = vec![];
+    let mut seen = HashSet::new();
+    // KEY_QUERY_VALUE and both registry views, for machine and per-user installs.
+    for hive in [-2147483646isize,-2147483647isize] {
+        for view in [0x0100u32,0x0200] {
+            let mut handle = std::ptr::null_mut();
+            if unsafe { RegOpenKeyExW(hive as Hkey,key.as_ptr(),0,1|view,&mut handle) } != 0 { continue; }
+            for index in 0..MAX_FILES as u32 {
+                if result.len() >= MAX_FILES { break; }
+                let mut name = vec![0u16;16384];
+                let mut data = vec![0u8;65536];
+                let mut name_len = name.len() as u32;
+                let mut data_len = data.len() as u32;
+                let mut kind = 0u32;
+                let status = unsafe { RegEnumValueW(handle,index,name.as_mut_ptr(),&mut name_len,
+                    std::ptr::null_mut(),&mut kind,data.as_mut_ptr(),&mut data_len) };
+                if status == 259 { break; } // ERROR_NO_MORE_ITEMS
+                if status != 0 || ![1,2].contains(&kind) || data_len < 2 || data_len as usize > data.len() || data_len % 2 != 0 { continue; }
+                let mut wide: Vec<u16> = data[..data_len as usize].chunks_exact(2).map(|p|u16::from_le_bytes([p[0],p[1]])).collect();
+                while wide.last() == Some(&0) { wide.pop(); }
+                if wide.is_empty() || wide.contains(&0) { continue; }
+                if kind == 2 { // REG_EXPAND_SZ, expanded by the OS with a fixed limit.
+                    wide.push(0);
+                    let mut expanded = vec![0u16;32768];
+                    let length = unsafe { ExpandEnvironmentStringsW(wide.as_ptr(),expanded.as_mut_ptr(),expanded.len() as u32) } as usize;
+                    if length == 0 || length > expanded.len() { continue; }
+                    expanded.truncate(length-1); wide = expanded;
+                }
+                let path = PathBuf::from(std::ffi::OsString::from_wide(&wide));
+                if seen.insert(path.clone()) { result.push(path); }
+            }
+            unsafe { RegCloseKey(handle); }
+        }
+    }
+    result
+}
 fn safe_path(path: &Path, root: &Path) -> Result<PathBuf, String> {
     let canonical = path.canonicalize().map_err(|e| e.to_string())?;
     if canonical.parent() != Some(root) { return Err("Font is outside its allowed directory".into()); }
@@ -199,7 +303,7 @@ fn safe_path(path: &Path, root: &Path) -> Result<PathBuf, String> {
 // Validate the opened handle, not only the pre-open path (reparse-point races).
 fn open_font(path: &Path, root: &Path) -> Result<File, String> {
     let safe = safe_path(path, root)?;
-    let file = File::open(safe).map_err(|e| e.to_string())?;
+    let file = File::open(&safe).map_err(|e| e.to_string())?;
     #[cfg(windows)]
     {
         use std::os::windows::{io::AsRawHandle, ffi::OsStringExt};
@@ -209,7 +313,7 @@ fn open_font(path: &Path, root: &Path) -> Result<File, String> {
         let length = unsafe { GetFinalPathNameByHandleW(file.as_raw_handle(),buffer.as_mut_ptr(),buffer.len() as u32,0) } as usize;
         if length == 0 || length >= buffer.len() { return Err("Cannot verify installed font path".into()); }
         let final_path = PathBuf::from(std::ffi::OsString::from_wide(&buffer[..length]));
-        if final_path.parent() != Some(root) { return Err("Opened font is outside its allowed directory".into()); }
+        if final_path.parent() != Some(root) || final_path != safe { return Err("Opened font is outside its allowed path".into()); }
     }
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() || metadata.len() > MAX_SOURCE { return Err("Invalid font file or collection exceeds 128 MB".into()); }
@@ -221,31 +325,35 @@ pub async fn list_system_fonts(state: tauri::State<'_, Catalog>) -> Result<Vec<(
     let mut catalog = state.inner().0.lock().map_err(|_| "Font catalog unavailable")?;
     let mut result = vec![];
     let mut seen = HashSet::new();
-    for root in roots() {
+    let allowed_roots = roots();
+    let mut candidates = vec![];
+    for root in &allowed_roots {
         let Ok(root) = root.canonicalize() else { continue };
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
         for entry in entries.take(MAX_FILES).flatten() {
-            if result.len() >= MAX_FILES { break; }
             let path = entry.path();
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-            if !["ttf","otf","ttc","otc"].contains(&ext.as_str()) { continue; }
-            let Ok(path) = safe_path(&path,&root) else { continue };
-            if !seen.insert(path.clone()) { continue; }
-            let Ok(mut file) = open_font(&path,&root) else { continue };
-            if file.metadata().map(|m| m.len() > MAX_SOURCE || !m.is_file()).unwrap_or(true) { continue; }
-            let Ok(stamp) = identity(&file) else { continue };
-            let Ok(offsets) = faces(&mut file) else { continue };
-            for (face, offset) in offsets.iter().enumerate() {
-                if result.len() >= MAX_FILES { break; }
-                let Ok((_,dir)) = directory(&mut file,*offset) else { continue };
-                let metadata = face_metadata(&mut file,&dir);
-                let name = metadata.full_name.clone().unwrap_or_else(|| format!("{} · face {}",path.file_name().unwrap_or_default().to_string_lossy(),face+1));
-                let index = if let Some(index) = catalog.iter().position(|e| e.0 == path && e.2 == *offset && e.3 == stamp) { index } else {
-                    if catalog.len() >= MAX_FILES { continue; }
-                    catalog.push((path.clone(),root.clone(),*offset,stamp)); catalog.len()-1
-                };
-                result.push((format!("system-{index}"),name,reason(&dir),metadata));
-            }
+            if font_extension(&path) { candidates.push((path,root.clone())); }
+        }
+    }
+    candidates.extend(registered_candidates(registered_fonts(),&allowed_roots));
+    for (path,root) in candidates {
+        if result.len() >= MAX_FILES { break; }
+        let Ok(path) = safe_path(&path,&root) else { continue };
+        if !seen.insert(path.clone()) { continue; }
+        let Ok(mut file) = open_font(&path,&root) else { continue };
+        if file.metadata().map(|m| m.len() > MAX_SOURCE || !m.is_file()).unwrap_or(true) { continue; }
+        let Ok(stamp) = identity(&file) else { continue };
+        let Ok(offsets) = faces(&mut file) else { continue };
+        for (face, offset) in offsets.iter().enumerate() {
+            if result.len() >= MAX_FILES { break; }
+            let Ok((_,dir)) = directory(&mut file,*offset) else { continue };
+            let metadata = face_metadata(&mut file,&dir);
+            let name = metadata.full_name.clone().unwrap_or_else(|| format!("{} · face {}",path.file_name().unwrap_or_default().to_string_lossy(),face+1));
+            let index = if let Some(index) = catalog.iter().position(|e| e.0 == path && e.2 == *offset && e.3 == stamp) { index } else {
+                if catalog.len() >= MAX_FILES { continue; }
+                catalog.push((path.clone(),root.clone(),*offset,stamp)); catalog.len()-1
+            };
+            result.push((format!("system-{index}"),name,reason(&dir),metadata));
         }
     }
     result.sort_by(|a,b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
@@ -305,6 +413,66 @@ mod tests {
         assert_eq!((m.italic,m.bold,m.regular,m.oblique),(Some(true),Some(true),Some(true),Some(true)));
         os2[0..2].copy_from_slice(&3u16.to_be_bytes());
         assert_eq!(metadata_tables(&name,&os2).oblique,None);
+    }
+    #[test]
+    fn localized_names_include_search_aliases_without_changing_primary_names() {
+        let name = names(&[(1,0x409,"Legacy"),(16,0x411,"日本語ファミリー"),
+            (16,0x409,"English Family"),(17,0x411,"太字"),(2,0x409,"Bold"),
+            (4,0x411,"日本語フルネーム"),(6,0x409,"English-PostScript"),
+            (4,0x409,"English Full"),(1,0x411,"日本語ファミリー"),
+            (0,0x411,"Copyright is not a search alias"),(4,0x411,"bad\u{0000}")]);
+        let m = metadata_tables(&name,&[]);
+        assert_eq!(m.family.as_deref(),Some("English Family"));
+        assert_eq!(m.full_name.as_deref(),Some("English Full"));
+        assert_eq!(m.localized_names,vec!["Legacy","日本語ファミリー","English Family",
+            "太字","Bold","日本語フルネーム","English-PostScript","English Full"]);
+        let mut malformed = names(&[(16,0x8000,"Missing tag"),(1,0x409,"Valid")]);
+        assert_eq!(metadata_tables(&malformed,&[]).localized_names,vec!["Valid"]);
+        malformed[4..6].copy_from_slice(&0u16.to_be_bytes());
+        assert!(metadata_tables(&malformed,&[]).localized_names.is_empty());
+    }
+    #[test]
+    fn localized_names_are_bounded_and_deduplicated() {
+        let values: Vec<_> = (0..80).map(|i|format!("Alias {i}")).collect();
+        let records: Vec<_> = values.iter().map(|s|(4,0x411,s.as_str())).collect();
+        let m = metadata_tables(&names(&records),&[]);
+        assert_eq!(m.localized_names.len(),MAX_LOCALIZED_NAMES);
+        assert_eq!(m.localized_names[0],"Alias 0");
+        assert_eq!(m.localized_names[MAX_LOCALIZED_NAMES-1],"Alias 63");
+        assert_eq!(metadata_tables(&names(&[(4,0x409," Same "),(4,0x411,"Same")]),&[]).localized_names,vec!["Same"]);
+    }
+    #[test]
+    fn registered_external_files_are_exact_candidates_not_directory_scans() {
+        let standard = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let registered = external.path().join("registered.TTF");
+        let unregistered = external.path().join("not-registered.ttf");
+        let non_font = external.path().join("not-font.txt");
+        for path in [&registered,&unregistered,&non_font] { std::fs::write(path,b"fixture").unwrap(); }
+        let candidates = registered_candidates(vec![registered.clone(),registered.clone(),non_font,
+            external.path().join("missing.ttf")],&[standard.path().to_path_buf()]);
+        assert_eq!(candidates.len(),1);
+        assert_eq!(candidates[0].0,registered.canonicalize().unwrap());
+        assert_eq!(candidates[0].1,external.path().canonicalize().unwrap());
+        assert!(open_font(&candidates[0].0,&candidates[0].1).is_ok());
+        assert_ne!(candidates[0].0,unregistered.canonicalize().unwrap());
+    }
+    #[test]
+    fn registered_relative_files_use_only_known_roots_and_reject_traversal() {
+        let standard = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        for root in [standard.path(),user.path()] {
+            std::fs::write(root.join("registered.otf"),b"fixture").unwrap();
+            std::fs::create_dir(root.join("directory.ttf")).unwrap();
+        }
+        let roots = [standard.path().to_path_buf(),user.path().to_path_buf()];
+        let candidates = registered_candidates(vec![PathBuf::from("registered.otf"),
+            PathBuf::from("../registered.otf"),PathBuf::from("nested/registered.otf"),
+            PathBuf::from("directory.ttf")],&roots);
+        assert_eq!(candidates.len(),2);
+        assert!(candidates.iter().all(|(path,root)|path.parent()==Some(root.as_path())));
+        #[cfg(windows)]
+        assert!(registered_candidates(vec![PathBuf::from(r"\\server\share\font.ttf")],&roots).is_empty());
     }
     #[test]
     fn metadata_localized_fallback_skips_invalid_names_and_malformed_bounds() {
