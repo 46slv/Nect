@@ -1326,21 +1326,44 @@ let pendingRender = null,
 // expose their native selection, so replacement also loses select-all before
 // the first input event. Value restoration cannot restore either browser state.
 const numericInputDrafts = new WeakSet();
+const tabSelectedNumericInputs = new WeakSet();
 let restoringControlFocus = false;
+let tabFocusExpected = false;
+app.addEventListener(
+  'keydown',
+  (event) => {
+    if (event.key !== 'Tab') return;
+    tabFocusExpected = true;
+    setTimeout(() => {
+      tabFocusExpected = false;
+    }, 0);
+  },
+  true,
+);
 const reserveNumericInput = (event) => {
   if (
     !restoringControlFocus &&
     event.target.matches('input[type="number"], input[data-numeric-expression]')
-  )
+  ) {
+    // Tab selects the next number without starting a draft. Let the previous
+    // committed edit update the canvas and controls, restoring that select-all.
+    if (event.type === 'focusin' && tabFocusExpected) {
+      tabSelectedNumericInputs.add(event.target);
+      return;
+    }
+    tabSelectedNumericInputs.delete(event.target);
     numericInputDrafts.add(event.target);
+  }
 };
 for (const event of ['focusin', 'pointerdown', 'keydown'])
   app.addEventListener(event, reserveNumericInput, true);
 app.addEventListener(
   'input',
   (event) => {
-    if (event.target.matches('input[type="number"], input[data-numeric-expression]'))
+    if (event.target.matches('input[type="number"], input[data-numeric-expression]')) {
+      tabSelectedNumericInputs.delete(event.target);
       numericInputDrafts.add(event.target);
+    }
   },
   true,
 );
@@ -3669,6 +3692,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
   const focused = resetView ? null : captureFocus(app);
+  const tabSelectedNumber = !resetView && tabSelectedNumericInputs.has(document.activeElement);
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
@@ -3890,6 +3914,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   restoringControlFocus = true;
   try {
     restoreFocus(app, focused);
+    if (tabSelectedNumber && document.activeElement?.matches('input[type="number"]')) {
+      document.activeElement.select();
+      tabSelectedNumericInputs.add(document.activeElement);
+    }
   } finally {
     restoringControlFocus = false;
   }

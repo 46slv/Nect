@@ -139,6 +139,32 @@ try {
   await edit('height', '');
   assert.equal(await field('height').inputValue(), '135');
   assert.equal(await snapshot(), committed);
+  // Tab into the adjacent numeric component is navigation, not an unfinished
+  // draft. The prior edit must render, and native Tab select-all must survive.
+  const position = (axis) =>
+    page.locator(`.inspector-body .field[data-key="position"] input[data-axis="${axis}"]`);
+  await holdRender();
+  await position(0).fill('190');
+  await position(0).press('Tab');
+  const tabTarget = await position(1).elementHandle();
+  assert.equal(await tabTarget.evaluate((el) => el === document.activeElement), true);
+  assert.ok((await page.evaluate(() => window.deliverRender())) > 0);
+  assert.equal(
+    await tabTarget.evaluate((el) => el.isConnected),
+    false,
+    'Tab must allow the committed edit to render',
+  );
+  await page.keyboard.insertText('240');
+  assert.equal(await position(1).inputValue(), '240', 'Tab select-all survives replacement');
+  await position(1).press('Tab');
+  assert.deepEqual(
+    await page.evaluate(() => window.nect.document.layers[0].nodes[0].params.position.value),
+    [190, 240],
+  );
+  await page.locator('[data-action="undo"]').click();
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await snapshot(), committed);
+  await tabTarget.dispose();
   await page.screenshot({ path: 'test-results/numeric-render-race.png' });
   assert.deepEqual(errors, []);
   console.log(
