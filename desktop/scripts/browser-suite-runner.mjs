@@ -72,6 +72,7 @@ export const browserTestFiles = Object.freeze([
   'tests/workspace-panels.e2e.js',
   'tests/asset-drag.e2e.js',
   'tests/color-coverage.e2e.js',
+  'tests/shared-colors-panel.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

@@ -2706,3 +2706,40 @@ input[data-scrub-step].scrubbing {
     grid-template-columns: 44px minmax(0, 1fr) 290px 36px;
   }
 }
+
+.shared-colors-panel {
+  flex: 0 1 auto;
+  min-height: 76px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line);
+  padding: 8px;
+  background: #fff;
+}
+.shared-colors-panel header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.shared-colors-panel header strong {
+  flex: 1;
+  font-size: 12px;
+}
+.shared-colors-panel header button {
+  min-width: 24px;
+}
+.shared-color-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 58px;
+  gap: 5px;
+  align-items: center;
+  margin: 5px 0;
+}
+.shared-color-row input {
+  min-width: 0;
+  width: 100%;
+}
+.shared-color-binding {
+  max-width: 100%;
+  min-width: 0;
+}

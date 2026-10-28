@@ -16,6 +16,7 @@ export function createWorkspacePanels({
   getAssetPanel,
   onAssets,
   onAlign,
+  onColors,
   onGeometry = () => {},
   storage,
 }) {
@@ -57,11 +58,18 @@ export function createWorkspacePanels({
     const available = right.clientHeight || 500;
     const toolHeight = panel ? Math.min(280, Math.max(144, available * 0.36)) : 0;
     slot.style.height = `${toolHeight}px`;
+    const colors = right.querySelector('.shared-colors-panel');
+    if (colors) colors.style.maxHeight = `${Math.max(88, Math.min(240, available * 0.24))}px`;
+    const colorHeight = colors?.getBoundingClientRect().height || 0;
     const alignmentHeight =
       right.querySelector('.alignment-panel')?.getBoundingClientRect().height || 0;
-    const height = clampLayerHeight(preferredHeight, available, toolHeight + alignmentHeight);
+    const height = clampLayerHeight(
+      preferredHeight,
+      available,
+      toolHeight + alignmentHeight + colorHeight,
+    );
     layers.style.height = `${height}px`;
-    const limits = layerHeightBounds(available, toolHeight + alignmentHeight);
+    const limits = layerHeightBounds(available, toolHeight + alignmentHeight + colorHeight);
     separator.setAttribute('aria-valuemin', String(Math.round(limits.minimum)));
     separator.setAttribute('aria-valuemax', String(Math.round(limits.maximum)));
     separator.setAttribute('aria-valuenow', String(Math.round(height)));
@@ -72,6 +80,9 @@ export function createWorkspacePanels({
     root
       .querySelector('[data-workspace-panel="align"]')
       ?.setAttribute('aria-pressed', String(!!right.querySelector('.alignment-panel')));
+    root
+      .querySelector('[data-workspace-panel="colors"]')
+      ?.setAttribute('aria-pressed', String(!!colors));
     // Keep the library's live DOM outside render()'s replaceable #app. Its async
     // reads, selection, focus and native file chooser retain their identities.
     if (panel) {
@@ -181,6 +192,7 @@ export function createWorkspacePanels({
         ['layers', 'Focus Layers', '▤', () => focus('.layers')],
         ['assets', 'Toggle Assets panel', '▧', onAssets],
         ['align', 'Toggle Alignment panel', '↔', onAlign],
+        ...(onColors ? [['colors', 'Toggle Shared Colors panel', '●', onColors]] : []),
         ['inspector', 'Focus Inspector', '≡', () => focus('.inspector')],
       ]) {
         const button = root.ownerDocument.createElement('button');
@@ -189,7 +201,8 @@ export function createWorkspacePanels({
         button.textContent = glyph;
         button.title = label;
         button.setAttribute('aria-label', label);
-        if (id === 'assets' || id === 'align') button.setAttribute('aria-pressed', 'false');
+        if (id === 'assets' || id === 'align' || id === 'colors')
+          button.setAttribute('aria-pressed', 'false');
         button.addEventListener('click', (event) => {
           event.stopPropagation();
           action();

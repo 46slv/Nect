@@ -1,3 +1,4 @@
+import { createSharedColorsPanel } from './shared-colors-panel.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
@@ -690,6 +691,14 @@ let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
 let dockedAlignment = false;
+const sharedColors = createSharedColorsPanel({
+  app,
+  getSession: () => session,
+  getDocument: () => history.doc,
+  dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
+  render: () => render(),
+  notify: (message, error) => notify(message, error),
+});
 let workspaceGeometryFrame = null;
 const workspacePanels = createWorkspacePanels({
   getAssetPanel: getAssetLibraryPanel,
@@ -701,6 +710,7 @@ const workspacePanels = createWorkspacePanels({
     if (getAssetLibraryPanel()) closeAssetLibrary();
     else openAssetLibrary();
   },
+  onColors: () => sharedColors.toggle(),
   onAlign: () => {
     const opening = !alignmentPreferences.open;
     closeAssetLibrary();
@@ -2350,6 +2360,11 @@ function field(n, key, q, inspector = false) {
         ? 'Connect Path or PaintedPath…'
         : `Connect ${q.type}…`;
   let displayed = q.value;
+  if (q.colorSlotId !== undefined) {
+    try {
+      displayed = renderEvaluation.parameterValue(n.id, key);
+    } catch {}
+  }
   if (
     isTransform(n) &&
     !n.params[key] &&
@@ -2373,7 +2388,7 @@ function field(n, key, q, inspector = false) {
   else if (q.type === 'Color') {
     const driven = !!(q.expression || q.source),
       color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
-      disabled = current().locked || q.locked,
+      disabled = current().locked || q.locked || q.colorSlotId !== undefined,
       base = driven ? ' data-color-base' : '';
     const inputs = `<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
@@ -2386,6 +2401,7 @@ function field(n, key, q, inspector = false) {
       }
       control = `<div class="authored-control"><div class="base-inputs"><label class="base-component">Base${inputs}</label></div><output class="parameter-result" aria-label="${esc(name)} result">${q.source ? 'Connected result' : 'Result'} ${esc(result)}</output>${q.expression ? `<label class="parameter-expression">${q.source ? 'Expression paused by connection' : 'Expression'}<input class="expression" aria-label="${esc(name)} expression" data-expression value="${esc(q.expression)}" ${disabled ? 'disabled' : ''}></label>` : ''}</div>`;
     } else control = inputs;
+    control += sharedColors.bindingControl(n, key, q, current().id);
     if (n.type === 'Keyer' && key === 'keyColor')
       control += `<button class="mini" data-keyer-pick="${n.id}" ${disabled ? 'disabled' : ''}>${driven ? 'Pick base from input' : 'Pick from input'}</button>`;
   } else if (n.type === 'Mask' && key === 'luminance')
@@ -3849,7 +3865,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
       ? `<h3>${esc(nodeDisplayName(n))}</h3>${bypassControl(n)}<p>Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
@@ -14196,7 +14212,7 @@ document.addEventListener('click', (event) => {
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
   if (
     event.target.closest(
-      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.asset-library',
+      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.asset-library,.shared-colors-panel',
     )
   )
     return;
