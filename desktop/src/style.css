@@ -2626,3 +2626,83 @@ input[data-scrub-step].scrubbing {
   outline: 2px solid #326aa2;
   outline-offset: 1px;
 }
+
+/* Bounded workspace panels: Layers and Inspector stay visible together. */
+.workspace.has-workspace-panels {
+  grid-template-columns: 48px minmax(0, 1fr) 274px 38px;
+}
+.workspace.has-workspace-assets {
+  grid-template-columns: 48px minmax(0, 1fr) 360px 38px;
+}
+.has-workspace-panels .layers {
+  flex: 0 0 auto;
+  min-height: 96px;
+  max-height: none;
+}
+.workspace-panel-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 3px;
+  border-left: 1px solid var(--line);
+  background: #fff;
+}
+.workspace-panel-bar button {
+  min-height: 32px;
+  padding: 4px 0;
+  font-size: 17px;
+}
+.workspace-panel-bar button[aria-pressed='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
+.layers-resize {
+  flex: 0 0 6px;
+  height: 6px;
+  cursor: row-resize;
+  background: #e6eaee;
+  touch-action: none;
+}
+.layers-resize:hover,
+.layers-resize:focus-visible {
+  background: #9baeba;
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
+.workspace-asset-slot {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.workspace-asset-slot[hidden] {
+  display: none;
+}
+.asset-library.asset-library-docked {
+  z-index: 20;
+  padding: 7px;
+  gap: 5px;
+  box-shadow: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 12px;
+}
+.asset-library-docked .asset-library-grid {
+  min-height: 90px;
+  flex: 1 0 90px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+.asset-library-docked .asset-library-detail {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+.asset-library-docked .asset-library-preview {
+  width: 56px;
+  height: 56px;
+}
+@media (max-width: 1000px) {
+  .workspace.has-workspace-panels {
+    grid-template-columns: 44px minmax(0, 1fr) 230px 36px;
+  }
+  .workspace.has-workspace-assets {
+    grid-template-columns: 44px minmax(0, 1fr) 290px 36px;
+  }
+}

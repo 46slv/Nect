@@ -7,6 +7,11 @@ import { exportSVG } from './core.js';
 
 const browserRoots = new Map();
 let mounted;
+let closeMounted;
+export const getAssetLibraryPanel = () => mounted || null;
+export function closeAssetLibrary() {
+  closeMounted?.();
+}
 const MAX_FILE = 12_000_000;
 function relativePath(path) {
   if (
@@ -54,7 +59,7 @@ function previewImage(svg) {
     : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-export function mountAssetLibrary({ capture, insert }) {
+export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
   if (mounted) {
     mounted.querySelector('[data-asset-search]').focus();
     return;
@@ -153,14 +158,24 @@ export function mountAssetLibrary({ capture, insert }) {
     rootSelect.disabled = busy || !roots.length;
   }
   function closePanel() {
+    if (!alive) return;
     alive = false;
     epoch++;
     panel.remove();
     mounted = null;
+    closeMounted = null;
     document.removeEventListener('keydown', keydown);
+    onClose();
   }
+  closeMounted = closePanel;
   function keydown(e) {
-    if (e.key === 'Escape') {
+    if (
+      e.key === 'Escape' &&
+      !e.defaultPrevented &&
+      !e.isComposing &&
+      panel.contains(e.target) &&
+      !document.querySelector('dialog[open]')
+    ) {
       e.preventDefault();
       closePanel();
     }

@@ -1,4 +1,5 @@
-import { mountAssetLibrary } from './asset-library.js';
+import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
+import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
@@ -688,6 +689,36 @@ let editorPicker = null,
 let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
+let dockedAlignment = false;
+let workspaceGeometryFrame = null;
+const workspacePanels = createWorkspacePanels({
+  getAssetPanel: getAssetLibraryPanel,
+  storage: {
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+  },
+  onAssets: () => {
+    if (getAssetLibraryPanel()) closeAssetLibrary();
+    else openAssetLibrary();
+  },
+  onAlign: () => {
+    const opening = !alignmentPreferences.open;
+    closeAssetLibrary();
+    alignmentPreferences.open = opening;
+    dockedAlignment = opening;
+    saveAlignmentPreferences();
+    render();
+  },
+  onGeometry: () => {
+    if (workspaceGeometryFrame !== null) return;
+    workspaceGeometryFrame = requestAnimationFrame(() => {
+      workspaceGeometryFrame = null;
+      fitCanvas();
+      updateGraphBounds();
+      drawWires();
+    });
+  },
+});
 function readAlignmentPreferences() {
   try {
     const value = JSON.parse(localStorage.getItem(ALIGN_PREFERENCES_KEY) || '{}');
@@ -1051,7 +1082,7 @@ let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
 function closeTransientPanels(except = '') {
-  if (except !== 'align') alignmentPreferences.open = false;
+  if (except !== 'align' && !dockedAlignment) alignmentPreferences.open = false;
   if (except !== 'grid') gridOpen = false;
   if (except !== 'layout') layoutOpen = false;
   if (except !== 'guides') guidesOpen = false;
@@ -3869,6 +3900,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   }
   const svgPrecision = app.querySelector('#svg-export-precision');
   if (svgPrecision) svgPrecision.value = svgExportPrecision;
+  workspacePanels.attach(app);
   prepareNumericInputs(app);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
@@ -6473,7 +6505,17 @@ async function openCompositionImportDialog() {
   select.focus();
 }
 function openAssetLibrary() {
+  if (!getAssetLibraryPanel() && alignmentPreferences.open) {
+    alignmentPreferences.open = false;
+    dockedAlignment = false;
+    saveAlignmentPreferences();
+    render();
+  }
   mountAssetLibrary({
+    onClose: () => {
+      workspacePanels.refresh();
+      app.querySelector('[data-workspace-panel="assets"]')?.focus({ preventScroll: true });
+    },
     capture: () => ({
       owner: session,
       before: readDocument(),
@@ -6513,6 +6555,7 @@ function openAssetLibrary() {
       return result;
     },
   });
+  workspacePanels.refresh();
 }
 function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
@@ -7063,6 +7106,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
+    dockedAlignment = false;
+    closeAssetLibrary();
     const opening = !alignmentPreferences.open;
     if (opening) closeTransientPanels('align');
     alignmentPreferences.open = !alignmentPreferences.open;
@@ -14109,15 +14154,23 @@ document.addEventListener('click', (event) => {
     return;
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
-  if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if (
+    event.target.closest(
+      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.asset-library',
+    )
+  )
+    return;
+  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     if (canvasTextEdit) {
       // Closing view-only panels must not detach the focused native text editor.
-      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) panel.remove();
-      app
-        .querySelector('.canvas-toolbar [data-action="align-panel"]')
-        ?.setAttribute('aria-pressed', 'false');
+      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) {
+        if (!dockedAlignment || !panel.matches('.alignment-panel')) panel.remove();
+      }
+      if (!dockedAlignment)
+        app
+          .querySelector('.canvas-toolbar [data-action="align-panel"]')
+          ?.setAttribute('aria-pressed', 'false');
       for (const button of app.querySelectorAll(
         '.canvas-toolbar [data-action="grid-panel"], .canvas-toolbar [data-action="layout-panel"], .canvas-toolbar [data-action="guides-panel"]',
       ))
@@ -14131,12 +14184,28 @@ document.addEventListener('keydown', (event) => {
   // dialog must not cancel the browser's native dialog close action.
   if (event.key !== 'Escape' || event.defaultPrevented || event.target.closest?.('dialog[open]'))
     return;
+  if (dockedAlignment && event.target.closest?.('.alignment-panel')) {
+    event.preventDefault();
+    dockedAlignment = false;
+    alignmentPreferences.open = false;
+    saveAlignmentPreferences();
+    render();
+    app.querySelector('[data-workspace-panel="align"]')?.focus({ preventScroll: true });
+    return;
+  }
   const open = [...document.querySelectorAll('.command-menu[open]')];
-  if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
+  if (
+    !open.length &&
+    !(alignmentPreferences.open && !dockedAlignment) &&
+    !gridOpen &&
+    !layoutOpen &&
+    !guidesOpen
+  )
+    return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
   if (open.length) open[0].querySelector('summary')?.focus();
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     render();
   }
