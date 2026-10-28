@@ -1,3 +1,4 @@
+import { createAutoChromaPanel } from './auto-chroma-panel.js';
 // View state only; all authored edits go through the current typed Session.
 const esc = (v) =>
   String(v).replace(
@@ -29,7 +30,17 @@ export function createSharedColorsPanel({
       throw Error('Color control is stale; use the current document');
     return { ...state };
   }
+  const chroma = createAutoChromaPanel({
+    app,
+    getSession,
+    getDocument,
+    dispatch,
+    render,
+    notify,
+    envelope,
+  });
   function close() {
+    chroma.reset();
     open = false;
     render();
     app.querySelector('[data-workspace-panel="colors"]')?.focus({ preventScroll: true });
@@ -112,6 +123,7 @@ export function createSharedColorsPanel({
   });
   return {
     toggle() {
+      chroma.reset();
       open = !open;
       render();
     },
@@ -121,7 +133,7 @@ export function createSharedColorsPanel({
     html() {
       if (!open) return '';
       const slots = getDocument().colorSlots || [];
-      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong><button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><div class="shared-color-list">${slots.map((slot) => `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`).join('') || '<p class="font-note">Add a color, then link a Color field.</p>'}</div><p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p></section>`;
+      return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong><button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header><div class="shared-color-list">${slots.map((slot) => `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`).join('') || '<p class="font-note">Add a color, then link a Color field.</p>'}</div><p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>${chroma.html()}</section>`;
     },
     bindingControl(node, key, q, layerId) {
       const slots = getDocument().colorSlots || [];

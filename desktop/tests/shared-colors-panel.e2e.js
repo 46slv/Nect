@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, node, connect, serialize } from '../src/core.js';
 import { activateCommand } from './command-menu-actions.js';
 
-// Shared manual colors only. This does not exercise or claim AutoChroma/native-dialog acceptance.
+// Shared colors and transient saturation preview; no persisted recipe/native-dialog acceptance.
 const output = resolve('test-results/shared-colors-panel');
 await mkdir(output, { recursive: true });
 const fixture = blankDocument();
@@ -316,6 +316,38 @@ try {
   await staleBinding.dispose();
   await assertCoverage(slotId, otherSlotId, 29, 'stale unlink rejected');
   await assertAssetRetained();
+  // Real preview uses the current shared literals and commits one atomic batch.
+  const beforeChroma = await saved();
+  const beforeChromaState = await page.evaluate(() => window.nect.commandState);
+  await page.locator('[data-chroma-profile]').selectOption('soft');
+  assert.equal(await page.locator('[data-chroma-profile]').inputValue(), 'soft');
+  await page.locator(`[data-chroma-lock="${otherSlotId}"]`).check();
+  await page.locator('[data-chroma-preview]').click();
+  const proposed = await page.locator('.chroma-preview output').allTextContents();
+  assert.equal(await saved(), beforeChroma, 'preview is not an authored edit');
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeChromaState);
+  assert.equal(proposed.length, 2);
+  await page.screenshot({ path: resolve(output, 'chroma-preview-narrow.png'), fullPage: true });
+  await page.locator('[data-chroma-cancel]').click();
+  assert.equal(await saved(), beforeChroma);
+  assert.equal(await page.locator('[data-chroma-apply]').count(), 0);
+  await page.locator('[data-chroma-preview]').click();
+  await page.locator('[data-chroma-apply]').click();
+  const chromaDoc = await documentSnapshot();
+  const changedColor = chromaDoc.colorSlots.find((slot) => slot.id === slotId).value;
+  assert.notEqual(changedColor.hex, '#2468ab');
+  assert.equal(changedColor.alpha, 0.25);
+  assert.equal(chromaDoc.colorSlots.find((slot) => slot.id === otherSlotId).value.hex, '#808080');
+  await shapeHasColor(changedColor.hex, 0.25);
+  const afterChroma = await saved();
+  assert.equal(await page.locator('[data-chroma-apply]').count(), 0);
+  await activateCommand(page, 'undo');
+  assert.equal(await saved(), beforeChroma, 'one Undo restores the full palette');
+  await activateCommand(page, 'redo');
+  assert.equal(await saved(), afterChroma);
+  await activateCommand(page, 'undo');
+  await assertAssetRetained();
+  await page.locator('[data-chroma-preview]').click();
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
   assert.equal(await page.locator('.shared-colors-panel').count(), 0);
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
@@ -327,7 +359,8 @@ try {
     JSON.stringify(
       {
         ok: true,
-        scope: 'shared manual colors only; not AutoChroma completion',
+        scope: 'shared colors and transient saturation preview; recipe and contrast guards pending',
+        chromaPreviewCancelApplyAtomicHistory: true,
         actualPanelAndInspector: true,
         exactBindingAndUnlinkMaterialization: true,
         sharedEditAndUnlinkUndoRedo: true,

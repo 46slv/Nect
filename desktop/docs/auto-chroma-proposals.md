@@ -28,3 +28,19 @@ This is an application primitive, not automatic adoption of generated proposals.
 
 Still required: persisted recipe and dependency design, palette controls,
 contrast/semantic guards, browser and native acceptance. These heuristics cannot guarantee aesthetically correct colors.
+
+## Transient saturation preview
+
+Shared colors now offers profile and colorfulness controls, per-slot Keep locks,
+and before/after swatches. Preview and Cancel do not write the document. Apply
+uses one `set-color-slots` command, so the full palette is one Undo/Redo. Preview
+is invalidated by session/revision or literal changes and cleared on panel close.
+Only applied literal colors persist; these preview controls are not saved recipes.
+
+Current literal HEX is converted to OKLCH; lightness/hue/alpha are retained within
+8-bit conversion precision. Achromatic colors keep their original literal rather
+than acquiring an arbitrary hue. Dark and near-white slots receive Text and
+Background weights respectively, with Primary for other slots. Those are temporary
+heuristics, not semantic roles authored by the user. Area compensation is disabled
+in this first UI until a current verified coverage result is bound to the preview.
+Contrast and semantic guards remain unimplemented and the UI states that limit.
