@@ -4,6 +4,7 @@ export const colorSlotCommands = new Set([
   'create-color-slot',
   'rename-color-slot',
   'set-color-slot',
+  'set-color-slots',
   'bind-color-slot',
   'unbind-color-slot',
 ]);
@@ -63,6 +64,26 @@ export function resolveColorSlot(doc, id) {
 }
 export function applyColorSlotCommand(doc, type, payload, makeId) {
   const slots = validateColorSlots(doc);
+  if (type === 'set-color-slots') {
+    if (!Array.isArray(payload.updates) || payload.updates.length > 256)
+      throw Error('Expected a bounded shared Color update list');
+    const seen = new Set();
+    const updates = Array.from(payload.updates, (update) => {
+      if (
+        !update ||
+        typeof update.slotId !== 'string' ||
+        seen.has(update.slotId) ||
+        !slots.has(update.slotId)
+      )
+        throw Error('Missing or duplicate shared Color update target');
+      seen.add(update.slotId);
+      color(update.value);
+      return { slot: slots.get(update.slotId), value: { ...update.value } };
+    });
+    // Validate every target and value before touching even the private candidate.
+    for (const update of updates) update.slot.value = update.value;
+    return { slotIds: [...seen] };
+  }
   if (type === 'create-color-slot') {
     const id = makeId();
     name(payload.name);
