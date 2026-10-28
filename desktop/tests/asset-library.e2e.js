@@ -77,6 +77,8 @@ try {
   const load = (text) => page.evaluate((text) => window.nect.load(text), text);
   await load(serialize(blankDocument()));
   const original = await saved();
+  await page.locator('.canvas-stage').waitFor({ state: 'visible' });
+  await page.screenshot({ path: 'test-results/asset-layout-closed.png' });
   await activateCommand(page, 'asset-library');
   const folderChooser = page.waitForEvent('filechooser');
   await page
@@ -84,11 +86,21 @@ try {
     .getByRole('button', { name: 'Add folder', exact: true })
     .click();
   await (await folderChooser).setFiles(out + '/fixtures');
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('.asset-library-grid button').length === 4 &&
+      document.querySelectorAll('.asset-library-grid img[src]').length === 3 &&
+      [...document.querySelectorAll('.asset-library-grid small')].some(
+        (s) => s.textContent === 'Unsupported',
+      ),
+  );
+  await page.screenshot({ path: 'test-results/asset-layout-catalog.png' });
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).waitFor();
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).click();
   await page.locator('[data-asset-place-layer]:enabled').waitFor();
   await page.getByLabel('Asset license', { exact: true }).fill('Self-authored fixture');
   await page.screenshot({ path: out + '/browse.png' });
+  await page.screenshot({ path: 'test-results/asset-layout-details.png' });
   await page.locator('[data-asset-place-layer]').click();
   await page.waitForFunction(
     () => document.querySelector('[data-asset-status]').textContent !== 'Reading asset…',

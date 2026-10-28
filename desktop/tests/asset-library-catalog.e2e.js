@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
@@ -96,7 +96,7 @@ try {
       const panel = page.locator('[data-asset-library]'),
         select = page.getByLabel('Asset folder', { exact: true });
       await panel.getByRole('button', { name: 'Add folder', exact: true }).waitFor();
-      const before = await page.evaluate(() => JSON.stringify(window.nect.document));
+      let before = await page.evaluate(() => JSON.stringify(window.nect.document));
       if (mode === 'browser-refresh') {
         const pick = async (action, path) => {
           const pending = page.waitForEvent('filechooser');
@@ -112,6 +112,14 @@ try {
         await pick('Add folder', out + '/A');
         const id = await select.inputValue();
         assert.equal(await select.locator('option').count(), 1);
+        await panel.getByRole('button', { name: 'old.svg', exact: true }).click();
+        await panel.locator('[data-asset-place-layer]:enabled').waitFor();
+        await panel.locator('[data-asset-place-layer]').click();
+        await page.waitForFunction(() =>
+          window.nect.document.layers.some((l) => l.nodes.some((n) => n.type === 'SVG')),
+        );
+        before = await page.evaluate(() => JSON.stringify(window.nect.document));
+        const svgBefore = await page.evaluate(() => window.nect.export());
         for (let i = 0; i < 20; i++) {
           if (i === 2) {
             await unlink(out + '/A/old.svg');
@@ -150,13 +158,48 @@ try {
           state,
         );
         await panel.getByRole('button', { name: 'other.svg', exact: true }).waitFor();
+        // Zero files can be an empty directory or Cancel. Keep the previous
+        // snapshot until the user explicitly removes that registration.
+        await unlink(out + '/B/other.svg');
+        await pick('Refresh', out + '/B');
+        assert.deepEqual(
+          await select.evaluate((el) => ({
+            value: el.value,
+            options: [...el.options].map((o) => [o.value, o.textContent]),
+          })),
+          state,
+        );
+        await panel.getByRole('button', { name: 'other.svg', exact: true }).waitFor();
+        assert.match(await panel.locator('[data-asset-status]').textContent(), /Catalog unchanged/);
+        await panel.getByRole('button', { name: 'Remove', exact: true }).click();
+        await page.waitForFunction(
+          () => document.querySelectorAll('[aria-label="Asset folder"] option').length === 1,
+        );
+        assert.deepEqual(await readdir(out + '/B'), []);
+        await panel.getByRole('button', { name: 'new.svg', exact: true }).waitFor();
+        const originalFile = await readFile(out + '/A/new.svg', 'utf8');
+        await panel.getByRole('button', { name: 'Remove', exact: true }).click();
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('[aria-label="Asset folder"] option').length === 0 &&
+            document.querySelectorAll('.asset-library-grid button').length === 0,
+        );
+        assert.equal(await readFile(out + '/A/new.svg', 'utf8'), originalFile);
+        assert.equal(await page.evaluate(() => window.nect.export()), svgBefore);
+        await page.evaluate((document) => window.nect.load(document), before);
+        assert.equal(await page.evaluate(() => window.nect.export()), svgBefore);
         results[mode] = {
           passed: true,
           refreshes: 20,
           stableRootId: id,
-          rootCount: 2,
+          rootCountBeforeClear: 2,
+          rootCountAfterClear: 0,
           changedContents: true,
           cancelUnchanged: true,
+          emptySelectionPreserved: true,
+          explicitRemoveClears: true,
+          originalFilesUntouchedByRemove: true,
+          placedCopyReopensAfterRootRemoval: true,
         };
       } else {
         for (const id of ['folder-a', 'folder-b', 'folder-a']) {

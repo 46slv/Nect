@@ -573,6 +573,9 @@ mod tests {
         assert!(r.open(&id, "mark.svg", &new.generation).is_ok());
         fs::remove_file(dir.join("mark.svg")).unwrap();
         assert!(r.open(&id, "mark.svg", &new.generation).is_err());
+        let empty = r.refresh(&id).unwrap();
+        assert!(empty.items.is_empty());
+        assert_eq!(empty.root.id, id);
     }
     #[test]
     fn replaced_root_and_settings_failure_do_not_admit_sources() {

@@ -64,6 +64,11 @@ Required states: unregistered, loading, populated, filtered, selected, unsupport
 missing/changed, cancelled, stale document, refresh error. Keyboard and named
 buttons provide the same placement routes as pointer selection.
 
+The current fixed right overlay (up to 570 CSS px) is provisional test placement,
+not a final global-workspace layout decision. Closed/catalog/selected-detail
+screenshots ground the separate frequent-versus-occasional controls discussion.
+This slice does not add docking or further permanently visible controls.
+
 ## Session and persistence
 
 `insert-svg-asset` owns the entire insertion transaction. A first-class `SVG`
@@ -118,6 +123,15 @@ cannot verify an absolute OS path; explicit re-selection supplies that capabilit
 Native registration returns `{ roots, selectedRootId }`, including an existing
 root selected again. The UI never infers that selection from list position.
 
+Browser-only limit: an empty folder can produce the same zero-file/cancel outcome
+as dismissing the chooser. That outcome keeps the previous selection snapshot;
+it does not claim the physical folder is still populated. The status names the
+unchanged catalog and points to Remove as the explicit clear action. Remove
+unregisters the root and clears its catalog, leaving originals and placed document
+copies untouched. Add the folder again after it contains selectable files. Native
+Refresh reads the registered directory directly and returns an empty catalog
+under the same root ID when the last source is removed.
+
 In isolated native acceptance mode, selected roots are canonicalized and checked
 against the canonical run root before admission. A parent junction inside the run
 root cannot register an ordinary descendant whose actual directory is outside.
@@ -125,6 +139,52 @@ Production still accepts explicitly selected ordinary roots without that test-on
 scope. Owned negative fixtures cover this boundary and its normal positive paths.
 
 ## Acceptance and residuals
+
+### Next bounded slice: destination-based drag placement
+
+The user's 10:23 UTC direction chooses the route from the drop destination:
+SVG on the current node graph adds an SVG node there; SVG on the artboard adds a
+new layer. Only the chosen destination needs to be visible. Existing placement
+buttons remain the keyboard/accessibility fallback. This is the next slice;
+drag/drop is not claimed by the currently verified button-based vertical.
+
+Current core contracts need a deliberate extension: SVG `at` is artwork-space
+translation, while its graph-card position is automatically chosen. Drag needs
+a separate validated graph `nodePosition` in the same insertion transaction.
+The image command currently centers/fits a new Image layer; artboard image drop
+needs an explicit artwork position without changing accepted pixels. The first
+compatible image drag route should be artboard/new Image layer; graph image drop
+must refuse explicitly until a real Image-node insertion contract exists.
+
+The GUI must invert the current artboard pan/zoom transform for artwork drops,
+and separately convert screen coordinates through graph scroll/zoom for graph
+card placement. Raw screen pixels are never authored artwork coordinates.
+Imported bounds, viewport mapping, paint and source geometry stay intact. Graph
+artwork centering is a candidate, not a settled requirement: keep the existing
+source-origin `[0, 0]` default for review until an explicit bounds/anchor rule is
+selected. Graph-card coordinates must not move the artwork.
+
+Drag start captures document/session/revision, active Composition/graph, catalog
+generation, source identity/hash and explicit Join intent. Drop rechecks those
+targets after asynchronous source reading. Unsupported targets, stale graph or
+document selection, Escape, close and drag-end without a drop admit no history.
+One completed drop registers source/asset, layer/node and optional safe terminal
+Join as one Undo. Preserve the same exclusive/shared Join rules and no forced
+Fill/Out binding. Tests must cover pan/zoom placement, distinct graph/artwork
+coordinates, images, cancellation, unsupported targets, stale reads, repeated
+placement, Undo/Redo and save/cold reopen before claiming drag support.
+
+The 10:26 UTC preferred layout candidate is a closable panel reached from a thin
+right-side panel bar, while the left toolbar stays focused on editing tools.
+One-panel-at-a-time and same-button toggle are initial concepts; pinning remains
+a proposal. The 10:35 UTC hands-on layout candidate keeps Layers almost fixed,
+with adjustable height as a concrete desired capability, and opens occasional
+tools above the Inspector. This is design-only; layer resizing and Inspector
+placement are not implemented by this checkpoint. No unfinished color panel or
+global docking rewrite is authorized by this slice. Exposing the chosen drop
+surface, for example by temporarily closing the library during drag, must be
+tested without requiring both artboard and graph on screen at once. The current
+570px overlay remains a screenshot reference, not the final layout contract.
 
 Tests must exercise both insertion routes; unconnected B; exclusive/shared/
 disabled/locked terminal Join; paint and viewport bounds; repeated imports;

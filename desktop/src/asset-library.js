@@ -370,7 +370,11 @@ export function mountAssetLibrary({ capture, insert }) {
       if (!alive) return;
       if (!intent) throw Error('Choose Add folder or Refresh first');
       if (!picker.files.length) {
-        message('Folder selection cancelled');
+        message(
+          intent.mode === 'refresh'
+            ? 'Catalog unchanged. Remove folder to clear.'
+            : 'Folder selection unchanged',
+        );
         return;
       }
       if (picker.files.length > 2048) throw Error('Folder exceeds 2048 entries');
@@ -405,8 +409,12 @@ export function mountAssetLibrary({ capture, insert }) {
     }
   };
   picker.addEventListener('cancel', () => {
+    const refreshing = folderPickIntent?.mode === 'refresh';
     folderPickIntent = null;
-    if (alive) message('Folder selection cancelled');
+    if (alive)
+      message(
+        refreshing ? 'Catalog unchanged. Remove folder to clear.' : 'Folder selection unchanged',
+      );
   });
   add.onclick = () => void addFolder();
   refresh.onclick = () => {
