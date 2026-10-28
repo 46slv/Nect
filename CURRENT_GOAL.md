@@ -14,20 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT — 2026-10-28 Color coverage renderer bridge
+## ACTIVE CHECKPOINT — 2026-10-28 Shared Color identity and persistence
 
-Goal: Connect the accepted REQ-211 visible-contribution design to the existing renderer without inventing color identity or claiming unsupported attribution.
+Goal: Give the accepted REQ-211 color design real shared identities before UI integration; never infer identity from equal display colors.
 
-Current phase: Root is the sole source writer on codex/nect-color-core-20261028. Codex is used only for independent review or separated work, per the user's 10:54 UTC instruction.
+Current phase: Root is sole production writer on codex/nect-color-core-20261028. Parallel Sol reviewers/test writers are released. The user requested root implementation; Codex is validation/parallel only, up to Sol high.
 
-Proven: Pure accounting at 6cdf51c has seven passing tests. PR #106 is independently frozen at 462eb8d; Windows CI 40695190430 succeeded and its four nested result files and nine screenshots were recovered. Native application acceptance remains NOT RUN. The local experimental bridge now emits separate solid Fill then Stroke SVG passes using actual exportScene/renderElement fixtures; five additional tests pass. No production editor imports this bridge.
+Proven: PR #107 at 99d5d252 passed Windows CI 40706323357. Downloaded color-coverage/results.json proved four real Chrome raster cases, including partial alpha/clipping/order/Other; native acceptance remains NOT RUN. The next local schema-54 shared-color foundation has 19 focused tests and 70 related tests PASS plus production build PASS. Independent review found and root repaired preset validation, SVG registry loss, foreign-import ID retargeting, and legacy-ID allocation collisions.
 
-Next task: Review the bridge; add actual raster sampling and compare total alpha with the real rendered scene. Preserve explicit source identity separately from strict Color values. Unbound paints remain Other; do not infer IDs from equal RGB. Groups, masks, gradients, raster and repeater attribution currently reject rather than silently produce partial percentages.
+Implementation: Shared literal colorSlots and sibling parameter colorSlotId; atomic create/rename/set/bind/unbind commands, unbind freezes resolved Color, evaluator cache invalidation, all-composition/preset validation, referenced-slot import with independent collision remapping. No Color payload metadata, color-panel UI, palette resolver, Auto Chroma or automatic coverage provenance yet.
 
-Done for next: Validated paint ordering, artboard clipping, opacity and provenance with bounded real pixel evidence before UI or persisted-schema integration.
+Next task: Publish and verify the exact foundation candidate; then propagate authored paint provenance into coverage and add the panel with existing history/save contracts. Preserve the proven earlier artifact instead of claiming it validates newer source.
 
-State: Isolated color branch/worktree, base PR #106 at 462eb8d. Hermes is on explicit hold. User is organizing WS; cloud work continues while native acceptance alone waits. Existing PR #106 and PR #105 remain open and unmerged.
+Done for next: Exact-head tests/CI, identity-preserving persistence and import, and no unreviewed source blocker before adding visible controls.
 
-Authority: Accepted REQ-211 design handoff and user's direct Nect implementation instructions. Edits, tests, development commits/push and Draft PR are permitted. No protected-main merge, release, force push, credential/permission/billing change. EPHEMERA's rejected push/PR is not revived.
+State: PR #107 stacked on separately frozen PR #106 (462eb8d); neither main merge nor release. Root source worktree nect-hashi-color-core-20261028. Native acceptance is an independent pending obligation; no duplicate GUI owner.
 
-Handoff: CONTINUE_CURRENT_TASK. Root owns source; read-only reviewers do not edit this lane.
+Authority: Accepted REQ-211 design and direct Nect implementation instructions allow edits/tests/development commits/push/Draft PR. No protected-main merge/release/force/history rewrite or authentication/permission/billing changes.
+
+Handoff: CONTINUE_CURRENT_TASK. Root owns production source.

@@ -1,3 +1,4 @@
+import { importColorSlots } from './color-slots.js';
 import { validateCompositionProject } from './composition-project-model.js';
 import {
   collectAssetReferences,
@@ -29,6 +30,7 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
 
   const occupied = collectIds(current),
     compositions = sourceCompositions.map((item) => remapIds(item, collectIds(item), occupied));
+  const colors = importColorSlots(current, sourceProject, compositions, occupied);
   const references = collectAssetReferences(compositions);
   const fonts = mergeAssetRegistry(
     references.fonts,
@@ -46,6 +48,7 @@ export function prepareProjectCompositionsImport(current, sourceProject, composi
 
   const project = structuredClone(current);
   project.schemaVersion = Math.max(current.schemaVersion, sourceProject.schemaVersion);
+  if (colors !== undefined) project.colorSlots = colors;
   project.fontAssets = fonts.assets;
   project.imageAssets = images.assets;
   project.compositions.push(...compositions);

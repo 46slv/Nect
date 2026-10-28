@@ -69,3 +69,26 @@ pass, but actual raster alpha comparison and native/UI integration remain unveri
 
 SVG width/height are document-space bounds, not allocation dimensions. A rasterizer
 must independently downsample to the 262144-pixel budget before allocating buffers.
+
+## Authored shared-color foundation (schema 54)
+
+The desktop document now supports shared `colorSlots` with stable IDs, names and
+literal `{hex, alpha}` values. Color parameters bind using a sibling `colorSlotId`;
+Color runtime values remain unchanged. Typed create/rename/set/bind/unbind commands
+use existing atomic Session history. Unbinding freezes the current resolved value.
+Registry changes invalidate evaluation caches. No palette editor UI is added yet.
+
+Composition projections preserve the root registry. SVG replacement preserves it,
+and presets validate their bindings against it. Both composition-import paths copy
+only referenced slots and remap occupied IDs even if the values match, rather than
+retargeting an imported reference to the destination's color. Migration reserves
+slot IDs before allocating a legacy Composition ID. Invalid/dangling/conflicting
+bindings reject, including inactive compositions and preset graphs. Aliases,
+expressions in the slot registry and deletion commands are outside this first slice.
+
+Independent review exposed registry loss on SVG import, missing preset validation,
+and silent foreign-import retargeting. These were repaired with regressions. The
+19 shared-color tests and related composition/preset/coverage suites total 70 PASS;
+production build passed. New exact-head CI is required after publication. Existing
+PR #107's four-fixture browser pixel proof applies to the previous isolated adapter,
+not automatic authored provenance or a completed panel. Those remain next work.
