@@ -15,6 +15,47 @@ try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
   await fs.mkdir('test-results', { recursive: true });
+  // Regression for a render crash after committing an unconnected Mask.
+  // Use real keyboard and pointer events, not a direct create-node command.
+  await page.evaluate(async () => {
+    const { blankDocument } = await import('/src/core.js');
+    window.nect.load(JSON.stringify(blankDocument()));
+  });
+  const beforeMask = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const addByEnter = async (type) => {
+    await page.locator('#add-node').click();
+    const search = page.locator('.search-panel input').first();
+    await search.fill(type);
+    await page.locator(`.picker-option[data-id="${type}"]`).click();
+    await search.press('Enter');
+    await page.waitForFunction(() => !document.querySelector('.search-panel'));
+  };
+  await addByEnter('Mask');
+  await page.waitForFunction(() => document.querySelector('[data-mask-luminance]'));
+  assert.equal(
+    await page.evaluate(
+      () => window.nect.document.layers[0].nodes.filter((n) => n.type === 'Mask').length,
+    ),
+    1,
+  );
+  assert.equal(await page.locator('[data-mask-luminance]').first().isDisabled(), true);
+  const withMask = await page.evaluate(() => JSON.stringify(window.nect.document));
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeMask);
+  await page.locator('[data-action="redo"]').click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), withMask);
+  await page.waitForFunction(() => document.querySelector('[data-mask-luminance]'));
+  await addByEnter('Circle');
+  assert.equal(
+    await page.evaluate(
+      () => window.nect.document.layers[0].nodes.filter((n) => n.type === 'Circle').length,
+    ),
+    1,
+  );
+  await page.locator('[data-action="undo"]').click();
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), withMask);
+  await page.screenshot({ path: 'test-results/workflow-mask-enter.png', fullPage: true });
+  assert.deepEqual(errors, []);
   const ids = await page.evaluate(async () => {
     const { document, node, connect, layer } = await import('/src/core.js');
     const d = document();

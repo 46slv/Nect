@@ -240,6 +240,41 @@ test('real Add uses captured Session target, one history entry and leaves graph 
   assert.equal(win.nect.document.layers[0].nodes.length, 4);
   $('[data-action="undo"]').click();
   assert.equal(JSON.stringify(win.nect.document), before);
+  // Regression: an unconnected Mask must survive real Enter creation and render.
+  // Rendering used to dereference a missing mask source after the command committed.
+  win.pickerTest.open();
+  await new Promise(queueMicrotask);
+  const maskSearch = $('.search-panel input');
+  maskSearch.value = 'Mask';
+  maskSearch.dispatchEvent(new win.Event('input'));
+  assert.ok($('.picker-option[data-id="Mask"]'));
+  maskSearch.dispatchEvent(
+    new win.KeyboardEvent('keydown', {
+      bubbles: true,
+      cancelable: true,
+      key: 'Enter',
+    }),
+  );
+  assert.equal($('.search-panel'), null, 'Enter closes the picker');
+  assert.equal(win.nect.document.layers[0].nodes.filter((n) => n.type === 'Mask').length, 1);
+  const maskMode = $('[data-mask-luminance]');
+  assert.ok(maskMode, 'Mask controls rendered, not an aborted render');
+  assert.equal(maskMode.disabled, true, 'image-only mode is disabled without a source');
+  assert.equal(win.pickerTest.state().past, JSON.parse(state).past + 1);
+  const withMask = JSON.stringify(win.nect.document);
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), before);
+  $('[data-action="redo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), withMask);
+  assert.ok($('[data-mask-luminance]'), 'redo renders the disconnected Mask');
+  win.pickerTest.open();
+  await new Promise(queueMicrotask);
+  $('.picker-option[data-id="Circle"]').dispatchEvent(new win.Event('dblclick'));
+  assert.equal(win.nect.document.layers[0].nodes.length, 5, 'editing works after Mask');
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), withMask);
+  $('[data-action="undo"]').click();
+  assert.equal(JSON.stringify(win.nect.document), before);
   // Switching the active composition without changing the document must not
   // create in either the old or new target.
   const second = layer('Second');

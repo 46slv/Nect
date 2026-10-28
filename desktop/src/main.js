@@ -2289,7 +2289,7 @@ function field(n, key, q, inspector = false) {
     if (n.type === 'Keyer' && key === 'keyColor')
       control += `<button class="mini" data-keyer-pick="${n.id}" ${disabled ? 'disabled' : ''}>${driven ? 'Pick base from input' : 'Pick from input'}</button>`;
   } else if (n.type === 'Mask' && key === 'luminance')
-    control = `<select data-value data-mask-luminance aria-label="Image mask mode" ${current().locked || locked || outputType(current().nodes.find((x) => x.id === n.params.mask.source)) !== 'Image' ? 'disabled' : ''}><option value="alpha" ${!displayed ? 'selected' : ''}>Alpha</option><option value="luminance" ${displayed ? 'selected' : ''}>Luminance (sRGB)</option></select>`;
+    control = `<select data-value data-mask-luminance aria-label="Image mask mode" ${current().locked || locked || !current().nodes.some((x) => x.id === n.params.mask.source && outputType(x) === 'Image') ? 'disabled' : ''}><option value="alpha" ${!displayed ? 'selected' : ''}>Alpha</option><option value="luminance" ${displayed ? 'selected' : ''}>Luminance (sRGB)</option></select>`;
   else if (q.type === 'Boolean')
     control = `<input aria-label="${esc(name)}" data-value type="checkbox" ${displayed ? 'checked' : ''} ${locked ? 'disabled' : ''}>`;
   else if (['Scalar', 'Vector2'].includes(q.type) && (q.expression || q.source)) {
