@@ -2,7 +2,7 @@ import { transformCharacterPoint } from './character-geometry.js';
 const id = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,180}$/;
 export const isPaintedGroup = (value) => value?.kind === 'painted-group';
 export function validateCompositionReference(n, version) {
-  if (n.type !== 'Composition Reference') {
+  if (!['Composition Reference', 'SVG'].includes(n.type)) {
     if (n.compositionReference !== undefined)
       throw Error('Composition target requires a Composition Reference');
     return;
@@ -29,7 +29,7 @@ export function assertCompositionAcyclic(doc) {
     if (active.size >= 100) throw Error('Composition reference depth exceeds 100');
     active.add(id);
     for (const n of layers.get(id).nodes)
-      if (n.type === 'Composition Reference' && n.compositionReference)
+      if (['Composition Reference', 'SVG'].includes(n.type) && n.compositionReference)
         visit(n.compositionReference.compositionId);
     active.delete(id);
     seen.add(id);
