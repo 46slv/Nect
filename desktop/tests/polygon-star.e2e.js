@@ -70,17 +70,54 @@ try {
   assert.equal(await count().inputValue(), '5');
   await page.locator('[data-action="redo"]').click();
   assert.equal(await count().inputValue(), '7');
+  await page.evaluate(() => {
+    const original = window.setTimeout;
+    const tasks = [];
+    window.setTimeout = (fn, delay, ...args) => {
+      if (delay === 0 && new Error().stack.includes('scheduleRender')) {
+        tasks.push(() => fn(...args));
+        return 987654;
+      }
+      return original(fn, delay, ...args);
+    };
+    window.deliverStarRender = () => {
+      window.setTimeout = original;
+      const total = tasks.length;
+      for (const task of tasks.splice(0)) task();
+      return total;
+    };
+  });
   await count().fill('2.5');
+  const editedCount = await count().elementHandle(),
+    oldMarker = await page.locator('.node-stage-move rect').elementHandle();
   await count().press('Tab');
+  // A rejected edit resets the existing input before the pending structural
+  // render replaces the canvas marker; the input value alone is not a barrier.
+  assert.equal(await editedCount.inputValue(), '7');
+  assert.equal(await oldMarker.evaluate((el) => el.isConnected), true);
+  assert.ok((await page.evaluate(() => window.deliverStarRender())) > 0);
+  assert.equal(await oldMarker.boundingBox(), null);
   await page.waitForFunction(
-    () =>
+    (old) =>
+      !old.isConnected &&
       window.nect.document.layers[0].nodes[1].params.points.value === 7 &&
       document.querySelector('.inspector-body [data-key="points"] [data-value]')?.value === '7',
+    oldMarker,
   );
+  await editedCount.dispose();
+  await oldMarker.dispose();
   const center = () =>
     page.evaluate(() => window.nect.document.layers[0].nodes[1].params.center.value);
   const drag = async () => {
-    const marker = await page.locator('.node-stage-move rect').boundingBox();
+    const markerHandle = await page.waitForFunction(() => {
+      const el = document.querySelector('.node-stage-move rect'),
+        r = el?.getBoundingClientRect();
+      return r && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility === 'visible'
+        ? { x: r.x, y: r.y, width: r.width, height: r.height }
+        : false;
+    });
+    const marker = await markerHandle.jsonValue();
+    await markerHandle.dispose();
     const pt = { x: marker.x + marker.width / 2, y: marker.y + marker.height / 2 };
     await page.mouse.move(pt.x, pt.y);
     await page.mouse.down();

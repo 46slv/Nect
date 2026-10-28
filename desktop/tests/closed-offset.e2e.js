@@ -100,18 +100,53 @@ try {
     await page.locator(`.inspector-body [data-operation="${ids.o}"]`).selectOption(join);
     assert.equal(await page.evaluate(() => window.nect.evaluate().error), null);
   }
-  await write('10');
-  // The numeric commit replaces controls asynchronously. Wait for the rendered
-  // value attribute (fill changes only the old property) before measuring a drag.
+  // Hold this commit's deferred render to prove that settling the value also
+  // changes the old element's value attribute, before replacement occurs.
+  await page.evaluate(() => {
+    const original = window.setTimeout;
+    const tasks = [];
+    window.setTimeout = (fn, delay, ...args) => {
+      if (delay === 0 && new Error().stack.includes('scheduleRender')) {
+        tasks.push(() => fn(...args));
+        return 987654;
+      }
+      return original(fn, delay, ...args);
+    };
+    window.deliverOffsetRender = () => {
+      window.setTimeout = original;
+      const count = tasks.length;
+      for (const task of tasks.splice(0)) task();
+      return count;
+    };
+  });
+  await amount().fill('10');
+  const editedAmount = await amount().elementHandle();
+  await amount().press('Tab');
+  assert.equal(await editedAmount.getAttribute('value'), '10');
+  assert.equal(await editedAmount.evaluate((el) => el.isConnected), true);
+  assert.ok((await page.evaluate(() => window.deliverOffsetRender())) > 0);
+  assert.equal(await editedAmount.boundingBox(), null);
   await page.waitForFunction(
-    (id) =>
+    ([id, old]) =>
+      !old.isConnected &&
       document
         .querySelector(`.inspector-body [data-node="${id}"][data-key="amount"] [data-value]`)
         ?.getAttribute('value') === '10',
-    ids.o,
+    [ids.o, editedAmount],
   );
   const baseline = await saved(),
-    bounds = await amount().boundingBox();
+    boundsHandle = await page.waitForFunction((id) => {
+      const el = document.querySelector(
+        `.inspector-body [data-node="${id}"][data-key="amount"] [data-value]`,
+      );
+      const r = el?.getBoundingClientRect();
+      return r && r.width > 0 && r.height > 0 && getComputedStyle(el).visibility === 'visible'
+        ? { x: r.x, y: r.y, width: r.width, height: r.height }
+        : false;
+    }, ids.o),
+    bounds = await boundsHandle.jsonValue();
+  await editedAmount.dispose();
+  await boundsHandle.dispose();
   assert.ok(bounds, 'Committed Offset control is visible for cancellation drag');
   await page.mouse.move(bounds.x + 30, bounds.y + bounds.height / 2);
   await page.mouse.down();
