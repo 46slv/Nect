@@ -1,3 +1,7 @@
+import { createColorCoverageView } from './color-coverage-view.js';
+import { colorCoveragePasses } from './color-coverage-passes.js';
+import { sampleColorCoverage } from './color-coverage-sampling.js';
+import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
@@ -636,6 +640,7 @@ import {
   disconnect,
   deserialize,
   exportSVG,
+  exportScene,
   renderElement,
   createVariableDocumentPreparer,
   scrubNumericValues,
@@ -698,6 +703,37 @@ const sharedColors = createSharedColorsPanel({
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   render: () => render(),
   notify: (message, error) => notify(message, error),
+});
+const coverageFontIds = new WeakMap();
+let nextCoverageFontId = 0;
+const coverageView = createColorCoverageView({
+  app,
+  isOpen: () => sharedColors.open,
+  getKey: () =>
+    JSON.stringify([
+      session.state.sessionId,
+      session.state.expectedRevision,
+      Object.entries(activeFonts())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, font]) => {
+          if (font && typeof font === 'object') {
+            if (!coverageFontIds.has(font)) coverageFontIds.set(font, ++nextCoverageFontId);
+            return [name, coverageFontIds.get(font)];
+          }
+          return [name, String(font)];
+        }),
+    ]),
+  measure: (isCurrent) => {
+    const doc = history.doc;
+    const passes = colorCoveragePasses(exportScene(doc, activeFonts()), doc);
+    return sampleColorCoverage(
+      (doc.colorSlots || []).map((slot) => slot.id),
+      passes,
+      doc,
+      rasterizeCoverageAlpha,
+      isCurrent,
+    );
+  },
 });
 let workspaceGeometryFrame = null;
 const workspacePanels = createWorkspacePanels({
@@ -4007,6 +4043,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     drawWires();
   });
   if (fontPreview || textPreview) updateCanvas(true);
+  coverageView.refresh();
 }
 function editGuides(type, payload) {
   snapMatches = [];

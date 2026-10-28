@@ -72,6 +72,64 @@ const parameter = async () => {
     .find((l) => l.id === target.layer.id)
     .nodes.find((n) => n.id === target.fill.id).params.color;
 };
+const coverageEvidence = [];
+// Independent oracle: rasterize the complete exported scene, not the coverage
+// bridge's isolated passes. The fixture's equal-area rectangles lie wholly in
+// separate artboard halves, so summing those halves gives exact attribution.
+// Read actual raster alpha: 0.5 can become 128/255, making the rounded share 46%
+// rather than the ideal-alpha 45%. The 0.25 case remains 29% / Other 71%.
+const rendererShare = () =>
+  page.evaluate(async () => {
+    const doc = window.nect.document;
+    const url = URL.createObjectURL(new Blob([window.nect.export()], { type: 'image/svg+xml' }));
+    const image = new Image();
+    try {
+      image.src = url;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = doc.width;
+      canvas.height = doc.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let left = 0,
+        right = 0;
+      for (let y = 0; y < canvas.height; y++)
+        for (let x = 0; x < canvas.width; x++) {
+          const alpha = pixels[(y * canvas.width + x) * 4 + 3];
+          if (x < canvas.width / 2) left += alpha;
+          else right += alpha;
+        }
+      return { percent: Math.round((left / (left + right)) * 100), left, right };
+    } finally {
+      image.src = '';
+      URL.revokeObjectURL(url);
+    }
+  });
+async function assertCoverage(slotId, unusedSlotId, percent, label) {
+  const before = await saved();
+  const commandState = await page.evaluate(() => window.nect.commandState);
+  const dirty = await page.evaluate(() => window.nect.fileState.dirty);
+  const other = 100 - percent;
+  await page.waitForFunction(
+    ({ slotId, unusedSlotId, percent, other }) => {
+      const outputs = [...document.querySelectorAll('[data-color-coverage-id]')];
+      const value = (id) => outputs.find((el) => el.dataset.colorCoverageId === id)?.textContent;
+      return (
+        value(slotId) === `${percent}%` &&
+        value(unusedSlotId) === '0%' &&
+        document.querySelector('[data-color-coverage-status]')?.textContent ===
+          `Visible area · approx. 256 × 192 sample · Other ${other}%`
+      );
+    },
+    { slotId, unusedSlotId, percent, other },
+  );
+  assert.equal(await row(slotId).locator('[data-color-coverage-id]').textContent(), `${percent}%`);
+  assert.equal(await saved(), before, `${label}: measurement must not author document changes`);
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), commandState);
+  assert.equal(await page.evaluate(() => window.nect.fileState.dirty), dirty);
+  coverageEvidence.push({ label, slotPercent: percent, unusedSlotPercent: 0, otherPercent: other });
+}
 let libraryIdentity;
 const assertAssetRetained = async () => {
   assert.equal(
@@ -150,19 +208,27 @@ try {
     'same-name Color node is not accidentally bound',
   );
   await shapeHasColor('#2468ab', 0.5);
+  const halfAlphaShare = await rendererShare();
+  assert.ok([45, 46].includes(halfAlphaShare.percent), 'equal-area 0.5 / 0.6 raster-alpha fixture');
+  await assertCoverage(slotId, otherSlotId, halfAlphaShare.percent, 'bound alpha 0.5');
   await assertAssetRetained();
 
   // A shared edit updates the bound output and remains exactly one Undo step.
   const beforeSharedEdit = await saved();
   await change(row(slotId).locator('[data-shared-color-edit="alpha"]'), '0.25');
   await shapeHasColor('#2468ab', 0.25);
+  const quarterAlphaShare = await rendererShare();
+  assert.equal(quarterAlphaShare.percent, 29, 'equal-area 0.25 / 0.6 renderer contribution');
+  await assertCoverage(slotId, otherSlotId, 29, 'shared alpha edit');
   const afterSharedEdit = await saved();
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), beforeSharedEdit);
   await shapeHasColor('#2468ab', 0.5);
+  await assertCoverage(slotId, otherSlotId, halfAlphaShare.percent, 'Undo shared alpha edit');
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), afterSharedEdit);
   await shapeHasColor('#2468ab', 0.25);
+  await assertCoverage(slotId, otherSlotId, 29, 'Redo shared alpha edit');
 
   // Unlink retains the effective color rather than jumping to the old local base.
   const beforeUnbind = await saved();
@@ -170,12 +236,16 @@ try {
   assert.equal((await parameter()).colorSlotId, undefined);
   assert.deepEqual((await parameter()).value, { hex: '#2468ab', alpha: 0.25 });
   assert.equal(await field().locator('[data-color="hex"]').isDisabled(), false);
+  await assertCoverage(slotId, otherSlotId, 0, 'unlink: equal display color stays Other');
   const afterUnbind = await saved();
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), beforeUnbind);
+  await assertCoverage(slotId, otherSlotId, 29, 'Undo unlink');
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), afterUnbind);
+  await assertCoverage(slotId, otherSlotId, 0, 'Redo unlink');
   await binding().selectOption(slotId);
+  await assertCoverage(slotId, otherSlotId, 29, 'rebind');
   await assertAssetRetained();
 
   const beforeLayout = await saved();
@@ -230,6 +300,7 @@ try {
   await inspectTarget();
   assert.equal(await binding().inputValue(), slotId);
   await shapeHasColor('#2468ab', 0.25);
+  await assertCoverage(slotId, otherSlotId, 29, 'browser reopen');
 
   // A retained old control is explicitly reattached to test the actual delegated stale-session guard.
   const reopened = await saved();
@@ -243,6 +314,7 @@ try {
     document.querySelector('.status')?.textContent.includes('stale'),
   );
   await staleBinding.dispose();
+  await assertCoverage(slotId, otherSlotId, 29, 'stale unlink rejected');
   await assertAssetRetained();
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
   assert.equal(await page.locator('.shared-colors-panel').count(), 0);
@@ -262,6 +334,9 @@ try {
         browserDownloadAndReopen: true,
         staleSessionRejected: true,
         assetDomAndSearchRetained: true,
+        visibleAreaCoverage: coverageEvidence,
+        rendererAlphaOracle: { halfAlphaShare, quarterAlphaShare },
+        coverageDoesNotAuthorState: true,
         viewportWidths: [1440, 1000, 900],
         nativeDialogs: 'NOT_RUN',
         errors,

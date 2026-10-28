@@ -1,7 +1,7 @@
 # Shared manual colors panel
 
 This first UI slice exposes the schema 54 shared-color registry. It is not the
-automatic palette/AutoChroma design or a completed coverage display.
+automatic palette/AutoChroma design.
 
 - The right workspace bar opens Shared Colors above Inspector. Opening and
   closing it changes view state only; the existing Assets portal remains mounted.
@@ -22,6 +22,16 @@ cover routing/identity/history; the browser acceptance checks actual panel and
 Inspector interaction, live output, browser download/reopen, retained Assets and
 narrow layouts. Browser file inputs are not Windows native dialog acceptance.
 
-Remaining work includes automatic palette generation and constraints, visible
-coverage percentages, and Windows app acceptance. Do not describe this manual
-registry panel as completing those requirements.
+Visible-area percentages are derived asynchronously while the panel is open.
+Sampling uses the actual renderer's solid fill/stroke passes and source-over
+contributions, never RGB matching. The longest sample edge is at most 256 pixels;
+aggregate alpha storage is capped at 4,194,304 samples. Percentages are approximate,
+exclude transparent pixels, and retain unbound paint as Other. Unsupported scenes
+or exceeded budgets display unavailable rather than partial or stale percentages.
+Session/revision/font identity guards reject old results. Output text patches do
+not replace focused inputs or interrupt composition. Decode resources are released
+on success, failure and timeout. There is no background sampling while closed.
+
+Remaining work includes automatic palette generation and constraints, broader
+renderer attribution, and Windows app acceptance. Do not describe the current
+manual registry and bounded solid-paint measurement as completing those requirements.

@@ -2743,3 +2743,9 @@ input[data-scrub-step].scrubbing {
   max-width: 100%;
   min-width: 0;
 }
+
+.shared-color-row [data-color-coverage-id] {
+  grid-column: 1 / -1;
+  font-size: 10px;
+  color: var(--muted, #52616f);
+}
