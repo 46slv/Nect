@@ -1,4 +1,4 @@
-import { characterPositionStatus, uid, validate } from './core.js';
+import { characterPositionStatus, parameters, uid, validate } from './core.js';
 import { candidateDocument } from './artwork-candidate.js';
 import { resolveArtworkMoveTarget } from './artwork-move-target.js';
 
@@ -264,6 +264,22 @@ export function duplicateLayerGeneric(doc, layerId) {
     }
   };
   remap(layer);
+  // Expressions embed node IDs rather than storing them as whole-string fields.
+  // Restrict rewriting to authored parameters and nodes from this source layer:
+  // text/metadata and unresolved references must retain their original meaning.
+  const nodeIds = new Set(source.nodes.map((n) => n.id));
+  for (const n of layer.nodes)
+    for (const [, parameter] of parameters(n)) {
+      if (
+        !['Scalar', 'Vector2', 'Color'].includes(parameter.type) ||
+        typeof parameter.expression !== 'string'
+      )
+        continue;
+      parameter.expression = parameter.expression.replace(
+        /\bref\s*\(\s*"([a-zA-Z0-9:_-]+)"/g,
+        (match, id) => (nodeIds.has(id) ? match.replace(`"${id}"`, `"${ids.get(id)}"`) : match),
+      );
+    }
   layer.nodeGroups?.forEach((g, i) => {
     g.name = source.nodeGroups[i].name;
   });
