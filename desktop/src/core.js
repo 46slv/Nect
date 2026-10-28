@@ -7292,6 +7292,15 @@ export class CommandSession {
     }
     if (type === 'import-svg') {
       const candidate = importSVGTree(payload.source);
+      // Replace the active Composition's artwork, not the project-wide data
+      // carried by its Document projection. Other Compositions may still use
+      // these assets, presets, and newer-schema nodes.
+      candidate.name = before.name;
+      candidate.schemaVersion = Math.max(before.schemaVersion, candidate.schemaVersion);
+      for (const key of ['imageAssets', 'fontAssets', 'nodePresets']) {
+        if (Object.hasOwn(before, key))
+          candidate[key] = key === 'nodePresets' ? clone(before[key]) : { ...before[key] };
+      }
       serialize(candidate);
       return {
         candidate,
