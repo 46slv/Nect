@@ -74,6 +74,7 @@ export function mountAssetLibrary({ capture, insert }) {
     shown = 48,
     choiceSequence = 0;
   const prepared = new Map();
+  let folderPickIntent = null;
   const header = element('header');
   header.append(element('strong', 'Graphic assets'));
   const close = element('button', 'Close', { 'aria-label': 'Close assets' });
@@ -332,6 +333,7 @@ export function mountAssetLibrary({ capture, insert }) {
   }
   async function addFolder() {
     if (!desktop) {
+      folderPickIntent = { mode: 'add' };
       picker.value = '';
       picker.click();
       return;
@@ -346,8 +348,13 @@ export function mountAssetLibrary({ capture, insert }) {
         message('Folder selection cancelled');
         return;
       }
-      roots = result;
-      drawRoots(roots.at(-1)?.id);
+      if (
+        !Array.isArray(result.roots) ||
+        !result.roots.some((root) => root.id === result.selectedRootId)
+      )
+        throw Error('Selected folder is unavailable');
+      roots = result.roots;
+      drawRoots(result.selectedRootId);
       await refreshRoot();
     } catch (error) {
       if (alive) message(String(error.message || error), true);
@@ -357,13 +364,19 @@ export function mountAssetLibrary({ capture, insert }) {
     }
   }
   picker.onchange = async () => {
+    const intent = folderPickIntent;
+    folderPickIntent = null;
     try {
+      if (!alive) return;
+      if (!intent) throw Error('Choose Add folder or Refresh first');
       if (!picker.files.length) {
         message('Folder selection cancelled');
         return;
       }
       if (picker.files.length > 2048) throw Error('Folder exceeds 2048 entries');
-      if (browserRoots.size >= 16) throw Error('At most 16 library folders');
+      const previous = intent.mode === 'refresh' ? browserRoots.get(intent.rootId) : null;
+      if (intent.mode === 'refresh' && !previous) throw Error('Folder was removed; add it again');
+      if (!previous && browserRoots.size >= 16) throw Error('At most 16 library folders');
       const files = new Map();
       let total = 0;
       let folderName;
@@ -374,12 +387,14 @@ export function mountAssetLibrary({ capture, insert }) {
           throw Error('Choose one folder with at most 8 nested directories');
         const relative = relativePath(parts.join('/'));
         if (!/\.(svg|png|jpe?g)$/i.test(relative)) continue;
-        if (file.size > MAX_FILE) throw Error(`${relative} exceeds 2 MB`);
+        if (file.size > MAX_FILE) throw Error(`${relative} exceeds 12 MB`);
         total += file.size;
         if (total > 32_000_000) throw Error('Folder asset content exceeds 32 MB');
         files.set(relative, file);
       }
-      const id = 'browser-' + crypto.randomUUID();
+      if (previous && previous.name !== folderName)
+        throw Error(`Choose ${previous.name} to refresh this folder`);
+      const id = previous?.id || 'browser-' + crypto.randomUUID();
       const root = { id, name: folderName, files };
       browserRoots.set(id, root);
       roots = [...browserRoots.values()];
@@ -389,11 +404,15 @@ export function mountAssetLibrary({ capture, insert }) {
       message(error.message, true);
     }
   };
-  picker.addEventListener('cancel', () => message('Folder selection cancelled'));
+  picker.addEventListener('cancel', () => {
+    folderPickIntent = null;
+    if (alive) message('Folder selection cancelled');
+  });
   add.onclick = () => void addFolder();
   refresh.onclick = () => {
     if (desktop) void refreshRoot();
     else {
+      folderPickIntent = { mode: 'refresh', rootId: rootSelect.value };
       picker.value = '';
       picker.click();
     }

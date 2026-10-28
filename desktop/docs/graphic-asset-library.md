@@ -109,6 +109,21 @@ relative identity and source checks for that selection; it has no persistent OS
 directory capability. Re-select a directory to refresh. Native registry survives
 restart, while its byte catalog is refreshed explicitly before use.
 
+Browser Add and Refresh carry distinct picker intent. Refresh captures the
+selected root ID, validates the complete replacement selection, and replaces its
+Files under that ID. It requires the selected folder name; a different name or
+Cancel leaves the old root untouched. Refresh never consumes another registration
+slot, and clears old previews before reading the new catalog. Browser capabilities
+cannot verify an absolute OS path; explicit re-selection supplies that capability.
+Native registration returns `{ roots, selectedRootId }`, including an existing
+root selected again. The UI never infers that selection from list position.
+
+In isolated native acceptance mode, selected roots are canonicalized and checked
+against the canonical run root before admission. A parent junction inside the run
+root cannot register an ordinary descendant whose actual directory is outside.
+Production still accepts explicitly selected ordinary roots without that test-only
+scope. Owned negative fixtures cover this boundary and its normal positive paths.
+
 ## Acceptance and residuals
 
 Tests must exercise both insertion routes; unconnected B; exclusive/shared/

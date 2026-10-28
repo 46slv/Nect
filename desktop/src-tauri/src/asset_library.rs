@@ -44,6 +44,12 @@ pub struct Listing {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Registration {
+    pub roots: Vec<Root>,
+    pub selected_root_id: String,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Opened {
     pub bytes: Vec<u8>,
     pub source_location: String,
@@ -279,17 +285,33 @@ impl Registry {
         file.persist(path).map_err(|e| e.to_string())?;
         Ok(())
     }
-    fn register(&mut self, path: PathBuf) -> Result<Vec<Root>, String> {
+    fn register(&mut self, path: PathBuf) -> Result<Registration, String> {
+        self.register_scoped(path, None)
+    }
+    fn register_scoped(
+        &mut self,
+        path: PathBuf,
+        acceptance_root: Option<&Path>,
+    ) -> Result<Registration, String> {
         self.ready()?;
         no_link(&path)?;
         let path = path.canonicalize().map_err(|e| e.to_string())?;
+        if let Some(root) = acceptance_root {
+            let allowed = root.canonicalize().map_err(|e| e.to_string())?;
+            if !path.starts_with(&allowed) {
+                return Err("Acceptance folders must be inside the isolated run root".into());
+            }
+        }
         let file = open_handle(&path, true)?;
         if !file.metadata().map_err(|e| e.to_string())?.is_dir() {
             return Err("Choose a folder".into());
         }
         let identity = handle_identity(&file, &path)?;
-        if self.roots.iter().any(|r| r.identity == identity) {
-            return Ok(self.roots.clone());
+        if let Some(existing) = self.roots.iter().find(|r| r.identity == identity) {
+            return Ok(Registration {
+                roots: self.roots.clone(),
+                selected_root_id: existing.id.clone(),
+            });
         }
         if self.roots.len() >= MAX_ROOTS {
             return Err("At most 16 library folders".into());
@@ -312,6 +334,7 @@ impl Registry {
             return Err("Invalid folder name".into());
         }
         let mut roots = self.roots.clone();
+        let selected_root_id = id.clone();
         roots.push(Root {
             id,
             name,
@@ -320,7 +343,10 @@ impl Registry {
         });
         self.persist(&roots)?;
         self.roots = roots;
-        Ok(self.roots.clone())
+        Ok(Registration {
+            roots: self.roots.clone(),
+            selected_root_id,
+        })
     }
     fn refresh(&mut self, id: &str) -> Result<Listing, String> {
         self.ready()?;
@@ -445,22 +471,22 @@ pub fn register_asset_folder(
     window: tauri::WebviewWindow,
     storage: tauri::State<'_, crate::acceptance_storage::RunStorage>,
     state: tauri::State<'_, AssetLibrary>,
-) -> Result<Option<Vec<Root>>, String> {
+) -> Result<Option<Registration>, String> {
     let Some(path) = storage.dialog(&window).pick_folder() else {
         return Ok(None);
     };
     if let Some(paths) = &storage.0 {
         paths.check_directories()?;
-        if !path.starts_with(paths.webview.parent().unwrap().parent().unwrap()) {
-            return Err("Acceptance folders must be inside the isolated run root".into());
-        }
     }
-    state
-        .0
-        .lock()
-        .map_err(|_| "Library unavailable")?
-        .register(path)
-        .map(Some)
+    let mut registry = state.0.lock().map_err(|_| "Library unavailable")?;
+    match &storage.0 {
+        Some(paths) => registry.register_scoped(
+            path,
+            Some(paths.webview.parent().unwrap().parent().unwrap()),
+        ),
+        None => registry.register(path),
+    }
+    .map(Some)
 }
 #[tauri::command]
 pub fn remove_asset_folder(
@@ -619,6 +645,21 @@ mod tests {
         assert_eq!(r.roots.len(), 1);
     }
     #[test]
+    fn registration_returns_the_exact_new_or_existing_selected_root() {
+        let (t, mut r, first) = fixture();
+        let first_id = r.roots[0].id.clone();
+        let other = t.path().join("B");
+        fs::create_dir(&other).unwrap();
+        let second = r.register(other).unwrap();
+        assert_eq!(second.roots.len(), 2);
+        assert_eq!(second.selected_root_id, second.roots[1].id);
+        let again = r.register(first).unwrap();
+        assert_eq!(again.roots.len(), 2);
+        assert_eq!(again.selected_root_id, first_id);
+        let wire = serde_json::to_value(again).unwrap();
+        assert_eq!(wire["selectedRootId"], first_id);
+    }
+    #[test]
     fn size_and_entry_limits_are_explicit() {
         let (_t, mut r, dir) = fixture();
         let id = r.roots[0].id.clone();
@@ -630,6 +671,42 @@ mod tests {
             fs::write(dir.join(format!("{i}.txt")), b"").unwrap();
         }
         assert!(r.refresh(&id).is_err());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn acceptance_parent_junction_cannot_register_an_outside_descendant() {
+        let t = tempfile::tempdir().unwrap();
+        let run = t.path().join("run");
+        let outside = t.path().join("outside");
+        fs::create_dir(&run).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::create_dir(outside.join("assets")).unwrap();
+        let link = run.join("bridge");
+        let output = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let selected = link.join("assets");
+        assert!(selected.starts_with(&run));
+        assert!(no_link(&selected).is_ok());
+        let mut r = Registry::default();
+        r.initialize(Ok(run.join("registry.json")));
+        let result = r.register_scoped(selected, Some(&run));
+        fs::remove_dir(&link).unwrap();
+        assert!(
+            result.is_err(),
+            "Acceptance mode admitted a canonical folder outside its isolated root"
+        );
+        assert!(r.roots.is_empty());
+        assert!(!run.join("registry.json").exists());
+        let inside = run.join("inside");
+        fs::create_dir(&inside).unwrap();
+        assert!(r.register_scoped(inside, Some(&run)).is_ok());
+        // Production still permits an explicitly selected ordinary outside folder.
+        assert!(r.register(outside.join("assets")).is_ok());
     }
     #[cfg(windows)]
     #[test]

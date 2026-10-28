@@ -78,7 +78,12 @@ try {
   await load(serialize(blankDocument()));
   const original = await saved();
   await activateCommand(page, 'asset-library');
-  await page.locator('[data-asset-folder-input]').setInputFiles(out + '/fixtures');
+  const folderChooser = page.waitForEvent('filechooser');
+  await page
+    .locator('[data-asset-library]')
+    .getByRole('button', { name: 'Add folder', exact: true })
+    .click();
+  await (await folderChooser).setFiles(out + '/fixtures');
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).waitFor();
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).click();
   await page.locator('[data-asset-place-layer]:enabled').waitFor();
