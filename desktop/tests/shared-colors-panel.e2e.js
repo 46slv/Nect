@@ -323,6 +323,10 @@ try {
   assert.equal(await page.locator('[data-chroma-profile]').inputValue(), 'soft');
   await page.locator(`[data-chroma-lock="${otherSlotId}"]`).check();
   await page.locator('[data-chroma-preview]').click();
+  assert.match(
+    await page.locator('[data-chroma-area-status]').textContent(),
+    /current visible area/,
+  );
   const proposed = await page.locator('.chroma-preview output').allTextContents();
   assert.equal(await saved(), beforeChroma, 'preview is not an authored edit');
   assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeChromaState);
@@ -373,6 +377,7 @@ try {
         ok: true,
         scope: 'shared colors and transient saturation preview; recipe and contrast guards pending',
         chromaPreviewCancelApplyAtomicHistory: true,
+        currentVisibleAreaWeightsPreview: true,
         actualPanelAndInspector: true,
         exactBindingAndUnlinkMaterialization: true,
         sharedEditAndUnlinkUndoRedo: true,

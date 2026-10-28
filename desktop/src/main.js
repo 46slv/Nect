@@ -698,6 +698,7 @@ let alignmentPreferences = readAlignmentPreferences();
 let dockedAlignment = false;
 const sharedColors = createSharedColorsPanel({
   app,
+  getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),

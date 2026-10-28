@@ -43,5 +43,11 @@ export function createColorCoverageView({ app, getKey, isOpen, measure }) {
         if (isOpen()) refresh();
       });
   }
-  return { refresh };
+  return {
+    refresh,
+    snapshot() {
+      const result = isOpen() ? current() : null;
+      return result?.value ? { key: result.key, value: structuredClone(result.value) } : null;
+    },
+  };
 }

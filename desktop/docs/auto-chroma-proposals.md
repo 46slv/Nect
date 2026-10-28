@@ -41,6 +41,8 @@ Current literal HEX is converted to OKLCH; lightness/hue/alpha are retained with
 8-bit conversion precision. Achromatic colors keep their original literal rather
 than acquiring an arbitrary hue. Dark and near-white slots receive Text and
 Background weights respectively, with Primary for other slots. Those are temporary
-heuristics, not semantic roles authored by the user. Area compensation is disabled
-in this first UI until a current verified coverage result is bound to the preview.
+heuristics, not semantic roles authored by the user. Area compensation uses a deep-copied current coverage snapshot when available.
+The checkbox can disable it. A missing, pending, failed or stale measurement is
+explicitly labeled unweighted; it is never substituted with older coverage.
+A preview that used coverage cannot be applied after its scene/font key changes.
 Contrast and semantic guards remain unimplemented and the UI states that limit.

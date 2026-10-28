@@ -26,6 +26,7 @@ export function createAutoChromaPanel({
   app,
   getSession,
   getDocument,
+  getCoverageSnapshot = () => null,
   dispatch,
   render,
   notify,
@@ -34,11 +35,16 @@ export function createAutoChromaPanel({
   let sessionId,
     preview = null,
     profile = 'balanced',
-    strength = 0.72;
+    strength = 0.72,
+    areaAware = true;
   const locked = new Set(),
     slots = () => getDocument().colorSlots || [];
   const key = () =>
     JSON.stringify([getSession().state.sessionId, getSession().state.expectedRevision, slots()]);
+  const previewCurrent = () =>
+    preview &&
+    preview.key === key() &&
+    (preview.coverageKey === null || getCoverageSnapshot()?.key === preview.coverageKey);
   function synchronize() {
     const id = getSession().state.sessionId;
     if (sessionId !== id) {
@@ -47,8 +53,9 @@ export function createAutoChromaPanel({
       preview = null;
       profile = 'balanced';
       strength = 0.72;
+      areaAware = true;
     }
-    if (preview && preview.key !== key()) preview = null;
+    if (preview && !previewCurrent()) preview = null;
   }
   const reset = () => {
     preview = null;
@@ -76,7 +83,7 @@ export function createAutoChromaPanel({
         return;
       }
       if (button.hasAttribute('data-chroma-apply')) {
-        if (!preview || preview.key !== key()) throw Error('Color preview is stale; preview again');
+        if (!previewCurrent()) throw Error('Color preview is stale; preview again');
         const updates = preview.rows.map((row) => ({ slotId: row.id, value: { ...row.value } }));
         reset();
         dispatch('set-color-slots', { updates }, state);
@@ -96,21 +103,41 @@ export function createAutoChromaPanel({
           ...(locked.has(slot.id) || C < 1e-6 ? { anchor: { ...slot.value } } : {}),
         };
       });
+      const coverage = areaAware ? getCoverageSnapshot() : null;
+      if (coverage && (typeof coverage.key !== 'string' || !coverage.key))
+        throw Error('Invalid current coverage snapshot');
       preview = {
         key: key(),
-        rows: proposeAutoChroma(descriptors, { profile, colorfulness: strength, areaAware: false }),
+        coverageKey: coverage?.key ?? null,
+        areaNote: areaAware
+          ? coverage
+            ? 'Uses current visible area as a soft weight.'
+            : 'No current area measurement; preview is unweighted.'
+          : 'Visible-area weighting is off.',
+        rows: proposeAutoChroma(
+          descriptors,
+          { profile, colorfulness: strength, areaAware },
+          coverage?.value ?? null,
+        ),
       };
       render();
     });
   });
   app.addEventListener('change', (event) => {
     const el = event.target;
-    if (!el.matches?.('[data-chroma-profile],[data-chroma-strength],[data-chroma-lock]')) return;
+    if (
+      !el.matches?.(
+        '[data-chroma-profile],[data-chroma-strength],[data-chroma-lock],[data-chroma-area]',
+      )
+    )
+      return;
     event.stopImmediatePropagation();
     guard(() => {
       envelope(el);
       synchronize();
-      if (el.hasAttribute('data-chroma-profile')) {
+      if (el.hasAttribute('data-chroma-area')) {
+        areaAware = el.checked;
+      } else if (el.hasAttribute('data-chroma-profile')) {
         if (!['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].includes(el.value))
           throw Error('Invalid color profile');
         profile = el.value;
@@ -136,14 +163,14 @@ export function createAutoChromaPanel({
       synchronize();
       if (!slots().length) return '';
       const names = new Map(slots().map((slot) => [slot.id, slot]));
-      return `<section class="auto-chroma-controls" aria-label="Auto Chroma"><strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><div class="chroma-locks">${slots()
+      return `<section class="auto-chroma-controls" aria-label="Auto Chroma"><strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><label><span>Use visible area</span><input type="checkbox" data-chroma-area ${areaAware ? 'checked' : ''}></label><div class="chroma-locks">${slots()
         .map(
           (slot) =>
             `<label><input type="checkbox" data-chroma-lock="${esc(slot.id)}" ${locked.has(slot.id) ? 'checked' : ''}>Keep ${esc(slot.name)}</label>`,
         )
         .join(
           '',
-        )}</div><p class="font-note">Preserves lightness, hue and alpha. Neutral colors stay neutral. Preview settings are temporary; applied colors are saved. Contrast is not checked.</p><button type="button" data-chroma-preview>Preview saturation</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors">${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
+        )}</div><p class="font-note">Preserves lightness, hue and alpha. Neutral colors stay neutral. Preview settings are temporary; applied colors are saved. Contrast is not checked.</p><button type="button" data-chroma-preview>Preview saturation</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
     },
   };
 }
