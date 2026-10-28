@@ -106,9 +106,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/asset-library.e2e.js',
     'tests/asset-library-catalog.e2e.js',
     'tests/workspace-panels.e2e.js',
+    'tests/asset-drag.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 67);
-  assert.equal(new Set(browserTestFiles).size, 67);
+  assert.equal(browserTestFiles.length, 68);
+  assert.equal(new Set(browserTestFiles).size, 68);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

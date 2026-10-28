@@ -7479,6 +7479,29 @@ export class CommandSession {
         }
         result = {};
       } else {
+        const route = payload.route ?? 'layer';
+        if (!['layer', 'graph'].includes(route)) throw Error('Invalid image placement route');
+        for (const key of ['at', 'nodePosition']) {
+          const value = payload[key];
+          if (
+            value !== undefined &&
+            (!Array.isArray(value) ||
+              value.length !== 2 ||
+              !value.every((v) => Number.isFinite(v) && Math.abs(v) <= 100000))
+          )
+            throw Error(`Invalid image ${key}`);
+        }
+        if (payload.anchor !== undefined && !['origin', 'center'].includes(payload.anchor))
+          throw Error('Invalid image placement anchor');
+        if (payload.joinBeforeOut) throw Error('Image graph placement is disconnected');
+        let target;
+        if (route === 'graph') {
+          target = candidate.layers.find((l) => l.id === payload.layerId);
+          if (!target || target.locked || target.guide || !target.visible)
+            throw Error('Choose an unlocked visible layer');
+          if (target.nodes.length >= 2000)
+            throw Error('Image insertion exceeds the 2000-node budget');
+        }
         const size = pngSize(decodeImage(payload.png)),
           assetId = uid('image');
         if (payload.provenance !== undefined) {
@@ -7498,20 +7521,32 @@ export class CommandSession {
           },
         };
         validateImageAssets(candidate.imageAssets);
-        const artwork = layer(payload.name),
-          generator = node('Image'),
-          output = node('Image Output', 380, 40),
+        const artwork = target || layer(payload.name),
+          generator = node(
+            'Image',
+            payload.nodePosition?.[0] ?? 40,
+            payload.nodePosition?.[1] ?? 40,
+          ),
           scale = Math.min(1, candidate.width / size.width, candidate.height / size.height);
         generator.asset = assetId;
         generator.params.size.value = [size.width * scale, size.height * scale];
-        generator.params.position.value = [
-          (candidate.width - generator.params.size.value[0]) / 2,
-          (candidate.height - generator.params.size.value[1]) / 2,
-        ];
-        output.params.path.source = generator.id;
-        artwork.nodes = [generator, output];
-        artwork.output = output.id;
-        candidate.layers.push(artwork);
+        generator.params.position.value = payload.at
+          ? payload.at.map(
+              (value, axis) =>
+                value - (payload.anchor === 'center' ? generator.params.size.value[axis] / 2 : 0),
+            )
+          : [
+              (candidate.width - generator.params.size.value[0]) / 2,
+              (candidate.height - generator.params.size.value[1]) / 2,
+            ];
+        if (target) target.nodes.push(generator);
+        else {
+          const output = node('Image Output', 380, 40);
+          output.params.path.source = generator.id;
+          artwork.nodes = [generator, output];
+          artwork.output = output.id;
+          candidate.layers.push(artwork);
+        }
         serialize(candidate);
         result = { layerId: artwork.id, nodeId: generator.id, assetId };
       }

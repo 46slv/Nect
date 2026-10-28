@@ -6516,6 +6516,32 @@ function openAssetLibrary() {
     render();
   }
   mountAssetLibrary({
+    resolveDrop: (event) => {
+      const target = event.target;
+      if (
+        !app.contains(target) ||
+        documents.hasDraft() ||
+        drag ||
+        wiring ||
+        penDraft ||
+        document.querySelector('dialog[open]')
+      )
+        return null;
+      if (target.closest('.graph-scroll'))
+        return {
+          route: 'graph',
+          nodePosition: graphPoint(event.clientX, event.clientY),
+          at: [history.doc.width / 2, history.doc.height / 2],
+          anchor: 'center',
+        };
+      if (target.closest('.canvas-stage'))
+        return {
+          route: 'layer',
+          at: canvasPoint(event),
+          anchor: 'center',
+        };
+      return null;
+    },
     onClose: () => {
       workspacePanels.refresh();
       app.querySelector('[data-workspace-panel="assets"]')?.focus({ preventScroll: true });
@@ -6532,13 +6558,23 @@ function openAssetLibrary() {
         session !== request.owner ||
         request.generation !== documents.generation ||
         documents.hasDraft() ||
-        readDocument() !== request.before
+        readDocument() !== request.before ||
+        (payload.route === 'graph' && current().id !== request.layerId)
       )
         throw Error('Document changed; choose the placement again');
       const result = commandChange(
         payload.asset ? 'adopt-image' : 'insert-svg-asset',
         payload.asset
-          ? { name: payload.name, png: payload.asset.data, provenance: payload.provenance }
+          ? {
+              name: payload.name,
+              png: payload.asset.data,
+              provenance: payload.provenance,
+              route: payload.route,
+              layerId: request.layerId,
+              at: payload.at,
+              anchor: payload.anchor,
+              nodePosition: payload.nodePosition,
+            }
           : { ...payload, layerId: request.layerId },
         'Asset added',
         true,

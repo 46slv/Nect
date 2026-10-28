@@ -111,7 +111,17 @@ function appendToOutput(target, output, ref, y) {
 // layer creation, wiring and provenance share one history admission.
 export function insertSVGAsset(
   doc,
-  { route, layerId, source, name, provenance, at = [0, 0], joinBeforeOut = false },
+  {
+    route,
+    layerId,
+    source,
+    name,
+    provenance,
+    at = [0, 0],
+    nodePosition,
+    anchor = 'origin',
+    joinBeforeOut = false,
+  },
   fonts = {},
 ) {
   if (!['layer', 'graph'].includes(route) || typeof joinBeforeOut !== 'boolean')
@@ -124,6 +134,14 @@ export function insertSVGAsset(
     !at.every((v) => Number.isFinite(v) && Math.abs(v) <= 100000)
   )
     throw Error('Invalid SVG position');
+  if (!['origin', 'center'].includes(anchor)) throw Error('Invalid SVG placement anchor');
+  if (
+    nodePosition !== undefined &&
+    (!Array.isArray(nodePosition) ||
+      nodePosition.length !== 2 ||
+      !nodePosition.every((v) => Number.isFinite(v) && Math.abs(v) <= 100000))
+  )
+    throw Error('Invalid SVG graph position');
   let target;
   if (route === 'layer') {
     target = blankLayer(name.trim());
@@ -136,13 +154,15 @@ export function insertSVGAsset(
       throw Error('Choose an unlocked visible layer');
   }
   const output = route === 'layer' || joinBeforeOut ? svgPartTarget(doc, target.id).output : null;
-  const embedded = svgComposition(importSVGTree(source), name.trim());
+  const imported = importSVGTree(source);
+  const embedded = svgComposition(imported, name.trim());
   const y = Math.max(0, ...target.nodes.map((n) => n.position[1])) + 180;
-  const ref = node('SVG', 40, y);
+  const ref = node('SVG', nodePosition?.[0] ?? 40, nodePosition?.[1] ?? y);
   ref.name = name.trim();
   ref.compositionReference = { compositionId: embedded.id };
   ref.svgAsset = structuredClone(provenance);
-  ref.params.position.value = [...at];
+  ref.params.position.value =
+    anchor === 'center' ? [at[0] - imported.width / 2, at[1] - imported.height / 2] : [...at];
   validateSVGAsset(ref, SVG_ASSET_SCHEMA_VERSION);
   target.nodes.push(ref);
   doc.layers.push(embedded);

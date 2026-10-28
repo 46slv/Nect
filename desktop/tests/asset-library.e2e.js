@@ -199,7 +199,8 @@ try {
   await page.getByLabel('Search assets', { exact: true }).fill('photo');
   await page.getByRole('button', { name: 'photo.png', exact: true }).click();
   await page.locator('[data-asset-place-layer]:enabled').waitFor();
-  assert.equal(await page.locator('[data-asset-place-graph]').isDisabled(), true);
+  assert.equal(await page.locator('[data-asset-place-graph]').isDisabled(), false);
+  assert.equal(await page.getByLabel('Join before Out').isDisabled(), true);
   await page.locator('[data-asset-place-layer]').click();
   await page.waitForFunction(
     () => document.querySelector('[data-asset-status]').textContent !== 'Reading asset…',

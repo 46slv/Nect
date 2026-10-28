@@ -59,7 +59,7 @@ function previewImage(svg) {
     : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
+export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {} }) {
   if (mounted) {
     mounted.querySelector('[data-asset-search]').focus();
     return;
@@ -79,6 +79,8 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
     shown = 48,
     choiceSequence = 0;
   const prepared = new Map();
+  let dragTicket = null;
+  const dragType = 'application/x-nect-library-ticket';
   let folderPickIntent = null;
   const header = element('header');
   header.append(element('strong', 'Graphic assets'));
@@ -150,8 +152,8 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
     search.disabled = hierarchy.disabled = more.disabled = busy;
     for (const field of Object.values(fields)) field.disabled = busy;
     place.disabled = busy || !selected || !!selected.error;
-    graph.disabled = place.disabled || selected?.kind === 'image';
-    join.disabled = graph.disabled;
+    graph.disabled = place.disabled;
+    join.disabled = graph.disabled || selected?.kind === 'image';
     add.disabled = refresh.disabled = remove.disabled = busy;
     refresh.disabled ||= !roots.length;
     remove.disabled ||= !roots.length;
@@ -165,6 +167,9 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
     mounted = null;
     closeMounted = null;
     document.removeEventListener('keydown', keydown);
+    document.removeEventListener('dragover', dragover);
+    document.removeEventListener('drop', drop);
+    dragTicket = null;
     onClose();
   }
   closeMounted = closePanel;
@@ -270,18 +275,48 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
       button.append(img, label, state);
       button.onclick = () => choose(item, token);
       grid.append(button);
-      return { item, img, state };
+      return { item, img, state, button };
     });
     async function worker() {
       while (alive && token === epoch && next < entries.length) {
-        const { item, img, state } = entries[next++];
+        const { item, img, state, button } = entries[next++];
         const value = await prepare(item);
         if (!alive || token !== epoch) return;
         if (value.error) {
           state.textContent = 'Unsupported';
           state.title = value.error;
           img.hidden = true;
-        } else img.src = previewImage(value.preview);
+        } else {
+          img.src = previewImage(value.preview);
+          img.draggable = false;
+          button.draggable = !!resolveDrop;
+          if (resolveDrop)
+            button.title =
+              'Drag to the canvas for a new layer, or to the graph for an unconnected node';
+          button.ondragstart = (event) => {
+            if (busy || token !== epoch || !alive || !event.dataTransfer) {
+              event.preventDefault();
+              return;
+            }
+            dragTicket = {
+              id: crypto.randomUUID(),
+              item: { ...item, ...value },
+              request: capture(),
+              epoch: token,
+              metadata:
+                selected?.relativePath === item.relativePath
+                  ? Object.fromEntries(
+                      Object.entries(fields).map(([key, field]) => [key, field.value]),
+                    )
+                  : { author: '', source: '', license: '' },
+            };
+            event.dataTransfer.setData(dragType, dragTicket.id);
+            event.dataTransfer.effectAllowed = 'copy';
+          };
+          button.ondragend = () => {
+            dragTicket = null;
+          };
+        }
       }
     }
     for (let i = 0; i < 4; i++) void worker();
@@ -472,12 +507,35 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
     shown += 48;
     drawItems();
   };
-  async function placeAsset(route) {
-    if (!selected || selected.error || busy) return;
-    const item = selected,
+  function dragover(event) {
+    if (!dragTicket || busy || dragTicket.epoch !== epoch || !resolveDrop?.(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }
+  function drop(event) {
+    const ticket = dragTicket;
+    const placement = ticket && resolveDrop?.(event);
+    if (
+      !ticket ||
+      !placement ||
+      ticket.epoch !== epoch ||
+      event.dataTransfer?.getData(dragType) !== ticket.id
+    )
+      return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragTicket = null;
+    void placeAsset(placement.route, placement, ticket);
+  }
+  document.addEventListener('dragover', dragover);
+  document.addEventListener('drop', drop);
+  async function placeAsset(route, placement = {}, ticket = null) {
+    const chosen = ticket?.item || selected;
+    if (!chosen || chosen.error || busy) return;
+    const item = chosen,
       root = listing.root,
-      request = capture(),
-      token = epoch;
+      request = ticket?.request || capture(),
+      token = ticket?.epoch ?? epoch;
     busy = true;
     buttons();
     message('Reading asset…');
@@ -495,17 +553,18 @@ export function mountAssetLibrary({ capture, insert, onClose = () => {} }) {
         relativePath: item.relativePath,
         sourceLocation: opened.sourceLocation,
         sha256: value.sha256,
-        author: fields.author.value,
-        source: fields.source.value,
-        license: fields.license.value,
+        author: ticket?.metadata.author ?? fields.author.value,
+        source: ticket?.metadata.source ?? fields.source.value,
+        license: ticket?.metadata.license ?? fields.license.value,
       };
       insert(request, {
+        ...placement,
         route,
         source: value.source,
         asset: value.asset,
         name: item.relativePath.split('/').at(-1),
         provenance,
-        joinBeforeOut: route === 'graph' && join.checked,
+        joinBeforeOut: route === 'graph' && value.kind === 'svg' && !ticket && join.checked,
       });
       message('Asset added');
     } catch (error) {
