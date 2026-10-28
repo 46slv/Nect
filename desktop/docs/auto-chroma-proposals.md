@@ -26,8 +26,8 @@ Session transaction. Targets and values are preflighted together; no-op edits
 retain Redo, stale revisions fail closed, and one Undo restores the entire batch.
 This is an application primitive, not automatic adoption of generated proposals.
 
-Still required: persisted recipe and dependency design, palette controls,
-contrast/semantic guards, browser and native acceptance. These heuristics cannot guarantee aesthetically correct colors.
+Still required: full harmony recipe and dependency design, wheel controls,
+contrast/semantic guards, and full-system browser/native acceptance. These heuristics cannot guarantee aesthetically correct colors.
 
 ## Transient saturation preview
 
@@ -35,7 +35,8 @@ Shared colors now offers profile and colorfulness controls, per-slot Keep locks,
 and before/after swatches. Preview and Cancel do not write the document. Apply
 uses one `set-color-slots` command, so the full palette is one Undo/Redo. Preview
 is invalidated by session/revision or literal changes and cleared on panel close.
-Only applied literal colors persist; these preview controls are not saved recipes.
+Apply persists literal colors and version-1 saturation controls together in schema55.
+These controls are not yet a complete harmony-wheel recipe.
 
 Current literal HEX is converted to OKLCH; lightness/hue/alpha are retained within
 8-bit conversion precision. Achromatic colors keep their original literal rather
@@ -46,3 +47,19 @@ The checkbox can disable it. A missing, pending, failed or stale measurement is
 explicitly labeled unweighted; it is never substituted with older coverage.
 A preview that used coverage cannot be applied after its scene/font key changes.
 Contrast and semantic guards remain unimplemented and the UI states that limit.
+
+## Saved saturation controls (schema55)
+
+Optional project-level `colorDesign` has exactly version=1, profile, colorfulness,
+areaAware and lockedSlotIds. Locks reference existing stable color-slot IDs, never
+names or array positions. The optional `design` payload on `set-color-slots` is
+validated with every color update before mutation and saved in the same transaction.
+One Undo/Redo restores both colors and controls. Commands without `design` retain
+the existing no-op/Redo semantics.
+
+Saved design changes, Undo/Redo and a new document reload the controls. An unrelated
+literal change preserves the local draft; Preview/Cancel still do not author it.
+Whole native project save/reopen retains controls, while importing selected nodes
+or compositions keeps the receiving project's design and imports referenced color
+values rather than replacing its palette policy. Full wheel relationships, role
+authoring and contrast guards remain separate unfinished work.

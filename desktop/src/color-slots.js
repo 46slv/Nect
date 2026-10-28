@@ -1,5 +1,6 @@
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
+export const COLOR_DESIGN_SCHEMA_VERSION = 55;
 export const colorSlotCommands = new Set([
   'create-color-slot',
   'rename-color-slot',
@@ -27,8 +28,40 @@ function name(value) {
   if (typeof value !== 'string' || !value.trim() || value.length > 128)
     throw Error('Invalid Color slot name');
 }
+export function validateColorDesign(doc, slots) {
+  const design = doc.colorDesign;
+  if (design === undefined) return;
+  const keys = ['version', 'profile', 'colorfulness', 'areaAware', 'lockedSlotIds'];
+  if (
+    doc.schemaVersion < COLOR_DESIGN_SCHEMA_VERSION ||
+    !design ||
+    typeof design !== 'object' ||
+    Array.isArray(design) ||
+    Object.keys(design).length !== keys.length ||
+    Object.keys(design).some((key) => !keys.includes(key)) ||
+    design.version !== 1 ||
+    !['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].includes(design.profile) ||
+    !Number.isFinite(design.colorfulness) ||
+    design.colorfulness < 0 ||
+    design.colorfulness > 1 ||
+    typeof design.areaAware !== 'boolean' ||
+    !Array.isArray(design.lockedSlotIds) ||
+    design.lockedSlotIds.length > 256
+  )
+    throw Error('Invalid saved color design; requires schemaVersion 55');
+  const seen = new Set();
+  for (const id of design.lockedSlotIds) {
+    if (typeof id !== 'string' || !slots.has(id) || seen.has(id))
+      throw Error('Invalid saved color lock reference');
+    seen.add(id);
+  }
+}
 export function validateColorSlots(doc) {
-  if (doc.colorSlots === undefined) return new Map();
+  if (doc.colorSlots === undefined) {
+    const slots = new Map();
+    validateColorDesign(doc, slots);
+    return slots;
+  }
   if (
     doc.schemaVersion < COLOR_SLOTS_SCHEMA_VERSION ||
     !Array.isArray(doc.colorSlots) ||
@@ -43,6 +76,7 @@ export function validateColorSlots(doc) {
     color(slot.value);
     slots.set(slot.id, slot);
   }
+  validateColorDesign(doc, slots);
   return slots;
 }
 export function validateColorSlotBinding(q, slots) {
@@ -80,8 +114,24 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       color(update.value);
       return { slot: slots.get(update.slotId), value: { ...update.value } };
     });
-    // Validate every target and value before touching even the private candidate.
+    let design;
+    if (payload.design !== undefined) {
+      design = structuredClone(payload.design);
+      validateColorDesign(
+        {
+          ...doc,
+          schemaVersion: Math.max(doc.schemaVersion, COLOR_DESIGN_SCHEMA_VERSION),
+          colorDesign: design,
+        },
+        slots,
+      );
+    }
+    // Validate every target, value and design before touching even the private candidate.
     for (const update of updates) update.slot.value = update.value;
+    if (design !== undefined) {
+      doc.colorDesign = design;
+      doc.schemaVersion = Math.max(doc.schemaVersion, COLOR_DESIGN_SCHEMA_VERSION);
+    }
     return { slotIds: [...seen] };
   }
   if (type === 'create-color-slot') {

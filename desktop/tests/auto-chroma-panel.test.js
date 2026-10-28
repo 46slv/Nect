@@ -5,7 +5,7 @@ import { createSharedColorsPanel } from '../src/shared-colors-panel.js';
 import { proposeAutoChroma } from '../src/auto-chroma.js';
 import { colorChromaCoordinates } from '../src/auto-chroma-panel.js';
 import { captureFocus, restoreFocus } from '../src/focus.js';
-import { blankDocument, CommandSession, serialize } from '../src/core.js';
+import { blankDocument, CommandSession, serialize, deserialize } from '../src/core.js';
 
 const initialSlots = () => [
   { id: 'slot-dark', name: 'Duplicate', value: { hex: '#151019', alpha: 0 } },
@@ -148,7 +148,16 @@ function assertUnchanged(s, before) {
 function assertBatch(s, slots, settings = {}, locked = []) {
   assert.equal(s.calls.length, 1, 'apply is one atomic authored command');
   assert.equal(s.calls[0].type, 'set-color-slots');
-  assert.deepEqual(s.calls[0].payload, { updates: expectedUpdates(slots, settings, locked) });
+  assert.deepEqual(s.calls[0].payload, {
+    updates: expectedUpdates(slots, settings, locked),
+    design: {
+      version: 1,
+      profile: settings.profile ?? 'balanced',
+      colorfulness: settings.colorfulness ?? 0.72,
+      areaAware: settings.areaAware ?? true,
+      lockedSlotIds: locked,
+    },
+  });
   assert.deepEqual(s.calls[0].state, s.session.state);
   assert.notEqual(s.calls[0].state, s.session.state, 'capture an independent Session envelope');
 }
@@ -579,4 +588,185 @@ test('a new Session resets temporary profile, strength and locks rather than lea
   s.preview();
   s.apply();
   assertBatch(s, before.colorSlots);
+});
+
+function assertControls(s, design) {
+  // happy-dom's select.value can misreport a parsed nonfirst selected option.
+  assert.ok(
+    s.query(`[data-chroma-profile] option[value="${design.profile}"]`).hasAttribute('selected'),
+  );
+  assert.equal(Number(s.query('[data-chroma-strength]').value), design.colorfulness);
+  assert.equal(s.query('[data-chroma-area]').checked, design.areaAware);
+  for (const el of s.app.querySelectorAll('[data-chroma-lock]'))
+    assert.equal(el.checked, design.lockedSlotIds.includes(el.dataset.chromaLock));
+}
+const defaultDesign = () => ({
+  version: 1,
+  profile: 'balanced',
+  colorfulness: 0.72,
+  areaAware: true,
+  lockedSlotIds: [],
+});
+
+test('Apply saves controls; Undo/Redo and a native reopen restore every saved setting, not local drafts', (t) => {
+  const s = setup(t, { realSession: true });
+  const initial = serialize(s.currentDocument());
+  const design = {
+    version: 1,
+    profile: 'soft',
+    colorfulness: 0.38,
+    areaAware: false,
+    lockedSlotIds: ['slot-mid'],
+  };
+  s.change('[data-chroma-profile]', design.profile);
+  s.change('[data-chroma-strength]', String(design.colorfulness));
+  s.change('[data-chroma-area]', false);
+  s.change('[data-chroma-lock="slot-mid"]', true);
+  s.preview();
+  s.apply();
+  const saved = serialize(s.currentDocument());
+  assert.deepEqual(s.currentDocument().colorDesign, design);
+  assertControls(s, design);
+  s.change('[data-chroma-profile]', 'vibrant');
+  s.change('[data-chroma-strength]', '1');
+  s.change('[data-chroma-area]', true);
+  s.change('[data-chroma-lock="slot-mid"]', false);
+  s.preview();
+  s.click('[data-chroma-cancel]');
+  assert.equal(serialize(s.currentDocument()), saved, 'cancel never saves draft settings');
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.currentDocument()), initial);
+  assertControls(s, defaultDesign());
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assertControls(s, design);
+  s.change('[data-chroma-strength]', '0.11');
+  s.session = new CommandSession(deserialize(saved));
+  s.render();
+  assertControls(s, design);
+  assert.equal(s.query('[data-chroma-apply]'), null);
+  // A second panel has no in-memory setting cache from the original Apply.
+  const reopened = setup(t, { realSession: true });
+  reopened.session = new CommandSession(deserialize(saved));
+  reopened.render();
+  assertControls(reopened, design);
+  assert.deepEqual(reopened.calls, []);
+});
+
+test('switching between saved documents and an unsaved new Session never leaks another document draft', (t) => {
+  const s = setup(t, { realSession: true });
+  const docA = s.currentDocument();
+  docA.schemaVersion = 55;
+  docA.colorDesign = {
+    version: 1,
+    profile: 'fidelity',
+    colorfulness: 0,
+    areaAware: false,
+    lockedSlotIds: ['slot-light'],
+  };
+  const docB = structuredClone(docA);
+  docB.colorDesign = {
+    version: 1,
+    profile: 'uniform',
+    colorfulness: 1,
+    areaAware: true,
+    lockedSlotIds: ['slot-dark', 'slot-mid'],
+  };
+  for (const doc of [docA, docB, docA]) {
+    s.session = new CommandSession(deserialize(serialize(doc)));
+    s.render();
+    assertControls(s, doc.colorDesign);
+    s.change('[data-chroma-profile]', 'vibrant');
+    s.change('[data-chroma-strength]', '0.25');
+    s.preview();
+    assert.equal(serialize(s.currentDocument()), serialize(doc));
+  }
+  const fresh = blankDocument();
+  fresh.schemaVersion = 54;
+  fresh.colorSlots = initialSlots();
+  s.session = new CommandSession(fresh);
+  s.render();
+  assertControls(s, defaultDesign());
+  assert.equal(s.query('[data-chroma-apply]'), null);
+  assert.deepEqual(s.calls, []);
+});
+
+test('literal color edits neither persist nor reset current draft controls', (t) => {
+  const s = setup(t, { realSession: true });
+  s.preview();
+  s.apply();
+  const savedDesign = structuredClone(s.currentDocument().colorDesign);
+  const draft = {
+    version: 1,
+    profile: 'soft',
+    colorfulness: 0.38,
+    areaAware: false,
+    lockedSlotIds: ['slot-mid'],
+  };
+  s.change('[data-chroma-profile]', draft.profile);
+  s.change('[data-chroma-strength]', String(draft.colorfulness));
+  s.change('[data-chroma-area]', false);
+  s.change('[data-chroma-lock="slot-mid"]', true);
+  s.preview();
+  const priorCommands = s.calls.length;
+  s.session.dispatch({
+    ...s.session.state,
+    type: 'set-color-slot',
+    payload: {
+      slotId: 'slot-dark',
+      value: { hex: '#abcdef', alpha: 0.5 },
+    },
+  });
+  s.render();
+  assertControls(s, draft);
+  assert.deepEqual(s.currentDocument().colorDesign, savedDesign);
+  assert.equal(
+    s.query('[data-chroma-apply]'),
+    null,
+    'literal edit invalidates the old color preview',
+  );
+  assert.equal(s.calls.length, priorCommands, 'rerender must not author a design save');
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assertControls(s, draft);
+  assert.deepEqual(s.currentDocument().colorDesign, savedDesign);
+});
+
+test('all locked colors still save newly applied settings in one authored step; identical repeat is a no-op', (t) => {
+  const s = setup(t, { realSession: true });
+  const before = serialize(s.currentDocument());
+  const colors = structuredClone(s.currentDocument().colorSlots);
+  const past = s.session.historyView.past.length;
+  for (const { id } of colors) s.change(`[data-chroma-lock="${id}"]`, true);
+  s.change('[data-chroma-profile]', 'soft');
+  s.change('[data-chroma-strength]', '0.38');
+  s.change('[data-chroma-area]', false);
+  s.preview();
+  s.apply();
+  const design = {
+    version: 1,
+    profile: 'soft',
+    colorfulness: 0.38,
+    areaAware: false,
+    lockedSlotIds: colors.map(({ id }) => id),
+  };
+  assert.deepEqual(s.currentDocument().colorSlots, colors);
+  assert.deepEqual(s.currentDocument().colorDesign, design);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  const saved = serialize(s.currentDocument());
+  const state = structuredClone(s.session.state);
+  s.preview();
+  s.apply();
+  assert.equal(serialize(s.currentDocument()), saved);
+  assert.deepEqual(s.session.state, state);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.currentDocument()), before);
+  assertControls(s, defaultDesign());
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.currentDocument()), saved);
+  assertControls(s, design);
 });

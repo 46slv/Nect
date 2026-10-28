@@ -329,7 +329,16 @@ test('default area-aware preview uses current measurement and Apply saves the ac
   s.apply();
   assert.equal(s.calls.length, 1);
   assert.equal(s.calls[0].type, 'set-color-slots');
-  assert.deepEqual(s.calls[0].payload, { updates: weighted });
+  assert.deepEqual(s.calls[0].payload, {
+    updates: weighted,
+    design: {
+      version: 1,
+      profile: 'balanced',
+      colorfulness: 0.72,
+      areaAware: true,
+      lockedSlotIds: [],
+    },
+  });
   assert.deepEqual(s.calls[0].state, before.state);
   assert.equal(s.session.historyView.past.length, before.history.past.length + 1);
   assert.deepEqual(
@@ -426,6 +435,12 @@ test('unavailable measurement is explicitly unweighted, never an invented area e
       s.apply();
       assert.equal(s.calls.length, 1);
       assert.deepEqual(s.calls[0].payload.updates, expectedUpdates(false));
+      assert.equal(
+        s.calls[0].payload.design.areaAware,
+        true,
+        'fallback does not replace the authored area-aware preference',
+      );
+      assert.equal(s.session.snapshot().colorDesign.areaAware, true);
       if (availability === 'pending') {
         s.requests[0].resolve(coverage());
         await flush();
@@ -456,6 +471,8 @@ test('disabling area awareness discards the weighted preview and ignores later m
   s.apply();
   assert.equal(s.calls.length, 1, 'unused coverage keys do not stale an unweighted preview');
   assert.deepEqual(s.calls[0].payload.updates, expectedUpdates(false));
+  assert.equal(s.calls[0].payload.design.areaAware, false);
+  assert.equal(s.session.snapshot().colorDesign.areaAware, false);
 });
 
 test('reenabling area weighting after an unweighted preview uses the current measured output', async (t) => {

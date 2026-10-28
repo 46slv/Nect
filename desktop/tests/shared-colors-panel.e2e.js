@@ -369,13 +369,47 @@ try {
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
   assert.equal(await launcher.evaluate((el) => el === document.activeElement), true);
   assert.equal(await saved(), reopened);
+  // Applying saves controls and stable Keep references with the palette.
+  await activateCommand(page, 'redo');
+  assert.equal(await saved(), afterChroma);
+  const chromaProject = await snapshot();
+  assert.deepEqual(chromaProject.colorDesign, {
+    version: 1,
+    profile: 'soft',
+    colorfulness: 0.72,
+    areaAware: true,
+    lockedSlotIds: [otherSlotId],
+  });
+  const savingDesign = page.waitForEvent('download');
+  await activateCommand(page, 'save-as');
+  const designFile = resolve(output, 'saved-color-settings.json');
+  await (await savingDesign).saveAs(designFile);
+  assert.deepEqual(JSON.parse(await readFile(designFile, 'utf8')), chromaProject);
+  await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
+  const designSession = await page.evaluate(() => window.nect.commandState.sessionId);
+  const designChooser = page.waitForEvent('filechooser');
+  await activateCommand(page, 'open');
+  await (await designChooser).setFiles(designFile);
+  await page.waitForFunction((id) => window.nect.commandState.sessionId !== id, designSession);
+  assert.deepEqual(await snapshot(), chromaProject);
+  await launcher.click();
+  assert.equal(await page.locator('[data-chroma-profile]').inputValue(), 'soft');
+  assert.equal(Number(await page.locator('[data-chroma-strength]').inputValue()), 0.72);
+  assert.equal(await page.locator('[data-chroma-area]').isChecked(), true);
+  assert.equal(await page.locator(`[data-chroma-lock="${otherSlotId}"]`).isChecked(), true);
+  assert.equal(await page.locator(`[data-chroma-lock="${slotId}"]`).isChecked(), false);
+  await page.locator('[data-chroma-profile]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: resolve(output, 'chroma-restored-settings.png'), fullPage: true });
+  await assertAssetRetained();
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(output, 'result.json'),
     JSON.stringify(
       {
         ok: true,
-        scope: 'shared colors and transient saturation preview; recipe and contrast guards pending',
+        scope:
+          'shared colors, area-aware saturation preview and saved controls; harmony recipe and contrast guards pending',
+        savedChromaControlsBrowserReopen: true,
         chromaPreviewCancelApplyAtomicHistory: true,
         currentVisibleAreaWeightsPreview: true,
         actualPanelAndInspector: true,

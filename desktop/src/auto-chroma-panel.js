@@ -33,6 +33,7 @@ export function createAutoChromaPanel({
   envelope,
 }) {
   let sessionId,
+    savedDesignKey,
     preview = null,
     profile = 'balanced',
     strength = 0.72,
@@ -47,13 +48,17 @@ export function createAutoChromaPanel({
     (preview.coverageKey === null || getCoverageSnapshot()?.key === preview.coverageKey);
   function synchronize() {
     const id = getSession().state.sessionId;
-    if (sessionId !== id) {
+    const design = getDocument().colorDesign;
+    const designKey = JSON.stringify(design ?? null);
+    if (sessionId !== id || savedDesignKey !== designKey) {
+      savedDesignKey = designKey;
       sessionId = id;
       locked.clear();
       preview = null;
-      profile = 'balanced';
-      strength = 0.72;
-      areaAware = true;
+      profile = design?.profile ?? 'balanced';
+      strength = design?.colorfulness ?? 0.72;
+      areaAware = design?.areaAware ?? true;
+      for (const id of design?.lockedSlotIds || []) locked.add(id);
     }
     if (preview && !previewCurrent()) preview = null;
   }
@@ -86,7 +91,16 @@ export function createAutoChromaPanel({
         if (!previewCurrent()) throw Error('Color preview is stale; preview again');
         const updates = preview.rows.map((row) => ({ slotId: row.id, value: { ...row.value } }));
         reset();
-        dispatch('set-color-slots', { updates }, state);
+        const design = {
+          version: 1,
+          profile,
+          colorfulness: strength,
+          areaAware,
+          lockedSlotIds: slots()
+            .filter((slot) => locked.has(slot.id))
+            .map((slot) => slot.id),
+        };
+        dispatch('set-color-slots', { updates, design }, state);
         render();
         return;
       }
@@ -170,7 +184,7 @@ export function createAutoChromaPanel({
         )
         .join(
           '',
-        )}</div><p class="font-note">Preserves lightness, hue and alpha. Neutral colors stay neutral. Preview settings are temporary; applied colors are saved. Contrast is not checked.</p><button type="button" data-chroma-preview>Preview saturation</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
+        )}</div><p class="font-note">Preserves lightness, hue and alpha. Neutral colors stay neutral. Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast is not checked.</p><button type="button" data-chroma-preview>Preview saturation</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
     },
   };
 }
