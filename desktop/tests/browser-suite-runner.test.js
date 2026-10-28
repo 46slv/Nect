@@ -102,9 +102,10 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/layer-duplicate-expression-refs.e2e.js',
     'tests/numeric-render-race.e2e.js',
     'tests/project-integrity-ui.e2e.js',
+    'tests/text-inspector-layout.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 63);
-  assert.equal(new Set(browserTestFiles).size, 63);
+  assert.equal(browserTestFiles.length, 64);
+  assert.equal(new Set(browserTestFiles).size, 64);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

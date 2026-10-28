@@ -20,7 +20,6 @@ export const browserTestFiles = Object.freeze([
   'tests/text-trial-feedback.e2e.js',
   'tests/canvas-in-place.e2e.js',
   'tests/system-font.e2e.js',
-  'tests/text-inspector-layout.e2e.js',
   'tests/guides.e2e.js',
   'tests/layout-guides.e2e.js',
   'tests/images.e2e.js',
@@ -67,6 +66,7 @@ export const browserTestFiles = Object.freeze([
   'tests/layer-duplicate-expression-refs.e2e.js',
   'tests/numeric-render-race.e2e.js',
   'tests/project-integrity-ui.e2e.js',
+  'tests/text-inspector-layout.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
