@@ -1,3 +1,5 @@
+import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
+import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
 import { createGraphPanJoystick, joystickOverviewLayout } from './graph-pan-joystick.js';
 import { wrapExtent, basicTextWrap, withWrapExtent } from './text-wrap.js';
@@ -687,6 +689,36 @@ let editorPicker = null,
 let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
+let dockedAlignment = false;
+let workspaceGeometryFrame = null;
+const workspacePanels = createWorkspacePanels({
+  getAssetPanel: getAssetLibraryPanel,
+  storage: {
+    getItem: (key) => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+  },
+  onAssets: () => {
+    if (getAssetLibraryPanel()) closeAssetLibrary();
+    else openAssetLibrary();
+  },
+  onAlign: () => {
+    const opening = !alignmentPreferences.open;
+    closeAssetLibrary();
+    alignmentPreferences.open = opening;
+    dockedAlignment = opening;
+    saveAlignmentPreferences();
+    render();
+  },
+  onGeometry: () => {
+    if (workspaceGeometryFrame !== null) return;
+    workspaceGeometryFrame = requestAnimationFrame(() => {
+      workspaceGeometryFrame = null;
+      fitCanvas();
+      updateGraphBounds();
+      drawWires();
+    });
+  },
+});
 function readAlignmentPreferences() {
   try {
     const value = JSON.parse(localStorage.getItem(ALIGN_PREFERENCES_KEY) || '{}');
@@ -1050,7 +1082,7 @@ let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
 function closeTransientPanels(except = '') {
-  if (except !== 'align') alignmentPreferences.open = false;
+  if (except !== 'align' && !dockedAlignment) alignmentPreferences.open = false;
   if (except !== 'grid') gridOpen = false;
   if (except !== 'layout') layoutOpen = false;
   if (except !== 'guides') guidesOpen = false;
@@ -3288,6 +3320,15 @@ function positionReferenceControls(n) {
   return `<div class="field"><label>Position reference</label><select data-position-reference="${n.id}" aria-label="Object Position reference">${options.map(([value, label]) => `<option value="${value}" ${(n.positionReference || 'origin') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><p class="font-note">Bounds exclude stroke. Position stays fixed when the reference or size changes.${n.type === 'Image' ? ' Image bounds include transparent pixels.' : ''}</p>`;
 }
 function referenceControls(n, result, compact = false) {
+  if (n.type === 'SVG') {
+    const source = history.doc.layers.find((l) => l.id === n.compositionReference?.compositionId);
+    const consumers = source
+      ? history.doc.layers
+          .flatMap((l) => l.nodes)
+          .filter((item) => item.compositionReference?.compositionId === source.id).length
+      : 0;
+    return `<div class="field"><label>SVG source</label><span>${esc(n.svgAsset.relativePath)}</span></div><div class="field"><label>License</label><span>${esc(n.svgAsset.license || 'Unspecified')}</span></div>${consumers > 1 ? `<p class="font-note">Source edits affect ${consumers} nodes</p>` : ''}${source ? `<button class="mini" data-composition-jump="${esc(source.id)}">Open source</button>` : '<span>Missing SVG source</span>'}`;
+  }
   if (n.type === 'Composition Reference') {
     const targetId = n.compositionReference?.compositionId || '',
       source = history.doc.layers.find((l) => l.id === targetId);
@@ -3695,6 +3736,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   }
   if (drag?.type === 'graph-overview') cancelInteraction();
   graphOverviewObserver?.disconnect();
+  const svgPartInput = svgPartPick ? app.querySelector('#svg-part-file') : null;
   const focused = resetView ? null : captureFocus(app);
   const tabSelectedNumber = !resetView && tabSelectedNumericInputs.has(document.activeElement);
   graphPanJoystick?.destroy();
@@ -3769,7 +3811,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
           )
           .join('')}</select></label>`
       : ''
-  }<button data-action="add-composition">Add composition</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
+  }<button data-action="add-composition">Add composition</button><button data-action="asset-library">Assets</button><button data-action="add-svg-part" title="Add vector SVG to the current Composition">Add SVG node</button><button data-action="import-svg" title="Replace the active Composition with imported SVG; other Compositions and shared assets are kept">Import SVG document</button><button data-action="import-image">Import image</button><button data-action="save" title="Ctrl+S">Save</button><button data-action="save-as" title="Ctrl+Shift+S">Save As…</button><span data-document-status class="muted"></span>${desktop ? '<button data-recovery-status data-recovery-retry></button><button data-recovery-open>Recovery copies</button><details class="recovery-failures" data-recovery-failures hidden><summary>Recovery failed</summary><div class="command-menu-items"><select data-recovery-failed-target aria-label="Failed recovery document"></select><button data-recovery-retry-target>Retry document</button></div></details>' : ''}<button data-action="export">Export SVG</button><select id="svg-export-sizing" data-svg-export-sizing aria-label="SVG output sizing"><option value="fixed" ${svgExportSizing === 'fixed' ? 'selected' : ''}>Fixed</option><option value="responsive" ${svgExportSizing === 'responsive' ? 'selected' : ''}>Responsive</option></select><select id="svg-export-unit" data-svg-export-unit aria-label="SVG export units" title="SVG width and height units" ${svgExportSizing === 'fixed' ? '' : 'hidden'}>${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === svgExportUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select><select id="svg-export-precision" data-svg-export-precision aria-label="SVG geometry precision" title="Round geometry numbers in the SVG copy; Default keeps the current output"><option value="default" ${svgExportPrecision === 'default' ? 'selected' : ''}>Default</option>${SVG_EXPORT_PRECISIONS.map((digits) => `<option value="${digits}" ${String(digits) === svgExportPrecision ? 'selected' : ''}>${digits} decimals</option>`).join('')}</select><select id="png-export-mode" aria-label="PNG size mode" title="Choose scale or physical PPI"><option value="scale" ${pngExportMode === 'scale' ? 'selected' : ''}>Scale</option><option value="ppi" ${pngExportMode === 'ppi' ? 'selected' : ''}>Physical × PPI</option></select><select id="png-scale" aria-label="PNG export scale" ${pngExportMode === 'scale' ? '' : 'hidden'}>${[0.5, 1, 2, 4].map((v) => `<option value="${v}" ${v === pngScale ? 'selected' : ''}>${v}×</option>`).join('')}</select><label ${pngExportMode === 'ppi' ? '' : 'hidden'}>PPI<input id="png-ppi" type="number" step="any" value="${Number.isFinite(pngPpi) ? pngPpi : ''}" aria-label="PNG resolution (PPI)"></label><output data-png-dimensions data-valid="${!!pngPreview.size}" aria-label="PNG output dimensions" aria-live="polite">${esc(pngPreview.label)}</output><button data-action="export-png" ${pngPreview.size ? '' : 'disabled'} title="Transparent artboard · ${esc(pngPreview.label)}">Export PNG</button><span class="divider"></span><button data-action="undo" ${history.past.length || penDraft ? '' : 'disabled'} title="Ctrl+Z">↶</button><button data-action="redo" ${history.future.length && !penDraft ? '' : 'disabled'} title="Ctrl+Shift+Z">↷</button><span class="spacer"></span><span class="muted">${esc(doc.name)}</span><button data-action="help">?</button></header><div class="workspace"><nav class="tools" aria-label="Tools">${[
     ['direct', 'A', 'Direct selection (A)'],
     ['select', '↖', 'Select / move'],
     ['pen', '⌁', 'Pen / Curve'],
@@ -3836,6 +3878,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
   renderCompositionTablist();
+  // A deferred view/font refresh must not detach an active browser chooser.
+  // Document replacement clears svgPartPick and retains its existing stale guard.
+  if (svgPartInput) app.querySelector('#svg-part-file')?.replaceWith(svgPartInput);
   mountViewers(app, viewerState, {
     doc,
     fonts,
@@ -3855,6 +3900,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   }
   const svgPrecision = app.querySelector('#svg-export-precision');
   if (svgPrecision) svgPrecision.value = svgExportPrecision;
+  workspacePanels.attach(app);
   prepareNumericInputs(app);
   for (const row of app.querySelectorAll('.layer[data-layer]')) row.tabIndex = 0;
   // Keep controls and actionable states visible; put reference prose in
@@ -3907,6 +3953,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   revealActivePointRow();
   for (const select of app.querySelectorAll('[data-stroke-preset]'))
     select.value = select.querySelector('option[selected]').value;
+  // Finalize header geometry before fitting. Deferring menu compaction to the
+  // observer changes the stage height between the two presses of a double-click.
+  ensureCommandMenus(app, document);
+  ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();
   if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
@@ -4838,7 +4888,7 @@ function canvasOverlay(n, result) {
       `<rect class="guide" x="${path.position[0]}" y="${path.position[1]}" width="${path.size[0]}" height="${path.size[1]}" stroke-dasharray="5 4"/>` +
       nodeStageMoveMarker(n, path)
     );
-  if (n.type === 'Composition Reference' || (n.type === 'Transform' && n.paintMode))
+  if (['Composition Reference', 'SVG'].includes(n.type) || (n.type === 'Transform' && n.paintMode))
     return (
       `<path class="guide" d="${esc(pathData(path))}" stroke-dasharray="5 4"/>` +
       nodeStageMoveMarker(n, path) +
@@ -4919,6 +4969,7 @@ function nodeStageMoveMarker(n, path) {
       'Transform',
       'Image',
       'Composition Reference',
+      'SVG',
     ].includes(n.type)
   )
     return '';
@@ -6457,6 +6508,95 @@ async function openCompositionImportDialog() {
   dialog.showModal();
   select.focus();
 }
+function openAssetLibrary() {
+  if (!getAssetLibraryPanel() && alignmentPreferences.open) {
+    alignmentPreferences.open = false;
+    dockedAlignment = false;
+    saveAlignmentPreferences();
+    render();
+  }
+  mountAssetLibrary({
+    resolveDrop: (event) => {
+      const target = event.target;
+      if (
+        !app.contains(target) ||
+        documents.hasDraft() ||
+        drag ||
+        wiring ||
+        penDraft ||
+        document.querySelector('dialog[open]')
+      )
+        return null;
+      if (target.closest('.graph-scroll'))
+        return {
+          route: 'graph',
+          nodePosition: graphPoint(event.clientX, event.clientY),
+          at: [history.doc.width / 2, history.doc.height / 2],
+          anchor: 'center',
+        };
+      if (target.closest('.canvas-stage'))
+        return {
+          route: 'layer',
+          at: canvasPoint(event),
+          anchor: 'center',
+        };
+      return null;
+    },
+    onClose: () => {
+      workspacePanels.refresh();
+      app.querySelector('[data-workspace-panel="assets"]')?.focus({ preventScroll: true });
+    },
+    capture: () => ({
+      owner: session,
+      before: readDocument(),
+      generation: documents.generation,
+      envelope: session.state,
+      layerId: current().id,
+    }),
+    insert: (request, payload) => {
+      if (
+        session !== request.owner ||
+        request.generation !== documents.generation ||
+        documents.hasDraft() ||
+        readDocument() !== request.before ||
+        (payload.route === 'graph' && current().id !== request.layerId)
+      )
+        throw Error('Document changed; choose the placement again');
+      const result = commandChange(
+        payload.asset ? 'adopt-image' : 'insert-svg-asset',
+        payload.asset
+          ? {
+              name: payload.name,
+              png: payload.asset.data,
+              provenance: payload.provenance,
+              route: payload.route,
+              layerId: request.layerId,
+              at: payload.at,
+              anchor: payload.anchor,
+              nodePosition: payload.nodePosition,
+            }
+          : { ...payload, layerId: request.layerId },
+        'Asset added',
+        true,
+        request.envelope,
+      );
+      if (!result)
+        throw Error(document.querySelector('.message')?.textContent || 'Asset insertion rejected');
+      activeLayer = result.layerId;
+      selected = result.nodeId;
+      selection = new Set([selected]);
+      artworkTarget = payload.route === 'layer' ? result.layerId : null;
+      artworkSelection = new Set(artworkTarget ? [artworkTarget] : []);
+      pointSelection = { nodeId: null, ids: new Set() };
+      pointFocus = null;
+      tool = 'select';
+      render();
+      revealNode(selected);
+      return result;
+    },
+  });
+  workspacePanels.refresh();
+}
 function adoptSVGPart(text, name, request) {
   if (request.id !== svgPartRequest) return;
   if (
@@ -7006,6 +7146,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
+    dockedAlignment = false;
+    closeAssetLibrary();
     const opening = !alignmentPreferences.open;
     if (opening) closeTransientPanels('align');
     alignmentPreferences.open = !alignmentPreferences.open;
@@ -7353,6 +7495,9 @@ app.addEventListener('click', async (e) => {
               true,
             );
           }
+          break;
+        case 'asset-library':
+          openAssetLibrary();
           break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
@@ -11747,6 +11892,7 @@ app.addEventListener('pointerdown', (e) => {
           'Multi Path',
           'Image',
           'Composition Reference',
+          'SVG',
         ].includes(n.type),
       ))
   ) {
@@ -11756,7 +11902,7 @@ app.addEventListener('pointerdown', (e) => {
         : [
             n.type === 'Transform'
               ? 'offset'
-              : ['Text', 'Image', 'Composition Reference'].includes(n.type)
+              : ['Text', 'Image', 'Composition Reference', 'SVG'].includes(n.type)
                 ? 'position'
                 : 'center',
           ];
@@ -14048,15 +14194,23 @@ document.addEventListener('click', (event) => {
     return;
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
-  if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if (
+    event.target.closest(
+      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.asset-library',
+    )
+  )
+    return;
+  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     if (canvasTextEdit) {
       // Closing view-only panels must not detach the focused native text editor.
-      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) panel.remove();
-      app
-        .querySelector('.canvas-toolbar [data-action="align-panel"]')
-        ?.setAttribute('aria-pressed', 'false');
+      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) {
+        if (!dockedAlignment || !panel.matches('.alignment-panel')) panel.remove();
+      }
+      if (!dockedAlignment)
+        app
+          .querySelector('.canvas-toolbar [data-action="align-panel"]')
+          ?.setAttribute('aria-pressed', 'false');
       for (const button of app.querySelectorAll(
         '.canvas-toolbar [data-action="grid-panel"], .canvas-toolbar [data-action="layout-panel"], .canvas-toolbar [data-action="guides-panel"]',
       ))
@@ -14070,12 +14224,28 @@ document.addEventListener('keydown', (event) => {
   // dialog must not cancel the browser's native dialog close action.
   if (event.key !== 'Escape' || event.defaultPrevented || event.target.closest?.('dialog[open]'))
     return;
+  if (dockedAlignment && event.target.closest?.('.alignment-panel')) {
+    event.preventDefault();
+    dockedAlignment = false;
+    alignmentPreferences.open = false;
+    saveAlignmentPreferences();
+    render();
+    app.querySelector('[data-workspace-panel="align"]')?.focus({ preventScroll: true });
+    return;
+  }
   const open = [...document.querySelectorAll('.command-menu[open]')];
-  if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
+  if (
+    !open.length &&
+    !(alignmentPreferences.open && !dockedAlignment) &&
+    !gridOpen &&
+    !layoutOpen &&
+    !guidesOpen
+  )
+    return;
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
   if (open.length) open[0].querySelector('summary')?.focus();
-  if (alignmentPreferences.open || gridOpen || layoutOpen || guidesOpen) {
+  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     render();
   }

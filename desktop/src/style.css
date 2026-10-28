@@ -300,7 +300,7 @@ header {
   min-height: 130px;
   display: flex;
   flex-direction: column;
-  background: #f7f8f9;
+  background: #dde3e8;
 }
 .panel-head {
   height: 36px;
@@ -333,7 +333,7 @@ header {
   transform-origin: 0 0;
   width: 2400px;
   height: 1600px;
-  background-image: radial-gradient(#c8d0d7 0.65px, transparent 0.65px);
+  background-image: radial-gradient(#afbbc5 0.65px, transparent 0.65px);
   background-size: 16px 16px;
 }
 .canvas-marquee {
@@ -465,7 +465,7 @@ header {
   pointer-events: none;
 }
 .wire {
-  stroke: #778b9b;
+  stroke: #657b8d;
   stroke-width: 1.5;
   fill: none;
 }
@@ -2486,4 +2486,223 @@ input[data-scrub-step].scrubbing {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font: inherit;
+}
+
+/* Graphic assets is an independent working panel; editor pane positions remain stable. */
+.asset-library {
+  position: fixed;
+  z-index: 1000;
+  right: 12px;
+  top: 64px;
+  bottom: 16px;
+  width: min(570px, calc(100vw - 24px));
+  background: #f2f3f5;
+  color: #242932;
+  border: 1px solid #aeb5bf;
+  box-shadow: 0 8px 24px #0002;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  font-size: 13px;
+  overflow: auto;
+}
+.asset-library header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+.asset-library button,
+.asset-library input,
+.asset-library select {
+  font: inherit;
+  min-height: 28px;
+}
+.asset-library-folders,
+.asset-library-filters,
+.asset-library-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.asset-library-folders select,
+.asset-library-filters input {
+  flex: 1;
+  min-width: 100px;
+}
+.asset-library [data-asset-status] {
+  min-height: 18px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.asset-library [data-error='true'] {
+  color: #a52822;
+}
+.asset-library-grid {
+  display: grid;
+  align-content: start;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 4px;
+  overflow: auto;
+  min-height: 100px;
+  flex: 1;
+}
+.asset-library-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 6px;
+  border: 1px solid #c9cdd3;
+  background: #fff;
+  border-radius: 2px;
+  text-align: left;
+  overflow: hidden;
+  min-height: 116px;
+}
+.asset-library-grid button[aria-pressed='true'] {
+  border-color: #326aa2;
+  background: #e8f1fa;
+  box-shadow: inset 0 0 0 1px #326aa2;
+}
+.asset-library-grid img {
+  width: 100%;
+  height: 76px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#e8ebef 0% 25%, #fff 0% 50%) 0/12px 12px;
+}
+.asset-library-grid span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 16px;
+}
+.asset-library-grid small {
+  font-size: 11px;
+  color: #666;
+}
+.asset-library-detail {
+  border-top: 1px solid #c9cdd3;
+  padding-top: 8px;
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 6px 10px;
+}
+.asset-library-detail[hidden] {
+  display: none;
+}
+.asset-library-preview {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  grid-row: span 3;
+  background: #fff;
+}
+.asset-library-detail label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  grid-column: 2;
+}
+.asset-library-detail label input:not([type='checkbox']) {
+  flex: 1;
+  min-width: 0;
+}
+.asset-library-location {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.asset-library-actions {
+  grid-column: 1/-1;
+  padding-top: 4px;
+}
+.asset-library-detail .asset-library-join {
+  display: flex;
+  gap: 4px;
+}
+.asset-library input:focus-visible,
+.asset-library button:focus-visible,
+.asset-library select:focus-visible {
+  outline: 2px solid #326aa2;
+  outline-offset: 1px;
+}
+
+/* Bounded workspace panels: Layers and Inspector stay visible together. */
+.workspace.has-workspace-panels {
+  grid-template-columns: 48px minmax(0, 1fr) 274px 38px;
+}
+.workspace.has-workspace-assets {
+  grid-template-columns: 48px minmax(0, 1fr) 360px 38px;
+}
+.has-workspace-panels .layers {
+  flex: 0 0 auto;
+  min-height: 96px;
+  max-height: none;
+}
+.workspace-panel-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 3px;
+  border-left: 1px solid var(--line);
+  background: #fff;
+}
+.workspace-panel-bar button {
+  min-height: 32px;
+  padding: 4px 0;
+  font-size: 17px;
+}
+.workspace-panel-bar button[aria-pressed='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
+.layers-resize {
+  flex: 0 0 6px;
+  height: 6px;
+  cursor: row-resize;
+  background: #e6eaee;
+  touch-action: none;
+}
+.layers-resize:hover,
+.layers-resize:focus-visible {
+  background: #9baeba;
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
+.workspace-asset-slot {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+.workspace-asset-slot[hidden] {
+  display: none;
+}
+.asset-library.asset-library-docked {
+  z-index: 20;
+  padding: 7px;
+  gap: 5px;
+  box-shadow: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  font-size: 12px;
+}
+.asset-library-docked .asset-library-grid {
+  min-height: 90px;
+  flex: 1 0 90px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+}
+.asset-library-docked .asset-library-detail {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+.asset-library-docked .asset-library-preview {
+  width: 56px;
+  height: 56px;
+}
+@media (max-width: 1000px) {
+  .workspace.has-workspace-panels {
+    grid-template-columns: 44px minmax(0, 1fr) 230px 36px;
+  }
+  .workspace.has-workspace-assets {
+    grid-template-columns: 44px minmax(0, 1fr) 290px 36px;
+  }
 }

@@ -1,3 +1,9 @@
+import {
+  insertSVGAsset,
+  validateSVGAsset,
+  validateAssetProvenance,
+  SVG_ASSET_SCHEMA_VERSION,
+} from './svg-asset.js';
 import { resolvePenEndpoint, penContourIds, insertContinuationPoint } from './pen-continuation.js';
 import {
   NODE_GROUP_SCHEMA_VERSION,
@@ -438,6 +444,7 @@ export const definitions = {
   Vector: { value: p('Vector2', [300, 250]) },
   Null: { position: p('Vector2', [300, 250]) },
   Reference: {},
+  SVG: { position: p('Vector2', [0, 0]) },
   'Composition Reference': { position: p('Vector2', [0, 0]) },
   Expression: { value: p('Scalar', 100) },
   Fill: { path: p('PaintedPath', null), color: p('Color', { hex: '#36434e', alpha: 1 }) },
@@ -691,7 +698,7 @@ export function node(type, x = 40, y = 40) {
     ...(type === 'Image' ? { asset: '' } : {}),
     ...(type === 'Vector' ? { canvasPositionHandle: false } : {}),
     ...(type === 'Reference' ? { reference: null } : {}),
-    ...(type === 'Composition Reference' ? { compositionReference: null } : {}),
+    ...(['Composition Reference', 'SVG'].includes(type) ? { compositionReference: null } : {}),
   };
 }
 export function layer(name = 'Composition 1') {
@@ -778,7 +785,7 @@ export function outputPorts(n) {
       : [{ id: undefined, label: n.type === 'Null' ? 'Position' : '', type: outputType(n) }];
 }
 export function outputType(n, port) {
-  if (n.type === 'Composition Reference' || n.paintMode)
+  if (['Composition Reference', 'SVG'].includes(n.type) || n.paintMode)
     return port === undefined ? 'PaintedPath' : undefined;
   if (n.type === 'Separate Vector') return ['x', 'y'].includes(port) ? 'Scalar' : undefined;
   if (n.type === 'Text' && port === 'position') return 'Vector2';
@@ -1163,7 +1170,7 @@ function validateNodePreset(doc, preset) {
     throw Error('Preset must contain 1–1999 source/effect nodes');
   const ids = new Set(preset.nodes.map((n) => n.id));
   for (const n of preset.nodes) {
-    if (['Output', 'Image Output', 'Composition Reference'].includes(n.type))
+    if (['Output', 'Image Output', 'Composition Reference', 'SVG'].includes(n.type))
       throw Error('Preset cannot contain Output or Composition Reference nodes');
     if (nodeDependencies(n).some((d) => !ids.has(d.source)))
       throw Error('Preset has an external node reference; select its sources too');
@@ -2760,7 +2767,9 @@ export function evaluate(
       const inputs = positionOutput ? [['position', n.params.position]] : evaluatedParameters(n);
       const deps = positionOutput ? parameterDependencies(inputs) : nodeDependencies(n, true);
       if (n.type === 'Reference') referenceTarget(layer, n);
-      const external = n.type === 'Composition Reference' ? referencedOutput(n) : null;
+      const external = ['Composition Reference', 'SVG'].includes(n.type)
+        ? referencedOutput(n)
+        : null;
       const parameterVersions = new Map();
       for (const dep of deps) {
         if (dep.parameterKey)
@@ -2887,7 +2896,7 @@ export function evaluate(
         if (result === null) throw Error(`Connect ${bypassInput(n)} to bypass ${n.type}`);
         if (n.type === 'Mask') result = evaluatedPaintedGroup([result], { prefix: n.id });
         assertValue(outputType(n), result);
-      } else if (n.type === 'Composition Reference') {
+      } else if (['Composition Reference', 'SVG'].includes(n.type)) {
         const position = read('position');
         result = evaluatedPaintedGroup([external.path], {
           matrix: [1, 0, 0, 1, ...position],
@@ -4633,7 +4642,8 @@ export function validate(doc) {
       doc.schemaVersion !== NODE_GROUP_SCHEMA_VERSION &&
       doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION &&
       doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION &&
-      doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION)
+      doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION &&
+      doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   if (doc.schemaVersion === 1) migratePaint(doc);
@@ -4645,6 +4655,13 @@ export function validate(doc) {
   if (Object.values(doc.fontAssets || {}).some((a) => a.kind === VARIABLE_KIND))
     variableCheck(doc.schemaVersion >= 25, 'VARIABLE_SCHEMA');
   validateImageAssets(doc.imageAssets);
+  for (const asset of Object.values(doc.imageAssets || {})) {
+    if (asset.provenance !== undefined) {
+      if (doc.schemaVersion < SVG_ASSET_SCHEMA_VERSION)
+        throw Error('Asset provenance requires schemaVersion 53');
+      validateAssetProvenance(asset.provenance);
+    }
+  }
   validateGuides(doc.editor, id);
   if (doc.editor?.gridAnchor === 'center' && doc.schemaVersion < 27)
     throw Error('Centered grid requires schemaVersion 27');
@@ -4690,6 +4707,7 @@ export function validate(doc) {
       if (isImageDither(n.type) && !n.bypassed && ++activeImageDithers > MAX_ACTIVE_IMAGE_DITHERS)
         throw Error('At most 8 active Image Dithers per document');
       validateReference(n);
+      validateSVGAsset(n, sourceSchemaVersion);
       validateCompositionReference(n, sourceSchemaVersion);
       if (
         n.paintMode !== undefined &&
@@ -5967,6 +5985,7 @@ export class CommandSession {
                 'Text',
                 'Image',
                 'Composition Reference',
+                'SVG',
                 'Vector',
                 'Null',
               ].includes(node.type)
@@ -5980,7 +5999,7 @@ export class CommandSession {
                     : 'offset'
                   : node.type === 'Vector'
                     ? 'value'
-                    : ['Text', 'Image', 'Null', 'Composition Reference'].includes(node.type)
+                    : ['Text', 'Image', 'Null', 'Composition Reference', 'SVG'].includes(node.type)
                       ? 'position'
                       : 'center'
               ],
@@ -7339,6 +7358,11 @@ export class CommandSession {
           candidate = this.#gestureCandidate(candidate, move.target, { delta: move.delta });
       return { candidate, result: {} };
     }
+    if (type === 'insert-svg-asset') {
+      const candidate = cloneDocument(before);
+      const result = insertSVGAsset(candidate, payload, resolveFonts(candidate, this.#fonts()));
+      return { candidate, result };
+    }
     if (type === 'add-svg-part') {
       const candidate = cloneDocument(before);
       const result = appendSVGPart(candidate, payload, resolveFonts(candidate, this.#fonts()));
@@ -7455,29 +7479,74 @@ export class CommandSession {
         }
         result = {};
       } else {
+        const route = payload.route ?? 'layer';
+        if (!['layer', 'graph'].includes(route)) throw Error('Invalid image placement route');
+        for (const key of ['at', 'nodePosition']) {
+          const value = payload[key];
+          if (
+            value !== undefined &&
+            (!Array.isArray(value) ||
+              value.length !== 2 ||
+              !value.every((v) => Number.isFinite(v) && Math.abs(v) <= 100000))
+          )
+            throw Error(`Invalid image ${key}`);
+        }
+        if (payload.anchor !== undefined && !['origin', 'center'].includes(payload.anchor))
+          throw Error('Invalid image placement anchor');
+        if (payload.joinBeforeOut) throw Error('Image graph placement is disconnected');
+        let target;
+        if (route === 'graph') {
+          target = candidate.layers.find((l) => l.id === payload.layerId);
+          if (!target || target.locked || target.guide || !target.visible)
+            throw Error('Choose an unlocked visible layer');
+          if (target.nodes.length >= 2000)
+            throw Error('Image insertion exceeds the 2000-node budget');
+        }
         const size = pngSize(decodeImage(payload.png)),
           assetId = uid('image');
+        if (payload.provenance !== undefined) {
+          validateAssetProvenance(payload.provenance);
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, SVG_ASSET_SCHEMA_VERSION);
+        }
         if (Object.hasOwn(candidate.imageAssets || {}, assetId))
           throw Error('Image identity collision');
         candidate.imageAssets = {
           ...candidate.imageAssets,
-          [assetId]: { name: payload.name, mime: 'image/png', ...size, data: payload.png },
+          [assetId]: {
+            name: payload.name,
+            mime: 'image/png',
+            ...size,
+            data: payload.png,
+            ...(payload.provenance !== undefined ? { provenance: clone(payload.provenance) } : {}),
+          },
         };
         validateImageAssets(candidate.imageAssets);
-        const artwork = layer(payload.name),
-          generator = node('Image'),
-          output = node('Image Output', 380, 40),
+        const artwork = target || layer(payload.name),
+          generator = node(
+            'Image',
+            payload.nodePosition?.[0] ?? 40,
+            payload.nodePosition?.[1] ?? 40,
+          ),
           scale = Math.min(1, candidate.width / size.width, candidate.height / size.height);
         generator.asset = assetId;
         generator.params.size.value = [size.width * scale, size.height * scale];
-        generator.params.position.value = [
-          (candidate.width - generator.params.size.value[0]) / 2,
-          (candidate.height - generator.params.size.value[1]) / 2,
-        ];
-        output.params.path.source = generator.id;
-        artwork.nodes = [generator, output];
-        artwork.output = output.id;
-        candidate.layers.push(artwork);
+        generator.params.position.value = payload.at
+          ? payload.at.map(
+              (value, axis) =>
+                value - (payload.anchor === 'center' ? generator.params.size.value[axis] / 2 : 0),
+            )
+          : [
+              (candidate.width - generator.params.size.value[0]) / 2,
+              (candidate.height - generator.params.size.value[1]) / 2,
+            ];
+        if (target) target.nodes.push(generator);
+        else {
+          const output = node('Image Output', 380, 40);
+          output.params.path.source = generator.id;
+          artwork.nodes = [generator, output];
+          artwork.output = output.id;
+          candidate.layers.push(artwork);
+        }
         serialize(candidate);
         result = { layerId: artwork.id, nodeId: generator.id, assetId };
       }
@@ -8468,7 +8537,7 @@ export class CommandSession {
     }
     if (
       candidate.layers.some((l) =>
-        l.nodes.some((n) => n.paintMode || n.type === 'Composition Reference'),
+        l.nodes.some((n) => n.paintMode || ['Composition Reference', 'SVG'].includes(n.type)),
       )
     )
       candidate.schemaVersion = Math.max(candidate.schemaVersion, 31);

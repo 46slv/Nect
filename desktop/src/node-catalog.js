@@ -563,7 +563,7 @@ export const nodeCatalog = [
     creationRoute: 'add',
   },
 ];
-const excludedTypes = new Set(['Output', 'Image Output', 'Image']);
+const excludedTypes = new Set(['Output', 'Image Output', 'Image', 'SVG']);
 export function nodePickerItems(definitions, label = (type) => type) {
   const metadata = new Map(nodeCatalog.map((entry) => [entry.typeId, entry]));
   return Object.keys(definitions)

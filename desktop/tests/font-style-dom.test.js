@@ -81,7 +81,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     .replace("import './style.css';", '')
     .replace(
       /import \{[^}]*\} from '.\/storage.js';/,
-      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.styleCatalog, readSystemFont=(id)=>globalThis.readRichFont(id);`,
+      `import { DocumentLifecycle } from '${new URL('../src/document-lifecycle.js', import.meta.url)}'; const releaseProject = async () => {}, writeProject = async () => null, chooseUnsaved = async () => 'cancel', registerClose = async () => {}; const desktop=true, saveFile=async()=>true, openFile=async()=>null, listSystemFonts=async()=>globalThis.styleCatalog, readSystemFont=(id)=>globalThis.readRichFont(id); const beginRecovery=async()=> 'test-recovery', writeRecovery=async()=>Date.now(), listRecovery=async()=>[], readRecovery=async()=>'', acknowledgeRecovery=async()=>{};`,
     )
     .replace(
       /from '(\.\/[^']+)'/g,

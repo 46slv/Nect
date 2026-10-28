@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod acceptance_storage;
+mod asset_library;
 #[cfg(test)]
 #[path = "../build_commit.rs"]
 mod build_commit;
@@ -161,6 +162,7 @@ fn run() -> Result<(), String> {
     tauri::Builder::default()
         .manage(identity)
         .manage(storage)
+        .manage(asset_library::AssetLibrary::default())
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
@@ -169,6 +171,11 @@ fn run() -> Result<(), String> {
             build_identity::query_build_identity,
             open_document,
             open_svg_source,
+            asset_library::list_asset_folders,
+            asset_library::register_asset_folder,
+            asset_library::remove_asset_folder,
+            asset_library::refresh_asset_folder,
+            asset_library::open_asset_source,
             save_document,
             save_png,
             list_system_fonts,
@@ -208,6 +215,7 @@ fn run() -> Result<(), String> {
             } else {
                 app.path().app_local_data_dir().map(|p| p.join("recovery-v1")).map_err(|e| e.to_string())
             };
+            app.state::<asset_library::AssetLibrary>().0.lock().map_err(|_| "Library unavailable")?.initialize(recovery_root.clone().map(|p| p.join("graphic-library-v1.json")));
             app.state::<Recovery>().initialize(recovery_root);
             if let Some(config) = window {
                 let paths = window_storage

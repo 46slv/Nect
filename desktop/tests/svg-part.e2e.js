@@ -1,3 +1,4 @@
+import { activateCommand } from './command-menu-actions.js';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -68,10 +69,19 @@ try {
     );
   const add = async (markup = source, name = 'mark.svg') => {
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: 'Add SVG node', exact: true }).click();
-    await (
-      await chooser
-    ).setFiles({ name, mimeType: 'image/svg+xml', buffer: Buffer.from(markup) });
+    await activateCommand(page, 'add-svg-part');
+    const pick = await chooser;
+    // Force a no-op command's view refresh while the chooser is pending.
+    // It must retain the input without admitting an authored history change.
+    await page.evaluate(() =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'set-document-settings',
+        payload: { key: 'width', value: window.nect.document.width },
+      }),
+    );
+    assert.equal(await pick.element().evaluate((input) => input.isConnected), true);
+    await pick.setFiles({ name, mimeType: 'image/svg+xml', buffer: Buffer.from(markup) });
     await page.waitForFunction(
       () => !document.querySelector('.message')?.textContent?.includes('Project restored'),
     );
@@ -233,7 +243,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const pending = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     const file = `test-results/svg-part/parts.${ext}`;
     await (await pending).saveAs(file);
     outputs[ext] = await readFile(file);
@@ -272,7 +282,7 @@ try {
   assert.deepEqual(requests, []);
   // Existing import remains an explicit, undoable document replacement.
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(page, 'import-svg');
   await page.locator('dialog[open] button[value="discard"]').click();
   await (
     await chooser
@@ -321,13 +331,13 @@ try {
   await native.goto(`http://127.0.0.1:${server.address().port}`);
   await native.waitForFunction(() => window.nect);
   await native.evaluate((s) => window.nect.load(s), serialize(empty));
-  await native.getByRole('button', { name: 'Add SVG node', exact: true }).click();
+  await activateCommand(native, 'add-svg-part');
   await native.waitForFunction(() => window.nect.document.layers.length === 2);
   const nativeBefore = await native.evaluate(() => JSON.stringify(window.nect.document));
   await native.evaluate(
     () => (window.svgResponse = ['bad.svg', '<svg><script>alert(1)</script></svg>']),
   );
-  await native.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(native, 'import-svg');
   await native.waitForFunction(() =>
     document.querySelector('.status.error .message')?.textContent.includes('Unsupported SVG'),
   );
@@ -335,7 +345,7 @@ try {
   await native.evaluate(() => {
     window.svgReadError = 'SVG file is unreadable';
   });
-  await native.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(native, 'import-svg');
   await native.waitForFunction(() =>
     document.querySelector('.status.error .message')?.textContent.includes('unreadable'),
   );
@@ -344,7 +354,7 @@ try {
     window.svgReadError = null;
     window.svgResponse = null;
   });
-  await native.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(native, 'import-svg');
   await native.waitForFunction(
     () => document.querySelector('.message')?.textContent === 'SVG selection cancelled',
   );
@@ -356,9 +366,9 @@ try {
         '<svg viewBox="0 0 50 50"><rect width="20" height="20"/></svg>',
       ]),
   );
-  await native.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(native, 'import-svg');
   await native.waitForFunction(() => window.nect.document.width === 50);
-  await native.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+  await activateCommand(native, 'import-svg');
   await native.waitForFunction(
     () => window.svgCalls.filter((c) => c === 'open_svg_source').length === 6,
   );
@@ -416,7 +426,7 @@ try {
     );
     assert.ok(raster.meanChannelError < 1, JSON.stringify(raster));
     const chooser = page.waitForEvent('filechooser');
-    await page.getByRole('button', { name: 'Import SVG document', exact: true }).click();
+    await activateCommand(page, 'import-svg');
     await page.locator('dialog[open] button[value="discard"]').click();
     await (
       await chooser
@@ -569,7 +579,7 @@ try {
     ['export-png', 'png'],
   ]) {
     const pending = page.waitForEvent('download');
-    await page.locator(`[data-action="${action}"]`).click();
+    await activateCommand(page, action);
     await (await pending).saveAs(`test-results/layer-solo/solo.${ext}`);
   }
   assert.equal(await readFile('test-results/layer-solo/solo.svg', 'utf8'), svgSolo);
@@ -626,14 +636,14 @@ try {
   await page.locator('#add-node').click();
   assert.equal(await page.locator('dialog[open]').count(), 0);
   assert.match(await page.locator('.status').innerText(), /Composition is locked/);
-  await page.getByRole('button', { name: 'Add SVG node', exact: true }).click();
+  await activateCommand(page, 'add-svg-part');
   assert.match(await page.locator('.status').innerText(), /unlocked visible/);
   await page.locator(`[data-select-layer="${imageEntry.id}"]`).click();
   const entryBefore = await saved();
   let unexpectedChooser = 0;
   const countChooser = () => unexpectedChooser++;
   page.on('filechooser', countChooser);
-  await page.getByRole('button', { name: 'Add SVG node', exact: true }).click();
+  await activateCommand(page, 'add-svg-part');
   assert.match(await page.locator('.status').innerText(), /regular Output/);
   assert.equal(unexpectedChooser, 0);
   page.off('filechooser', countChooser);

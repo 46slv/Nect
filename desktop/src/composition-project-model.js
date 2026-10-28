@@ -156,7 +156,7 @@ function assertLayerReferenceScope(project) {
   for (const composition of project.compositions)
     for (const layer of composition.layers)
       for (const node of layer.nodes)
-        if (node.type === 'Composition Reference') {
+        if (['Composition Reference', 'SVG'].includes(node.type)) {
           const targetId = node.compositionReference?.compositionId;
           if (!layerOwners.has(targetId)) throw Error('Composition Reference target is missing');
           if (layerOwners.get(targetId) !== composition.id)
