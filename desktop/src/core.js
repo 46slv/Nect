@@ -1,4 +1,13 @@
 import {
+  COLOR_SLOTS_SCHEMA_VERSION,
+  COLOR_DESIGN_SCHEMA_VERSION,
+  colorSlotCommands,
+  validateColorSlots,
+  validateColorSlotBinding,
+  resolveColorSlot,
+  applyColorSlotCommand,
+} from './color-slots.js';
+import {
   insertSVGAsset,
   validateSVGAsset,
   validateAssetProvenance,
@@ -1216,6 +1225,7 @@ function validateNodePreset(doc, preset) {
     layers: [layer],
     fontAssets: preset.fontAssets,
     imageAssets: preset.imageAssets,
+    ...(doc.colorSlots === undefined ? {} : { colorSlots: clone(doc.colorSlots) }),
   };
   validate(isolated);
   // Detect the existing edited-Remap/source refusal before saving unusable data.
@@ -1516,6 +1526,11 @@ function vectorMathValue(operation, read) {
 // grant compatibility. The second identity reproduces the empty-expression-field era
 // from the same geometry, not from a second geometry evaluation.
 const evaluationFingerprints = new WeakMap();
+const evaluatedPaintSlots = new WeakMap();
+function setEvaluatedPaintSlot(value, paint, slotId) {
+  const previous = evaluatedPaintSlots.get(value);
+  if (slotId !== null || previous) evaluatedPaintSlots.set(value, { ...previous, [paint]: slotId });
+}
 function evaluatedFingerprint(value, currentEra = false) {
   const identity = value && evaluationFingerprints.get(value);
   return currentEra && identity && identity.canonical === value.fingerprint
@@ -1529,6 +1544,8 @@ export function remapFingerprintMatches(input, retainedFingerprint) {
   );
 }
 function copyEvaluationIdentity(source, result) {
+  if (source && evaluatedPaintSlots.has(source))
+    evaluatedPaintSlots.set(result, { ...evaluatedPaintSlots.get(source) });
   const identity = source && evaluationFingerprints.get(source);
   if (
     identity &&
@@ -2729,18 +2746,37 @@ export function evaluate(
       readingParameters.delete(id);
     }
   }
+  // Preserve only exact authored identity, never infer it from a display value.
+  function parameterColorSlot(q, seen = new Set()) {
+    if (!q || q.type !== 'Color') return null;
+    if (q.colorSlotId !== undefined) return q.colorSlotId;
+    if (q.source) {
+      if (seen.has(q.source)) return null;
+      seen.add(q.source);
+      const source = byId.get(q.source);
+      return source?.type === 'Color' ? parameterColorSlot(source.params.value, seen) : null;
+    }
+    return null; // Literal and expression-generated colors have no exact slot attribution.
+  }
   function readParameterValue(n, key) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
     if (isTransform(n) && !n.params[key] && key === 'scaleWidth') return readParameter(n, 'scale');
     let q = parameter(n, key);
     if (!q) throw Error(`Missing parameter ${key}`);
-    let value = q.source
-      ? run(q.source, q.sourcePort)
-      : q.expression
-        ? parameterExpression(q, resolveExpressionReference, parameterBaseValue(layer, n, key, q))
-        : n.type === 'Fill' && key === 'color' && q.value === null
-          ? { hex: layer.fill, alpha: 1 }
-          : clone(q.value);
+    let value =
+      q.colorSlotId !== undefined
+        ? resolveColorSlot(documentContext, q.colorSlotId)
+        : q.source
+          ? run(q.source, q.sourcePort)
+          : q.expression
+            ? parameterExpression(
+                q,
+                resolveExpressionReference,
+                parameterBaseValue(layer, n, key, q),
+              )
+            : n.type === 'Fill' && key === 'color' && q.value === null
+              ? { hex: layer.fill, alpha: 1 }
+              : clone(q.value);
     if (q.source && !socketCompatibleFor(byId.get(q.source), n, key, q.sourcePort))
       throw Error('Incompatible socket types');
     assertValue(q.type, value);
@@ -2808,9 +2844,10 @@ export function evaluate(
       const imageAsset = n.type === 'Image' ? imageAssets[n.asset] : undefined,
         cacheKey = JSON.stringify(
           positionOutput
-            ? [inputs, dependencyVersions]
+            ? [inputs, dependencyVersions, documentContext?.colorSlots]
             : [
                 n.type,
+                documentContext?.colorSlots,
                 !!n.bypassed,
                 n.reference,
                 n.compositionReference,
@@ -4044,7 +4081,14 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result) && n.type !== 'Output')
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Fill') result.fill = read('color');
+        if (n.type === 'Fill') {
+          result.fill = read('color');
+          setEvaluatedPaintSlot(result, 'fill', parameterColorSlot(n.params.color));
+        }
+        if (
+          ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
+        )
+          setEvaluatedPaintSlot(result, 'fill', null);
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
@@ -4059,6 +4103,7 @@ export function evaluate(
           if (Math.abs(dashOffset) > 100000)
             throw Error('Dash offset must be from -100000 to 100000 px');
           result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
+          setEvaluatedPaintSlot(result, 'stroke', parameterColorSlot(n.params.color));
         }
         if (n.type === 'Path Remap') {
           result.characterOccurrences = routeCharacters(
@@ -4596,6 +4641,7 @@ export function validate(doc) {
     assertValue('Vector2', value);
   }
   function param(q, type, layerFillFallback = false) {
+    validateColorSlotBinding(q, colorSlots);
     if (!q || q.type !== type) throw Error('Invalid parameter type');
     if (!(layerFillFallback && q.value === null)) assertValue(type, q.value);
     if (['Path', 'PaintedPath', 'Image'].includes(type) && q.value !== null)
@@ -4643,9 +4689,13 @@ export function validate(doc) {
       doc.schemaVersion !== MASK_FEATHER_SCHEMA_VERSION &&
       doc.schemaVersion !== IMAGE_MASK_SCHEMA_VERSION &&
       doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION &&
-      doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION)
+      doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_SLOTS_SCHEMA_VERSION &&
+      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
+  const colorSlots = validateColorSlots(doc);
+  for (const slot of colorSlots.values()) id(slot.id);
   if (doc.schemaVersion === 1) migratePaint(doc);
   // Apply every migration against the file's incoming version. A feature later in
   // the node list must not advance the version before older nodes are backfilled.
@@ -5505,7 +5555,12 @@ function exportValidatedScene(doc, fonts) {
         throw Error(
           `${l.name}: Character positions are suspended; restore text/mapping or reset all adjustments before export`,
         );
-      return { layer: l, value: result.path };
+      const paintProvenance = evaluatedPaintSlots.get(result.path);
+      return {
+        layer: l,
+        value: result.path,
+        ...(paintProvenance ? { paintProvenance: { ...paintProvenance } } : {}),
+      };
     });
 }
 export function exportSVG(doc, fonts = {}, options = {}) {
@@ -6855,6 +6910,12 @@ export class CommandSession {
     return { ...this.state, ...result, changed: revision !== this.#history.revision };
   }
   #commandCandidate(type, payload, before, deferVariable = false) {
+    if (colorSlotCommands.has(type)) {
+      const candidate = cloneDocument(before);
+      const result = applyColorSlotCommand(candidate, type, payload, () => uid('color'));
+      validate(candidate);
+      return { candidate, result };
+    }
     if (nodeGroupCommands.has(type)) {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId);
@@ -7375,9 +7436,11 @@ export class CommandSession {
       // these assets, presets, and newer-schema nodes.
       candidate.name = before.name;
       candidate.schemaVersion = Math.max(before.schemaVersion, candidate.schemaVersion);
-      for (const key of ['imageAssets', 'fontAssets', 'nodePresets']) {
+      for (const key of ['imageAssets', 'fontAssets', 'nodePresets', 'colorSlots']) {
         if (Object.hasOwn(before, key))
-          candidate[key] = key === 'nodePresets' ? clone(before[key]) : { ...before[key] };
+          candidate[key] = ['nodePresets', 'colorSlots'].includes(key)
+            ? clone(before[key])
+            : { ...before[key] };
       }
       serialize(candidate);
       return {
@@ -8505,6 +8568,8 @@ export class CommandSession {
         } else {
           if (type === 'set-parameter-base' && !['Scalar', 'Vector2', 'Color'].includes(q.type))
             throw Error('Authored base editing requires a Scalar, Vector2 or Color parameter');
+          if (q.colorSlotId !== undefined)
+            throw Error('Unbind the shared Color before editing its fallback');
           if (type !== 'set-parameter-base' && (q.source || q.expression))
             throw Error(
               'Parameter is driven; disconnect input or clear expression before editing its fallback',
