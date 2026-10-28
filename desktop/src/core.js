@@ -1167,21 +1167,8 @@ function validateNodePreset(doc, preset) {
   const layer = blankLayer('Preset validation');
   layer.nodes.push(...clone(preset.nodes));
   const isolated = {
-    schemaVersion: preset.nodes.some((n) =>
-      parameters(n).some(([, q]) => q.type === 'Color' && q.expression),
-    )
-      ? Math.max(
-          ...preset.nodes.flatMap((n) =>
-            parameters(n)
-              .filter(([, q]) => q.type === 'Color' && q.expression)
-              .map(([, q]) => colorExpressionSchemaVersion(q.expression)),
-          ),
-        )
-      : preset.nodes.some((n) => isImageDither(n.type))
-        ? IMAGE_DITHER_SCHEMA_VERSION
-        : preset.nodes.some((n) => n.type === 'Boolean' && n.booleanInputOrder !== undefined)
-          ? BOOLEAN_INPUT_SCHEMA_VERSION
-          : NODE_PRESET_SCHEMA_VERSION,
+    // Detached nodes retain the source Document's supported feature floor.
+    schemaVersion: Math.max(NODE_PRESET_SCHEMA_VERSION, doc.schemaVersion),
     name: 'Preset validation',
     width: doc.width,
     height: doc.height,
