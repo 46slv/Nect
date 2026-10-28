@@ -144,3 +144,23 @@ test('dangling and non-node targets remain unchanged, and metadata is not expres
   assert.equal(copy.params.radius.expression, circle.params.radius.expression);
   assert.deepEqual(copy.metadata, circle.metadata);
 });
+
+test('accepted descriptor aliases do not rewrite metadata or remap an expression twice', () => {
+  const { doc, layer, circle } = fixture();
+  circle.metadata = circle.params.radius;
+  const other = node('Circle');
+  other.params.radius = circle.params.radius;
+  layer.nodes.push(other);
+  const session = new CommandSession(doc),
+    before = serialize(session.snapshot());
+  session.dispatch({ ...session.state, type: 'duplicate-layer', payload: { layerId: layer.id } });
+  const copy = session.snapshot().layers[1],
+    first = copy.nodes[1],
+    second = copy.nodes.at(-1);
+  assert.equal(first.metadata.expression, circle.metadata.expression);
+  assert.equal(first.params.radius.expression, second.params.radius.expression);
+  assert.equal(evaluate(copy).parameterValue(first.id, 'radius'), 84);
+  assert.equal(evaluate(copy).parameterValue(second.id, 'radius'), 84);
+  session.dispatch({ ...session.state, type: 'undo' });
+  assert.equal(serialize(session.snapshot()), before);
+});

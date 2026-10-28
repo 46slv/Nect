@@ -239,7 +239,18 @@ export function duplicateLayerGeneric(doc, layerId) {
   if (!source) throw Error('Layer is unavailable; select it again');
   if (source.locked) throw Error('Unlock this layer before duplicating it.');
   if (doc.layers.length >= 100) throw Error('Duplicate requires fewer than 100 layers.');
-  const layer = structuredClone(source);
+  // Documents are JSON trees, but programmatic clients can share descriptor
+  // objects. Copy each occurrence so an authored parameter rewrite cannot
+  // modify an aliased metadata record or a second parameter behind its back.
+  const copyOccurrences = (value) => {
+    if (Array.isArray(value)) return value.map(copyOccurrences);
+    if (value && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [key, copyOccurrences(child)]),
+      );
+    return value;
+  };
+  const layer = copyOccurrences(source);
   const occupied = occupiedArtworkIds(doc);
   const ids = new Map();
   const collect = (value) => {
