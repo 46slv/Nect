@@ -20,6 +20,7 @@ export const browserTestFiles = Object.freeze([
   'tests/text-trial-feedback.e2e.js',
   'tests/canvas-in-place.e2e.js',
   'tests/system-font.e2e.js',
+  'tests/text-inspector-layout.e2e.js',
   'tests/guides.e2e.js',
   'tests/layout-guides.e2e.js',
   'tests/images.e2e.js',

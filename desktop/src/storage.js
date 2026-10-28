@@ -121,6 +121,13 @@ export function normalizeSystemFontEntry(entry) {
       subfamily: text(source.subfamily),
       fullName: text(source.fullName),
       postScriptName: text(source.postScriptName),
+      ...(Array.isArray(source.localizedNames)
+        ? {
+            localizedNames: Object.freeze([
+              ...new Set(source.localizedNames.slice(0, 64).map(text).filter(Boolean)),
+            ]),
+          }
+        : {}),
       weightClass: integer(source.weightClass, 1000),
       widthClass: integer(source.widthClass, 9),
       fsSelection:

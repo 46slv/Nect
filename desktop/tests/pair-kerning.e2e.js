@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -260,6 +261,7 @@ try {
   // Native spinner uses fractional step=any browser semantics; direct typing stays available.
   await range(1);
   await edit(-100);
+  await openMoreTypography(page);
   await page.locator('.inspector-body [data-text-kerning]').uncheck();
   assert.deepEqual(await pairs(), { 'c1:c2': -100 });
   await load({ text: 'A V', wrap: 60, pairs: { 'c2:c3': 300 } });

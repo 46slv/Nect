@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 const browser = await chromium.launch({
@@ -72,6 +73,7 @@ try {
   });
   await page.waitForFunction(() => window.nect.evaluate().error === null);
   await inspect(ids.text);
+  await openMoreTypography(page);
   const detached = await saved(),
     flatSVG = await page.evaluate(() => window.nect.export());
   const select = () =>
@@ -166,6 +168,7 @@ try {
   const currentSVG = await page.evaluate(() => window.nect.export());
   assert.notEqual(currentSVG, flatSVG);
   const beforeUnit = await saved();
+  await openMoreTypography(page);
   await controls()
     .getByRole('combobox', { name: 'Type on Path start unit', exact: true })
     .selectOption('distance');
@@ -182,6 +185,7 @@ try {
   await fs.writeFile('test-results/workflow-text-path.json', roundtrip);
   await fs.writeFile('test-results/workflow-text-path.svg', currentSVG);
   await page.screenshot({ path: 'test-results/type-on-path-1600x1000.png', fullPage: true });
+  await openMoreTypography(page);
   await select().selectOption('');
   assert.equal(
     await page.evaluate(

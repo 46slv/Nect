@@ -55,6 +55,7 @@ import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
+import { arrangeTextInspector } from './text-inspector-layout.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -261,7 +262,10 @@ function openSearchPanel({
                 ? item.metadata?.weightClass == null
                 : String(item.metadata?.weightClass) === weightFilter)) &&
             words.every((word) =>
-              `${item.label} ${item.detail || ''}`.normalize('NFKC').toLowerCase().includes(word),
+              `${item.label} ${item.detail || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
+                .normalize('NFKC')
+                .toLowerCase()
+                .includes(word),
             ),
         );
     if (scope) {
@@ -8698,16 +8702,22 @@ function compactTextInspector() {
     });
     field.append(row);
   }
-  const symbols = { position: '↔', size: 'T↕', letterSpacing: 'VA', lineSpacing: 'A↕' };
+  const symbols = {
+    position: 'Position',
+    size: 'Font size',
+    letterSpacing: 'Tracking',
+    lineSpacing: 'Line spacing',
+  };
   for (const field of inspector.querySelectorAll('.field[data-node][data-key]')) {
     const symbol = symbols[field.dataset.key];
     if (!symbol) continue;
     const label = field.querySelector('label');
     if (!label) continue;
     label.title = label.textContent;
-    label.innerHTML = `<span aria-hidden="true">${symbol}</span><span class="visually-hidden">${esc(label.title)}</span>`;
+    label.textContent = symbol;
     field.classList.add('text-numeric-field');
   }
+  arrangeTextInspector(inspector, !!characterEdit?.selected?.size);
 }
 function stageTextInput(el, transaction) {
   const draft = textDraft(el);
@@ -14029,6 +14039,13 @@ document.addEventListener('keydown', (event) => {
 });
 render();
 document.addEventListener('click', (event) => {
+  // Keep the live file input attached until the font chooser returns.
+  if (
+    event.target.closest(
+      '#font-file,[data-load-font],[data-load-character-font],[data-load-variable-font]',
+    )
+  )
+    return;
   if (event.target.closest('.command-menu')) return;
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
   if (event.target.closest('.canvas-toolbar,.guides-panel,.alignment-panel')) return;

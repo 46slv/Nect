@@ -1,4 +1,5 @@
 import { chromium } from 'playwright-core';
+import { openMoreTypography } from './helpers/text-inspector.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -98,6 +99,7 @@ try {
   assert.deepEqual((await read()).textWrap, { height: 120, policy: 'japanese-basic-v1' });
   await page.locator('[data-action="undo"]').click();
   assert.equal(await saved(), narrow);
+  await openMoreTypography(page);
   await field('text-path').selectOption(JSON.stringify(['wrap-path', 'wrap-path']));
   assert.equal(await saved(), narrow);
   assert.match(await page.locator('.status .message').innerText(), /TEXT_WRAP_PATH/);
