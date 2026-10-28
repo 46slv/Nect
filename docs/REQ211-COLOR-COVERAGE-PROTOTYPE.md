@@ -92,3 +92,20 @@ and silent foreign-import retargeting. These were repaired with regressions. The
 production build passed. New exact-head CI is required after publication. Existing
 PR #107's four-fixture browser pixel proof applies to the previous isolated adapter,
 not automatic authored provenance or a completed panel. Those remain next work.
+
+## Authored paint provenance bridge
+
+The evaluator now keeps paint slot provenance in an evaluator-owned WeakMap and
+exports an optional scene-entry sidecar. Exact shared-slot bindings survive direct
+Fill/Stroke and Color-node source chains; literals and computed expressions stay
+Other. Paint replacement clears the replaced identity, while cloning and supported
+bypass routes preserve actual input provenance. Metadata never enters Color values,
+serialized geometry or legacy fingerprint preimages. Geometry routes that do not
+preserve exact provenance remain conservatively unattributed; unsupported grouped,
+masked and repeater coverage still rejects rather than fabricating percentages.
+
+The adapter prefers the authored sidecar over fixture-only maps. The browser pixel
+fixture now creates schema-54 bound colors and calls the adapter without supplied
+identity guesses. That changed browser fixture is NOT RUN until its exact-head CI.
+Seven coverage-pass tests and 90 existing bypass/fingerprint tests passed in the
+independent review; a related 53-test local run passed. This is not panel acceptance.

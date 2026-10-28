@@ -71,11 +71,19 @@ try {
     const receipts = [];
     for (const fixture of cases) {
       const doc = blankDocument();
+      doc.schemaVersion = 54;
+      doc.colorSlots = slots.map((id) => ({
+        id,
+        name: id,
+        value: {
+          hex: '#336699',
+          alpha: id === slots[2] ? 0.5 : (fixture.rects.find((r) => r.id === id)?.fill ?? 1),
+        },
+      }));
       doc.width = width;
       doc.height = height;
       if (fixture.rects.length) doc.layers = [];
-      const bindings = new Map(),
-        expectedOrder = [],
+      const expectedOrder = [],
         analyticLayers = [];
       for (const [index, rectangle] of fixture.rects.entries()) {
         const l = layer(`Rectangle ${index}`),
@@ -86,11 +94,13 @@ try {
         const [x0, y0, x1, y1] = rectangle.box;
         shape.rawPath = `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
         fill.params.color.value = { hex: '#336699', alpha: rectangle.fill };
+        if (rectangle.id) fill.params.color.colorSlotId = rectangle.id;
         l.nodes = [shape, fill];
         connect(l, shape.id, fill.id, 'path');
         let previous = fill;
         if (rectangle.stroke !== undefined) {
           stroke.params.color.value = { hex: '#336699', alpha: rectangle.stroke };
+          stroke.params.color.colorSlotId = slots[2];
           stroke.params.width.value = 4;
           l.nodes.push(stroke);
           connect(l, fill.id, stroke.id, 'path');
@@ -100,7 +110,6 @@ try {
         l.output = out.id;
         connect(l, previous.id, out.id, 'path');
         doc.layers.push(l);
-        bindings.set(l.id, { fill: rectangle.id, stroke: slots[2] });
         for (const paint of rectangle.stroke === undefined ? ['fill'] : ['fill', 'stroke']) {
           const slotId = paint === 'fill' ? (rectangle.id ?? null) : slots[2];
           expectedOrder.push([l.id, paint, slotId]);
@@ -121,7 +130,7 @@ try {
       }
       const scene = exportScene(doc),
         before = JSON.stringify(scene);
-      const passes = colorCoveragePasses(scene, doc, bindings);
+      const passes = colorCoveragePasses(scene, doc);
       const layers = [];
       for (const pass of passes)
         layers.push({ slotId: pass.slotId, alpha: await raster(pass.svg) });

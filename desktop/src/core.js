@@ -1525,6 +1525,11 @@ function vectorMathValue(operation, read) {
 // grant compatibility. The second identity reproduces the empty-expression-field era
 // from the same geometry, not from a second geometry evaluation.
 const evaluationFingerprints = new WeakMap();
+const evaluatedPaintSlots = new WeakMap();
+function setEvaluatedPaintSlot(value, paint, slotId) {
+  const previous = evaluatedPaintSlots.get(value);
+  if (slotId !== null || previous) evaluatedPaintSlots.set(value, { ...previous, [paint]: slotId });
+}
 function evaluatedFingerprint(value, currentEra = false) {
   const identity = value && evaluationFingerprints.get(value);
   return currentEra && identity && identity.canonical === value.fingerprint
@@ -1538,6 +1543,8 @@ export function remapFingerprintMatches(input, retainedFingerprint) {
   );
 }
 function copyEvaluationIdentity(source, result) {
+  if (source && evaluatedPaintSlots.has(source))
+    evaluatedPaintSlots.set(result, { ...evaluatedPaintSlots.get(source) });
   const identity = source && evaluationFingerprints.get(source);
   if (
     identity &&
@@ -2737,6 +2744,18 @@ export function evaluate(
     } finally {
       readingParameters.delete(id);
     }
+  }
+  // Preserve only exact authored identity, never infer it from a display value.
+  function parameterColorSlot(q, seen = new Set()) {
+    if (!q || q.type !== 'Color') return null;
+    if (q.colorSlotId !== undefined) return q.colorSlotId;
+    if (q.source) {
+      if (seen.has(q.source)) return null;
+      seen.add(q.source);
+      const source = byId.get(q.source);
+      return source?.type === 'Color' ? parameterColorSlot(source.params.value, seen) : null;
+    }
+    return null; // Literal and expression-generated colors have no exact slot attribution.
   }
   function readParameterValue(n, key) {
     if (isTransform(n) && !n.params[key] && key === 'position') return readParameter(n, 'anchor');
@@ -4061,7 +4080,14 @@ export function evaluate(
         result = cloneEvaluated(result);
         if (isPaintedGroup(result) && n.type !== 'Output')
           throw Error('Edit paint in the source Composition, or use Convert to Path');
-        if (n.type === 'Fill') result.fill = read('color');
+        if (n.type === 'Fill') {
+          result.fill = read('color');
+          setEvaluatedPaintSlot(result, 'fill', parameterColorSlot(n.params.color));
+        }
+        if (
+          ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
+        )
+          setEvaluatedPaintSlot(result, 'fill', null);
         if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
@@ -4076,6 +4102,7 @@ export function evaluate(
           if (Math.abs(dashOffset) > 100000)
             throw Error('Dash offset must be from -100000 to 100000 px');
           result.stroke = { ...read('color'), width, ...style, miterLimit, dashOffset };
+          setEvaluatedPaintSlot(result, 'stroke', parameterColorSlot(n.params.color));
         }
         if (n.type === 'Path Remap') {
           result.characterOccurrences = routeCharacters(
@@ -5526,7 +5553,12 @@ function exportValidatedScene(doc, fonts) {
         throw Error(
           `${l.name}: Character positions are suspended; restore text/mapping or reset all adjustments before export`,
         );
-      return { layer: l, value: result.path };
+      const paintProvenance = evaluatedPaintSlots.get(result.path);
+      return {
+        layer: l,
+        value: result.path,
+        ...(paintProvenance ? { paintProvenance: { ...paintProvenance } } : {}),
+      };
     });
 }
 export function exportSVG(doc, fonts = {}, options = {}) {

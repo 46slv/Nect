@@ -30,7 +30,7 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       )
     )
       throw Error('Coverage attribution currently requires plain solid paths');
-    const provenance = bindings.get(layer.id) ?? {};
+    const provenance = entry.paintProvenance ?? bindings.get(layer.id) ?? {};
     for (const paint of ['fill', 'stroke']) {
       if (!value[paint]) continue;
       const slotId = provenance[paint] ?? null;

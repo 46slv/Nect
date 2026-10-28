@@ -81,3 +81,42 @@ test('repeater appearance is never flattened into independent child alpha', () =
     assert.throws(() => passes([{ ...scene[0], value }], doc), /plain solid paths/);
   }
 });
+
+test('authored slots reach render passes without caller identity guesses', () => {
+  const { doc, layer } = fixture();
+  doc.schemaVersion = 54;
+  doc.colorSlots = ['c1', 'c2'].map((id) => ({
+    id,
+    name: id,
+    value: { hex: '#123456', alpha: 0.5 },
+  }));
+  layer.nodes.find((n) => n.type === 'Fill').params.color.colorSlotId = 'c1';
+  layer.nodes.find((n) => n.type === 'Stroke').params.color.colorSlotId = 'c2';
+  const scene = exportScene(doc);
+  assert.deepEqual(scene[0].paintProvenance, { fill: 'c1', stroke: 'c2' });
+  assert.deepEqual(
+    passes(scene, doc).map((p) => p.slotId),
+    ['c1', 'c2'],
+  );
+  assert.deepEqual(Object.keys(scene[0].value.fill).sort(), ['alpha', 'hex']);
+  assert.equal(Object.hasOwn(scene[0].value, 'paintProvenance'), false);
+});
+
+test('Color-node source chains preserve exact identity and literal replacement clears it', () => {
+  const { doc, layer } = fixture();
+  doc.schemaVersion = 54;
+  doc.colorSlots = [{ id: 'brand', name: 'Brand', value: { hex: '#123456', alpha: 1 } }];
+  const color = node('Color');
+  color.params.value.colorSlotId = 'brand';
+  layer.nodes.push(color);
+  const fill = layer.nodes.find((n) => n.type === 'Fill'),
+    output = layer.nodes.find((n) => n.type === 'Output');
+  connect(layer, color.id, fill.id, 'color');
+  assert.equal(passes(exportScene(doc), doc)[0].slotId, 'brand');
+  const literal = node('Fill');
+  literal.params.color.value = { hex: '#123456', alpha: 1 };
+  layer.nodes.push(literal);
+  connect(layer, output.params.path.source, literal.id, 'path');
+  connect(layer, literal.id, output.id, 'path');
+  assert.equal(passes(exportScene(doc), doc)[0].slotId, null);
+});
