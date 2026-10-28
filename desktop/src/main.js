@@ -1326,10 +1326,16 @@ let pendingRender = null,
 // expose their native selection, so replacement also loses select-all before
 // the first input event. Value restoration cannot restore either browser state.
 const numericInputDrafts = new WeakSet();
-app.addEventListener('focusin', (event) => {
-  if (event.target.matches('input[type="number"], input[data-numeric-expression]'))
+let restoringControlFocus = false;
+const reserveNumericInput = (event) => {
+  if (
+    !restoringControlFocus &&
+    event.target.matches('input[type="number"], input[data-numeric-expression]')
+  )
     numericInputDrafts.add(event.target);
-});
+};
+for (const event of ['focusin', 'pointerdown', 'keydown'])
+  app.addEventListener(event, reserveNumericInput, true);
 app.addEventListener(
   'input',
   (event) => {
@@ -3881,7 +3887,12 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   updateNavigation();
   for (const dial of app.querySelectorAll('[data-repeater-angle]'))
     repeaterAngleScopes.set(dial, { owner: session, envelope: session.state, layerId: l.id });
-  restoreFocus(app, focused);
+  restoringControlFocus = true;
+  try {
+    restoreFocus(app, focused);
+  } finally {
+    restoringControlFocus = false;
+  }
   if (pointScroll)
     app.querySelectorAll('.point-panel-rows').forEach((el, i) => {
       el.scrollTop = pointScroll[i] ?? 0;
