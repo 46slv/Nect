@@ -1321,6 +1321,28 @@ function notify(text, bad = false) {
 let pendingRender = null,
   needsRender = false,
   pointerActive = false;
+// Replacing a focused numeric input can emit a native change during removal.
+// Keep the real input alive from focus until commit/blur: number controls do not
+// expose their native selection, so replacement also loses select-all before
+// the first input event. Value restoration cannot restore either browser state.
+const numericInputDrafts = new WeakSet();
+app.addEventListener('focusin', (event) => {
+  if (event.target.matches('input[type="number"], input[data-numeric-expression]'))
+    numericInputDrafts.add(event.target);
+});
+app.addEventListener(
+  'input',
+  (event) => {
+    if (event.target.matches('input[type="number"], input[data-numeric-expression]'))
+      numericInputDrafts.add(event.target);
+  },
+  true,
+);
+app.addEventListener('change', (event) => numericInputDrafts.delete(event.target), true);
+app.addEventListener('focusout', (event) => {
+  numericInputDrafts.delete(event.target);
+  if (needsRender) scheduleRender();
+});
 document.addEventListener(
   'pointerdown',
   (event) => {
@@ -1354,7 +1376,7 @@ function scheduleRender() {
   if (pendingRender === null)
     pendingRender = setTimeout(() => {
       pendingRender = null;
-      if (!pointerActive) render();
+      if (!pointerActive && !numericInputDrafts.has(document.activeElement)) render();
     }, 0);
 }
 function commandChange(type, payload, text, deferRender = false, envelope = session.state) {
@@ -1410,6 +1432,11 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
   if (deferRender) scheduleRender();
   else render();
   return result;
+}
+function settleNumericControl(input, result) {
+  if (!input.matches('input[type="number"], input[data-numeric-expression]')) return;
+  if (result === null) input.value = input.defaultValue;
+  else input.defaultValue = input.value;
 }
 function resetTransient() {
   keyerInputPicker?.close();
@@ -9158,9 +9185,11 @@ app.addEventListener('change', async (e) => {
         : Number(el.value) / (['width', 'height'].includes(property) ? 100 : 1);
     if (property !== 'font' && !el.value.trim()) {
       notify('Enter a value or choose Inherit', true);
+      settleNumericControl(el, null);
+      scheduleRender();
       return;
     }
-    commandChange(
+    const result = commandChange(
       'set-character-style',
       {
         nodeId: selectedNode().id,
@@ -9170,6 +9199,7 @@ app.addEventListener('change', async (e) => {
       'Selected typography updated',
       true,
     );
+    settleNumericControl(el, result);
     return;
   }
   if (d.characterTransform !== undefined) {
@@ -9661,7 +9691,7 @@ app.addEventListener('change', async (e) => {
           });
           return;
         }
-        commandChange(
+        const result = commandChange(
           d.base !== undefined || d.colorBase !== undefined
             ? 'set-parameter-base'
             : isTransform(n)
@@ -9675,8 +9705,10 @@ app.addEventListener('change', async (e) => {
           undefined,
           true,
         );
+        settleNumericControl(el, result);
       }
     } catch (error) {
+      settleNumericControl(el, null);
       notify(error.message, true);
       scheduleRender();
     }
@@ -13260,6 +13292,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     const value = e.target.value;
     e.target.dataset.numericExpression = 'true';
+    numericInputDrafts.add(e.target);
     e.target.type = 'text';
     e.target.inputMode = 'decimal';
     e.target.value = `${value}${e.key}`;
@@ -13270,6 +13303,8 @@ document.addEventListener('keydown', (e) => {
     e.target.value = e.target.defaultValue;
     e.target.type = 'number';
     delete e.target.dataset.numericExpression;
+    numericInputDrafts.delete(e.target);
+    if (needsRender) scheduleRender();
     return;
   }
   if (numericExpressionInput && e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) {
@@ -13286,6 +13321,8 @@ document.addEventListener('keydown', (e) => {
         input.value = input.defaultValue;
         input.type = 'number';
         delete input.dataset.numericExpression;
+        numericInputDrafts.delete(input);
+        if (needsRender) scheduleRender();
         notify('Invalid calculation', true);
       }
       return;
@@ -13973,7 +14010,10 @@ document.addEventListener('click', (event) => {
   }
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape') return;
+  // Modal dialogs own Escape. An open File menu underneath an unsaved-changes
+  // dialog must not cancel the browser's native dialog close action.
+  if (event.key !== 'Escape' || event.defaultPrevented || event.target.closest?.('dialog[open]'))
+    return;
   const open = [...document.querySelectorAll('.command-menu[open]')];
   if (!open.length && !alignmentPreferences.open && !gridOpen && !layoutOpen && !guidesOpen) return;
   event.preventDefault();

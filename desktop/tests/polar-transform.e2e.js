@@ -45,6 +45,12 @@ try {
   );
   assert.equal(await radius.inputValue(), '270');
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
+  // Enter keeps focus on this control: a rejected value must not be restored
+  // as though it were an uncommitted draft during the scheduled render.
+  await radius.fill('0');
+  await radius.press('Enter');
+  assert.equal(await radius.inputValue(), '270');
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
   for (const [action, ext] of [
     ['save', 'json'],
     ['export', 'svg'],

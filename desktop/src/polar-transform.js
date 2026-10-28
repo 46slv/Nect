@@ -41,6 +41,38 @@ function mapPoint(position, o) {
   return [finite(o.origin[0] + u * o.width), finite(o.origin[1] + (r / o.radius) * o.height)];
 }
 
+// A cubic can cross the seam twice even when both anchors and their own
+// handles pass the angular-distance checks. De Casteljau subdivision bounds
+// the entire curve by its control hull; reject ambiguous hulls at the limit.
+function assertInverseSegment(points, o) {
+  const angle = (o.angle * Math.PI) / 180,
+    cos = Math.cos(angle),
+    sin = Math.sin(angle);
+  const rotated = points.map(([x, y]) => {
+    const dx = finite(x - o.center[0]),
+      dy = finite(y - o.center[1]);
+    return [dx * cos + dy * sin, dy * cos - dx * sin];
+  });
+  let budget = 512;
+  const safe = (p, depth) => {
+    if (p.every((v) => v[0] < 0) || p.every((v) => v[1] >= 0) || p.every((v) => v[1] < 0))
+      return true;
+    if (!depth || --budget <= 0) return false;
+    const midpoint = (a, b) => a.map((v, i) => (v + b[i]) / 2);
+    const a = midpoint(p[0], p[1]),
+      b = midpoint(p[1], p[2]),
+      c = midpoint(p[2], p[3]);
+    const d = midpoint(a, b),
+      e = midpoint(b, c),
+      f = midpoint(d, e);
+    return safe([p[0], a, d, f], depth - 1) && safe([f, e, c, p[3]], depth - 1);
+  };
+  if (!safe(rotated, 16))
+    throw Error(
+      'Polar Transform inverse crosses or approaches the angle seam; split or rotate the source',
+    );
+}
+
 export function polarTransformGeometry(source, options) {
   const o = polarSettings(options);
   if (!source || !Array.isArray(source.contours)) throw Error('Connect a Path input');
@@ -55,6 +87,24 @@ export function polarTransformGeometry(source, options) {
     for (const p of contour.points) {
       if (!vector(p.position) || !vector(p.handleA) || !vector(p.handleB))
         throw Error('Polar Transform needs finite anchors and handles');
+    }
+    if (o.inverse) {
+      const pts = contour.points;
+      for (let i = 0; i < pts.length - (contour.closed ? 0 : 1); i++) {
+        const p = pts[i],
+          next = pts[(i + 1) % pts.length];
+        assertInverseSegment(
+          [
+            p.position,
+            p.position.map((v, axis) => finite(v + p.handleB[axis])),
+            next.position.map((v, axis) => finite(v + next.handleA[axis])),
+            next.position,
+          ],
+          o,
+        );
+      }
+    }
+    for (const p of contour.points) {
       const position = mapPoint(p.position, o);
       for (const key of ['handleA', 'handleB']) {
         const mapped = mapPoint(

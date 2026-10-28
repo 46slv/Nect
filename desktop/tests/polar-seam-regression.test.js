@@ -68,3 +68,20 @@ test('forward mapping retains safe relative cubic control behavior', () => {
   near(points[1].handleA, [-100, 100]);
   assert.deepEqual(source, before);
 });
+
+test('inverse seam checks follow translated centers and rotated start angles', () => {
+  const rotate = ([x, y]) => [10 - y, 20 + x];
+  const source = path([
+    point(rotate([-1, 0]), [0, 0], [-0.309017, 1.9510565]),
+    point(rotate([-1, 0]), [0.309017, 1.9510565]),
+  ]);
+  assert.throws(
+    () => polarTransformGeometry(source, { ...settings, center: [10, 20], angle: 90 }),
+    /seam/,
+  );
+});
+
+test('a coarse hull crossing the seam does not reject a safe subdivided curve', () => {
+  const source = path([point([-2, -1], [0, 0], [3, 0]), point([-2, 1])]);
+  assert.doesNotThrow(() => polarTransformGeometry(source, settings));
+});

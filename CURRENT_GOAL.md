@@ -14,22 +14,22 @@ Authority: user's current formal takeover/development instruction. Edits/tests/d
 
 Coarse route: document lifetime → common command Session migration → representative shape/text production and interaction fixes → measured native stabilization / Shiro review.
 
-## ACTIVE CHECKPOINT - Approved offline integration
+## ACTIVE CHECKPOINT — 2026-10-28 focused development
 
-Goal: Integrate the already implemented Build commit display, offline preview discovery fixtures and imported expression-reference repair while preserving the merged joystick viewport behavior.
+Goal: Repair editing cancellation, duplication references and project/preset persistence; safely combine reviewed Polar/Angular work on a development branch, with a fresh Windows candidate and separate native evidence.
 
-Current phase: One source writer on the isolated codex/integration-84-86-88-20261024 branch on SHIRO-WS. The reviewed candidates follow the approved PR84, PR86 and PR88 sequence; live PR state determines which unmerged stage remains. The native UI task remains separate and must not be duplicated or interrupted.
+Current phase: Astra parent task 01a180d5-0527-71f1-9523-140ed437e3bd owns source/integration at D:/Documents/Nect-worktrees/astra-sprint-20261028. Sprint began approximately04:46UTC, closeout target06:46UTC. Existing Windows task01a180bc-2609-7762-b126-cf6ea33ae709 owns native GUI; no duplicate GUI writer. Independent implementation/test workers returned committed candidates and released source.
 
-Proven: PR87 is merged as main05102869b66c814af16db22e626c15bc217de306/tree5e2219a439457b694a124008874657b34a9692fa, with exact-main Core/Windows CI and actual Chrome directional checks passed. PR84 and PR86 initial source reviews passed; PR84 integration treeb8cd5868827c1553cff166579f2d2b17583eb47f preserves all PR87 files. Earlier PR CI remains historical until the current integration heads pass their required gates.
+Proven: Start main9ea7ea5947e0cdb7f01dd7d558749cdd7144edd9. PR96 squash tree equals old Mask branch; its commits were not replayed. Polar/Angular product+tests match PR98 tree except deliberate new fixes. PR102985922a and PR103d5ddf09 changes retained. Issue100 failed on internal ref() duplication before repair; focused core51 and real Chrome Ctrl+D/Ctrl+C/V/history/reopen passed in worker. New numeric-render-race.e2e.js fails before fix when deferred render auto-commits a draft, then passes with numeric/expression drafts preserved, Escape, exact Undo/Redo and reopen. Original rich-text expectation1.35 unchanged. Deterministic pre-input render reproduction loses native number select-all, inserts135100 instead of135, rejects range and leaves height undefined; focus-to-commit reservation now passes that same case. Historical CI event trace was unavailable, so exact historical ordering remains inferred. New project-integrity-ui.e2e.js proved Feather preset save/apply and SVG asset/schema preservation via controls, actual browser Save As download and Open; Escape guard failed before fix and passes after fixing menu interception. New Polar regression caught open/closed cubic double seam crossings; bounded subdivision repair plus safe/rotated cases passes. See named test files for executable evidence.
 
-Next task: Complete exact-candidate review and focused checks, publish ordinary merge commits to the existing development branches, confirm required CI at each new head, then integrate any still-unmerged PR84, PR86 and PR88 in that order. Verify the final Windows artifact against its actual commit/tree/run and external archive digest.
+Next task: Run aggregate frontend/Chrome and exact-candidate CI, retrieve Windows artifact with source/tree/EXE digest, then give the existing native tester the new candidate and fixtures/project-integrity-native.json plus precise changed-case scope. Repair observed failures before closeout.
 
-Approach: Reuse existing pure discovery/version/identity validators and literal rendering. Keep the fixture client outside the production import graph, with injected source/request/clock and bounded expiry. Resolve checkpoint-only conflicts without altering unrelated product behavior.
+Approach: One integration writer; isolated headless verification may run independently. Preserve all prior PRs/history and user projects. New native fixture is synthetic; use fresh output copies. Keep unit/DOM, browser, native GUI and physical-input evidence distinct.
 
-Done for next: Reviewed exact trees and terminal required checks for each authorized normal main merge; final archive/receipt/EXE identity, accurate remaining native acceptance limits and released source ownership.
+Done for next: Reviewable Draft PR and remote HEAD parity, terminal required CI or named exact blocker, native result on exact new EXE (or explicit NOT_RUN), compact outstanding work with owner. Never use old Angular/Polar EXE f8fdfa65 evidence for these fixes.
 
-State: Other source worktrees and PRs are preserved. PR86 product files are unchanged from its reviewed candidate; only this checkpoint combines the completed joystick evidence with current authorized integration work.
+State: Branch codex/nect-sprint-20261028, isolated worktree. Exact commit/CI/artifact pointers will be updated at closeout. Old D:/Documents/Nect remains untouched. New candidate not yet built/launched; main remains9ea7ea5.
 
-Authority: The owner's2026-10-24T17:16UTC instruction approves GitHub/publication work for these already requested tasks, including Ready-for-review transitions and normal main integration. No force/history rewrite, provider/feed activation, updater download/install/apply, keys, credentials, security/settings change, app replacement, restart or user-session operation.
+Authority: Current user's two-hour sprint explicitly authorizes edits, tests, new development branches, commits/non-force pushes and Draft PRs. No main merge, release, force/history rewrite, permission/auth/billing changes. This replaces the stale prior integration checkpoint and its completed PR84/86/88 next-task text, not the Mission Brief above.
 
-Handoff: CONTINUE_CURRENT_TASK. Native UI remains a separate acceptance row; no browser/unit/compile result is native acceptance. Live update distribution and safe apply/rollback remain outside this offline increment. See desktop/docs/preview-update-check.md.
+Handoff: CONTINUE_CURRENT_TASK until bounded sprint closeout. Pending CI/native work must retain exact owner and next check conditions.

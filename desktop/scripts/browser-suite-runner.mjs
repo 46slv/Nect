@@ -63,6 +63,9 @@ export const browserTestFiles = Object.freeze([
   'tests/browser-open-retry.e2e.js',
   'tests/angular-gradient.e2e.js',
   'tests/polar-transform.e2e.js',
+  'tests/layer-duplicate-expression-refs.e2e.js',
+  'tests/numeric-render-race.e2e.js',
+  'tests/project-integrity-ui.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
