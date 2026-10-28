@@ -140,6 +140,22 @@ scope. Owned negative fixtures cover this boundary and its normal positive paths
 
 ## Acceptance and residuals
 
+### Separate visual checkpoint: graph background
+
+The user's 10:35 UTC request slightly darkens only the graph surface from
+`#f7f8f9` to `#dde3e8`; Canvas stays `#e9edef`. Grid dots change from `#c8d0d7`
+to `#afbbc5` and wires from `#778b9b` to `#657b8d` to retain contrast on that
+surface. White node bodies and text colors remain unchanged. This is a separate
+commit from the library/catalog work, without panel rearrangement.
+
+Actual 1440x960 headless before/after screenshots are
+`desktop/test-results/graph-background-before.png` and
+`desktop/test-results/graph-background-after.png`. A self-authored connected
+Rectangle/Fill/Output fixture keeps identical authored JSON, node geometry and
+wire paths across both captures. Computed wire contrast increases from 3.319:1
+to 3.401:1; grid contrast from 1.467:1 to 1.511:1; node text remains 15.431:1.
+These measurements and browser captures are not native UI acceptance.
+
 ### Next bounded slice: destination-based drag placement
 
 The user's 10:23 UTC direction chooses the route from the drop destination:

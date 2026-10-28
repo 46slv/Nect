@@ -300,7 +300,7 @@ header {
   min-height: 130px;
   display: flex;
   flex-direction: column;
-  background: #f7f8f9;
+  background: #dde3e8;
 }
 .panel-head {
   height: 36px;
@@ -333,7 +333,7 @@ header {
   transform-origin: 0 0;
   width: 2400px;
   height: 1600px;
-  background-image: radial-gradient(#c8d0d7 0.65px, transparent 0.65px);
+  background-image: radial-gradient(#afbbc5 0.65px, transparent 0.65px);
   background-size: 16px 16px;
 }
 .canvas-marquee {
@@ -465,7 +465,7 @@ header {
   pointer-events: none;
 }
 .wire {
-  stroke: #778b9b;
+  stroke: #657b8d;
   stroke-width: 1.5;
   fill: none;
 }
