@@ -3953,6 +3953,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   revealActivePointRow();
   for (const select of app.querySelectorAll('[data-stroke-preset]'))
     select.value = select.querySelector('option[selected]').value;
+  // Finalize header geometry before fitting. Deferring menu compaction to the
+  // observer changes the stage height between the two presses of a double-click.
+  ensureCommandMenus(app, document);
+  ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();
   if (canvasEditor && canvasTextEdit && current().id === canvasTextEdit.layerId)
