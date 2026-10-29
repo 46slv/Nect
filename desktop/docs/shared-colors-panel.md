@@ -36,13 +36,19 @@ artboard pixels, using the production radial renderer for the private weight mas
 Angular uses the production renderer's 720 midpoint wedges and premultiplied
 interpolation: each stop contributes its own alpha times its interpolation weight,
 so a fully transparent angular stop contributes zero (unlike SVG linear/radial).
-Four private single-stop alpha renders preserve the exact pattern/geometry bounds,
-angle, direction, stop positions and crispEdges, without changing product rendering.
+Four private white/black stop-basis renders preserve every wedge's original alpha
+as well as the exact pattern/geometry bounds, angle, direction, stop positions and
+crispEdges, without changing product rendering. The decoder reads premultiplied
+red (canvas R × A) to recover each visible contribution, including source-over
+between quantized overlapping wedges. Changing wedge alpha instead is incorrect:
+two opaque 50/50 wedges overlap to full alpha 1, while independently rendering each
+stop at alpha 0.5 would sum to 0.75 + 0.75 = 1.5. No outer alpha mask is multiplied
+again; geometry antialiasing and wedge occlusion have already been applied.
 Their masses share one full-paint alpha and occlude the backdrop only once.
 When all four validated stop IDs are identical (including all unbound), the full
 paint is attributed directly to that identity without auxiliary masks; this is
 exact even at faint antialiased edges and never compares HEX values.
-Independent 8-bit mask rounding is reconciled proportionally only within 4/255 per
+Independent 8-bit basis-color/readback rounding is reconciled proportionally only within 4/255 per
 pixel. If a painted pixel has no recoverable component mass (including near-zero
 alpha/AA-edge precision cases), or the discrepancy exceeds that bound, the entire
 measurement is unavailable. No mass is invented, assigned to Other, or partly shown.

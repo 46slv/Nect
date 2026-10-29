@@ -502,3 +502,30 @@ test('invalid four-stop descriptors and dual attribution reject before any decod
     );
   assert.equal(calls, 0);
 });
+
+test('basis channels are snapshotted and requested only for auxiliary contribution decodes', async () => {
+  const input = angularPass();
+  input.contributions.forEach((stop) => {
+    stop.channel = 'premultiplied-red';
+  });
+  const calls = [],
+    pending = deferred();
+  const running = sample(['a', 'b'], [input], bounds, (svg, size) => {
+    calls.push({ svg, size });
+    return calls.length === 1 ? pending.promise : [svg === 'stop1' ? 0.5 : 0];
+  });
+  input.contributions[1].channel = 'invalid';
+  pending.resolve([0.5]);
+  const measured = await running;
+  assert.deepEqual(calls[0], { svg: 'full', size: { width: 1, height: 1 } });
+  assert.ok(calls.slice(1).every((call) => call.size.channel === 'premultiplied-red'));
+  assert.equal(measured.slots[1].percent, 100);
+  for (const channel of ['red', null, {}, 1]) {
+    const invalid = angularPass();
+    invalid.contributions[0].channel = channel;
+    await assert.rejects(
+      sample(['a'], [invalid], bounds, () => assert.fail('invalid decode')),
+      /channel/,
+    );
+  }
+});

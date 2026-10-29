@@ -23,11 +23,14 @@ try {
     const { colorCoveragePasses } = await import('/src/color-coverage-passes.js');
     const { sampleColorCoverage } = await import('/src/color-coverage-sampling.js');
     const { rasterizeCoverageAlpha } = await import('/src/color-coverage-raster.js');
+    const { summarizeCoverageRasters } = await import(
+      '/tests/helpers/color-coverage-diagnostics.js'
+    );
     const width = 64,
       height = 48,
       pixels = width * height;
     const slots = ['same_hex_a', 'same_hex_b', 'outline', 'background'];
-    const raster = async (svg) => {
+    const raster = async (svg, channel = 'alpha') => {
       const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
       try {
         const image = new Image();
@@ -39,7 +42,12 @@ try {
         const context = canvas.getContext('2d', { willReadFrequently: true });
         context.drawImage(image, 0, 0, width, height);
         const rgba = context.getImageData(0, 0, width, height).data;
-        return Array.from({ length: pixels }, (_, index) => rgba[index * 4 + 3] / 255);
+        return Array.from(
+          { length: pixels },
+          (_, index) =>
+            (rgba[index * 4 + 3] / 255) *
+            (channel === 'premultiplied-red' ? rgba[index * 4] / 255 : 1),
+        );
       } finally {
         URL.revokeObjectURL(url);
       }
@@ -634,15 +642,20 @@ try {
           slotId: pass.slotId,
           alpha: await raster(pass.svg),
           startAlpha: fixture.radialProbes ? await raster(pass.split.startSvg) : null,
+          components: pass.contributions
+            ? await Promise.all(pass.contributions.map((stop) => raster(stop.svg, stop.channel)))
+            : null,
         });
-      const measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha).catch(
-        (error) => {
-          throw Error(`${fixture.name}: ${error.message}`);
-        },
-      );
-      const angularProbeMasks = fixture.angularProbes
-        ? await Promise.all(passes[0].contributions.map((stop) => raster(stop.svg)))
-        : null;
+      // Retain evidence and continue all fixtures even if attribution fails. The
+      // Node assertions below still fail the suite after results.json is saved.
+      let measured = null,
+        measurementError = null;
+      try {
+        measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha);
+      } catch (error) {
+        measurementError = String(error?.message ?? error);
+      }
+      const angularProbeMasks = fixture.angularProbes ? layers[0].components : null;
       const analytic = analyticalCoverage(analyticLayers);
       const full = await raster(exportSVG(doc));
       const rendered = await raster(
@@ -661,6 +674,25 @@ try {
       receipts.push({
         name: fixture.name,
         measured,
+        measurementError,
+        contributionDiagnostics: layers.flatMap((entry, index) =>
+          entry.components
+            ? [
+                {
+                  passIndex: index,
+                  slotIds: passes[index].contributions.map((stop) => stop.slotId),
+                  ...summarizeCoverageRasters(entry.alpha, entry.components, width, height, [
+                    [32, 24],
+                    [44, 25],
+                    [31, 36],
+                    [20, 23],
+                    [33, 12],
+                    [0, 0],
+                  ]),
+                },
+              ]
+            : [],
+        ),
         angularProbes: fixture.angularProbes
           ? [
               [44, 25],
@@ -706,6 +738,7 @@ try {
     `${output}/results.json`,
     JSON.stringify(
       {
+        passed: false,
         route:
           'production exportScene/renderElement/exportSVG → browser SVG Image → canvas RGBA alpha',
         results,
@@ -717,6 +750,7 @@ try {
   );
   for (const result of results) {
     const context = result.name;
+    assert.equal(result.measurementError, null, `${context}: ${result.measurementError}`);
     assert.deepEqual(
       result.actualOrder,
       result.expectedOrder,

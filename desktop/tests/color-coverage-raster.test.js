@@ -178,3 +178,22 @@ test('image source cleanup failure cannot prevent URL revocation', async (t) => 
   await assert.rejects(rasterize('<svg/>', { width: 1, height: 1 }), (error) => error === failure);
   assertReleased(state);
 });
+
+test('contribution readback uses premultiplied red once, preserving transparent and antialiased pixels', async (t) => {
+  const { state } = fakeBrowser(t, {
+    pixels: new Uint8ClampedArray([
+      255, 0, 0, 0, 128, 128, 128, 128, 255, 255, 255, 64, 0, 0, 0, 255,
+    ]),
+  });
+  const mass = await rasterize('<svg/>', { width: 4, height: 1, channel: 'premultiplied-red' });
+  assert.deepEqual([...mass], [0, Math.fround((128 / 255) ** 2), Math.fround(64 / 255), 0]);
+  assertReleased(state);
+});
+
+test('unsupported contribution channels reject before browser resource allocation', async (t) => {
+  const { state } = fakeBrowser(t);
+  for (const channel of [null, 'red', 'luminance', 0, {}])
+    await assert.rejects(rasterize('<svg/>', { width: 1, height: 1, channel }), /raster request/);
+  assert.deepEqual(state.blobs, []);
+  assert.deepEqual(state.images, []);
+});

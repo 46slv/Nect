@@ -382,6 +382,12 @@ test('angular four-stop provenance uses evaluated identities and production wedg
     assert.equal(fullPaths.length, 720);
     assert.deepEqual(maskPaths, fullPaths);
     assert.match(mask.svg, /shape-rendering="crispEdges"/);
+    assert.equal(mask.channel, 'premultiplied-red');
+    assert.deepEqual(
+      [...mask.svg.matchAll(/fill-opacity="([^"]+)"/g)].map((m) => m[1]),
+      [...fill.svg.matchAll(/fill-opacity="([^"]+)"/g)].map((m) => m[1]),
+      'Every original wedge alpha must survive; changing it changes overlap occlusion',
+    );
     assert.equal(mask.svg.match(/<pattern[^>]*>/)[0], fill.svg.match(/<pattern[^>]*>/)[0]);
   }
   assert.equal(JSON.stringify(scene), before);
@@ -542,4 +548,62 @@ test('collapsed same-ID angular paint uses one decode and one backdrop occlusion
   assert.equal(result.slots[0].contribution, 0.375);
   assert.equal(result.other.contribution, 0.25);
   assert.equal(result.paintedPixelEquivalent, 0.625);
+});
+
+test('production basis colors preserve stop contribution through overlapping wedge source-over', () => {
+  for (const alphas of [
+    [1, 1, 1, 1],
+    [0, 0.25, 0.75, 1],
+  ]) {
+    const { doc, gradient } = angularFixture();
+    doc.colorSlots.forEach((slot, i) => {
+      slot.value.alpha = alphas[i];
+    });
+    gradient.params.position1.value = 0.17;
+    gradient.params.position2.value = 0.73;
+    const scene = exportScene(doc),
+      fill = passes(scene, doc)[0];
+    const wedges = (svg) =>
+      [...svg.matchAll(/<path d="[^"]+" fill="(#[0-9a-f]+)" fill-opacity="([^"]+)"\/>/g)].map(
+        (m) => ({ red: parseInt(m[1].slice(1, 3), 16) / 255, alpha: Number(m[2]) }),
+      );
+    const full = wedges(fill.svg),
+      basis = fill.contributions.map((stop) => wedges(stop.svg));
+    assert.equal(full.length, 720);
+    for (const indices of [
+      [20, 21],
+      [360, 361],
+      [0, 719],
+    ]) {
+      const actual = [0, 0, 0, 0],
+        expected = [0, 0, 0, 0];
+      let fullAlpha = 0;
+      for (const index of indices) {
+        const t = (index + 0.5) / 720,
+          positions = [0, 0.17, 0.73, 1];
+        const right = positions.findIndex((position) => position >= t),
+          left = right - 1;
+        const fraction = (t - positions[left]) / (positions[right] - positions[left]);
+        const masses = [0, 0, 0, 0];
+        masses[left] = alphas[left] * (1 - fraction);
+        masses[right] = alphas[right] * fraction;
+        const alpha = masses.reduce((sum, mass) => sum + mass, 0);
+        assert.ok(Math.abs(full[index].alpha - alpha) < 1e-12);
+        for (let stop = 0; stop < 4; stop++) {
+          assert.equal(basis[stop][index].alpha, full[index].alpha);
+          actual[stop] = actual[stop] * (1 - alpha) + basis[stop][index].red * alpha;
+          expected[stop] = expected[stop] * (1 - alpha) + masses[stop];
+        }
+        fullAlpha = fullAlpha * (1 - alpha) + alpha;
+      }
+      actual.forEach((mass, i) =>
+        assert.ok(
+          Math.abs(mass - expected[i]) <= 1 / 255,
+          'independent premultiplied overlapping-wedge oracle',
+        ),
+      );
+      assert.ok(Math.abs(actual.reduce((sum, mass) => sum + mass, 0) - fullAlpha) <= 2 / 255);
+      if (alphas[0] === 0) assert.equal(actual[0], 0);
+    }
+  }
 });

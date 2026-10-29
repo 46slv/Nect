@@ -88,13 +88,17 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       return result;
     };
     // Angular interpolation is premultiplied: isolate each alpha_i * weight_i
-    // directly, not A(t) * weight_i as for SVG linear/radial gradients. Reusing
+    // directly, not A(t) * weight_i as for SVG linear/radial gradients. Keep
+    // ORIGINAL per-wedge alpha so quantized overlapping wedges retain identical
+    // intra-pattern source-over occlusion. A white/black stop basis encodes the
+    // fraction in RGB; the decoder recovers premultiplied red, not alpha. Reusing
     // the production renderer preserves its 720 midpoint wedges, pattern bounds,
     // direction, seam and crispEdges. No authored geometry or paint is changed.
     const contributions =
       angular && stopIds
         ? angularStops.map((key, index) => ({
             slotId: stopIds[index],
+            channel: 'premultiplied-red',
             svg: svg({
               ...isolated,
               fill: {
@@ -103,8 +107,8 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
                   angularStops.map((stop) => [
                     stop,
                     {
-                      hex: '#ffffff',
-                      alpha: stop === key ? isolated.fill[stop].alpha : 0,
+                      hex: stop === key ? '#ffffff' : '#000000',
+                      alpha: isolated.fill[stop].alpha,
                     },
                   ]),
                 ),

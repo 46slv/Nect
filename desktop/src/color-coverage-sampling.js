@@ -64,7 +64,10 @@ export async function sampleColorCoverage(
       contributions = Array.from(pass.contributions, (source) => {
         if (!source || !Object.hasOwn(source, 'slotId'))
           throw Error('Invalid four-stop coverage attribution');
-        return { slotId: source.slotId, svg: svgInput(source.svg) };
+        const channel = source.channel === undefined ? 'alpha' : source.channel;
+        if (!['alpha', 'premultiplied-red'].includes(channel))
+          throw Error('Invalid coverage contribution channel');
+        return { slotId: source.slotId, svg: svgInput(source.svg), channel };
       });
     }
     measureColorCoverage(
@@ -104,9 +107,9 @@ export async function sampleColorCoverage(
   };
   guard();
   const layers = [];
-  const decode = async (svg) => {
+  const decode = async (svg, channel = 'alpha') => {
     guard();
-    const alpha = await rasterize(svg, { ...size });
+    const alpha = await rasterize(svg, { ...size, ...(channel === 'alpha' ? {} : { channel }) });
     guard();
     measureColorCoverage(ids, [{ slotId: null, alpha }], size.width * size.height);
     // Copy borrowed buffers before another decoder call can rewrite them.
@@ -134,11 +137,12 @@ export async function sampleColorCoverage(
     if (pass.contributions) {
       contributions = [];
       for (const stop of pass.contributions)
-        contributions.push({ slotId: stop.slotId, alpha: await decode(stop.svg) });
+        contributions.push({ slotId: stop.slotId, alpha: await decode(stop.svg, stop.channel) });
       for (let pixel = 0; pixel < alpha.length; pixel++) {
         const sum = contributions.reduce((total, stop) => total + stop.alpha[pixel], 0);
-        // Four independent 8-bit component rasters plus the full paint may
-        // round differently. Reconcile only this bounded quantization error;
+        // Four independent 8-bit basis-color/readback channels plus full paint
+        // may round differently (alpha itself remains identical in each SVG).
+        // Reconcile only this bounded quantization error;
         // a missing positive mass or geometry disagreement fails the whole sample.
         if (Math.abs(sum - alpha[pixel]) > 4 / 255 + 1e-7)
           throw Error('Stop contributions disagree with paint alpha');

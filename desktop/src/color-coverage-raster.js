@@ -1,9 +1,10 @@
 // Only accepts SVG emitted by colorCoveragePasses, never an arbitrary external URL.
 // Browser-only adapter; import is inert so DOM-free callers can inject a decoder.
-export async function rasterizeCoverageAlpha(svg, { width, height }) {
+export async function rasterizeCoverageAlpha(svg, { width, height, channel = 'alpha' }) {
   if (
     typeof svg !== 'string' ||
     svg.length > 4 * 1024 * 1024 ||
+    !['alpha', 'premultiplied-red'].includes(channel) ||
     ![width, height].every((v) => Number.isInteger(v) && v > 0 && v <= 256)
   )
     throw Error('Invalid coverage raster request');
@@ -25,7 +26,12 @@ export async function rasterizeCoverageAlpha(svg, { width, height }) {
     context.drawImage(image, 0, 0, width, height);
     const pixels = context.getImageData(0, 0, width, height).data;
     const alpha = new Float32Array(width * height);
-    for (let i = 0; i < alpha.length; i++) alpha[i] = pixels[i * 4 + 3] / 255;
+    // Canvas readback is unpremultiplied RGBA. Basis-color contributions need
+    // R*A exactly once: all wedge overlap and shape AA are already composited.
+    for (let i = 0; i < alpha.length; i++) {
+      const opacity = pixels[i * 4 + 3] / 255;
+      alpha[i] = channel === 'premultiplied-red' ? (pixels[i * 4] / 255) * opacity : opacity;
+    }
     return alpha;
   } finally {
     clearTimeout(timer);
