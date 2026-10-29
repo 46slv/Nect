@@ -27,6 +27,32 @@ test('text inspector keeps editing, status and source return visible without rep
   assert.equal(root.querySelectorAll('textarea').length, 1);
 });
 
+test('Text identity stays first during normal and character editing without cloning controls', () => {
+  for (const editingCharacters of [false, true]) {
+    const w = new Window(),
+      root = w.document.createElement('div');
+    root.innerHTML = `<h3 class="inspector-node-title">Selected Text</h3><p class="inspector-node-type">Node · Text · Path</p>
+      <div class="viewer-assignment">Output</div><div class="source-navigation"><button>Back</button></div>
+      <div class="text-controls"><div class="field"><textarea data-text>日本語</textarea></div></div>
+      <div class="character-panel"><div class="character-actions">Actions</div><div class="character-typography">Typography</div></div>`;
+    const title = root.firstElementChild,
+      type = title.nextElementSibling,
+      text = root.querySelector('textarea'),
+      characters = root.querySelector('.character-panel');
+    arrangeTextInspector(root, editingCharacters);
+    assert.equal(root.firstElementChild, title);
+    assert.equal(title.nextElementSibling, type);
+    assert.equal(
+      type.nextElementSibling.className,
+      editingCharacters ? 'character-panel' : 'text-controls',
+    );
+    assert.equal(root.querySelector('textarea'), text);
+    assert.equal(root.querySelectorAll('.character-panel').length, 1);
+    assert.equal(root.querySelector('.character-panel'), characters);
+    assert.equal(root.querySelector('.source-navigation').closest('details'), null);
+  }
+});
+
 test('localized installed-font aliases survive IPC normalization with bounded validated immutable values', () => {
   const names = [
     ' メイリオ ',

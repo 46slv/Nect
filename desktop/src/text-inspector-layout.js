@@ -48,14 +48,17 @@ export function arrangeTextInspector(root, editingCharacters = false) {
   const os = root.querySelector('.os-font-outlines');
   if (os) advanced.append(os);
   controls.append(advanced);
-  root.prepend(controls);
+  const identity = root.querySelector(':scope > .inspector-node-type');
+  if (identity) identity.after(controls);
+  else root.prepend(controls);
   const characters = root.querySelector('.character-panel');
   if (characters) {
     controls.after(characters);
     if (editingCharacters) {
       const typography = characters.querySelector('.character-typography');
       if (typography) characters.querySelector('.character-actions')?.after(typography);
-      root.prepend(characters);
+      if (identity) identity.after(characters);
+      else root.prepend(characters);
     }
   }
   const output = disclosure(doc, 'output', 'Node and output');
