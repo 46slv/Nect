@@ -40,6 +40,119 @@ const markerPositions = () =>
   page
     .locator('[data-wheel-marker]')
     .evaluateAll((nodes) => nodes.map((n) => [n.dataset.wheelMarker, n.getAttribute('transform')]));
+// Keep these captures separate from the wheel-at-scrollTop=0 fixtures below.
+// Bounds alone do not prove visibility inside the panel's nested scrollports.
+const captureContrastReport = async (mode, label) => {
+  const report = page.locator(`[data-palette-contrast="${mode}"]`);
+  assert.equal(await report.count(), 1);
+  await report.scrollIntoViewIfNeeded();
+  const layout = await report.evaluate(async (el) => {
+    await document.fonts.ready;
+    await new Promise(requestAnimationFrame);
+    const panel = el.closest('.shared-colors-panel');
+    const rect = (node) => {
+      const { left, top, right, bottom, width, height } = node.getBoundingClientRect();
+      return { left, top, right, bottom, width, height };
+    };
+    const port = { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent),
+        bounds = parent.getBoundingClientRect();
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+        port.left = Math.max(port.left, bounds.left + parent.clientLeft);
+        port.right = Math.min(port.right, bounds.left + parent.clientLeft + parent.clientWidth);
+      }
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+        port.top = Math.max(port.top, bounds.top + parent.clientTop);
+        port.bottom = Math.min(port.bottom, bounds.top + parent.clientTop + parent.clientHeight);
+      }
+    }
+    return {
+      mode: el.dataset.paletteContrast,
+      label: el.getAttribute('aria-label'),
+      status: el.dataset.contrastStatus,
+      text: el.innerText,
+      bounds: rect(el),
+      visibleScrollport: port,
+      viewport: { width: innerWidth, height: innerHeight },
+      panelScrollTop: panel.scrollTop,
+      panelClientWidth: panel.clientWidth,
+      panelScrollWidth: panel.scrollWidth,
+      reportClientWidth: el.clientWidth,
+      reportScrollWidth: el.scrollWidth,
+      pairCount: el.querySelectorAll('[data-contrast-text-id]').length,
+      textBlocks: [...el.querySelectorAll('strong, p')].map((node) => {
+        const style = getComputedStyle(node),
+          range = document.createRange();
+        range.selectNodeContents(node);
+        return {
+          text: node.textContent,
+          fontSize: Number.parseFloat(style.fontSize),
+          lineHeight: Number.parseFloat(style.lineHeight),
+          display: style.display,
+          visibility: style.visibility,
+          opacity: Number(style.opacity),
+          lines: [...range.getClientRects()].map((line) => ({
+            left: line.left,
+            top: line.top,
+            right: line.right,
+            bottom: line.bottom,
+            // Catch text obscured by another panel, not only clipping.
+            unobscured: el.contains(
+              document.elementFromPoint(line.left + line.width / 2, line.top + line.height / 2),
+            ),
+          })),
+        };
+      }),
+    };
+  });
+  const screenshot = `harmony-contrast-${mode === 'current' ? 'saved' : 'proposed'}.png`,
+    png = await page.screenshot({ path: resolve(out, screenshot), fullPage: false });
+  layout.screenshot = {
+    file: screenshot,
+    width: png.readUInt32BE(16),
+    height: png.readUInt32BE(20),
+  };
+  assert.equal(layout.label, `${label} palette contrast`);
+  assert.match(layout.text, new RegExp(`${label} normal-text contrast:`));
+  assert.match(layout.text, /Text × Background candidates, 4\.5:1/);
+  assert.match(layout.text, /Not an artwork or whole-WCAG audit\. No colors are changed\./);
+  assert.match(layout.text, /\d+ pass, \d+ fail, \d+ unknown/);
+  assert.match(layout.text, /[\d.]+:1 · (pass|fail)/);
+  assert.equal(layout.pairCount, 1, `${label} retains the actual Text/Background pair`);
+  assert.ok(layout.panelScrollTop > 0, `${label} is reached by scrolling the real panel`);
+  assert.equal(layout.panelScrollWidth, layout.panelClientWidth, `${label}: no panel overflow`);
+  assert.equal(layout.reportScrollWidth, layout.reportClientWidth, `${label}: no report overflow`);
+  assert.deepEqual(layout.viewport, { width: 900, height: 720 });
+  assert.equal(layout.screenshot.width, 900);
+  assert.equal(layout.screenshot.height, 720);
+  const inside = (bounds, port, description) => {
+    assert.ok(bounds.right > bounds.left && bounds.bottom > bounds.top, `${description} has area`);
+    assert.ok(
+      bounds.left >= port.left &&
+        bounds.top >= port.top &&
+        bounds.right <= port.right &&
+        bounds.bottom <= port.bottom,
+      `${description} is fully visible: ${JSON.stringify({ bounds, port })}`,
+    );
+  };
+  inside(layout.bounds, layout.visibleScrollport, `${label} report`);
+  assert.equal(layout.textBlocks.length, 4, `${label} heading, scope, counts and pair are present`);
+  for (const block of layout.textBlocks) {
+    assert.ok(block.text.trim(), `${label} text is not empty`);
+    assert.notEqual(block.display, 'none');
+    assert.equal(block.visibility, 'visible');
+    assert.equal(block.opacity, 1);
+    assert.ok(block.fontSize >= 10, `${label} text retains the supported readable font size`);
+    assert.ok(block.lineHeight >= block.fontSize, `${label} text lines are not compressed`);
+    assert.ok(block.lines.length > 0, `${label} text has painted line geometry`);
+    for (const line of block.lines) {
+      inside(line, layout.bounds, `${label} text line`);
+      assert.equal(line.unobscured, true, `${label} text is not covered by another panel`);
+    }
+  }
+  return layout;
+};
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => window.nect);
@@ -52,10 +165,10 @@ try {
   assert.equal(created.colorDesign.version, 2);
   assert.equal(created.colorSlots.length, 5);
   assert.equal(created.colorDesign.palette.length, 5);
-  assert.equal(
-    await page.locator('[data-palette-contrast="current"]').getAttribute('data-contrast-status'),
-    'pass',
-  );
+  const defaultSavedContrastStatus = await page
+    .locator('[data-palette-contrast="current"]')
+    .getAttribute('data-contrast-status');
+  assert.equal(defaultSavedContrastStatus, 'pass');
   assert.equal(
     await page.locator('[data-palette-contrast="current"] [data-contrast-text-id]').count(),
     1,
@@ -306,6 +419,25 @@ try {
       `Inspector retains at least 100 px of accessible viewport ${context}: ${JSON.stringify(inspector)}`,
     );
   }
+  // Preserve the 900×960/720 wheel screenshots above; now scroll to the
+  // real saved/proposed reports instead of mistaking the wheel for contrast evidence.
+  const beforeContrastPreview = await encoded(),
+    savedContrast = await captureContrastReport('current', 'Saved');
+  await page.locator('[data-chroma-preview]').click();
+  assert.equal(
+    await encoded(),
+    beforeContrastPreview,
+    'contrast preview does not edit the project',
+  );
+  const proposedContrast = await captureContrastReport('preview', 'Proposed');
+  await page.locator('[data-chroma-cancel]').click();
+  assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
+  assert.equal(await encoded(), beforeContrastPreview, 'Cancel preserves the saved palette');
+  assert.equal(
+    await page.locator('[data-palette-contrast="current"]').innerText(),
+    savedContrast.text,
+    'Cancel retains the saved contrast report',
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(out, 'result.json'),
@@ -322,6 +454,14 @@ try {
         schemaVersion: 56,
         viewportWidth: 900,
         visibleLayouts,
+        contrast: {
+          defaultSavedStatus: defaultSavedContrastStatus,
+          previewDoesNotEditProject: true,
+          cancelPreservesSavedPaletteAndReport: true,
+          visibleGeometryAndReadableText: true,
+          noHorizontalOverflow: true,
+          reports: [savedContrast, proposedContrast],
+        },
         nativeDialogs: 'NOT_RUN',
         errors,
       },
@@ -330,7 +470,7 @@ try {
     ),
   );
   console.log(
-    'PASS harmony wheel: real UI, geometry, radial draft, history, stable IDs, browser save/reopen',
+    'PASS harmony wheel: real UI, geometry, radial draft, history, stable IDs, browser save/reopen, visible saved/proposed contrast',
   );
 } catch (error) {
   await page.screenshot({ path: resolve(out, 'failure.png'), fullPage: true });
