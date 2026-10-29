@@ -29,21 +29,53 @@ export async function sampleColorCoverage(
   if (
     !Array.isArray(slotIds) ||
     !Array.isArray(passes) ||
+    passes.length > 256 ||
     typeof rasterize !== 'function' ||
     typeof isCurrent !== 'function'
   )
     throw Error('Invalid coverage sampling request');
-  const size = coverageSampleSize(bounds.width, bounds.height, passes.length);
   const ids = [...slotIds];
   let svgBytes = 0;
-  const inputs = Array.from(passes, (pass) => {
-    if (!pass || typeof pass.svg !== 'string' || pass.svg.length > 4 * 1024 * 1024)
+  const svgInput = (svg) => {
+    if (typeof svg !== 'string' || svg.length > 4 * 1024 * 1024)
       throw Error('Invalid coverage paint pass');
-    svgBytes += pass.svg.length;
+    svgBytes += svg.length;
     if (svgBytes > 16 * 1024 * 1024) throw Error('Coverage SVG budget exceeded');
-    measureColorCoverage(ids, [{ slotId: pass.slotId, alpha: [] }], 0);
-    return { slotId: pass.slotId, svg: pass.svg };
+    return svg;
+  };
+  const inputs = Array.from(passes, (pass) => {
+    if (!pass) throw Error('Invalid coverage paint pass');
+    const svg = svgInput(pass.svg);
+    let split;
+    if (pass.split !== undefined) {
+      const source = pass.split;
+      if (!source || typeof source !== 'object' || Array.isArray(source))
+        throw Error('Invalid two-stop coverage attribution');
+      split = {
+        startSlotId: source.startSlotId,
+        endSlotId: source.endSlotId,
+        startSvg: svgInput(source.startSvg),
+      };
+    }
+    measureColorCoverage(
+      ids,
+      [
+        {
+          slotId: pass.slotId,
+          alpha: [],
+          ...(split ? { split: { ...split, startAlpha: [] } } : {}),
+        },
+      ],
+      0,
+    );
+    return { slotId: pass.slotId, svg, ...(split ? { split } : {}) };
   });
+  // Count the auxiliary stop masks in the same total storage/decode budget.
+  const size = coverageSampleSize(
+    bounds.width,
+    bounds.height,
+    inputs.reduce((count, pass) => count + (pass.split ? 2 : 1), 0),
+  );
   // Validate registry before starting an expensive asynchronous decode.
   measureColorCoverage(ids, [], 0);
   const guard = () => {
@@ -51,18 +83,33 @@ export async function sampleColorCoverage(
   };
   guard();
   const layers = [];
+  const decode = async (svg) => {
+    guard();
+    const alpha = await rasterize(svg, { ...size });
+    guard();
+    measureColorCoverage(ids, [{ slotId: null, alpha }], size.width * size.height);
+    // Copy borrowed buffers before another decoder call can rewrite them.
+    return Float32Array.from(alpha);
+  };
   for (const pass of inputs) {
-    guard();
-    const alpha = await rasterize(pass.svg, { ...size });
-    guard();
-    measureColorCoverage(ids, [{ slotId: pass.slotId, alpha }], size.width * size.height);
-    // Copy borrowed buffers so a later decoder call cannot rewrite prior masks.
-    const copy =
-      alpha instanceof Float32Array || alpha instanceof Float64Array || Array.isArray(alpha)
-        ? Float32Array.from(alpha)
-        : null;
-    measureColorCoverage(ids, [{ slotId: pass.slotId, alpha: copy }], size.width * size.height);
-    layers.push({ slotId: pass.slotId, alpha: copy });
+    const alpha = await decode(pass.svg);
+    let split;
+    if (pass.split) {
+      const startAlpha = await decode(pass.split.startSvg);
+      // Independent SVG 8-bit alpha rounding can overshoot the full mask by
+      // one quantum. Preserve the actual full paint, never invent extra mass.
+      for (let pixel = 0; pixel < alpha.length; pixel++) {
+        if (startAlpha[pixel] - alpha[pixel] > 2 / 255 + 1e-7)
+          throw Error('Stop contribution exceeds paint alpha');
+        startAlpha[pixel] = Math.min(startAlpha[pixel], alpha[pixel]);
+      }
+      split = {
+        startSlotId: pass.split.startSlotId,
+        endSlotId: pass.split.endSlotId,
+        startAlpha,
+      };
+    }
+    layers.push({ slotId: pass.slotId, alpha, ...(split ? { split } : {}) });
   }
   guard();
   return {

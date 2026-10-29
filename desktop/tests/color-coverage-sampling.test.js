@@ -296,3 +296,124 @@ test('decoder failures propagate without returning partial coverage or starting 
     assert.equal(calls, 2);
   }
 });
+
+const gradientPass = (startSlotId = 'start', endSlotId = 'end') => ({
+  slotId: null,
+  svg: 'full',
+  split: { startSlotId, endSlotId, startSvg: 'start' },
+});
+
+test('sampling decodes full alpha and weighted stop mass as one paint with shared backdrop occlusion', async () => {
+  const masks = { back: [1, 1], full: [0.5, 0.5], start: [0.375, 0.125] };
+  const inputs = [pass('back', 'back'), gradientPass()];
+  const before = JSON.stringify(inputs);
+  const result = await sample(
+    ['back', 'start', 'end'],
+    inputs,
+    { width: 2, height: 1 },
+    (svg) => masks[svg],
+  );
+  assert.deepEqual(
+    result.slots.map((s) => s.percent),
+    [50, 25, 25],
+  );
+  assert.equal(result.paintedPixelEquivalent, 2);
+  assert.equal(JSON.stringify(inputs), before);
+});
+
+test('auxiliary stop masks count toward both aggregate SVG and alpha storage budgets', async () => {
+  let calls = 0;
+  const rasterize = () => {
+    calls++;
+    return [];
+  };
+  await assert.rejects(
+    sample(
+      ['start', 'end'],
+      Array.from({ length: 33 }, () => gradientPass()),
+      { width: 256, height: 256 },
+      rasterize,
+    ),
+    /sampling budget/,
+  );
+  const large = 'x'.repeat(4 * 1024 * 1024);
+  const input = {
+    ...gradientPass(),
+    svg: large,
+    split: { ...gradientPass().split, startSvg: large },
+  };
+  await assert.rejects(
+    sample(['start', 'end'], [input, input, input], bounds, rasterize),
+    /SVG budget/,
+  );
+  assert.equal(calls, 0);
+});
+
+test('stop inputs are snapshotted and borrowed full/stop masks copied before reuse', async () => {
+  const pending = deferred();
+  const input = gradientPass();
+  const shared = new Float32Array([0.5]);
+  const seen = [];
+  const measured = sample(['start', 'end'], [input, pass('end', 'front')], bounds, (svg) => {
+    seen.push(svg);
+    if (seen.length === 1) return pending.promise;
+    shared[0] = seen.length === 2 ? 0.125 : 0;
+    return shared;
+  });
+  input.split.startSlotId = 'end';
+  input.split.startSvg = 'changed';
+  pending.resolve(shared);
+  const result = await measured;
+  assert.deepEqual(seen, ['full', 'start', 'front']);
+  assert.deepEqual(
+    result.slots.map((s) => s.percent),
+    [25, 75],
+  );
+});
+
+test('one-quantum stop overshoot is clamped to actual paint alpha, gross mismatch rejects', async () => {
+  const quantized = await sample(['start', 'end'], [gradientPass()], bounds, (svg) => [
+    svg === 'full' ? 0.5 : 0.5 + 1 / 255,
+  ]);
+  assert.equal(quantized.slots[0].percent, 100);
+  assert.equal(quantized.paintedPixelEquivalent, 0.5);
+  await assert.rejects(
+    sample(['start', 'end'], [gradientPass()], bounds, (svg) => [svg === 'full' ? 0.5 : 0.9]),
+    /exceeds paint alpha/,
+  );
+});
+
+test('malformed and stale auxiliary masks stop the entire measurement', async () => {
+  for (const split of [
+    null,
+    [],
+    {},
+    { startSlotId: 7, endSlotId: 'end', startSvg: 'start' },
+    { startSlotId: 'start', endSlotId: 'invalid id', startSvg: 'start' },
+  ]) {
+    await assert.rejects(
+      sample(['start'], [{ slotId: null, svg: 'full', split }], bounds, () =>
+        assert.fail('Must preflight'),
+      ),
+    );
+  }
+  await assert.rejects(
+    sample(['start', 'end'], [gradientPass()], bounds, (svg) => (svg === 'full' ? [1] : [NaN])),
+  );
+  const pending = deferred();
+  let current = true,
+    calls = 0;
+  const result = sample(
+    ['start', 'end'],
+    [gradientPass(), pass('end')],
+    bounds,
+    () => (++calls === 1 ? [1] : pending.promise),
+    () => current,
+  );
+  await Promise.resolve();
+  await Promise.resolve();
+  current = false;
+  pending.resolve([0.5]);
+  await assert.rejects(result, /stale/);
+  assert.ok(calls <= 2);
+});

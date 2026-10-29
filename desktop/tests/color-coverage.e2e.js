@@ -22,10 +22,12 @@ try {
       await import('/src/core.js');
     const { colorCoveragePasses } = await import('/src/color-coverage-passes.js');
     const { measureColorCoverage } = await import('/src/color-coverage.js');
+    const { sampleColorCoverage } = await import('/src/color-coverage-sampling.js');
+    const { rasterizeCoverageAlpha } = await import('/src/color-coverage-raster.js');
     const width = 64,
       height = 48,
       pixels = width * height;
-    const slots = ['same_hex_a', 'same_hex_b', 'outline'];
+    const slots = ['same_hex_a', 'same_hex_b', 'outline', 'background'];
     const raster = async (svg) => {
       const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
       try {
@@ -68,6 +70,79 @@ try {
         ],
       },
     ];
+    cases.push(
+      {
+        name: 'gradient-same-hex-distinct-stop-ids',
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              start: [4, 4],
+              end: [60, 4],
+              startId: slots[0],
+              endId: slots[1],
+              startAlpha: 1,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'gradient-transparent-stop-hue-and-unbound-other',
+        slotAlpha: { [slots[0]]: 0 },
+        slotHex: { [slots[0]]: '#ff0000' },
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              start: [4, 4],
+              end: [60, 4],
+              startId: slots[0],
+              startAlpha: 0,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'gradient-padded-diagonal-alpha-stroke-and-occlusion',
+        slotAlpha: { [slots[0]]: 0.25, [slots[1]]: 0.75 },
+        rects: [
+          { box: [4, 4, 60, 44], fill: 1, id: slots[3] },
+          {
+            box: [-8, 8, 56, 40],
+            gradient: {
+              start: [20, 16],
+              end: [40, 32],
+              startId: slots[0],
+              endId: slots[1],
+              startAlpha: 0.25,
+              endAlpha: 0.75,
+            },
+            stroke: 0.5,
+          },
+          { box: [32, 12, 60, 36], fill: 0.5, id: slots[2] },
+        ],
+      },
+      {
+        name: 'gradient-reversed-pad-same-id-antialiased-geometry',
+        analytic: false,
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            rawPath: 'M4.25 4.5L60.75 17.25L18.5 43.75Z',
+            gradient: {
+              start: [44, 24],
+              end: [20, 24],
+              startId: slots[0],
+              endId: slots[0],
+              startAlpha: 1,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+    );
     const receipts = [];
     for (const fixture of cases) {
       const doc = blankDocument();
@@ -76,8 +151,10 @@ try {
         id,
         name: id,
         value: {
-          hex: '#336699',
-          alpha: id === slots[2] ? 0.5 : (fixture.rects.find((r) => r.id === id)?.fill ?? 1),
+          hex: fixture.slotHex?.[id] ?? '#336699',
+          alpha:
+            fixture.slotAlpha?.[id] ??
+            (id === slots[2] ? 0.5 : (fixture.rects.find((r) => r.id === id)?.fill ?? 1)),
         },
       }));
       doc.width = width;
@@ -88,13 +165,26 @@ try {
       for (const [index, rectangle] of fixture.rects.entries()) {
         const l = layer(`Rectangle ${index}`),
           shape = node('Imported Path'),
-          fill = node('Fill'),
+          fill = node(rectangle.gradient ? 'Linear Gradient Fill' : 'Fill'),
           stroke = node('Stroke'),
           out = node('Output');
         const [x0, y0, x1, y1] = rectangle.box;
-        shape.rawPath = `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
-        fill.params.color.value = { hex: '#336699', alpha: rectangle.fill };
-        if (rectangle.id) fill.params.color.colorSlotId = rectangle.id;
+        shape.rawPath = rectangle.rawPath ?? `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
+        if (rectangle.gradient) {
+          const g = rectangle.gradient;
+          fill.params.start.value = g.start;
+          fill.params.end.value = g.end;
+          for (const [key, id, alpha] of [
+            ['startColor', g.startId, g.startAlpha],
+            ['endColor', g.endId, g.endAlpha],
+          ]) {
+            fill.params[key].value = { hex: '#0000ff', alpha };
+            if (id) fill.params[key].colorSlotId = id;
+          }
+        } else {
+          fill.params.color.value = { hex: '#336699', alpha: rectangle.fill };
+          if (rectangle.id) fill.params.color.colorSlotId = rectangle.id;
+        }
         l.nodes = [shape, fill];
         connect(l, shape.id, fill.id, 'path');
         let previous = fill;
@@ -113,19 +203,48 @@ try {
         for (const paint of rectangle.stroke === undefined ? ['fill'] : ['fill', 'stroke']) {
           const slotId = paint === 'fill' ? (rectangle.id ?? null) : slots[2];
           expectedOrder.push([l.id, paint, slotId]);
+          const gradient = paint === 'fill' ? rectangle.gradient : null;
+          const interpolation = (p) => {
+            const x = (p % width) + 0.5,
+              y = Math.floor(p / width) + 0.5;
+            const dx = gradient.end[0] - gradient.start[0],
+              dy = gradient.end[1] - gradient.start[1];
+            return Math.max(
+              0,
+              Math.min(
+                1,
+                ((x - gradient.start[0]) * dx + (y - gradient.start[1]) * dy) / (dx * dx + dy * dy),
+              ),
+            );
+          };
           const alpha = Array.from({ length: pixels }, (_, p) => {
             const x = (p % width) + 0.5,
               y = Math.floor(p / width) + 0.5;
             const inside = (a, b, c, d) => x >= a && x < c && y >= b && y < d;
             return paint === 'fill'
               ? inside(x0, y0, x1, y1)
-                ? rectangle.fill
+                ? gradient
+                  ? gradient.startAlpha * (1 - interpolation(p)) +
+                    gradient.endAlpha * interpolation(p)
+                  : rectangle.fill
                 : 0
               : inside(x0 - 2, y0 - 2, x1 + 2, y1 + 2) && !inside(x0 + 2, y0 + 2, x1 - 2, y1 - 2)
                 ? rectangle.stroke
                 : 0;
           });
-          analyticLayers.push({ slotId, alpha });
+          analyticLayers.push({
+            slotId,
+            alpha,
+            ...(gradient
+              ? {
+                  split: {
+                    startSlotId: gradient.startId ?? null,
+                    endSlotId: gradient.endId ?? null,
+                    startAlpha: alpha.map((a, p) => a * (1 - interpolation(p))),
+                  },
+                }
+              : {}),
+          });
         }
       }
       const scene = exportScene(doc),
@@ -134,7 +253,7 @@ try {
       const layers = [];
       for (const pass of passes)
         layers.push({ slotId: pass.slotId, alpha: await raster(pass.svg) });
-      const measured = measureColorCoverage(slots, layers, pixels);
+      const measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha);
       const analytic = measureColorCoverage(slots, analyticLayers, pixels);
       const full = await raster(exportSVG(doc));
       const rendered = await raster(
@@ -153,7 +272,7 @@ try {
       receipts.push({
         name: fixture.name,
         measured,
-        analytic,
+        analytic: fixture.analytic === false ? null : analytic,
         fullMass,
         maxCompositeError,
         rendererMaxError,
@@ -162,6 +281,7 @@ try {
         sceneUnchanged: JSON.stringify(scene) === before,
         originAlpha: full[0],
         passCount: passes.length,
+        antialiasedPixels: full.filter((alpha) => alpha > 0 && alpha < 1).length,
       });
     }
     return receipts;
@@ -196,6 +316,7 @@ try {
       `${context}: full exported SVG alpha mass mismatch`,
     );
     for (const [index, row] of [...result.measured.slots, result.measured.other].entries()) {
+      if (!result.analytic) continue;
       const expected = [...result.analytic.slots, result.analytic.other][index];
       assert.ok(
         Math.abs(row.contribution - expected.contribution) <= (64 * 48 * 2) / 255,
@@ -212,6 +333,27 @@ try {
       `${context}: integer percentages`,
     );
   }
+  const transparentStop = results.find(
+    (r) => r.name === 'gradient-transparent-stop-hue-and-unbound-other',
+  ).measured;
+  assert.ok(
+    Math.abs(transparentStop.slots[0].percent - 33) <= 1,
+    'non-premultiplied interpolation still attributes mixed pixels to transparent stop',
+  );
+  assert.ok(Math.abs(transparentStop.other.percent - 67) <= 1, 'unbound end stop stays Other');
+  const antialiasedFixture = results.find(
+    (r) => r.name === 'gradient-reversed-pad-same-id-antialiased-geometry',
+  );
+  assert.ok(
+    antialiasedFixture.antialiasedPixels > 0,
+    'triangle exercises real partial-alpha edges',
+  );
+  const antialiased = antialiasedFixture.measured;
+  assert.equal(
+    antialiased.slots[0].percent,
+    100,
+    'same ID receives both stop masses including antialiased edges',
+  );
   const same = results.find((r) => r.name === 'same-hex-explicit-ids-and-other').measured;
   assert.ok(
     same.slots[0].contribution > 0 && same.slots[1].contribution > 0 && same.other.contribution > 0,

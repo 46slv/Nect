@@ -4091,7 +4091,13 @@ export function evaluate(
           ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
         )
           setEvaluatedPaintSlot(result, 'fill', null);
-        if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
+        if (n.type === 'Linear Gradient Fill') {
+          result.fill = linearGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
         if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
         if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
         if (n.type === 'Stroke') {
@@ -5563,7 +5569,7 @@ function exportValidatedScene(doc, fonts) {
       return {
         layer: l,
         value: result.path,
-        ...(paintProvenance ? { paintProvenance: { ...paintProvenance } } : {}),
+        ...(paintProvenance ? { paintProvenance: clone(paintProvenance) } : {}),
       };
     });
 }
