@@ -2778,13 +2778,21 @@ input[data-scrub-step].scrubbing {
   position: sticky;
   top: 0;
   z-index: 2;
-  padding: 6px 0 8px;
-  margin-bottom: 8px;
+  padding: 0 0 4px;
+  margin-bottom: 4px;
   border-bottom: 1px solid var(--line);
   background: #fff;
 }
+.chroma-draft-bar [role='status'] {
+  margin-bottom: 4px;
+}
 .chroma-draft-bar p {
-  margin: 4px 0 6px;
+  margin: 0;
+}
+/* The status bar replaces this repeated introduction, not the wheel itself. */
+.auto-chroma-controls > .harmony-wheel-panel > strong,
+.auto-chroma-controls > .harmony-wheel-panel > p.font-note {
+  display: none;
 }
 .chroma-draft-actions {
   display: flex;

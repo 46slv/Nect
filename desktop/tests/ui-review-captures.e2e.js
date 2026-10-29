@@ -143,6 +143,44 @@ const capture = async (name, action, state) => {
   await page.screenshot({ path: resolve(out, file), fullPage: false });
   captures.push({ file, action, state, ...geometry });
 };
+// Preserve the whole wheel and a single compact primary row at panel top.
+// This asserts box containment/order only, not full interaction actionability.
+const checkPaletteTopLayout = async () => {
+  const layout = await page.locator('.shared-colors-panel').evaluate((panel) => {
+    const rect = (el) => {
+      const { left, top, right, bottom } = el.getBoundingClientRect();
+      return { left, top, right, bottom };
+    };
+    const bounds = rect(panel);
+    return {
+      port: {
+        left: bounds.left + panel.clientLeft,
+        top: bounds.top + panel.clientTop,
+        right: bounds.left + panel.clientLeft + panel.clientWidth,
+        bottom: bounds.top + panel.clientTop + panel.clientHeight,
+      },
+      bar: rect(panel.querySelector('.chroma-draft-bar')),
+      wheel: rect(panel.querySelector('.harmony-wheel')),
+      buttons: [...panel.querySelectorAll('.chroma-draft-actions button')].map(rect),
+    };
+  });
+  for (const [label, bounds] of [
+    ['status/actions', layout.bar],
+    ['whole wheel', layout.wheel],
+  ])
+    assert.ok(
+      bounds.left >= layout.port.left &&
+        bounds.right <= layout.port.right &&
+        bounds.top >= layout.port.top &&
+        bounds.bottom <= layout.port.bottom,
+      `${label} is contained at panel top: ${JSON.stringify(layout)}`,
+    );
+  assert.ok(layout.wheel.top >= layout.bar.bottom, 'Sticky bar does not cover the wheel at top');
+  assert.ok(
+    layout.buttons.every((b) => b.top === layout.buttons[0].top),
+    'Primary actions fit one row',
+  );
+};
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
@@ -212,6 +250,7 @@ try {
     await page.locator('.shared-colors-panel').evaluate((el) => {
       el.scrollTop = 0;
     });
+    await checkPaletteTopLayout();
     await capture(
       `palette-saved-${viewport.width}`,
       'Open actual Shared Colors harmony panel at top',
@@ -251,6 +290,7 @@ try {
     await page.locator('.shared-colors-panel').evaluate((el) => {
       el.scrollTop = 0;
     });
+    await checkPaletteTopLayout();
     await capture(
       `palette-preview-top-${viewport.width}`,
       'Preview hue rotation 75; scroll panel to top',

@@ -835,10 +835,16 @@ test('palette status and one existing action row lead the draft; saved colors re
   const uniqueActions = (preview) => {
     const bar = s.query('.chroma-draft-bar');
     assert.equal(s.query('.auto-chroma-controls').firstElementChild, bar);
-    for (const attr of ['preview', 'reload', ...(preview ? ['apply', 'cancel'] : [])]) {
+    for (const attr of ['preview', ...(preview ? ['apply', 'cancel'] : [])]) {
       assert.equal(s.app.querySelectorAll(`[data-chroma-${attr}]`).length, 1);
       assert.ok(bar.querySelector(`[data-chroma-${attr}]`));
     }
+    assert.equal(s.app.querySelectorAll('[data-chroma-reload]').length, 1);
+    assert.equal(
+      bar.querySelector('[data-chroma-reload]'),
+      null,
+      'Reload stays a secondary settings action',
+    );
     assert.equal(s.app.querySelectorAll('[data-chroma-apply]').length, preview ? 1 : 0);
     assert.equal(s.app.querySelectorAll('[data-chroma-cancel]').length, preview ? 1 : 0);
   };
@@ -909,8 +915,13 @@ test('moved actions keep stable keyboard focus, returning to Preview when Apply/
   assert.ok(active() === preview(), 'Preview remains the same focus identity after rendering');
   assert.deepEqual(
     [...s.query('.chroma-draft-actions').children].map((el) => el.textContent),
-    ['Preview palette', 'Apply colors', 'Cancel preview', 'Reload saved settings'],
+    ['Preview', 'Apply', 'Cancel'],
     'Natural DOM Tab order reaches Apply and Cancel without entering the wheel',
+  );
+  assert.deepEqual(
+    [...s.query('.chroma-draft-actions').children].map((el) => el.getAttribute('aria-label')),
+    ['Preview palette', 'Apply colors', 'Cancel preview'],
+    'Compact visual labels retain full accessible action names',
   );
   s.query('[data-chroma-cancel]').focus();
   s.click('[data-chroma-cancel]');
