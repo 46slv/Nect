@@ -21,7 +21,6 @@ try {
     const { blankDocument, layer, node, connect, exportScene, exportSVG, renderElement } =
       await import('/src/core.js');
     const { colorCoveragePasses } = await import('/src/color-coverage-passes.js');
-    const { measureColorCoverage } = await import('/src/color-coverage.js');
     const { sampleColorCoverage } = await import('/src/color-coverage-sampling.js');
     const { rasterizeCoverageAlpha } = await import('/src/color-coverage-raster.js');
     const width = 64,
@@ -143,6 +142,164 @@ try {
         ],
       },
     );
+    // Independent fixture oracle: no production paint renderer, mask generator,
+    // coverage reducer or RGB matching. Forward source-over attenuates accumulated
+    // per-ID mass once per paint (the production reducer walks backwards).
+    const analyticalCoverage = (layers) => {
+      const ids = [...slots, null],
+        totals = ids.map(() => 0);
+      for (let p = 0; p < pixels; p++) {
+        const masses = ids.map(() => 0);
+        for (const entry of layers) {
+          for (let i = 0; i < masses.length; i++) masses[i] *= 1 - entry.alpha[p];
+          const add = (id, amount) => (masses[ids.indexOf(id ?? null)] += amount);
+          if (entry.split) {
+            add(entry.split.startSlotId, entry.split.startAlpha[p]);
+            add(entry.split.endSlotId, entry.alpha[p] - entry.split.startAlpha[p]);
+          } else add(entry.slotId, entry.alpha[p]);
+        }
+        masses.forEach((mass, i) => (totals[i] += mass));
+      }
+      const total = totals.reduce((sum, mass) => sum + mass, 0);
+      const rows = totals.map((contribution, i) => ({
+        id: ids[i],
+        contribution,
+        percent: total ? (contribution / total) * 100 : 0,
+      }));
+      return { slots: rows.slice(0, -1), other: rows.at(-1) };
+    };
+    const radialOverlap = [
+      { box: [4, 4, 60, 44], fill: 1, id: slots[3] },
+      {
+        box: [-8, 8, 56, 40],
+        gradient: {
+          kind: 'radial',
+          center: [12.5, 24.5],
+          radius: 25,
+          startId: slots[0],
+          endId: slots[1],
+          startAlpha: 0.25,
+          endAlpha: 0.75,
+        },
+        stroke: 0.5,
+      },
+      { box: [32, 12, 60, 36], fill: 0.5, id: slots[2] },
+    ];
+    cases.push(
+      {
+        name: 'radial-center-inside-same-hex-distinct-ids-and-pad',
+        radialProbes: true,
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              kind: 'radial',
+              center: [32.5, 24.5],
+              radius: 14,
+              startId: slots[0],
+              endId: slots[1],
+              startAlpha: 1,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'radial-center-outside-radius-intersects-path-and-pad',
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              kind: 'radial',
+              center: [-4, 24],
+              radius: 40,
+              startId: slots[0],
+              endId: slots[1],
+              startAlpha: 1,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'radial-transparent-center-hue-and-unbound-outer-other',
+        slotAlpha: { [slots[0]]: 0 },
+        slotHex: { [slots[0]]: '#ff0000' },
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              kind: 'radial',
+              center: [32.5, 24.5],
+              radius: 40,
+              startId: slots[0],
+              startAlpha: 0,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'radial-unequal-alpha-clipping-stroke-and-occlusion',
+        slotAlpha: { [slots[0]]: 0.25, [slots[1]]: 0.75 },
+        rects: radialOverlap,
+      },
+      {
+        name: 'radial-reversed-overlap-order',
+        slotAlpha: { [slots[0]]: 0.25, [slots[1]]: 0.75 },
+        rects: [radialOverlap[0], radialOverlap[2], radialOverlap[1]],
+      },
+      {
+        name: 'radial-same-id-antialiased-clipped-triangle',
+        rects: [
+          {
+            box: [-6, 8, 60, 44],
+            rawPath: 'M-6.25 8.5L60.75 17.25L18.5 43.75Z',
+            // Independent polygon coordinates, used only by the supersampled oracle.
+            polygon: [
+              [-6.25, 8.5],
+              [60.75, 17.25],
+              [18.5, 43.75],
+            ],
+            gradient: {
+              kind: 'radial',
+              center: [20, 24],
+              radius: 18,
+              startId: slots[0],
+              endId: slots[0],
+              startAlpha: 1,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+      {
+        name: 'radial-minimum-radius-unbound-stops-use-outer-pad',
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: {
+              kind: 'radial',
+              center: [-100, -100],
+              radius: 0.0001,
+              startAlpha: 0,
+              endAlpha: 1,
+            },
+          },
+        ],
+      },
+    );
+    const radialAAFixture = cases.find(
+      (fixture) => fixture.name === 'radial-same-id-antialiased-clipped-triangle',
+    );
+    cases.push({
+      ...radialAAFixture,
+      name: 'radial-distinct-ids-antialiased-clipped-triangle',
+      rects: radialAAFixture.rects.map((rectangle) => ({
+        ...rectangle,
+        gradient: { ...rectangle.gradient, endId: slots[1] },
+      })),
+    });
     const receipts = [];
     for (const fixture of cases) {
       const doc = blankDocument();
@@ -165,15 +322,26 @@ try {
       for (const [index, rectangle] of fixture.rects.entries()) {
         const l = layer(`Rectangle ${index}`),
           shape = node('Imported Path'),
-          fill = node(rectangle.gradient ? 'Linear Gradient Fill' : 'Fill'),
+          fill = node(
+            rectangle.gradient?.kind === 'radial'
+              ? 'Radial Gradient Fill'
+              : rectangle.gradient
+                ? 'Linear Gradient Fill'
+                : 'Fill',
+          ),
           stroke = node('Stroke'),
           out = node('Output');
         const [x0, y0, x1, y1] = rectangle.box;
         shape.rawPath = rectangle.rawPath ?? `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
         if (rectangle.gradient) {
           const g = rectangle.gradient;
-          fill.params.start.value = g.start;
-          fill.params.end.value = g.end;
+          if (g.kind === 'radial') {
+            fill.params.center.value = g.center;
+            fill.params.radius.value = g.radius;
+          } else {
+            fill.params.start.value = g.start;
+            fill.params.end.value = g.end;
+          }
           for (const [key, id, alpha] of [
             ['startColor', g.startId, g.startAlpha],
             ['endColor', g.endId, g.endAlpha],
@@ -204,9 +372,12 @@ try {
           const slotId = paint === 'fill' ? (rectangle.id ?? null) : slots[2];
           expectedOrder.push([l.id, paint, slotId]);
           const gradient = paint === 'fill' ? rectangle.gradient : null;
-          const interpolation = (p) => {
-            const x = (p % width) + 0.5,
-              y = Math.floor(p / width) + 0.5;
+          const interpolationAt = (x, y) => {
+            if (gradient.kind === 'radial')
+              return Math.min(
+                Math.hypot(x - gradient.center[0], y - gradient.center[1]) / gradient.radius,
+                1,
+              );
             const dx = gradient.end[0] - gradient.start[0],
               dy = gradient.end[1] - gradient.start[1];
             return Math.max(
@@ -217,6 +388,8 @@ try {
               ),
             );
           };
+          const interpolation = (p) =>
+            interpolationAt((p % width) + 0.5, Math.floor(p / width) + 0.5);
           const alpha = Array.from({ length: pixels }, (_, p) => {
             const x = (p % width) + 0.5,
               y = Math.floor(p / width) + 0.5;
@@ -232,6 +405,35 @@ try {
                 ? rectangle.stroke
                 : 0;
           });
+          let startAlpha = gradient ? alpha.map((a, p) => a * (1 - interpolation(p))) : null;
+          if (rectangle.polygon && paint === 'fill') {
+            // 16x16 subpixel integration checks actual AA and artboard clipping,
+            // including a curved ramp crossing the polygon edge. No SVG decode.
+            const triangle = rectangle.polygon;
+            const inside = (x, y) => {
+              const sides = triangle.map(([ax, ay], i) => {
+                const [bx, by] = triangle[(i + 1) % triangle.length];
+                return (bx - ax) * (y - ay) - (by - ay) * (x - ax);
+              });
+              return sides.every((v) => v >= 0) || sides.every((v) => v <= 0);
+            };
+            for (let p = 0; p < pixels; p++) {
+              let full = 0,
+                start = 0;
+              for (let sy = 0; sy < 16; sy++)
+                for (let sx = 0; sx < 16; sx++) {
+                  const x = (p % width) + (sx + 0.5) / 16,
+                    y = Math.floor(p / width) + (sy + 0.5) / 16;
+                  if (!inside(x, y)) continue;
+                  const t = interpolationAt(x, y),
+                    a = gradient.startAlpha * (1 - t) + gradient.endAlpha * t;
+                  full += a / 256;
+                  start += (a * (1 - t)) / 256;
+                }
+              alpha[p] = full;
+              startAlpha[p] = start;
+            }
+          }
           analyticLayers.push({
             slotId,
             alpha,
@@ -240,7 +442,7 @@ try {
                   split: {
                     startSlotId: gradient.startId ?? null,
                     endSlotId: gradient.endId ?? null,
-                    startAlpha: alpha.map((a, p) => a * (1 - interpolation(p))),
+                    startAlpha,
                   },
                 }
               : {}),
@@ -252,9 +454,13 @@ try {
       const passes = colorCoveragePasses(scene, doc);
       const layers = [];
       for (const pass of passes)
-        layers.push({ slotId: pass.slotId, alpha: await raster(pass.svg) });
+        layers.push({
+          slotId: pass.slotId,
+          alpha: await raster(pass.svg),
+          startAlpha: fixture.radialProbes ? await raster(pass.split.startSvg) : null,
+        });
       const measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha);
-      const analytic = measureColorCoverage(slots, analyticLayers, pixels);
+      const analytic = analyticalCoverage(analyticLayers);
       const full = await raster(exportSVG(doc));
       const rendered = await raster(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${scene.map(({ layer: l, value }) => renderElement(value, l)).join('')}</svg>`,
@@ -272,6 +478,20 @@ try {
       receipts.push({
         name: fixture.name,
         measured,
+        radialProbes: fixture.radialProbes
+          ? [
+              [32, 24],
+              [38, 24],
+              [32, 30],
+              [46, 24],
+              [55, 24],
+            ].map(([x, y]) => ({
+              x,
+              y,
+              alpha: layers[0].alpha[y * width + x],
+              startAlpha: layers[0].startAlpha[y * width + x],
+            }))
+          : null,
         analytic: fixture.analytic === false ? null : analytic,
         fullMass,
         maxCompositeError,
@@ -333,6 +553,57 @@ try {
       `${context}: integer percentages`,
     );
   }
+  const radialInside = results.find(
+    (r) => r.name === 'radial-center-inside-same-hex-distinct-ids-and-pad',
+  );
+  const probeExpected = [1, 1 - 6 / 14, 1 - 6 / 14, 0, 0];
+  radialInside.radialProbes.forEach((probe, i) => {
+    assert.equal(probe.alpha, 1, 'radial paint is fully opaque inside and outside circle');
+    assert.ok(
+      Math.abs(probe.startAlpha - probeExpected[i]) <= 2 / 255,
+      `radial circular-distance/pad probe ${i}`,
+    );
+  });
+  assert.ok(
+    radialInside.measured.slots[0].contribution > 0 &&
+      radialInside.measured.slots[1].contribution > 0,
+    'radial equal HEX never merges distinct stable stop IDs',
+  );
+  const radialTransparent = results.find(
+    (r) => r.name === 'radial-transparent-center-hue-and-unbound-outer-other',
+  ).measured;
+  assert.ok(
+    radialTransparent.slots[0].contribution > 0 && radialTransparent.other.contribution > 0,
+    'transparent center still supplies interpolated hue; unbound outer stop stays Other',
+  );
+  assert.notEqual(
+    results.find((r) => r.name === 'radial-unequal-alpha-clipping-stroke-and-occlusion').measured
+      .slots[0].contribution,
+    results.find((r) => r.name === 'radial-reversed-overlap-order').measured.slots[0].contribution,
+    'radial contribution respects overlap and fill-before-stroke order',
+  );
+  const radialAA = results.find((r) => r.name === 'radial-same-id-antialiased-clipped-triangle');
+  assert.ok(radialAA.antialiasedPixels > 0, 'radial fixture exercises actual antialiasing');
+  assert.equal(
+    radialAA.measured.slots[0].percent,
+    100,
+    'same radial ID receives both masses including AA',
+  );
+  const radialDistinctAA = results.find(
+    (r) => r.name === 'radial-distinct-ids-antialiased-clipped-triangle',
+  );
+  assert.ok(
+    radialDistinctAA.antialiasedPixels > 0 &&
+      radialDistinctAA.measured.slots[0].contribution > 0 &&
+      radialDistinctAA.measured.slots[1].contribution > 0,
+    'distinct radial stop masses survive clipped antialiased edges',
+  );
+  assert.equal(
+    results.find((r) => r.name === 'radial-minimum-radius-unbound-stops-use-outer-pad').measured
+      .other.percent,
+    100,
+    'missing radial IDs remain Other even at the minimum-radius pad',
+  );
   const transparentStop = results.find(
     (r) => r.name === 'gradient-transparent-stop-hue-and-unbound-other',
   ).measured;

@@ -23,8 +23,20 @@ Inspector interaction, live output, browser download/reopen, retained Assets and
 narrow layouts. Browser file inputs are not Windows native dialog acceptance.
 
 Visible-area percentages are derived asynchronously while the panel is open.
-Sampling uses the actual renderer's solid fill/stroke passes and source-over
-contributions, never RGB matching. The longest sample edge is at most 256 pixels;
+Sampling uses the actual renderer's solid fill/stroke and strict two-stop linear
+or concentric radial fill passes and source-over contributions, never RGB matching.
+Gradient stop IDs come from authored bindings (including Color-node sources);
+unbound stops remain Other even when their HEX matches a shared slot. For the
+unpremultiplied sRGB ramp, the two stop contributions are the actual paint alpha
+A(t) times (1−t) and t, not each stop's own alpha times its weight. A transparent
+stop can therefore still supply hue to mixed pixels. Both contributions occlude
+the backdrop once, as one paint. Radial t is min(distance / radius, 1) in absolute
+artboard pixels, using the production radial renderer for the private weight mask.
+Focal/elliptical/extra-stop/angular paints, gradient strokes, authored masks,
+filters, blend modes, independently grouped paths and repeater appearance remain
+unsupported; the whole scene becomes unavailable rather than partly measured.
+
+The longest sample edge is at most 256 pixels;
 aggregate alpha storage is capped at 4,194,304 samples. Percentages are approximate,
 exclude transparent pixels, and retain unbound paint as Other. Unsupported scenes
 or exceeded budgets display unavailable rather than partial or stale percentages.
@@ -34,4 +46,15 @@ on success, failure and timeout. There is no background sampling while closed.
 
 Remaining work includes automatic palette generation and constraints, broader
 renderer attribution, and Windows app acceptance. Do not describe the current
-manual registry and bounded solid-paint measurement as completing those requirements.
+manual registry and bounded paint measurement as completing those requirements.
+
+Coverage verification is split between `color-coverage-passes.test.js` (strict
+descriptors, exact provenance, history/reopen, order and nonmutation) and
+`color-coverage.e2e.js` (production SVG decoding and canvas alpha). The browser
+fixtures cover linear and radial ramps, inside/outside radial centers, circular
+distance and pad, transparent/unequal alpha, clipped and antialiased geometry,
+equal/missing IDs and overlap/stroke order. Their independent oracle uses
+analytical ramps and forward source-over, with 16×16 polygon-edge integration
+for the radial AA fixtures; it does not use the production mask or coverage reducer.
+Configured assertions are not a passed browser run: results must be checked for
+the exact published commit. Native WebView2 acceptance remains separate.

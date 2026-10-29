@@ -4098,7 +4098,13 @@ export function evaluate(
             endColor: parameterColorSlot(n.params.endColor),
           });
         }
-        if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
+        if (n.type === 'Radial Gradient Fill') {
+          result.fill = radialGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
         if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
         if (n.type === 'Stroke') {
           const width = read('width');

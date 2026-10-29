@@ -54,7 +54,6 @@ test('unsupported geometry rejects whole measurement rather than partial coverag
     { children: [] },
     { mask: {} },
     { kind: 'image' },
-    { fill: { kind: 'radial-gradient' } },
     { fill: { kind: 'angular-gradient' } },
     { filters: [] },
     { blendMode: 'multiply' },
@@ -62,7 +61,7 @@ test('unsupported geometry rejects whole measurement rather than partial coverag
   ])
     assert.throws(
       () => passes([...scene, { ...scene[0], value: { ...scene[0].value, ...patch } }], doc),
-      /plain solid or two-stop linear-gradient paths/,
+      /plain solid or two-stop linear\/radial-gradient paths/,
     );
   assert.throws(() => passes(Array(129).fill(scene[0]), doc), /budget/);
   assert.throws(() => passes(scene, { width: NaN, height: 1 }), /bounds/);
@@ -91,7 +90,7 @@ test('repeater appearance is never flattened into independent child alpha', () =
     value.contours[0][field] = field === 'repeaterOpacity' ? 0.5 : { hex: '#ffffff', alpha: 1 };
     assert.throws(
       () => passes([{ ...scene[0], value }], doc),
-      /plain solid or two-stop linear-gradient paths/,
+      /plain solid or two-stop linear\/radial-gradient paths/,
     );
   }
 });
@@ -135,9 +134,9 @@ test('Color-node source chains preserve exact identity and literal replacement c
   assert.equal(passes(exportScene(doc), doc)[0].slotId, null);
 });
 
-function gradientFixture() {
+function gradientFixture(type = 'Linear Gradient Fill') {
   const { doc, layer } = fixture();
-  const gradient = node('Linear Gradient Fill');
+  const gradient = node(type);
   const shape = layer.nodes.find((n) => n.type === 'Rectangle');
   const stroke = layer.nodes.find((n) => n.type === 'Stroke');
   layer.nodes.push(gradient);
@@ -182,49 +181,51 @@ test('two-stop linear gradients preserve stable stop IDs, production alpha and o
   assert.equal(exportScene(doc)[0].paintProvenance.fill.startColor, 'first');
 });
 
-test('gradient source chains, unbound equal-HEX stops, replacement and bypass do not retarget IDs', () => {
-  const { doc, layer, gradient } = gradientFixture();
-  const color = node('Color');
-  color.params.value.colorSlotId = 'first';
-  layer.nodes.push(color);
-  delete gradient.params.startColor.colorSlotId;
-  connect(layer, color.id, gradient.id, 'startColor');
-  delete gradient.params.endColor.colorSlotId;
-  gradient.params.endColor.value = { hex: '#123456', alpha: 0.5 };
-  assert.deepEqual(exportScene(doc)[0].paintProvenance.fill, {
-    startColor: 'first',
-    endColor: null,
+for (const type of ['Linear Gradient Fill', 'Radial Gradient Fill']) {
+  test(`${type}: source chains, unbound equal-HEX stops, replacement and bypass do not retarget IDs`, () => {
+    const { doc, layer, gradient } = gradientFixture(type);
+    const color = node('Color');
+    color.params.value.colorSlotId = 'first';
+    layer.nodes.push(color);
+    delete gradient.params.startColor.colorSlotId;
+    connect(layer, color.id, gradient.id, 'startColor');
+    delete gradient.params.endColor.colorSlotId;
+    gradient.params.endColor.value = { hex: '#123456', alpha: 0.5 };
+    assert.deepEqual(exportScene(doc)[0].paintProvenance.fill, {
+      startColor: 'first',
+      endColor: null,
+    });
+    const fill = layer.nodes.find((n) => n.type === 'Fill');
+    connect(layer, gradient.id, fill.id, 'path');
+    connect(layer, fill.id, layer.nodes.find((n) => n.type === 'Output').id, 'path');
+    assert.equal(passes(exportScene(doc), doc)[0].split, undefined);
+    assert.equal(passes(exportScene(doc), doc)[0].slotId, null);
+    fill.bypassed = true;
+    assert.equal(passes(exportScene(doc), doc)[0].split.startSlotId, 'first');
   });
-  const fill = layer.nodes.find((n) => n.type === 'Fill');
-  connect(layer, gradient.id, fill.id, 'path');
-  connect(layer, fill.id, layer.nodes.find((n) => n.type === 'Output').id, 'path');
-  assert.equal(passes(exportScene(doc), doc)[0].split, undefined);
-  assert.equal(passes(exportScene(doc), doc)[0].slotId, null);
-  fill.bypassed = true;
-  assert.equal(passes(exportScene(doc), doc)[0].split.startSlotId, 'first');
-});
 
-test('stop identity survives atomic binding history and native save/reopen without authored mutation', () => {
-  const { doc, layer, gradient } = gradientFixture();
-  const session = new CommandSession(doc);
-  const read = () => exportScene(session.snapshot())[0].paintProvenance.fill;
-  const dispatch = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
-  dispatch('bind-color-slot', {
-    layerId: layer.id,
-    nodeId: gradient.id,
-    key: 'endColor',
-    slotId: 'first',
+  test(`${type}: stop identity survives atomic binding history and native save/reopen without authored mutation`, () => {
+    const { doc, layer, gradient } = gradientFixture(type);
+    const session = new CommandSession(doc);
+    const read = () => exportScene(session.snapshot())[0].paintProvenance.fill;
+    const dispatch = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+    dispatch('bind-color-slot', {
+      layerId: layer.id,
+      nodeId: gradient.id,
+      key: 'endColor',
+      slotId: 'first',
+    });
+    assert.deepEqual(read(), { startColor: 'first', endColor: 'first' });
+    dispatch('undo');
+    assert.deepEqual(read(), { startColor: 'first', endColor: 'second' });
+    dispatch('redo');
+    const saved = serialize(session.snapshot());
+    const reopened = deserialize(saved);
+    assert.deepEqual(exportScene(reopened)[0].paintProvenance.fill, read());
+    passes(exportScene(reopened), reopened);
+    assert.equal(serialize(reopened), saved);
   });
-  assert.deepEqual(read(), { startColor: 'first', endColor: 'first' });
-  dispatch('undo');
-  assert.deepEqual(read(), { startColor: 'first', endColor: 'second' });
-  dispatch('redo');
-  const saved = serialize(session.snapshot());
-  const reopened = deserialize(saved);
-  assert.deepEqual(exportScene(reopened)[0].paintProvenance.fill, read());
-  passes(exportScene(reopened), reopened);
-  assert.equal(serialize(reopened), saved);
-});
+}
 
 test('malformed gradients, stop provenance and unsupported appearances reject the entire scene', () => {
   const { doc } = gradientFixture();
@@ -241,4 +242,99 @@ test('malformed gradients, stop provenance and unsupported appearances reject th
     const value = { ...scene[0].value, [key]: {} };
     assert.throws(() => passes([...scene, { ...scene[0], value }], doc), /requires plain/);
   }
+});
+
+test('radial coverage uses production concentric-circle mask and preserves scene and explicit IDs', () => {
+  const { doc, gradient } = gradientFixture('Radial Gradient Fill');
+  gradient.params.center.value = [-30, 40];
+  gradient.params.radius.value = 12.5;
+  const scene = exportScene(doc),
+    before = JSON.stringify(scene);
+  const [fill, stroke] = passes(scene, doc);
+  assert.deepEqual(scene[0].paintProvenance.fill, { startColor: 'first', endColor: 'second' });
+  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], ['first', 'second']);
+  assert.equal(fill.slotId, null);
+  assert.equal(stroke.paint, 'stroke');
+  assert.match(fill.svg, /<radialGradient[^>]+cx="-30" cy="40" r="12.5" fx="-30" fy="40" fr="0"/);
+  assert.match(fill.svg, /spreadMethod="pad" color-interpolation="sRGB"/);
+  assert.match(fill.svg, /stop-opacity="0.5"/);
+  assert.doesNotMatch(fill.svg, /<mask/);
+  assert.match(
+    fill.split.startSvg,
+    /<radialGradient id="coverage-start-weight"[^>]+cx="-30" cy="40" r="12.5"/,
+  );
+  assert.match(fill.split.startSvg, /offset="0" stop-color="#ffffff" stop-opacity="1"/);
+  assert.match(fill.split.startSvg, /offset="1" stop-color="#ffffff" stop-opacity="0"/);
+  assert.match(fill.split.startSvg, /mask="url\(#coverage-start-mask\)"/);
+  assert.equal(JSON.stringify(scene), before);
+  assert.equal(Object.hasOwn(scene[0].value.fill, 'startSlotId'), false);
+  assert.equal(
+    passes(scene, doc, new Map([[scene[0].layer.id, { fill: 'wrong' }]]))[0].split.startSlotId,
+    'first',
+  );
+  fill.split.startSlotId = 'changed';
+  scene[0].paintProvenance.fill.startColor = 'changed';
+  assert.equal(exportScene(doc)[0].paintProvenance.fill.startColor, 'first');
+});
+
+test('radial stop provenance is explicit, optional and never inferred from equal HEX', () => {
+  const { doc } = gradientFixture('Radial Gradient Fill');
+  const scene = exportScene(doc);
+  delete scene[0].paintProvenance;
+  let fill = passes(scene, doc)[0];
+  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], [null, null]);
+  fill = passes(
+    scene,
+    doc,
+    new Map([[scene[0].layer.id, { fill: { startColor: 'first', endColor: 'first' } }]]),
+  )[0];
+  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], ['first', 'first']);
+  fill = passes(scene, doc, new Map([[scene[0].layer.id, { fill: { endColor: 'second' } }]]))[0];
+  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], [null, 'second']);
+});
+
+test('radial attribution rejects malformed or expanded descriptors and unsupported scenes atomically', () => {
+  const { doc } = gradientFixture('Radial Gradient Fill');
+  const scene = exportScene(doc);
+  const original = JSON.stringify(scene);
+  for (const patch of [
+    { radius: 0 },
+    { radius: 0.00001 },
+    { radius: 100001 },
+    { radius: NaN },
+    { center: [Infinity, 0] },
+    { center: [0] },
+    { center: [100001, 0] },
+    { focal: [0, 0] },
+    { fx: 1 },
+    { fr: 1 },
+    { matrix: [2, 0, 0, 1, 0, 0] },
+    { stops: [] },
+    { spreadMethod: 'repeat' },
+    { startColor: { hex: '#123456', alpha: 2 } },
+  ]) {
+    const invalid = structuredClone(scene[0]);
+    Object.assign(invalid.value.fill, patch);
+    assert.throws(() => passes([...scene, invalid], doc));
+  }
+  for (const identity of ['first', [], { startColor: 'invalid id' }, { endColor: 7 }]) {
+    const invalid = structuredClone(scene[0]);
+    invalid.paintProvenance.fill = identity;
+    assert.throws(() => passes([...scene, invalid], doc), /provenance/);
+  }
+  for (const patch of [
+    { fill: { kind: 'angular-gradient' } },
+    { stroke: { kind: 'radial-gradient' } },
+    { mask: {} },
+    { filter: {} },
+    { opacity: 0.5 },
+    { matrix: [] },
+    { children: [] },
+    { contours: [{ group: 1 }] },
+    { contours: [{ repeaterOpacity: 0.5 }] },
+  ]) {
+    const invalid = { ...scene[0], value: { ...scene[0].value, ...patch } };
+    assert.throws(() => passes([...scene, invalid], doc), /requires plain/);
+  }
+  assert.equal(JSON.stringify(scene), original);
 });

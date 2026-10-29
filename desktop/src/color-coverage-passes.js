@@ -2,6 +2,12 @@
 // Provenance is an explicit caller contract; equal display colors never imply IDs.
 import { renderElement } from './core.js';
 import { renderLinearGradientFill } from './linear-gradient.js';
+import { renderRadialGradientFill } from './radial-gradient.js';
+
+const gradientRenderers = {
+  'linear-gradient': renderLinearGradientFill,
+  'radial-gradient': renderRadialGradientFill,
+};
 
 function slot(id) {
   if (id !== null && (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)))
@@ -26,7 +32,8 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       value.children ||
       value.mask ||
       value.kind === 'image' ||
-      (value.fill?.kind && value.fill.kind !== 'linear-gradient') ||
+      (value.fill?.kind && !Object.hasOwn(gradientRenderers, value.fill.kind)) ||
+      value.stroke?.kind ||
       ['filter', 'filters', 'blendMode', 'opacity', 'matrix'].some((key) =>
         Object.hasOwn(value, key),
       ) ||
@@ -39,14 +46,16 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
           c.repeaterStroke !== undefined,
       )
     )
-      throw Error('Coverage attribution requires plain solid or two-stop linear-gradient paths');
+      throw Error(
+        'Coverage attribution requires plain solid or two-stop linear/radial-gradient paths',
+      );
     const provenance = entry.paintProvenance ?? bindings.get(layer.id) ?? {};
     for (const paint of ['fill', 'stroke']) {
       if (!value[paint]) continue;
       const identity = provenance[paint];
-      const split = paint === 'fill' && value.fill.kind === 'linear-gradient';
+      const split = paint === 'fill' && Object.hasOwn(gradientRenderers, value.fill.kind);
       if (split && identity != null && (typeof identity !== 'object' || Array.isArray(identity)))
-        throw Error('Linear-gradient coverage needs explicit stop provenance');
+        throw Error('Two-stop gradient coverage needs explicit stop provenance');
       const slotId = split ? null : slot(identity ?? null);
       const stopIds = split
         ? [slot(identity?.startColor ?? null), slot(identity?.endColor ?? null)]
@@ -65,8 +74,9 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       // actual paint alpha A(t) by color interpolation weights: A(t)*(1-t),
       // A(t)*t, NOT startAlpha*(1-t) and endAlpha*t. A transparent stop can
       // still supply color to mixed pixels. This private scalar mask has the
-      // same artboard ramp/pad semantics; authored scene masks remain refused.
-      const weight = renderLinearGradientFill(
+      // same artboard ramp/pad semantics (linear projection or concentric
+      // circular distance); authored scene masks remain refused.
+      const weight = gradientRenderers[isolated.fill.kind](
         {
           ...isolated.fill,
           startColor: { hex: '#ffffff', alpha: 1 },
