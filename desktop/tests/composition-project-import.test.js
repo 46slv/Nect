@@ -218,7 +218,10 @@ test('Project Composition import preserves saved node-group members with and wit
     assert.equal(importedGroup.id === sourceGroup.id, !collision);
     assert.deepEqual(importedGroup.nodeIds, [importedMemberId]);
     assert.equal(importedGroup.name, sourceGroup.name);
-    assert.deepEqual(importedProject.compositions.slice(0, current.compositions.length), current.compositions);
+    assert.deepEqual(
+      importedProject.compositions.slice(0, current.compositions.length),
+      current.compositions,
+    );
     validate(activeCompositionDocument(importedProject, compositionId));
 
     const reopened = deserializeCompositionProject(serializeCompositionProject(importedProject));
