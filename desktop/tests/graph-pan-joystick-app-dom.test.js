@@ -288,16 +288,97 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   key(element, 'keydown', '2', { shiftKey: true, code: 'Digit2' });
   key(element, 'keydown', '1', { ctrlKey: true });
   invariant();
+  // The existing node/background menus expose a reversible, view-only escape
+  // from graph occlusion, without adding a toolbar row or authored preference.
+  const menuItem = () => $('[data-node-context-action="toggle-pan-joystick"]');
+  for (const selector of ['.graph-scroll', `.node[data-id="${a.id}"] .node-head strong`]) {
+    const target = $(selector);
+    target.focus();
+    assert.equal(key(target, 'keydown', 'F10', { shiftKey: true }).defaultPrevented, true);
+    assert.equal(menuItem().getAttribute('role'), 'menuitem');
+    assert.equal(menuItem().getAttribute('aria-controls'), 'graph-pan-joystick');
+    assert.equal(document.getElementById(menuItem().getAttribute('aria-controls')), stick());
+    assert.equal(menuItem().textContent, 'Hide pan joystick');
+    menuItem().focus();
+    key(menuItem(), 'keydown', 'Enter');
+    assert.equal($('.node-context-menu'), null);
+    assert.equal(document.activeElement, $('.graph-scroll'));
+    assert.equal(stick().hidden, true);
+    win.joystickRefresh();
+    win.joystickRender();
+    assert.equal(stick().hidden, true, 'render preserves the session preference');
+    invariant();
+    const graph = $('.graph-scroll');
+    graph.focus();
+    key(graph, 'keydown', 'ContextMenu');
+    assert.equal(menuItem().textContent, 'Show pan joystick');
+    key(document.activeElement, 'keydown', 'End');
+    assert.equal(document.activeElement, menuItem());
+    key(menuItem(), 'keydown', ' ');
+    assert.equal($('.node-context-menu'), null);
+    assert.equal(document.activeElement, graph);
+    assert.equal(stick().hidden, false);
+    stick().focus();
+    key(stick(), 'keydown', 'ArrowRight');
+    assert.equal(win.joystickActive(), true, 'shown controller accepts keyboard pan');
+    key(stick(), 'keyup', 'ArrowRight');
+    invariant();
+  }
+  for (const input of ['pointer', 'keyboard']) {
+    stick().focus();
+    if (input === 'pointer') fire(stick(), 'pointerdown', 620, 240);
+    else key(stick(), 'keydown', 'ArrowRight');
+    assert.equal(win.joystickActive(), true);
+    key(stick(), 'keydown', 'F10', { shiftKey: true });
+    assert.equal(win.joystickActive(), false, 'menu entry stops only the owned pan');
+    assert.equal(
+      menuItem().textContent,
+      'Hide pan joystick',
+      'focused joystick has a keyboard escape',
+    );
+    const opened = $('.node-context-menu');
+    fire(stick(), 'contextmenu', 0, 0, { button: 2 });
+    assert.equal(
+      $('.node-context-menu'),
+      opened,
+      'joystick contextmenu suppression prevents reopening',
+    );
+    key(document.activeElement, 'keydown', 'Escape');
+    assert.equal(document.activeElement, $('.graph-scroll'));
+    assert.equal(stick().hidden, false, 'dismissal does not toggle');
+    invariant();
+  }
+  for (const extra of [{ isComposing: true }, { ctrlKey: true }, { altKey: true }]) {
+    stick().focus();
+    assert.equal(
+      key(stick(), 'keydown', 'F10', { shiftKey: true, ...extra }).defaultPrevented,
+      false,
+    );
+    assert.equal($('.node-context-menu'), null);
+  }
+  const openDialog = document.createElement('dialog');
+  openDialog.open = true;
+  document.body.append(openDialog);
+  key(stick(), 'keydown', 'F10', { shiftKey: true });
+  assert.equal($('.node-context-menu'), null, 'dialog exclusion is preserved');
+  openDialog.remove();
+  // Native text editing never gets redirected to graph actions.
+  const textInput = parameter();
+  textInput.focus();
+  assert.equal(key(textInput, 'keydown', 'F10', { shiftKey: true }).defaultPrevented, false);
+  assert.equal($('.node-context-menu'), null);
+  textInput.blur();
   // Structural rendering disposes the controller, cancels its RAF and recenters
   // the detached knob; load must not allow an old control to move the new doc.
-  fire(element, 'pointerdown', 620, 240);
+  const renderedElement = stick();
+  fire(renderedElement, 'pointerdown', 620, 240);
   flush(0);
   flush(20);
   win.joystickRender();
   flush(40);
   flush(60);
-  assert.equal(element.isConnected, false);
-  assert.equal(element.querySelector('span').style.transform, 'translate(0px, 0px)');
+  assert.equal(renderedElement.isConnected, false);
+  assert.equal(renderedElement.querySelector('span').style.transform, 'translate(0px, 0px)');
   assert.equal(win.joystickActive(), false);
   invariant();
   const newStick = stick();
@@ -310,6 +391,18 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   assert.equal(win.joystickActive(), false);
   assert.equal(serialize(win.nect.document), serialize(doc));
   assert.equal(frames.size, 0, 'no old joystick loop survives document replacement');
+  $('.graph-scroll').focus();
+  key(document.activeElement, 'keydown', 'ContextMenu');
+  menuItem().click();
+  assert.equal(stick().hidden, true);
+  win.nect.load(serialize(doc));
+  assert.equal(stick().hidden, true, 'replacing a document preserves session-only hide');
+  assert.equal(serialize(win.nect.document), serialize(doc));
+  $('.graph-scroll').focus();
+  key(document.activeElement, 'keydown', 'ContextMenu');
+  assert.equal(menuItem().textContent, 'Show pan joystick');
+  menuItem().click();
+  assert.equal(stick().hidden, false);
   stick().focus();
   assert.equal(key(stick(), 'keydown', 'a', { ctrlKey: true }).defaultPrevented, true);
   assert.equal(win.joystickUI().selection.length, 2);

@@ -1,4 +1,4 @@
-// Evidence capture only: geometry is reported, never judged against a proposed redesign.
+// Actual UI captures plus a bounded regression for the explicit joystick occlusion escape.
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -207,6 +207,34 @@ try {
       'Same selected node; action row reached',
     );
     assert.equal(await encoded(), original);
+    // Use the existing menu, not a synthetic toggle or a destructive Delete click.
+    await page.locator('.graph-scroll').focus();
+    await page.keyboard.press('Shift+F10');
+    await page.getByRole('menuitem', { name: 'Hide pan joystick', exact: true }).click();
+    assert.equal(await page.locator('.graph-pan-joystick').isVisible(), false);
+    assert.equal(
+      await page.locator('.graph-scroll').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    const deleteCenter = await card()
+      .locator('[data-delete]')
+      .evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return top === el || el.contains(top);
+      });
+    assert.equal(deleteCenter, true, `${viewport.width}: explicit hide exposes Delete center`);
+    await capture(
+      `node-actions-${viewport.width}-joystick-hidden`,
+      'Choose Hide pan joystick from graph context menu; no Delete click',
+      'Same node/actions; joystick explicitly hidden, graph focus restored',
+    );
+    // Opening the node menu renders the graph; the user's hide must survive it.
+    await card().locator('.node-head strong').click({ button: 'right' });
+    assert.equal(await page.locator('.graph-pan-joystick').isVisible(), false);
+    await page.getByRole('menuitem', { name: 'Show pan joystick', exact: true }).click();
+    assert.equal(await page.locator('.graph-pan-joystick').isVisible(), true);
+    assert.equal(await encoded(), original, 'Hide/show does not author the project');
   }
   await page.setViewportSize({ width: 1600, height: 1000 });
   // Source search deliberately supports Transform, not Geometry Repeater.
@@ -357,6 +385,7 @@ try {
         },
         integrity: {
           navigationDoesNotAuthor: true,
+          explicitJoystickHideExposesDeleteCenter: true,
           previewDoesNotAuthor: true,
           cancelPreservesSaved: true,
           applyUndoRestoresSaved: true,
@@ -366,7 +395,7 @@ try {
           'Browser CI evidence, not native Windows/WebView2 acceptance.',
           'Bounds and scroll metrics are observations, not UX approval or proposal assertions.',
           'Viewport captures preserve actual clipping; no full-page expansion.',
-          'Delete center hit tests are read-only observations and never fail for known joystick overlap.',
+          'Shown-joystick Delete hit tests remain observations; explicit user hide must expose the center. No Delete click is performed.',
         ],
         captures,
       },

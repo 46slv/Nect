@@ -5148,7 +5148,9 @@ const CANVAS_LIMITS = [0.00001, 8],
 function zoomLabel(scale) {
   return `${Number((scale * 100).toFixed(scale < 0.01 ? 3 : scale < 0.1 ? 1 : 0))}%`;
 }
-let graphPanJoystick = null;
+// Session UI only: do not serialize this preference or put it in Undo history.
+let graphPanJoystick = null,
+  graphPanJoystickVisible = true;
 function mountGraphPanJoystick() {
   const container = document.querySelector('.graph-body'),
     viewport = container?.querySelector('.graph-scroll');
@@ -5157,6 +5159,7 @@ function mountGraphPanJoystick() {
   let intent = null,
     observed = null;
   graphPanJoystick = createGraphPanJoystick({
+    visible: graphPanJoystickVisible,
     container,
     viewport,
     canPan: () =>
@@ -13076,6 +13079,13 @@ function closeNodeContextMenu(restore = false) {
   contextMenuScroll.clear();
   if (restore) document.querySelector(focus)?.focus({ preventScroll: true });
 }
+function graphPanJoystickMenuItem() {
+  return `<button type="button" role="menuitem" data-node-context-action="toggle-pan-joystick" aria-controls="graph-pan-joystick">${graphPanJoystickVisible ? 'Hide' : 'Show'} pan joystick</button>`;
+}
+function toggleGraphPanJoystick() {
+  graphPanJoystickVisible = !graphPanJoystickVisible;
+  graphPanJoystick?.setVisible(graphPanJoystickVisible);
+}
 function openNodeContextMenu(nodeId, x, y) {
   closeNodeContextMenu();
   if (deletionBusy() || variableAction) {
@@ -13145,12 +13155,13 @@ function openNodeContextMenu(nodeId, x, y) {
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', `Node actions: ${nodeDisplayName(n)}`);
   menu.tabIndex = -1;
-  menu.innerHTML = actions
-    .map(
-      ([id, label, reason, hint]) =>
-        `<button type="button" role="menuitem" data-node-context-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || hint)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
-    )
-    .join('');
+  menu.innerHTML =
+    actions
+      .map(
+        ([id, label, reason, hint]) =>
+          `<button type="button" role="menuitem" data-node-context-action="${id}" ${reason ? 'disabled' : ''} title="${esc(reason || hint)}">${esc(label)}${reason ? `<small>${esc(reason)}</small>` : ''}</button>`,
+      )
+      .join('') + graphPanJoystickMenuItem();
   menu.addEventListener('click', (event) => {
     if (nodeContextMenu !== menu) return;
     const button = event.target.closest('button');
@@ -13165,7 +13176,8 @@ function openNodeContextMenu(nodeId, x, y) {
       variableAction
     )
       return;
-    if (action === 'copy') copyGraphNodes();
+    if (action === 'toggle-pan-joystick') toggleGraphPanJoystick();
+    else if (action === 'copy') copyGraphNodes();
     else if (action === 'paste') pasteGraphNodes();
     else if (action === 'output')
       commandChange('preview-node', { nodeId, position: freePosition('Fill') }, 'Output connected');
@@ -13304,16 +13316,20 @@ function openGraphBackgroundMenu(x, y) {
   menu.setAttribute('role', 'menu');
   menu.setAttribute('aria-label', 'Graph actions');
   menu.tabIndex = -1;
-  menu.innerHTML = `<button type="button" role="menuitem" data-node-context-action="paste" ${current().locked ? 'disabled' : ''}>Paste nodes · Ctrl+V</button>`;
+  menu.innerHTML = `<button type="button" role="menuitem" data-node-context-action="paste" ${current().locked ? 'disabled' : ''}>Paste nodes · Ctrl+V</button>${graphPanJoystickMenuItem()}`;
   menu.addEventListener('click', (event) => {
-    if (nodeContextMenu !== menu || !event.target.closest('button:not(:disabled)')) return;
+    if (nodeContextMenu !== menu) return;
+    const button = event.target.closest('button:not(:disabled)');
+    if (!button) return;
     closeNodeContextMenu(true);
     if (
       session === owner &&
       session.state.expectedRevision === revision &&
       current().id === layerId
-    )
-      pasteGraphNodes();
+    ) {
+      if (button.dataset.nodeContextAction === 'toggle-pan-joystick') toggleGraphPanJoystick();
+      else pasteGraphNodes();
+    }
   });
   placeContextMenu(menu, x, y);
 }
@@ -13404,6 +13420,34 @@ app.addEventListener('contextmenu', (e) => {
       e.clientY,
     );
   if (e.target.closest('.graph-scroll')) openGraphBackgroundMenu(e.clientX, e.clientY);
+});
+// Do not rely on a WebView synthesizing a contextmenu event for these keys.
+// Keep this route graph-only; editable fields retain their native text menus.
+app.addEventListener('keydown', (event) => {
+  if (
+    nodeContextMenu ||
+    document.querySelector('dialog[open], .command-menu[open]') ||
+    event.isComposing ||
+    event.keyCode === 229 ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey ||
+    editingControl(event.target) ||
+    !(event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
+  )
+    return;
+  const target = event.target.closest?.('.graph-scroll,.graph-pan-joystick');
+  if (!target) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.repeat) return;
+  // Entering the menu ends this view control's hold before the shared busy
+  // guard runs. Never relax guards for authoring gestures or editable drafts.
+  graphPanJoystick?.stop();
+  const card = event.target.closest('.graph .node'),
+    rect = (card || target).getBoundingClientRect();
+  if (card) openNodeContextMenu(card.dataset.id, rect.left + 8, rect.top + 8);
+  else openGraphBackgroundMenu(rect.left + 8, rect.top + 8);
 });
 app.addEventListener(
   'toggle',
