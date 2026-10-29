@@ -117,8 +117,22 @@ try {
   await page.locator('.shared-colors-panel').evaluate((el) => {
     el.scrollTop = 50;
   });
+  // The panel is clipped: a boundingBox can exist below the visible scrollport.
+  // Bring the actual handle into view before sending physical mouse input.
+  await marker(secondary).scrollIntoViewIfNeeded();
   const scrollBefore = await page.locator('.shared-colors-panel').evaluate((el) => el.scrollTop);
   assert.ok(scrollBefore > 0);
+  assert.equal(
+    await marker(secondary).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return document
+        .elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)
+        ?.closest('[data-wheel-marker]')
+        ?.getAttribute('data-wheel-marker');
+    }),
+    secondary,
+    'physical drag starts on the visible marker, not the adjacent Inspector',
+  );
   const b = await marker(secondary).boundingBox(),
     svg = await page.locator('.harmony-wheel').boundingBox();
   assert.ok(b && svg);
