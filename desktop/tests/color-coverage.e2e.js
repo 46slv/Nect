@@ -21,6 +21,9 @@ try {
     const { blankDocument, layer, node, connect, exportScene, exportSVG, renderElement } =
       await import('/src/core.js');
     const { colorCoveragePasses } = await import('/src/color-coverage-passes.js');
+    const { fixturePaintSlotId } = await import(
+      '/tests/helpers/color-coverage-fixture-identity.js'
+    );
     const { sampleColorCoverage } = await import('/src/color-coverage-sampling.js');
     const { rasterizeCoverageAlpha } = await import('/src/color-coverage-raster.js');
     const { summarizeCoverageRasters } = await import(
@@ -543,13 +546,7 @@ try {
         connect(l, previous.id, out.id, 'path');
         doc.layers.push(l);
         for (const paint of rectangle.stroke === undefined ? ['fill'] : ['fill', 'stroke']) {
-          const slotId =
-            paint === 'fill'
-              ? rectangle.gradient?.kind === 'angular' &&
-                rectangle.gradient.ids.every((id) => id === rectangle.gradient.ids[0])
-                ? (rectangle.gradient.ids[0] ?? null)
-                : (rectangle.id ?? null)
-              : slots[2];
+          const slotId = fixturePaintSlotId(rectangle, paint, slots[2]);
           expectedOrder.push([l.id, paint, slotId]);
           const gradient = paint === 'fill' ? rectangle.gradient : null;
           const interpolationAt = (x, y) => {
