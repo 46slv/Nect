@@ -84,12 +84,39 @@ const capture = async (name, action, state) => {
         })(),
       ],
     });
+    // Read-only hit observation. A known joystick overlap is evidence, not a
+    // fixture failure; no Delete click or synthetic pointer event is performed.
+    const deleteButton = document.querySelector('.graph .node.selected [data-delete]');
+    const deleteCenterHitTest = (() => {
+      if (!deleteButton) return null;
+      const bounds = rect(deleteButton);
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+      const top = document.elementFromPoint(point.x, point.y);
+      const joystick = document.querySelector('.graph-pan-joystick');
+      return {
+        point,
+        deleteBounds: bounds,
+        joystickBounds: joystick ? rect(joystick) : null,
+        topElement: top
+          ? { tag: top.tagName, id: top.id, className: top.getAttribute('class') }
+          : null,
+        hitsDelete: !!top && (top === deleteButton || deleteButton.contains(top)),
+        hitsJoystick: !!top?.closest('.graph-pan-joystick'),
+        note: 'Center elementFromPoint observation only; not a click, full-target, keyboard or actionability assessment.',
+      };
+    })();
     const active = document.activeElement;
     return {
       viewport: { width: innerWidth, height: innerHeight },
       selectedGraphNodes: [...document.querySelectorAll('.graph .node.selected')].map(
         (el) => el.dataset.id,
       ),
+      deleteCenterHitTest,
+      paletteDraft: [
+        ...document.querySelectorAll(
+          '.chroma-draft-bar, [data-chroma-state], .shared-colors-heading',
+        ),
+      ].map(measure),
       focus: active
         ? {
             tag: active.tagName,
@@ -115,6 +142,44 @@ const capture = async (name, action, state) => {
   const file = `ui-review-${name}.png`;
   await page.screenshot({ path: resolve(out, file), fullPage: false });
   captures.push({ file, action, state, ...geometry });
+};
+// Preserve the whole wheel and a single compact primary row at panel top.
+// This asserts box containment/order only, not full interaction actionability.
+const checkPaletteTopLayout = async () => {
+  const layout = await page.locator('.shared-colors-panel').evaluate((panel) => {
+    const rect = (el) => {
+      const { left, top, right, bottom } = el.getBoundingClientRect();
+      return { left, top, right, bottom };
+    };
+    const bounds = rect(panel);
+    return {
+      port: {
+        left: bounds.left + panel.clientLeft,
+        top: bounds.top + panel.clientTop,
+        right: bounds.left + panel.clientLeft + panel.clientWidth,
+        bottom: bounds.top + panel.clientTop + panel.clientHeight,
+      },
+      bar: rect(panel.querySelector('.chroma-draft-bar')),
+      wheel: rect(panel.querySelector('.harmony-wheel')),
+      buttons: [...panel.querySelectorAll('.chroma-draft-actions button')].map(rect),
+    };
+  });
+  for (const [label, bounds] of [
+    ['status/actions', layout.bar],
+    ['whole wheel', layout.wheel],
+  ])
+    assert.ok(
+      bounds.left >= layout.port.left &&
+        bounds.right <= layout.port.right &&
+        bounds.top >= layout.port.top &&
+        bounds.bottom <= layout.port.bottom,
+      `${label} is contained at panel top: ${JSON.stringify(layout)}`,
+    );
+  assert.ok(layout.wheel.top >= layout.bar.bottom, 'Sticky bar does not cover the wheel at top');
+  assert.ok(
+    layout.buttons.every((b) => b.top === layout.buttons[0].top),
+    'Primary actions fit one row',
+  );
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
@@ -173,6 +238,10 @@ try {
   await page.locator('[data-harmony-create]').click();
   const saved = await encoded();
   assert.equal((await snapshot()).colorDesign.palette.length, 5);
+  assert.equal(
+    await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+    'saved',
+  );
   for (const viewport of [
     { width: 1600, height: 1000 },
     { width: 900, height: 720 },
@@ -181,6 +250,7 @@ try {
     await page.locator('.shared-colors-panel').evaluate((el) => {
       el.scrollTop = 0;
     });
+    await checkPaletteTopLayout();
     await capture(
       `palette-saved-${viewport.width}`,
       'Open actual Shared Colors harmony panel at top',
@@ -189,29 +259,80 @@ try {
     const rotation = page.locator('[data-wheel-setting="hueRotation"]');
     await rotation.fill('75');
     await rotation.press('Tab');
-    await page.locator('[data-chroma-preview]').click();
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'draft',
+    );
+    await page.locator('[data-chroma-preview]').focus();
+    await page.locator('[data-chroma-preview]').press('Enter');
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'preview',
+    );
+    assert.equal(await page.locator('[data-chroma-apply]').count(), 1);
+    assert.equal(await page.locator('[data-chroma-cancel]').count(), 1);
+    assert.equal(
+      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    await page.keyboard.press('Tab');
+    assert.equal(
+      await page.locator('[data-chroma-apply]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    await page.keyboard.press('Tab');
+    assert.equal(
+      await page.locator('[data-chroma-cancel]').evaluate((el) => document.activeElement === el),
+      true,
+    );
     assert.equal(await encoded(), saved, 'Preview does not author project changes');
     assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 1);
     await page.locator('.shared-colors-panel').evaluate((el) => {
       el.scrollTop = 0;
     });
+    await checkPaletteTopLayout();
     await capture(
       `palette-preview-top-${viewport.width}`,
       'Preview hue rotation 75; scroll panel to top',
       'Saved palette plus non-authored proposed draft',
     );
-    await page.locator('[data-chroma-apply]').scrollIntoViewIfNeeded();
+    await page.locator('.chroma-preview > div').first().scrollIntoViewIfNeeded();
     await capture(
       `palette-preview-actions-${viewport.width}`,
-      'Scroll real panel to Apply/Cancel without applying',
-      'Same draft, action geometry and scroll metrics',
+      'Scroll real panel to proposed-color comparison without applying',
+      'Same draft, sticky action geometry and scroll metrics',
     );
-    await page.locator('[data-chroma-cancel]').click();
+    await page.locator('[data-chroma-cancel]').focus();
+    await page.locator('[data-chroma-cancel]').press('Enter');
+    assert.equal(
+      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'draft',
+    );
     assert.equal(await encoded(), saved, 'Cancel preserves saved palette');
     assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
+    await page.locator('[data-chroma-reload]').click();
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'saved',
+    );
   }
+  await page.locator('[data-wheel-setting="hueRotation"]').fill('75');
+  await page.locator('[data-wheel-setting="hueRotation"]').press('Tab');
   await page.locator('[data-chroma-preview]').click();
-  await page.locator('[data-chroma-apply]').click();
+  await page.locator('[data-chroma-apply]').focus();
+  await page.locator('[data-chroma-apply]').press('Enter');
+  assert.equal(
+    await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+    true,
+  );
+  assert.equal(
+    await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+    'saved',
+  );
   assert.notEqual(await encoded(), saved, 'Apply authors the proposed palette');
   await capture(
     'palette-applied-900',
@@ -245,7 +366,7 @@ try {
           'Browser CI evidence, not native Windows/WebView2 acceptance.',
           'Bounds and scroll metrics are observations, not UX approval or proposal assertions.',
           'Viewport captures preserve actual clipping; no full-page expansion.',
-          'No product UI, workflow permissions, browser dependencies, or proposed layout changes.',
+          'Delete center hit tests are read-only observations and never fail for known joystick overlap.',
         ],
         captures,
       },

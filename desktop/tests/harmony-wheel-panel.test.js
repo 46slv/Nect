@@ -827,3 +827,112 @@ test('accepted empty, v1 and neutral-only states never require a missing marker 
   assert.equal(s.query('.harmony-wheel-panel'), null);
   assert.equal(s.notices.length, 0);
 });
+
+test('palette status and one existing action row lead the draft; saved colors remain separate', (t) => {
+  const s = setup(t, { realSession: true });
+  const original = serialize(s.model);
+  const state = () => s.query('[data-chroma-state]').dataset.chromaState;
+  const uniqueActions = (preview) => {
+    const bar = s.query('.chroma-draft-bar');
+    assert.equal(s.query('.auto-chroma-controls').firstElementChild, bar);
+    for (const attr of ['preview', ...(preview ? ['apply', 'cancel'] : [])]) {
+      assert.equal(s.app.querySelectorAll(`[data-chroma-${attr}]`).length, 1);
+      assert.ok(bar.querySelector(`[data-chroma-${attr}]`));
+    }
+    assert.equal(s.app.querySelectorAll('[data-chroma-reload]').length, 1);
+    assert.equal(
+      bar.querySelector('[data-chroma-reload]'),
+      null,
+      'Reload stays a secondary settings action',
+    );
+    assert.equal(s.app.querySelectorAll('[data-chroma-apply]').length, preview ? 1 : 0);
+    assert.equal(s.app.querySelectorAll('[data-chroma-cancel]').length, preview ? 1 : 0);
+  };
+  assert.equal(state(), 'saved');
+  assert.equal(s.query('[data-chroma-state]').getAttribute('role'), 'status');
+  assert.equal(s.query('.shared-color-list').getAttribute('aria-label'), 'Saved shared colors');
+  assert.equal(s.query('.shared-color-list').firstElementChild.textContent, 'Saved colors');
+  uniqueActions(false);
+  s.change('[data-wheel-setting="hueRotation"]', 75);
+  assert.equal(state(), 'draft');
+  assert.match(s.query('[data-chroma-state]').textContent, /not applied/);
+  assert.equal(serialize(s.model), original);
+  s.preview();
+  assert.equal(state(), 'preview');
+  assert.match(s.query('[data-chroma-state]').textContent, /Artwork still uses saved colors/);
+  assert.match(s.query('.chroma-preview').textContent, /Proposed colors · not applied/);
+  uniqueActions(true);
+  assert.equal(serialize(s.model), original);
+  s.click('[data-chroma-cancel]');
+  assert.equal(state(), 'draft', 'Cancel discards the proposal, not its settings draft');
+  assert.equal(serialize(s.model), original);
+  s.click('[data-chroma-reload]');
+  assert.equal(state(), 'saved');
+  assert.equal(serialize(s.model), original);
+  assert.equal(s.calls.length, 0);
+  s.change('[data-wheel-setting="hueRotation"]', 75);
+  s.preview();
+  s.apply();
+  assert.equal(state(), 'saved');
+  assert.equal(s.calls.length, 1);
+  assert.equal(s.calls[0].type, 'set-color-slots');
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), original, 'Apply is still one Undo');
+  assert.equal(state(), 'saved');
+});
+
+test('status follows settings, not selection; invalidated previews show the remaining draft', (t) => {
+  const s = setup(t);
+  const state = () => s.query('[data-chroma-state]').dataset.chromaState;
+  s.change('[data-wheel-entry]', 'accent');
+  assert.equal(state(), 'saved', 'Selecting a marker is not a settings edit');
+  s.change('[data-chroma-strength]', 0.4);
+  assert.equal(state(), 'draft');
+  s.preview();
+  assert.equal(state(), 'preview');
+  s.model.colorSlots[0].value.hex = '#abcdef';
+  s.render();
+  assert.equal(state(), 'draft', 'An invalidated proposal must not remain labeled Preview');
+  assert.equal(s.query('[data-chroma-apply]'), null);
+  s.click('[data-chroma-reload]');
+  assert.equal(state(), 'saved');
+  s.preview();
+  s.session = { state: { sessionId: 'new-session', expectedRevision: 0 } };
+  s.render();
+  assert.equal(state(), 'saved', 'Session changes discard local proposals/settings');
+  assert.equal(s.query('[data-chroma-apply]'), null);
+  assert.deepEqual(s.calls, []);
+});
+
+test('moved actions keep stable keyboard focus, returning to Preview when Apply/Cancel disappear', (t) => {
+  const s = setup(t, { realSession: true, restoreRenderFocus: true });
+  const preview = () => s.query('[data-chroma-preview]');
+  const active = () => s.win.document.activeElement;
+  s.change('[data-wheel-setting="hueRotation"]', 75);
+  preview().focus();
+  s.preview();
+  assert.ok(active() === preview(), 'Preview remains the same focus identity after rendering');
+  assert.deepEqual(
+    [...s.query('.chroma-draft-actions').children].map((el) => el.textContent),
+    ['Preview', 'Apply', 'Cancel'],
+    'Natural DOM Tab order reaches Apply and Cancel without entering the wheel',
+  );
+  assert.deepEqual(
+    [...s.query('.chroma-draft-actions').children].map((el) => el.getAttribute('aria-label')),
+    ['Preview palette', 'Apply colors', 'Cancel preview'],
+    'Compact visual labels retain full accessible action names',
+  );
+  s.query('[data-chroma-cancel]').focus();
+  s.click('[data-chroma-cancel]');
+  assert.ok(active() === preview(), 'Focus returns to Preview');
+  s.preview();
+  s.query('[data-chroma-apply]').focus();
+  s.apply();
+  assert.ok(active() === preview(), 'Focus returns to Preview');
+  s.preview();
+  assert.equal(s.app.querySelectorAll('[data-chroma-apply]').length, 1);
+  s.click('[data-chroma-cancel]');
+  assert.equal(s.calls.length, 1, 'Repeated Preview/Cancel adds no history');
+  assert.deepEqual(s.notices, []);
+});

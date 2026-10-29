@@ -2773,6 +2773,40 @@ input[data-scrub-step].scrubbing {
   padding-top: 8px;
   font-size: 11px;
 }
+/* One action row stays available while inspecting the draft and comparison. */
+.chroma-draft-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0 0 4px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+.chroma-draft-bar [role='status'] {
+  margin-bottom: 4px;
+}
+.chroma-draft-bar p {
+  margin: 0;
+}
+/* The status bar replaces this repeated introduction, not the wheel itself. */
+.auto-chroma-controls > .harmony-wheel-panel > strong,
+.auto-chroma-controls > .harmony-wheel-panel > p.font-note {
+  display: none;
+}
+.chroma-draft-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chroma-draft-actions button {
+  max-width: 100%;
+  white-space: normal;
+}
+.shared-colors-heading {
+  font-size: 12px;
+  margin: 10px 0 6px;
+}
 .auto-chroma-controls > label {
   display: flex;
   align-items: center;
