@@ -240,7 +240,9 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   const menu = $('.command-menu');
   assert.ok(menu, 'The production observer builds menus before the joystick guard scenario');
   assert.deepEqual(
-    [...document.querySelectorAll('.command-menu > summary')].map((summary) => summary.textContent),
+    [...document.querySelectorAll('header .command-menu > summary')].map(
+      (summary) => summary.textContent,
+    ),
     ['Project', 'Import', 'Export', 'Build'],
   );
   menu.open = true;

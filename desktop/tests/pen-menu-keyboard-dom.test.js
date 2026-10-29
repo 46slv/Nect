@@ -225,6 +225,52 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
     },
   );
 
+  for (const pressed of [false, true]) {
+    await t.test(
+      `compact graph disclosure preserves ${pressed ? 'held' : 'released'} Pen draft and view guards`,
+      async () => {
+        await start(2, pressed);
+        const toolbar = $('.graph-toolbar');
+        toolbar.getBoundingClientRect = () => ({ width: 591 });
+        win.dispatchEvent(new win.Event('resize'));
+        const menu = toolbar.querySelector('.graph-view-more'),
+          summary = menu.querySelector('summary'),
+          before = state(),
+          projectBefore = win.nect.projectSnapshot(),
+          documentBefore = saved(),
+          zoomBefore = $('[data-zoom="graph"]').textContent;
+        summary.focus();
+        assert.equal(key(summary, 'Enter').defaultPrevented, false);
+        assert.equal(key(summary, ' ', { code: 'Space' }).defaultPrevented, false);
+        for (const action of ['graph-fit-selection', 'graph-reset', 'graph-overview']) {
+          menu.open = true;
+          const button = menu.querySelector(`[data-action="${action}"]`);
+          button.focus();
+          button.click();
+          await Promise.resolve();
+          assert.equal(menu.open, false);
+          assert.equal(document.activeElement, summary);
+          assert.deepEqual(state(), before, action);
+          assert.deepEqual(win.nect.projectSnapshot(), projectBefore, action);
+          assert.equal(saved(), documentBefore, action);
+          if (pressed)
+            assert.equal(
+              $('[data-zoom="graph"]').textContent,
+              zoomBefore,
+              'held Pen owns its coordinates',
+            );
+        }
+        menu.open = true;
+        assert.equal(key(summary, 'Escape').defaultPrevented, true);
+        assert.equal(menu.open, false);
+        assert.equal(document.activeElement, summary);
+        assert.deepEqual(state(), before, 'Escape closes More rather than finishing the Pen draft');
+        assert.deepEqual(win.nect.projectSnapshot(), projectBefore);
+        $('[data-pen-cancel]').click();
+      },
+    );
+  }
+
   await t.test('summary Escape keeps the existing finish-open behavior', async () => {
     await start(2, true);
     assert.equal(key(projectSummary(), 'Escape').defaultPrevented, true);
