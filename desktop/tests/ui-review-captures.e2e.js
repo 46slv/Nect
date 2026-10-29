@@ -84,12 +84,39 @@ const capture = async (name, action, state) => {
         })(),
       ],
     });
+    // Read-only hit observation. A known joystick overlap is evidence, not a
+    // fixture failure; no Delete click or synthetic pointer event is performed.
+    const deleteButton = document.querySelector('.graph .node.selected [data-delete]');
+    const deleteCenterHitTest = (() => {
+      if (!deleteButton) return null;
+      const bounds = rect(deleteButton);
+      const point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+      const top = document.elementFromPoint(point.x, point.y);
+      const joystick = document.querySelector('.graph-pan-joystick');
+      return {
+        point,
+        deleteBounds: bounds,
+        joystickBounds: joystick ? rect(joystick) : null,
+        topElement: top
+          ? { tag: top.tagName, id: top.id, className: top.getAttribute('class') }
+          : null,
+        hitsDelete: !!top && (top === deleteButton || deleteButton.contains(top)),
+        hitsJoystick: !!top?.closest('.graph-pan-joystick'),
+        note: 'Center elementFromPoint observation only; not a click, full-target, keyboard or actionability assessment.',
+      };
+    })();
     const active = document.activeElement;
     return {
       viewport: { width: innerWidth, height: innerHeight },
       selectedGraphNodes: [...document.querySelectorAll('.graph .node.selected')].map(
         (el) => el.dataset.id,
       ),
+      deleteCenterHitTest,
+      paletteDraft: [
+        ...document.querySelectorAll(
+          '.chroma-draft-bar, [data-chroma-state], .shared-colors-heading',
+        ),
+      ].map(measure),
       focus: active
         ? {
             tag: active.tagName,
@@ -173,6 +200,10 @@ try {
   await page.locator('[data-harmony-create]').click();
   const saved = await encoded();
   assert.equal((await snapshot()).colorDesign.palette.length, 5);
+  assert.equal(
+    await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+    'saved',
+  );
   for (const viewport of [
     { width: 1600, height: 1000 },
     { width: 900, height: 720 },
@@ -189,7 +220,32 @@ try {
     const rotation = page.locator('[data-wheel-setting="hueRotation"]');
     await rotation.fill('75');
     await rotation.press('Tab');
-    await page.locator('[data-chroma-preview]').click();
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'draft',
+    );
+    await page.locator('[data-chroma-preview]').focus();
+    await page.locator('[data-chroma-preview]').press('Enter');
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'preview',
+    );
+    assert.equal(await page.locator('[data-chroma-apply]').count(), 1);
+    assert.equal(await page.locator('[data-chroma-cancel]').count(), 1);
+    assert.equal(
+      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    await page.keyboard.press('Tab');
+    assert.equal(
+      await page.locator('[data-chroma-apply]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    await page.keyboard.press('Tab');
+    assert.equal(
+      await page.locator('[data-chroma-cancel]').evaluate((el) => document.activeElement === el),
+      true,
+    );
     assert.equal(await encoded(), saved, 'Preview does not author project changes');
     assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 1);
     await page.locator('.shared-colors-panel').evaluate((el) => {
@@ -200,18 +256,43 @@ try {
       'Preview hue rotation 75; scroll panel to top',
       'Saved palette plus non-authored proposed draft',
     );
-    await page.locator('[data-chroma-apply]').scrollIntoViewIfNeeded();
+    await page.locator('.chroma-preview > div').first().scrollIntoViewIfNeeded();
     await capture(
       `palette-preview-actions-${viewport.width}`,
-      'Scroll real panel to Apply/Cancel without applying',
-      'Same draft, action geometry and scroll metrics',
+      'Scroll real panel to proposed-color comparison without applying',
+      'Same draft, sticky action geometry and scroll metrics',
     );
-    await page.locator('[data-chroma-cancel]').click();
+    await page.locator('[data-chroma-cancel]').focus();
+    await page.locator('[data-chroma-cancel]').press('Enter');
+    assert.equal(
+      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+      true,
+    );
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'draft',
+    );
     assert.equal(await encoded(), saved, 'Cancel preserves saved palette');
     assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
+    await page.locator('[data-chroma-reload]').click();
+    assert.equal(
+      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+      'saved',
+    );
   }
+  await page.locator('[data-wheel-setting="hueRotation"]').fill('75');
+  await page.locator('[data-wheel-setting="hueRotation"]').press('Tab');
   await page.locator('[data-chroma-preview]').click();
-  await page.locator('[data-chroma-apply]').click();
+  await page.locator('[data-chroma-apply]').focus();
+  await page.locator('[data-chroma-apply]').press('Enter');
+  assert.equal(
+    await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
+    true,
+  );
+  assert.equal(
+    await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
+    'saved',
+  );
   assert.notEqual(await encoded(), saved, 'Apply authors the proposed palette');
   await capture(
     'palette-applied-900',
@@ -245,7 +326,7 @@ try {
           'Browser CI evidence, not native Windows/WebView2 acceptance.',
           'Bounds and scroll metrics are observations, not UX approval or proposal assertions.',
           'Viewport captures preserve actual clipping; no full-page expansion.',
-          'No product UI, workflow permissions, browser dependencies, or proposed layout changes.',
+          'Delete center hit tests are read-only observations and never fail for known joystick overlap.',
         ],
         captures,
       },

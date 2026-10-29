@@ -96,10 +96,9 @@ export function createAutoChromaPanel({
       areaAware: true,
       lockedSlotIds: [],
     };
-  const requireSavedDraft = () => {
-    synchronize();
+  const savedDraft = () => {
     const saved = savedDesign();
-    const normalized = {
+    return {
       version: saved.version,
       profile: saved.profile,
       colorfulness: saved.colorfulness,
@@ -109,7 +108,11 @@ export function createAutoChromaPanel({
         .map((slot) => slot.id),
       ...(saved.version === 2 ? { wheel: saved.wheel, palette: saved.palette } : {}),
     };
-    if (JSON.stringify(draftDesign()) !== JSON.stringify(normalized))
+  };
+  const draftChanged = () => JSON.stringify(draftDesign()) !== JSON.stringify(savedDraft());
+  const requireSavedDraft = () => {
+    synchronize();
+    if (draftChanged())
       throw Error(
         'Preview and Apply your palette/settings changes before adding colors, or reload saved settings.',
       );
@@ -163,6 +166,11 @@ export function createAutoChromaPanel({
     event.stopImmediatePropagation();
     guard(() => {
       const state = envelope(button);
+      const focused = app.ownerDocument.activeElement === button;
+      const returnFocusToPreview = () => {
+        render();
+        if (focused) app.querySelector('[data-chroma-preview]')?.focus({ preventScroll: true });
+      };
       if (button.hasAttribute('data-chroma-reload')) {
         savedDesignKey = undefined;
         harmony.cancelGesture();
@@ -187,7 +195,7 @@ export function createAutoChromaPanel({
       }
       if (button.hasAttribute('data-chroma-cancel')) {
         reset();
-        render();
+        returnFocusToPreview();
         return;
       }
       if (button.hasAttribute('data-chroma-apply')) {
@@ -196,7 +204,7 @@ export function createAutoChromaPanel({
         const design = draftDesign();
         reset();
         dispatch('set-color-slots', { updates, design }, state);
-        render();
+        returnFocusToPreview();
         return;
       }
       synchronize();
@@ -251,7 +259,7 @@ export function createAutoChromaPanel({
           coverage?.value ?? null,
         ),
       };
-      render();
+      returnFocusToPreview();
     });
   });
   app.addEventListener('change', (event) => {
@@ -298,14 +306,26 @@ export function createAutoChromaPanel({
         ...slot,
         value: preview?.rows.find((row) => row.id === slot.id)?.value || slot.value,
       }));
-      return `<section class="auto-chroma-controls" aria-label="Auto Chroma">${harmony.html({ slots: displayedSlots, profile, colorfulness: strength, lockedSlotIds: [...locked] })}<strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><label><span>Use visible area</span><input type="checkbox" data-chroma-area ${areaAware ? 'checked' : ''}></label><div class="chroma-locks">${slots()
+      const state = preview ? 'preview' : draftChanged() ? 'draft' : 'saved';
+      const status = {
+        saved: 'Saved palette settings',
+        draft: 'Draft · not applied',
+        preview: 'Preview · not applied',
+      };
+      const note = {
+        saved: 'Edit settings, then Preview and Apply.',
+        draft: 'Artwork still uses saved colors. Preview before applying.',
+        preview: 'Artwork still uses saved colors. Apply to save this proposal.',
+      };
+      const actions = `<div class="chroma-draft-bar" aria-label="Palette draft actions"><div role="status" data-chroma-state="${state}"><strong>${status[state]}</strong><p class="font-note">${note[state]}</p></div><div class="chroma-draft-actions"><button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button>${preview ? '<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button>' : ''}<button type="button" data-chroma-reload>Reload saved settings</button></div></div>`;
+      return `<section class="auto-chroma-controls" aria-label="Auto Chroma">${actions}${harmony.html({ slots: displayedSlots, profile, colorfulness: strength, lockedSlotIds: [...locked] })}<strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><label><span>Use visible area</span><input type="checkbox" data-chroma-area ${areaAware ? 'checked' : ''}></label><div class="chroma-locks">${slots()
         .map(
           (slot) =>
             `<label><input type="checkbox" data-chroma-lock="${esc(slot.id)}" ${locked.has(slot.id) ? 'checked' : ''}>Keep ${esc(slot.name)}</label>`,
         )
         .join(
           '',
-        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast below checks only explicitly assigned Text/Background candidates.</p>${contrastHTML(getDocument(), 'current')}<button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button><button type="button" data-chroma-reload>Reload saved settings</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output>${row.gamutLimited ? '<span class="font-note" data-chroma-gamut-limited>Gamut limited</span>' : ''}</div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
+        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast below checks only explicitly assigned Text/Background candidates.</p>${contrastHTML(getDocument(), 'current')}${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><strong>Proposed colors · not applied</strong><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output>${row.gamutLimited ? '<span class="font-note" data-chroma-gamut-limited>Gamut limited</span>' : ''}</div>`).join('')}</div>` : ''}</section>`;
     },
   };
 }
