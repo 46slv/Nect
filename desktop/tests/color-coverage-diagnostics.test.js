@@ -24,6 +24,8 @@ test('diagnostics retain surplus/deficit, missing mass and bounded worst/probe p
   assert.equal(result.maxAbsoluteDifference, 1);
   assert.equal(result.beyondQuantizationPixels, 2);
   assert.equal(result.missingPositiveMassPixels, 1);
+  assert.equal(result.missingPositiveMass, 1);
+  assert.equal(result.missingPixels[0].pixel, 1);
   assert.equal(result.surplusPixels, 1);
   assert.equal(result.deficitPixels, 1);
   assert.deepEqual(

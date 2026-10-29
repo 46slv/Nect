@@ -44,11 +44,22 @@ between quantized overlapping wedges. Changing wedge alpha instead is incorrect:
 two opaque 50/50 wedges overlap to full alpha 1, while independently rendering each
 stop at alpha 0.5 would sum to 0.75 + 0.75 = 1.5. No outer alpha mask is multiplied
 again; geometry antialiasing and wedge occlusion have already been applied.
+Mixed-ID angular basis decoding requires an actual sRGB float16 canvas plus actual
+rgba-float16/Float16Array readback, checked rather than assumed from requested
+options. There is no unorm8 fallback or conversion claimed as equivalent. Ordinary
+solid/linear/radial and identical-ID angular decoding remain unchanged. The full
+paint's original alpha remains the denominator; only relative contribution data
+uses higher precision. CI records actual context/readback precision and bounded
+missing-pixel mass diagnostics. This is one bounded experiment: if actual Chrome
+cannot prove float16 support and recover the distinct-ID AA fixture's component
+mass, mixed-ID angular support is withdrawn rather than repeatedly changing
+thresholds, inventing residual contributions, or assigning them to Other.
 Their masses share one full-paint alpha and occlude the backdrop only once.
 When all four validated stop IDs are identical (including all unbound), the full
 paint is attributed directly to that identity without auxiliary masks; this is
 exact even at faint antialiased edges and never compares HEX values.
-Independent 8-bit basis-color/readback rounding is reconciled proportionally only within 4/255 per
+Production wedge colors remain 8-bit; their color rounding and float16
+composite/readback differences are reconciled proportionally only within 4/255 per
 pixel. If a painted pixel has no recoverable component mass (including near-zero
 alpha/AA-edge precision cases), or the discrepancy exceeds that bound, the entire
 measurement is unavailable. No mass is invented, assigned to Other, or partly shown.
@@ -79,5 +90,10 @@ equal/missing IDs and overlap/stroke order. Their independent oracle uses
 analytical ramps and forward source-over, with 16×16 polygon-edge integration
 for the radial/angular AA fixtures, and explicit midpoint-wedge premultiplied
 alpha weights for angular paints; it does not use the production mask or coverage reducer.
+For the fixed opaque-center angular fixture, an independently constructed ordered
+720-wedge reference SVG models primitive boundary rasterization and source-over;
+the ideal-angle oracle remains strict on the interior excluding only its 28
+positive-ray/center pixels. Whole-fixture totals and explicit seam/center probes
+use the independent primitive reference, without widening tolerances.
 Configured assertions are not a passed browser run: results must be checked for
 the exact published commit. Native WebView2 acceptance remains separate.

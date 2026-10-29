@@ -26,6 +26,9 @@ try {
     const { summarizeCoverageRasters } = await import(
       '/tests/helpers/color-coverage-diagnostics.js'
     );
+    const { orderedAngularReferenceSVG, isAngularReferenceInterior } = await import(
+      '/tests/helpers/angular-coverage-reference.js'
+    );
     const width = 64,
       height = 48,
       pixels = width * height;
@@ -39,15 +42,39 @@ try {
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const floating = channel === 'premultiplied-red';
+        const context = canvas.getContext('2d', {
+          willReadFrequently: true,
+          ...(floating ? { colorType: 'float16', colorSpace: 'srgb' } : {}),
+        });
+        const attributes = floating ? context.getContextAttributes?.() : null;
+        if (floating && (attributes?.colorType !== 'float16' || attributes.colorSpace !== 'srgb'))
+          throw Error('Independent diagnostic requires actual float16 sRGB canvas');
         context.drawImage(image, 0, 0, width, height);
-        const rgba = context.getImageData(0, 0, width, height).data;
-        return Array.from(
-          { length: pixels },
-          (_, index) =>
-            (rgba[index * 4 + 3] / 255) *
-            (channel === 'premultiplied-red' ? rgba[index * 4] / 255 : 1),
+        const data = context.getImageData(
+          0,
+          0,
+          width,
+          height,
+          ...(floating ? [{ pixelFormat: 'rgba-float16', colorSpace: 'srgb' }] : []),
         );
+        const rgba = data.data;
+        if (
+          floating &&
+          (data.pixelFormat !== 'rgba-float16' ||
+            data.colorSpace !== 'srgb' ||
+            typeof globalThis.Float16Array !== 'function' ||
+            !(rgba instanceof globalThis.Float16Array))
+        )
+          throw Error('Independent diagnostic requires actual rgba-float16 readback');
+        return Array.from({ length: pixels }, (_, index) => {
+          if (channel === 'reference-rgb') {
+            const alpha = rgba[index * 4 + 3] / 255;
+            const first = [0, 1, 2].map((component) => (rgba[index * 4 + component] / 255) * alpha);
+            return [...first, alpha - first.reduce((sum, mass) => sum + mass, 0)];
+          }
+          return floating ? rgba[index * 4] * rgba[index * 4 + 3] : rgba[index * 4 + 3] / 255;
+        });
       } finally {
         URL.revokeObjectURL(url);
       }
@@ -636,14 +663,21 @@ try {
       const scene = exportScene(doc),
         before = JSON.stringify(scene);
       const passes = colorCoveragePasses(scene, doc);
-      const layers = [];
+      const layers = [],
+        diagnosticRasterErrors = [],
+        productionPrecisionReceipts = [];
       for (const pass of passes)
         layers.push({
           slotId: pass.slotId,
           alpha: await raster(pass.svg),
           startAlpha: fixture.radialProbes ? await raster(pass.split.startSvg) : null,
           components: pass.contributions
-            ? await Promise.all(pass.contributions.map((stop) => raster(stop.svg, stop.channel)))
+            ? await Promise.all(
+                pass.contributions.map((stop) => raster(stop.svg, stop.channel)),
+              ).catch((error) => {
+                diagnosticRasterErrors.push(String(error.message));
+                return null;
+              })
             : null,
         });
       // Retain evidence and continue all fixtures even if attribution fails. The
@@ -651,12 +685,75 @@ try {
       let measured = null,
         measurementError = null;
       try {
-        measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha);
+        measured = await sampleColorCoverage(slots, passes, doc, async (svg, size) => {
+          try {
+            const alpha = await rasterizeCoverageAlpha(svg, size);
+            if (size.channel === 'premultiplied-red')
+              productionPrecisionReceipts.push(alpha.coveragePrecision ?? null);
+            return alpha;
+          } catch (error) {
+            productionPrecisionReceipts.push({
+              requestedChannel: size.channel ?? 'alpha',
+              error: String(error.message),
+            });
+            throw error;
+          }
+        });
       } catch (error) {
         measurementError = String(error?.message ?? error);
       }
       const angularProbeMasks = fixture.angularProbes ? layers[0].components : null;
       const analytic = analyticalCoverage(analyticLayers);
+      let orderedReference = null,
+        analyticInterior = null,
+        orderedReferenceProbes = null;
+      if (fixture.angularProbes) {
+        const referencePixels = await raster(orderedAngularReferenceSVG(), 'reference-rgb');
+        const referenceMasses = [0, 0, 0, 0],
+          idealInterior = [0, 0, 0, 0],
+          actualInterior = [0, 0, 0, 0];
+        for (let pixel = 0; pixel < pixels; pixel++) {
+          referencePixels[pixel].forEach((mass, i) => {
+            referenceMasses[i] += mass;
+          });
+          if (!isAngularReferenceInterior(pixel % width, Math.floor(pixel / width))) continue;
+          analyticLayers[0].contributions.forEach((stop, i) => {
+            idealInterior[i] += stop.alpha[pixel];
+          });
+          if (angularProbeMasks)
+            angularProbeMasks.forEach((mask, i) => {
+              actualInterior[i] += mask[pixel];
+            });
+        }
+        const total = referenceMasses.reduce((sum, mass) => sum + mass, 0);
+        orderedReference = {
+          slots: referenceMasses.map((contribution, i) => ({
+            id: slots[i],
+            contribution,
+            percent: (100 * contribution) / total,
+          })),
+          other: { id: null, contribution: 0, percent: 0 },
+        };
+        analyticInterior = {
+          expected: idealInterior,
+          actual: angularProbeMasks ? actualInterior : null,
+          excludedSharedRayPixels: 28,
+        };
+        orderedReferenceProbes = angularProbeMasks
+          ? [
+              [32, 24],
+              [44, 24],
+              [59, 24],
+              [44, 25],
+              [31, 36],
+            ].map(([x, y]) => ({
+              x,
+              y,
+              expected: referencePixels[y * width + x],
+              actual: angularProbeMasks.map((mask) => mask[y * width + x]),
+            }))
+          : null;
+      }
       const full = await raster(exportSVG(doc));
       const rendered = await raster(
         `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${scene.map(({ layer: l, value }) => renderElement(value, l)).join('')}</svg>`,
@@ -675,6 +772,15 @@ try {
         name: fixture.name,
         measured,
         measurementError,
+        productionPrecisionReceipts,
+        expectedContributionRasterCount: passes.reduce(
+          (count, pass) => count + (pass.contributions?.length ?? 0),
+          0,
+        ),
+        diagnosticRasterErrors,
+        orderedReference,
+        analyticInterior,
+        orderedReferenceProbes,
         contributionDiagnostics: layers.flatMap((entry, index) =>
           entry.components
             ? [
@@ -693,19 +799,20 @@ try {
               ]
             : [],
         ),
-        angularProbes: fixture.angularProbes
-          ? [
-              [44, 25],
-              [31, 36],
-              [20, 23],
-              [33, 12],
-            ].map(([x, y]) => ({
-              x,
-              y,
-              expected: angularMassAt(fixture.rects[0].gradient, x + 0.5, y + 0.5),
-              actual: angularProbeMasks.map((mask) => mask[y * width + x]),
-            }))
-          : null,
+        angularProbes:
+          fixture.angularProbes && angularProbeMasks
+            ? [
+                [44, 25],
+                [31, 36],
+                [20, 23],
+                [33, 12],
+              ].map(([x, y]) => ({
+                x,
+                y,
+                expected: angularMassAt(fixture.rects[0].gradient, x + 0.5, y + 0.5),
+                actual: angularProbeMasks.map((mask) => mask[y * width + x]),
+              }))
+            : null,
         radialProbes: fixture.radialProbes
           ? [
               [32, 24],
@@ -767,7 +874,8 @@ try {
     );
     for (const [index, row] of [...result.measured.slots, result.measured.other].entries()) {
       if (!result.analytic) continue;
-      const expected = [...result.analytic.slots, result.analytic.other][index];
+      const expectedSource = result.orderedReference ?? result.analytic;
+      const expected = [...expectedSource.slots, expectedSource.other][index];
       assert.ok(
         Math.abs(row.contribution - expected.contribution) <= (64 * 48 * 2) / 255,
         `${context}: analytic contribution mismatch for ${row.id}`,
@@ -776,6 +884,33 @@ try {
         Math.abs(row.percent - expected.percent) <= 1,
         `${context}: analytic percentage mismatch`,
       );
+    }
+    if (result.analyticInterior)
+      result.analyticInterior.expected.forEach((mass, i) =>
+        assert.ok(
+          Math.abs(mass - result.analyticInterior.actual[i]) <= (64 * 48 * 2) / 255,
+          `${context}: strict ideal-angle interior contribution ${i}`,
+        ),
+      );
+    for (const probe of result.orderedReferenceProbes ?? [])
+      probe.expected.forEach((mass, i) =>
+        assert.ok(
+          Math.abs(mass - probe.actual[i]) <= 2 / 255,
+          `${context}: ordered primitive probe ${probe.x},${probe.y} stop ${i}`,
+        ),
+      );
+    assert.equal(
+      result.productionPrecisionReceipts.length,
+      result.expectedContributionRasterCount,
+      `${context}: precision evidence covers every angular contribution raster`,
+    );
+    for (const precision of result.productionPrecisionReceipts) {
+      assert.equal(precision?.contextColorType, 'float16', `${context}: actual canvas precision`);
+      assert.equal(precision.contextColorSpace, 'srgb');
+      assert.equal(precision.readbackColorSpace, 'srgb');
+      assert.equal(precision.pixelFormat, 'rgba-float16', `${context}: actual readback precision`);
+      assert.equal(precision.arrayType, 'Float16Array', `${context}: actual typed array`);
+      assert.equal(precision.bytesPerElement, 2, `${context}: actual channel storage`);
     }
     assert.equal(
       result.measured.slots.reduce((sum, row) => sum + row.percent, result.measured.other.percent),

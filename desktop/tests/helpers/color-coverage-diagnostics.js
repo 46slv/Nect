@@ -39,10 +39,12 @@ export function summarizeCoverageRasters(full, components, width, height, probes
     maxAbsoluteDifference = 0,
     beyondQuantizationPixels = 0,
     missingPositiveMassPixels = 0,
+    missingPositiveMass = 0,
     surplusPixels = 0,
     deficitPixels = 0;
   const componentMasses = [0, 0, 0, 0],
-    worstPixels = [];
+    worstPixels = [],
+    missingPixels = [];
   for (let pixel = 0; pixel < pixels; pixel++) {
     const sample = at(pixel),
       error = Math.abs(sample.difference);
@@ -53,7 +55,11 @@ export function summarizeCoverageRasters(full, components, width, height, probes
     });
     maxAbsoluteDifference = Math.max(maxAbsoluteDifference, error);
     if (error > 4 / 255 + 1e-7) beyondQuantizationPixels++;
-    if (sample.full > 0 && sample.sum === 0) missingPositiveMassPixels++;
+    if (sample.full > 0 && sample.sum === 0) {
+      missingPositiveMassPixels++;
+      missingPositiveMass += sample.full;
+      if (missingPixels.length < 16) missingPixels.push(sample);
+    }
     if (sample.difference > 1e-7) surplusPixels++;
     if (sample.difference < -1e-7) deficitPixels++;
     if (error > 0 && (worstPixels.length < 16 || error > Math.abs(worstPixels.at(-1).difference))) {
@@ -78,6 +84,8 @@ export function summarizeCoverageRasters(full, components, width, height, probes
     maxAbsoluteDifference,
     beyondQuantizationPixels,
     missingPositiveMassPixels,
+    missingPositiveMass,
+    missingPixels,
     surplusPixels,
     deficitPixels,
     worstPixels,
