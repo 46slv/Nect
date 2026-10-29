@@ -4,6 +4,8 @@
 // require an explicit renderer attribution contract before they can use it.
 // A two-stop layer may supply split:{startSlotId,endSlotId,startAlpha};
 // startAlpha is already weighted full-paint coverage, not the start stop opacity.
+// Four-stop angular paints may instead supply contributions:[{slotId,alpha}]
+// whose nonnegative masses sum to the single paint alpha at each pixel.
 // The complementary end mass and backdrop share the same single paint alpha.
 const MAX_PIXELS = 262144;
 const MAX_LAYERS = 256;
@@ -67,7 +69,36 @@ export function measureColorCoverage(slotIds, layers, pixelCount) {
         startAlpha: source.startAlpha,
       };
     }
-    return { index: indices.get(layer.slotId) ?? otherIndex, alpha: layer.alpha, split };
+    let contributions;
+    if (layer.contributions !== undefined) {
+      if (
+        !Array.isArray(layer.contributions) ||
+        layer.contributions.length !== 4 ||
+        layer.slotId != null ||
+        layer.split !== undefined
+      )
+        throw Error('Invalid four-stop coverage attribution');
+      contributions = Array.from(layer.contributions, (source) => {
+        if (!source || !Object.hasOwn(source, 'slotId'))
+          throw Error('Invalid four-stop coverage attribution');
+        validateSlot(source.slotId);
+        validateAlpha(source.alpha, pixelCount);
+        return { index: indices.get(source.slotId) ?? otherIndex, alpha: source.alpha };
+      });
+      for (let pixel = 0; pixel < pixelCount; pixel++)
+        if (
+          Math.abs(
+            contributions.reduce((sum, stop) => sum + stop.alpha[pixel], 0) - layer.alpha[pixel],
+          ) > 1e-7
+        )
+          throw Error('Stop contributions do not conserve paint alpha');
+    }
+    return {
+      index: indices.get(layer.slotId) ?? otherIndex,
+      alpha: layer.alpha,
+      split,
+      contributions,
+    };
   });
   const masses = Array(slotIds.length + 1).fill(0);
   for (let pixel = 0; pixel < pixelCount; pixel++) {
@@ -75,12 +106,14 @@ export function measureColorCoverage(slotIds, layers, pixelCount) {
     for (let index = prepared.length - 1; index >= 0 && remaining > 0; index--) {
       const layer = prepared[index];
       const alpha = layer.alpha[pixel];
-      if (layer.split) {
+      if (layer.contributions) {
+        for (const stop of layer.contributions) masses[stop.index] += remaining * stop.alpha[pixel];
+      } else if (layer.split) {
         const start = layer.split.startAlpha[pixel];
         masses[layer.split.startIndex] += remaining * start;
         masses[layer.split.endIndex] += remaining * (alpha - start);
       } else masses[layer.index] += remaining * alpha;
-      // Both stops belong to ONE paint: occlude the backdrop only once.
+      // All stops belong to ONE paint: occlude the backdrop only once.
       remaining *= 1 - alpha;
     }
   }

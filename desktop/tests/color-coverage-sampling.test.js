@@ -417,3 +417,88 @@ test('malformed and stale auxiliary masks stop the entire measurement', async ()
   await assert.rejects(result, /stale/);
   assert.ok(calls <= 2);
 });
+
+const angularPass = () => ({
+  slotId: null,
+  svg: 'full',
+  contributions: ['a', 'b', null, 'missing'].map((slotId, i) => ({ slotId, svg: `stop${i}` })),
+});
+test('four angular masks reconcile raster rounding, conserve full paint and retain zero stop mass', async () => {
+  const input = angularPass(),
+    before = JSON.stringify(input);
+  const masks = {
+    full: [0.5, 0.5],
+    stop0: [0, 0],
+    stop1: [0.1, 0.2],
+    stop2: [0.2, 0.1],
+    stop3: [0.2 + 1 / 255, 0.2],
+  };
+  const result = await sample(['a', 'b'], [input], { width: 2, height: 1 }, (svg) => masks[svg]);
+  assert.equal(result.slots[0].contribution, 0);
+  assert.ok(result.slots[1].contribution > 0);
+  assert.ok(Math.abs(result.paintedPixelEquivalent - 1) < 1e-7);
+  assert.equal(
+    result.slots.reduce((sum, row) => sum + row.percent, result.other.percent),
+    100,
+  );
+  assert.equal(JSON.stringify(input), before);
+});
+test('four-mask low-alpha zero mass fails closed; allzero and above-threshold remain valid', async () => {
+  const run = (full, stops) =>
+    sample(['a', 'b'], [angularPass()], bounds, (svg) => [
+      svg === 'full' ? full : stops[Number(svg.slice(4))],
+    ]);
+  assert.equal((await run(0, [0, 0, 0, 0])).paintedPixelEquivalent, 0);
+  // At two 0.49/255 contributions, full alpha rounds up while both masks round down.
+  await assert.rejects(run(1 / 255, [0, 0, 0, 0]), /below raster precision/);
+  const above = await run(1 / 255, [1 / 255, 0, 0, 0]);
+  assert.equal(above.slots[0].percent, 100);
+  await assert.rejects(run(0.5, [0.1, 0, 0, 0]), /disagree/);
+  await assert.rejects(run(0, [0.2, 0, 0, 0]), /disagree/);
+});
+test('four-stop masks snapshot identity and reused decode buffers, and count all five rasters in budgets', async () => {
+  let calls = 0;
+  await assert.rejects(
+    sample(['a'], Array.from({ length: 13 }, angularPass), { width: 256, height: 256 }, () => {
+      calls++;
+      return [];
+    }),
+    /sampling budget/,
+  );
+  assert.equal(calls, 0);
+  const input = angularPass(),
+    pending = deferred(),
+    shared = new Float32Array([0.5]),
+    seen = [];
+  const running = sample(['a', 'b'], [input], bounds, (svg) => {
+    seen.push(svg);
+    if (seen.length === 1) return pending.promise;
+    shared[0] = svg === 'stop1' ? 0.5 : 0;
+    return shared;
+  });
+  input.contributions[1].slotId = 'a';
+  input.contributions[1].svg = 'changed';
+  pending.resolve(shared);
+  const result = await running;
+  assert.deepEqual(seen, ['full', 'stop0', 'stop1', 'stop2', 'stop3']);
+  assert.equal(result.slots[1].percent, 100);
+});
+test('invalid four-stop descriptors and dual attribution reject before any decode', async () => {
+  let calls = 0;
+  const input = angularPass();
+  for (const patch of [
+    { contributions: null },
+    { contributions: [] },
+    { contributions: new Array(4) },
+    { slotId: 'a' },
+    { split: gradientPass().split },
+    { contributions: input.contributions.map((stop) => ({ ...stop, slotId: {} })) },
+  ])
+    await assert.rejects(
+      sample(['a'], [{ ...input, ...patch }], bounds, () => {
+        calls++;
+        return [1];
+      }),
+    );
+  assert.equal(calls, 0);
+});

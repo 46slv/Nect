@@ -135,3 +135,57 @@ test('invalid stop masses or identities reject even when fully occluded', () => 
     /attribution/,
   );
 });
+
+const fourStops = (ids, masses, alpha = [0.5, 0.5]) => ({
+  alpha,
+  contributions: ids.map((slotId, i) => ({ slotId, alpha: masses[i] })),
+});
+test('four angular stop masses compose as one paint and preserve identity, Other and conservation', () => {
+  const angular = fourStops(
+    ['a', 'b', null, 'missing'],
+    [
+      [0.1, 0],
+      [0.2, 0.1],
+      [0.2, 0.1],
+      [0, 0.3],
+    ],
+  );
+  const input = [layer('back', [1, 1]), angular, layer('front', [0.5, 0])];
+  const before = JSON.stringify(input);
+  const result = measure(['a', 'b', 'back', 'front'], input, 2);
+  const mass = Object.fromEntries(result.slots.map((row) => [row.id, row.contribution]));
+  assert.ok(Math.abs(mass.a - 0.05) < 1e-12);
+  assert.ok(Math.abs(mass.b - 0.2) < 1e-12);
+  assert.equal(mass.back, 0.75);
+  assert.equal(mass.front, 0.5);
+  assert.equal(result.other.contribution, 0.5);
+  assert.equal(result.paintedPixelEquivalent, 2);
+  assert.equal(
+    result.slots.reduce((sum, row) => sum + row.percent, result.other.percent),
+    100,
+  );
+  assert.equal(JSON.stringify(input), before);
+  const same = fourStops(Array(4).fill('same'), [[0.1], [0.2], [0], [0.2]], [0.5]);
+  assert.equal(measure(['same'], [same], 1).slots[0].percent, 100);
+  const zero = fourStops(
+    Array(4).fill(null),
+    Array.from({ length: 4 }, () => [0]),
+    [0],
+  );
+  assert.equal(measure([], [zero], 1).paintedPixelEquivalent, 0);
+});
+
+test('malformed four-stop attribution fails even under complete occlusion', () => {
+  const valid = fourStops(['a', null, null, null], [[0.5], [0], [0], [0]], [0.5]);
+  for (const patch of [
+    { contributions: null },
+    { contributions: [] },
+    { contributions: new Array(4) },
+    { contributions: [...valid.contributions.slice(0, 3), { slotId: 'bad id', alpha: [0] }] },
+    { contributions: [...valid.contributions.slice(0, 3), { slotId: null, alpha: [0.1] }] },
+    { contributions: [...valid.contributions.slice(0, 3), { slotId: null, alpha: [NaN] }] },
+    { slotId: 'a' },
+    { split: { startSlotId: 'a', endSlotId: null, startAlpha: [0.5] } },
+  ])
+    assert.throws(() => measure(['a'], [{ ...valid, ...patch }, layer('a', [1])], 1));
+});

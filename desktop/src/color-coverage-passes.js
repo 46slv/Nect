@@ -4,6 +4,7 @@ import { renderElement } from './core.js';
 import { renderLinearGradientFill } from './linear-gradient.js';
 import { renderRadialGradientFill } from './radial-gradient.js';
 
+const angularStops = ['startColor', 'color1', 'color2', 'endColor'];
 const gradientRenderers = {
   'linear-gradient': renderLinearGradientFill,
   'radial-gradient': renderRadialGradientFill,
@@ -32,7 +33,9 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       value.children ||
       value.mask ||
       value.kind === 'image' ||
-      (value.fill?.kind && !Object.hasOwn(gradientRenderers, value.fill.kind)) ||
+      (value.fill?.kind &&
+        value.fill.kind !== 'angular-gradient' &&
+        !Object.hasOwn(gradientRenderers, value.fill.kind)) ||
       value.stroke?.kind ||
       ['filter', 'filters', 'blendMode', 'opacity', 'matrix'].some((key) =>
         Object.hasOwn(value, key),
@@ -47,29 +50,70 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       )
     )
       throw Error(
-        'Coverage attribution requires plain solid or two-stop linear/radial-gradient paths',
+        'Coverage attribution requires plain solid, two-stop linear/radial-gradient or four-stop angular-gradient paths',
       );
     const provenance = entry.paintProvenance ?? bindings.get(layer.id) ?? {};
     for (const paint of ['fill', 'stroke']) {
       if (!value[paint]) continue;
       const identity = provenance[paint];
-      const split = paint === 'fill' && Object.hasOwn(gradientRenderers, value.fill.kind);
+      const angular = paint === 'fill' && value.fill.kind === 'angular-gradient';
+      const split =
+        paint === 'fill' && (angular || Object.hasOwn(gradientRenderers, value.fill.kind));
       if (split && identity != null && (typeof identity !== 'object' || Array.isArray(identity)))
-        throw Error('Two-stop gradient coverage needs explicit stop provenance');
-      const slotId = split ? null : slot(identity ?? null);
-      const stopIds = split
-        ? [slot(identity?.startColor ?? null), slot(identity?.endColor ?? null)]
+        throw Error('Gradient coverage needs explicit stop provenance');
+      let slotId = split ? null : slot(identity ?? null);
+      let stopIds = split
+        ? (angular ? angularStops : ['startColor', 'endColor']).map((key) =>
+            slot(identity?.[key] ?? null),
+          )
         : null;
-      paints.push({ layer, value, paint, slotId, stopIds });
+      // Identical explicit IDs own the entire paint exactly, including Other.
+      // Validate every stop above before collapsing; equal HEX is irrelevant.
+      if (angular && stopIds.every((id) => id === stopIds[0])) {
+        slotId = stopIds[0];
+        stopIds = null;
+      }
+      paints.push({ layer, value, paint, slotId, stopIds, angular });
       if (paints.length > 256) throw Error('Coverage paint pass budget exceeded');
     }
   }
-  return paints.map(({ layer, value, paint, slotId, stopIds }) => {
+  let svgBytes = 0;
+  return paints.map(({ layer, value, paint, slotId, stopIds, angular }) => {
     const isolated = { ...value, [paint === 'fill' ? 'stroke' : 'fill']: undefined };
-    const svg = (path, attributes = '', definitions = '') =>
-      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${renderElement(path, layer, {}, attributes)}</svg>`;
+    const svg = (path, attributes = '', definitions = '') => {
+      const result = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" overflow="hidden">${definitions}${renderElement(path, layer, {}, attributes)}</svg>`;
+      svgBytes += result.length;
+      if (result.length > 4 * 1024 * 1024 || svgBytes > 16 * 1024 * 1024)
+        throw Error('Coverage SVG budget exceeded');
+      return result;
+    };
+    // Angular interpolation is premultiplied: isolate each alpha_i * weight_i
+    // directly, not A(t) * weight_i as for SVG linear/radial gradients. Reusing
+    // the production renderer preserves its 720 midpoint wedges, pattern bounds,
+    // direction, seam and crispEdges. No authored geometry or paint is changed.
+    const contributions =
+      angular && stopIds
+        ? angularStops.map((key, index) => ({
+            slotId: stopIds[index],
+            svg: svg({
+              ...isolated,
+              fill: {
+                ...isolated.fill,
+                ...Object.fromEntries(
+                  angularStops.map((stop) => [
+                    stop,
+                    {
+                      hex: '#ffffff',
+                      alpha: stop === key ? isolated.fill[stop].alpha : 0,
+                    },
+                  ]),
+                ),
+              },
+            }),
+          }))
+        : undefined;
     let split;
-    if (stopIds) {
+    if (stopIds && !angular) {
       // SVG interpolates sRGB colors without premultiplication. Allocate the
       // actual paint alpha A(t) by color interpolation weights: A(t)*(1-t),
       // A(t)*t, NOT startAlpha*(1-t) and endAlpha*t. A transparent stop can
@@ -97,6 +141,7 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
       slotId,
       svg: svg(isolated),
       ...(split ? { split } : {}),
+      ...(contributions ? { contributions } : {}),
     };
   });
 }

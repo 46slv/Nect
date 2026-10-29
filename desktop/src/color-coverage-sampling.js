@@ -57,6 +57,16 @@ export async function sampleColorCoverage(
         startSvg: svgInput(source.startSvg),
       };
     }
+    let contributions;
+    if (pass.contributions !== undefined) {
+      if (!Array.isArray(pass.contributions) || pass.contributions.length !== 4)
+        throw Error('Invalid four-stop coverage attribution');
+      contributions = Array.from(pass.contributions, (source) => {
+        if (!source || !Object.hasOwn(source, 'slotId'))
+          throw Error('Invalid four-stop coverage attribution');
+        return { slotId: source.slotId, svg: svgInput(source.svg) };
+      });
+    }
     measureColorCoverage(
       ids,
       [
@@ -64,17 +74,28 @@ export async function sampleColorCoverage(
           slotId: pass.slotId,
           alpha: [],
           ...(split ? { split: { ...split, startAlpha: [] } } : {}),
+          ...(contributions
+            ? { contributions: contributions.map((stop) => ({ slotId: stop.slotId, alpha: [] })) }
+            : {}),
         },
       ],
       0,
     );
-    return { slotId: pass.slotId, svg, ...(split ? { split } : {}) };
+    return {
+      slotId: pass.slotId,
+      svg,
+      ...(split ? { split } : {}),
+      ...(contributions ? { contributions } : {}),
+    };
   });
   // Count the auxiliary stop masks in the same total storage/decode budget.
   const size = coverageSampleSize(
     bounds.width,
     bounds.height,
-    inputs.reduce((count, pass) => count + (pass.split ? 2 : 1), 0),
+    inputs.reduce(
+      (count, pass) => count + 1 + (pass.split ? 1 : 0) + (pass.contributions?.length ?? 0),
+      0,
+    ),
   );
   // Validate registry before starting an expensive asynchronous decode.
   measureColorCoverage(ids, [], 0);
@@ -109,7 +130,30 @@ export async function sampleColorCoverage(
         startAlpha,
       };
     }
-    layers.push({ slotId: pass.slotId, alpha, ...(split ? { split } : {}) });
+    let contributions;
+    if (pass.contributions) {
+      contributions = [];
+      for (const stop of pass.contributions)
+        contributions.push({ slotId: stop.slotId, alpha: await decode(stop.svg) });
+      for (let pixel = 0; pixel < alpha.length; pixel++) {
+        const sum = contributions.reduce((total, stop) => total + stop.alpha[pixel], 0);
+        // Four independent 8-bit component rasters plus the full paint may
+        // round differently. Reconcile only this bounded quantization error;
+        // a missing positive mass or geometry disagreement fails the whole sample.
+        if (Math.abs(sum - alpha[pixel]) > 4 / 255 + 1e-7)
+          throw Error('Stop contributions disagree with paint alpha');
+        if (sum === 0 && alpha[pixel] > 0)
+          throw Error('Stop contributions are below raster precision');
+        for (const stop of contributions)
+          stop.alpha[pixel] = sum > 0 ? (stop.alpha[pixel] / sum) * alpha[pixel] : 0;
+      }
+    }
+    layers.push({
+      slotId: pass.slotId,
+      alpha,
+      ...(split ? { split } : {}),
+      ...(contributions ? { contributions } : {}),
+    });
   }
   guard();
   return {

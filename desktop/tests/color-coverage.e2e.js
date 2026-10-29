@@ -153,7 +153,9 @@ try {
         for (const entry of layers) {
           for (let i = 0; i < masses.length; i++) masses[i] *= 1 - entry.alpha[p];
           const add = (id, amount) => (masses[ids.indexOf(id ?? null)] += amount);
-          if (entry.split) {
+          if (entry.contributions) {
+            for (const stop of entry.contributions) add(stop.slotId, stop.alpha[p]);
+          } else if (entry.split) {
             add(entry.split.startSlotId, entry.split.startAlpha[p]);
             add(entry.split.endSlotId, entry.alpha[p] - entry.split.startAlpha[p]);
           } else add(entry.slotId, entry.alpha[p]);
@@ -300,6 +302,136 @@ try {
         gradient: { ...rectangle.gradient, endId: slots[1] },
       })),
     });
+    // Angular oracle is independent of the production sampler and SVG masks:
+    // identify the 720 midpoint wedge from angle/direction, locate its adjacent
+    // stops, then allocate premultiplied alpha_i * weight_i. No HEX identity.
+    const angularKeys = ['startColor', 'color1', 'color2', 'endColor'];
+    const angularMassAt = (g, x, y) => {
+      const turn =
+        (((((Math.atan2(y - g.center[1], x - g.center[0]) - (g.angle * Math.PI) / 180) *
+          (g.clockwise ? 1 : -1)) /
+          (2 * Math.PI)) %
+          1) +
+          1) %
+        1;
+      const t = (Math.floor(turn * 720) + 0.5) / 720;
+      const positions = [0, g.position1, g.position2, 1];
+      const right = positions.findIndex((position) => position >= t);
+      const left = right - 1,
+        fraction = (t - positions[left]) / (positions[right] - positions[left]);
+      const masses = [0, 0, 0, 0];
+      masses[left] = g.alphas[left] * (1 - fraction);
+      masses[right] = g.alphas[right] * fraction;
+      return masses;
+    };
+    const angular = (patch = {}) => ({
+      kind: 'angular',
+      center: [32.5, 24.5],
+      angle: 0,
+      clockwise: true,
+      position1: 0.17,
+      position2: 0.73,
+      ids: [...slots],
+      alphas: [1, 1, 1, 1],
+      ...patch,
+    });
+    const angularOverlap = [
+      { box: [4, 4, 60, 44], fill: 1, id: slots[3] },
+      {
+        box: [-8, 8, 56, 40],
+        gradient: angular({
+          center: [12.5, 24.5],
+          angle: -47,
+          clockwise: false,
+          alphas: [0.25, 0.5, 0.75, 1],
+        }),
+        stroke: 0.75,
+      },
+      { box: [32, 12, 60, 36], fill: 0.75, id: slots[2] },
+    ];
+    const angularAlphas = Object.fromEntries(slots.map((id, i) => [id, [0.25, 0.5, 0.75, 1][i]]));
+    const triangle = [
+      [-3.25, 4.5],
+      [60.75, 17.25],
+      [18.5, 52.75],
+    ];
+    cases.push(
+      {
+        name: 'angular-center-inside-same-hex-four-distinct-ids',
+        angularProbes: true,
+        slotAlpha: Object.fromEntries(slots.map((id) => [id, 1])),
+        rects: [{ box: [4, 4, 60, 44], gradient: angular() }],
+      },
+      {
+        name: 'angular-center-outside-reverse-rotated-nonuniform-stops',
+        slotAlpha: Object.fromEntries(slots.map((id) => [id, 1])),
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: angular({
+              center: [-20, 18],
+              angle: 123,
+              clockwise: false,
+              position1: 0.03,
+              position2: 0.81,
+            }),
+          },
+        ],
+      },
+      {
+        name: 'angular-transparent-stop-zero-contribution-and-unbound-other',
+        slotAlpha: { [slots[0]]: 0 },
+        slotHex: { [slots[0]]: '#ff0000' },
+        rects: [
+          {
+            box: [4, 4, 60, 44],
+            gradient: angular({
+              ids: [slots[0], slots[1], null, slots[3]],
+              alphas: [0, 1, 1, 1],
+              angle: 31,
+            }),
+          },
+        ],
+      },
+      {
+        name: 'angular-unequal-alpha-clipping-stroke-and-occlusion',
+        slotAlpha: angularAlphas,
+        rects: angularOverlap,
+      },
+      {
+        name: 'angular-reversed-overlap-order',
+        slotAlpha: angularAlphas,
+        rects: [...angularOverlap].reverse(),
+      },
+      {
+        name: 'angular-same-id-antialiased-clipped-triangle',
+        rects: [
+          {
+            box: [-3.25, 4.5, 60.75, 52.75],
+            rawPath: 'M-3.25 4.5L60.75 17.25L18.5 52.75Z',
+            polygon: triangle,
+            gradient: angular({ ids: Array(4).fill(slots[0]), angle: -179, clockwise: false }),
+          },
+        ],
+      },
+      {
+        name: 'angular-distinct-ids-antialiased-clipped-triangle',
+        slotAlpha: angularAlphas,
+        rects: [
+          {
+            box: [-3.25, 4.5, 60.75, 52.75],
+            rawPath: 'M-3.25 4.5L60.75 17.25L18.5 52.75Z',
+            polygon: triangle,
+            gradient: angular({ alphas: [0.25, 0.5, 0.75, 1], angle: -179, clockwise: false }),
+          },
+        ],
+      },
+      {
+        name: 'angular-all-transparent',
+        slotAlpha: Object.fromEntries(slots.map((id) => [id, 0])),
+        rects: [{ box: [4, 4, 60, 44], gradient: angular({ alphas: [0, 0, 0, 0] }) }],
+      },
+    );
     const receipts = [];
     for (const fixture of cases) {
       const doc = blankDocument();
@@ -323,11 +455,13 @@ try {
         const l = layer(`Rectangle ${index}`),
           shape = node('Imported Path'),
           fill = node(
-            rectangle.gradient?.kind === 'radial'
-              ? 'Radial Gradient Fill'
-              : rectangle.gradient
-                ? 'Linear Gradient Fill'
-                : 'Fill',
+            rectangle.gradient?.kind === 'angular'
+              ? 'Angular Gradient Fill'
+              : rectangle.gradient?.kind === 'radial'
+                ? 'Radial Gradient Fill'
+                : rectangle.gradient
+                  ? 'Linear Gradient Fill'
+                  : 'Fill',
           ),
           stroke = node('Stroke'),
           out = node('Output');
@@ -335,17 +469,22 @@ try {
         shape.rawPath = rectangle.rawPath ?? `M${x0} ${y0}H${x1}V${y1}H${x0}Z`;
         if (rectangle.gradient) {
           const g = rectangle.gradient;
-          if (g.kind === 'radial') {
+          if (g.kind === 'angular') {
+            for (const key of ['center', 'angle', 'clockwise', 'position1', 'position2'])
+              fill.params[key].value = g[key];
+          } else if (g.kind === 'radial') {
             fill.params.center.value = g.center;
             fill.params.radius.value = g.radius;
           } else {
             fill.params.start.value = g.start;
             fill.params.end.value = g.end;
           }
-          for (const [key, id, alpha] of [
-            ['startColor', g.startId, g.startAlpha],
-            ['endColor', g.endId, g.endAlpha],
-          ]) {
+          for (const [key, id, alpha] of g.kind === 'angular'
+            ? angularKeys.map((key, i) => [key, g.ids[i], g.alphas[i]])
+            : [
+                ['startColor', g.startId, g.startAlpha],
+                ['endColor', g.endId, g.endAlpha],
+              ]) {
             fill.params[key].value = { hex: '#0000ff', alpha };
             if (id) fill.params[key].colorSlotId = id;
           }
@@ -369,7 +508,13 @@ try {
         connect(l, previous.id, out.id, 'path');
         doc.layers.push(l);
         for (const paint of rectangle.stroke === undefined ? ['fill'] : ['fill', 'stroke']) {
-          const slotId = paint === 'fill' ? (rectangle.id ?? null) : slots[2];
+          const slotId =
+            paint === 'fill'
+              ? rectangle.gradient?.kind === 'angular' &&
+                rectangle.gradient.ids.every((id) => id === rectangle.gradient.ids[0])
+                ? (rectangle.gradient.ids[0] ?? null)
+                : (rectangle.id ?? null)
+              : slots[2];
           expectedOrder.push([l.id, paint, slotId]);
           const gradient = paint === 'fill' ? rectangle.gradient : null;
           const interpolationAt = (x, y) => {
@@ -397,15 +542,31 @@ try {
             return paint === 'fill'
               ? inside(x0, y0, x1, y1)
                 ? gradient
-                  ? gradient.startAlpha * (1 - interpolation(p)) +
-                    gradient.endAlpha * interpolation(p)
+                  ? gradient.kind === 'angular'
+                    ? angularMassAt(gradient, x, y).reduce((sum, mass) => sum + mass, 0)
+                    : gradient.startAlpha * (1 - interpolation(p)) +
+                      gradient.endAlpha * interpolation(p)
                   : rectangle.fill
                 : 0
               : inside(x0 - 2, y0 - 2, x1 + 2, y1 + 2) && !inside(x0 + 2, y0 + 2, x1 - 2, y1 - 2)
                 ? rectangle.stroke
                 : 0;
           });
-          let startAlpha = gradient ? alpha.map((a, p) => a * (1 - interpolation(p))) : null;
+          let startAlpha =
+            gradient && gradient.kind !== 'angular'
+              ? alpha.map((a, p) => a * (1 - interpolation(p)))
+              : null;
+          const contributions =
+            gradient?.kind === 'angular'
+              ? gradient.ids.map((slotId, i) => ({
+                  slotId,
+                  alpha: alpha.map((a, p) =>
+                    a
+                      ? angularMassAt(gradient, (p % width) + 0.5, Math.floor(p / width) + 0.5)[i]
+                      : 0,
+                  ),
+                }))
+              : null;
           if (rectangle.polygon && paint === 'fill') {
             // 16x16 subpixel integration checks actual AA and artboard clipping,
             // including a curved ramp crossing the polygon edge. No SVG decode.
@@ -420,32 +581,47 @@ try {
             for (let p = 0; p < pixels; p++) {
               let full = 0,
                 start = 0;
+              const angularMasses = [0, 0, 0, 0];
               for (let sy = 0; sy < 16; sy++)
                 for (let sx = 0; sx < 16; sx++) {
                   const x = (p % width) + (sx + 0.5) / 16,
                     y = Math.floor(p / width) + (sy + 0.5) / 16;
                   if (!inside(x, y)) continue;
+                  if (contributions) {
+                    const masses = angularMassAt(gradient, x, y);
+                    masses.forEach((mass, i) => {
+                      angularMasses[i] += mass / 256;
+                      full += mass / 256;
+                    });
+                    continue;
+                  }
                   const t = interpolationAt(x, y),
                     a = gradient.startAlpha * (1 - t) + gradient.endAlpha * t;
                   full += a / 256;
                   start += (a * (1 - t)) / 256;
                 }
               alpha[p] = full;
-              startAlpha[p] = start;
+              if (contributions)
+                contributions.forEach((stop, i) => {
+                  stop.alpha[p] = angularMasses[i];
+                });
+              else startAlpha[p] = start;
             }
           }
           analyticLayers.push({
             slotId,
             alpha,
-            ...(gradient
-              ? {
-                  split: {
-                    startSlotId: gradient.startId ?? null,
-                    endSlotId: gradient.endId ?? null,
-                    startAlpha,
-                  },
-                }
-              : {}),
+            ...(contributions
+              ? { contributions }
+              : gradient
+                ? {
+                    split: {
+                      startSlotId: gradient.startId ?? null,
+                      endSlotId: gradient.endId ?? null,
+                      startAlpha,
+                    },
+                  }
+                : {}),
           });
         }
       }
@@ -459,7 +635,14 @@ try {
           alpha: await raster(pass.svg),
           startAlpha: fixture.radialProbes ? await raster(pass.split.startSvg) : null,
         });
-      const measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha);
+      const measured = await sampleColorCoverage(slots, passes, doc, rasterizeCoverageAlpha).catch(
+        (error) => {
+          throw Error(`${fixture.name}: ${error.message}`);
+        },
+      );
+      const angularProbeMasks = fixture.angularProbes
+        ? await Promise.all(passes[0].contributions.map((stop) => raster(stop.svg)))
+        : null;
       const analytic = analyticalCoverage(analyticLayers);
       const full = await raster(exportSVG(doc));
       const rendered = await raster(
@@ -478,6 +661,19 @@ try {
       receipts.push({
         name: fixture.name,
         measured,
+        angularProbes: fixture.angularProbes
+          ? [
+              [44, 25],
+              [31, 36],
+              [20, 23],
+              [33, 12],
+            ].map(([x, y]) => ({
+              x,
+              y,
+              expected: angularMassAt(fixture.rects[0].gradient, x + 0.5, y + 0.5),
+              actual: angularProbeMasks.map((mask) => mask[y * width + x]),
+            }))
+          : null,
         radialProbes: fixture.radialProbes
           ? [
               [32, 24],
@@ -553,6 +749,46 @@ try {
       `${context}: integer percentages`,
     );
   }
+  const angularInside = results.find(
+    (r) => r.name === 'angular-center-inside-same-hex-four-distinct-ids',
+  );
+  for (const probe of angularInside.angularProbes)
+    probe.expected.forEach((mass, i) =>
+      assert.ok(
+        Math.abs(mass - probe.actual[i]) <= 2 / 255,
+        `angular midpoint wedge probe ${probe.x},${probe.y} stop ${i}`,
+      ),
+    );
+  assert.ok(
+    angularInside.measured.slots.every((row) => row.contribution > 0),
+    'angular equal HEX preserves four distinct identities',
+  );
+  const angularTransparent = results.find(
+    (r) => r.name === 'angular-transparent-stop-zero-contribution-and-unbound-other',
+  ).measured;
+  assert.equal(
+    angularTransparent.slots[0].contribution,
+    0,
+    'premultiplied transparent angular stop supplies no color',
+  );
+  assert.ok(angularTransparent.other.contribution > 0, 'unbound angular stop stays Other');
+  assert.notEqual(
+    results.find((r) => r.name === 'angular-unequal-alpha-clipping-stroke-and-occlusion').measured
+      .slots[0].contribution,
+    results.find((r) => r.name === 'angular-reversed-overlap-order').measured.slots[0].contribution,
+    'angular paint order and stroke occlude only once',
+  );
+  const angularAA = results.find((r) => r.name === 'angular-same-id-antialiased-clipped-triangle');
+  assert.ok(angularAA.antialiasedPixels > 0, 'angular clipped triangle exercises actual AA');
+  assert.equal(
+    angularAA.measured.slots[0].percent,
+    100,
+    'four same-ID masses conserve actual paint',
+  );
+  assert.equal(
+    results.find((r) => r.name === 'angular-all-transparent').measured.paintedPixelEquivalent,
+    0,
+  );
   const radialInside = results.find(
     (r) => r.name === 'radial-center-inside-same-hex-distinct-ids-and-pad',
   );

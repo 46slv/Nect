@@ -10,6 +10,7 @@ import {
   deserialize,
 } from '../src/core.js';
 import { colorCoveragePasses as passes } from '../src/color-coverage-passes.js';
+import { sampleColorCoverage } from '../src/color-coverage-sampling.js';
 function fixture() {
   const doc = blankDocument(),
     layer = doc.layers[0],
@@ -54,14 +55,14 @@ test('unsupported geometry rejects whole measurement rather than partial coverag
     { children: [] },
     { mask: {} },
     { kind: 'image' },
-    { fill: { kind: 'angular-gradient' } },
+    { fill: { kind: 'unsupported-gradient' } },
     { filters: [] },
     { blendMode: 'multiply' },
     { contours: [{ group: 1 }] },
   ])
     assert.throws(
       () => passes([...scene, { ...scene[0], value: { ...scene[0].value, ...patch } }], doc),
-      /plain solid or two-stop linear\/radial-gradient paths/,
+      /plain solid, two-stop linear\/radial-gradient or four-stop angular-gradient paths/,
     );
   assert.throws(() => passes(Array(129).fill(scene[0]), doc), /budget/);
   assert.throws(() => passes(scene, { width: NaN, height: 1 }), /bounds/);
@@ -90,7 +91,7 @@ test('repeater appearance is never flattened into independent child alpha', () =
     value.contours[0][field] = field === 'repeaterOpacity' ? 0.5 : { hex: '#ffffff', alpha: 1 };
     assert.throws(
       () => passes([{ ...scene[0], value }], doc),
-      /plain solid or two-stop linear\/radial-gradient paths/,
+      /plain solid, two-stop linear\/radial-gradient or four-stop angular-gradient paths/,
     );
   }
 });
@@ -323,7 +324,7 @@ test('radial attribution rejects malformed or expanded descriptors and unsupport
     assert.throws(() => passes([...scene, invalid], doc), /provenance/);
   }
   for (const patch of [
-    { fill: { kind: 'angular-gradient' } },
+    { fill: { kind: 'unsupported-gradient' } },
     { stroke: { kind: 'radial-gradient' } },
     { mask: {} },
     { filter: {} },
@@ -337,4 +338,208 @@ test('radial attribution rejects malformed or expanded descriptors and unsupport
     assert.throws(() => passes([...scene, invalid], doc), /requires plain/);
   }
   assert.equal(JSON.stringify(scene), original);
+});
+
+const angularKeys = ['startColor', 'color1', 'color2', 'endColor'];
+function angularFixture() {
+  const { doc, layer, gradient } = gradientFixture('Angular Gradient Fill');
+  doc.colorSlots = angularKeys.map((id, index) => ({
+    id,
+    name: id,
+    value: { hex: '#123456', alpha: index / 3 },
+  }));
+  angularKeys.forEach((key) => {
+    gradient.params[key].colorSlotId = key;
+  });
+  return { doc, layer, gradient };
+}
+
+test('angular four-stop provenance uses evaluated identities and production wedges without mutation', () => {
+  const { doc, gradient } = angularFixture();
+  gradient.params.center.value = [-20, 40];
+  gradient.params.angle.value = -173;
+  gradient.params.clockwise.value = false;
+  gradient.params.position1.value = 0.12;
+  gradient.params.position2.value = 0.84;
+  const scene = exportScene(doc),
+    before = JSON.stringify(scene),
+    saved = serialize(doc);
+  assert.deepEqual(
+    scene[0].paintProvenance.fill,
+    Object.fromEntries(angularKeys.map((key) => [key, key])),
+  );
+  const [fill, stroke] = passes(scene, doc, new Map([[scene[0].layer.id, { fill: 'wrong' }]]));
+  assert.equal(fill.split, undefined);
+  assert.equal(fill.slotId, null);
+  assert.equal(stroke.paint, 'stroke');
+  assert.deepEqual(
+    fill.contributions.map((stop) => stop.slotId),
+    angularKeys,
+  );
+  for (const mask of fill.contributions) {
+    const fullPaths = [...fill.svg.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+    const maskPaths = [...mask.svg.matchAll(/<path d="([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(fullPaths.length, 720);
+    assert.deepEqual(maskPaths, fullPaths);
+    assert.match(mask.svg, /shape-rendering="crispEdges"/);
+    assert.equal(mask.svg.match(/<pattern[^>]*>/)[0], fill.svg.match(/<pattern[^>]*>/)[0]);
+  }
+  assert.equal(JSON.stringify(scene), before);
+  assert.equal(serialize(doc), saved);
+  assert.deepEqual(
+    Object.keys(scene[0].value.fill).sort(),
+    [
+      'kind',
+      'center',
+      'angle',
+      'clockwise',
+      'startColor',
+      'color1',
+      'position1',
+      'color2',
+      'position2',
+      'endColor',
+    ].sort(),
+  );
+});
+
+test('angular source chains, equal HEX unbound stops, same IDs and replacement remain explicit', () => {
+  const { doc, layer, gradient } = angularFixture();
+  const color = node('Color');
+  color.params.value.colorSlotId = 'color1';
+  layer.nodes.push(color);
+  delete gradient.params.startColor.colorSlotId;
+  connect(layer, color.id, gradient.id, 'startColor');
+  delete gradient.params.color2.colorSlotId;
+  gradient.params.color2.value = { hex: '#123456', alpha: 2 / 3 };
+  gradient.params.endColor.colorSlotId = 'color1';
+  const ids = () => passes(exportScene(doc), doc)[0].contributions.map((stop) => stop.slotId);
+  assert.deepEqual(ids(), ['color1', 'color1', null, 'color1']);
+  const fill = layer.nodes.find((n) => n.type === 'Fill');
+  connect(layer, gradient.id, fill.id, 'path');
+  connect(layer, fill.id, layer.nodes.find((n) => n.type === 'Output').id, 'path');
+  assert.equal(passes(exportScene(doc), doc)[0].contributions, undefined);
+  fill.bypassed = true;
+  assert.deepEqual(ids(), ['color1', 'color1', null, 'color1']);
+  const scene = exportScene(doc);
+  delete scene[0].paintProvenance;
+  assert.equal(passes(scene, doc)[0].slotId, null);
+  assert.equal(passes(scene, doc)[0].contributions, undefined);
+});
+
+test('angular identities survive atomic history and native save/reopen', () => {
+  const { doc, layer, gradient } = angularFixture();
+  const session = new CommandSession(doc);
+  const dispatch = (type, payload = {}) => session.dispatch({ ...session.state, type, payload });
+  const read = () => exportScene(session.snapshot())[0].paintProvenance.fill;
+  dispatch('bind-color-slot', {
+    layerId: layer.id,
+    nodeId: gradient.id,
+    key: 'color2',
+    slotId: 'color1',
+  });
+  assert.equal(read().color2, 'color1');
+  dispatch('undo');
+  assert.equal(read().color2, 'color2');
+  dispatch('redo');
+  const saved = serialize(session.snapshot()),
+    reopened = deserialize(saved);
+  assert.deepEqual(exportScene(reopened)[0].paintProvenance.fill, read());
+  passes(exportScene(reopened), reopened);
+  assert.equal(serialize(reopened), saved);
+});
+
+test('angular exact input bounds and unsupported descriptors reject whole scenes', () => {
+  const { doc } = angularFixture();
+  const scene = exportScene(doc),
+    original = JSON.stringify(scene);
+  for (const patch of [
+    { center: [100001, 0] },
+    { center: [0] },
+    { center: [Infinity, 0] },
+    { angle: 361 },
+    { clockwise: 1 },
+    { position1: 0 },
+    { position2: 1 },
+    { position1: 0.9, position2: 0.1 },
+    { stops: [] },
+    { matrix: [] },
+    { color1: { hex: '#123456', alpha: -1 } },
+    { color2: { hex: '#123456', alpha: 2 } },
+  ]) {
+    const invalid = structuredClone(scene[0]);
+    Object.assign(invalid.value.fill, patch);
+    assert.throws(() => passes([...scene, invalid], doc));
+  }
+  for (const identity of ['first', [], { color1: 7 }, { color2: 'invalid id' }]) {
+    const invalid = structuredClone(scene[0]);
+    invalid.paintProvenance.fill = identity;
+    assert.throws(() => passes([...scene, invalid], doc), /provenance/);
+  }
+  assert.equal(JSON.stringify(scene), original);
+});
+
+test('four angular contribution SVGs count toward generation byte budgets before returning passes', () => {
+  const { doc } = angularFixture();
+  const scene = exportScene(doc);
+  for (const nameLength of [4 * 1024 * 1024, Math.ceil(3.5 * 1024 * 1024)]) {
+    const invalid = structuredClone(scene[0]);
+    invalid.layer.name = 'x'.repeat(nameLength);
+    assert.throws(() => passes([invalid], doc), /SVG budget/);
+  }
+});
+
+test('four identical explicit angular IDs collapse exactly after validation, never by equal HEX', () => {
+  const { doc } = angularFixture();
+  for (const id of ['startColor', null]) {
+    const scene = exportScene(doc);
+    scene[0].paintProvenance.fill = Object.fromEntries(angularKeys.map((key) => [key, id]));
+    const [fill, stroke] = passes(scene, doc);
+    assert.equal(fill.slotId, id);
+    assert.equal(fill.contributions, undefined);
+    assert.equal(fill.split, undefined);
+    assert.equal(stroke.paint, 'stroke');
+    assert.equal((fill.svg.match(/<path d=/g) ?? []).length, 720);
+    // Optimization never bypasses paint or provenance validation.
+    const invalid = structuredClone(scene);
+    invalid[0].value.fill.position1 = 0;
+    assert.throws(() => passes(invalid, doc));
+    scene[0].paintProvenance.fill.endColor = 'invalid id';
+    assert.throws(() => passes(scene, doc), /provenance/);
+  }
+  for (const ids of [
+    ['startColor', null, null, null],
+    [null, null, null, 'endColor'],
+    ['startColor', 'color1', 'color2', 'endColor'],
+  ]) {
+    const scene = exportScene(doc);
+    scene[0].paintProvenance.fill = Object.fromEntries(angularKeys.map((key, i) => [key, ids[i]]));
+    const fill = passes(scene, doc)[0];
+    assert.equal(fill.slotId, null);
+    assert.deepEqual(
+      fill.contributions.map((stop) => stop.slotId),
+      ids,
+    );
+  }
+});
+
+test('collapsed same-ID angular paint uses one decode and one backdrop occlusion before stroke', async () => {
+  const { doc } = angularFixture();
+  const scene = exportScene(doc);
+  scene[0].paintProvenance.fill = Object.fromEntries(angularKeys.map((key) => [key, 'startColor']));
+  const input = passes(scene, doc);
+  let calls = 0;
+  const result = await sampleColorCoverage(
+    ['startColor'],
+    input,
+    { width: 1, height: 1 },
+    (svg) => {
+      calls++;
+      return [svg === input[0].svg ? 0.5 : 0.25];
+    },
+  );
+  assert.equal(calls, 2, 'one angular full paint and one solid stroke; no auxiliary masks');
+  assert.equal(result.slots[0].contribution, 0.375);
+  assert.equal(result.other.contribution, 0.25);
+  assert.equal(result.paintedPixelEquivalent, 0.625);
 });

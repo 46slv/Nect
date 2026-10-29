@@ -4105,7 +4105,15 @@ export function evaluate(
             endColor: parameterColorSlot(n.params.endColor),
           });
         }
-        if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
+        if (n.type === 'Angular Gradient Fill') {
+          result.fill = angularGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            color1: parameterColorSlot(n.params.color1),
+            color2: parameterColorSlot(n.params.color2),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
