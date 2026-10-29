@@ -41,7 +41,7 @@ export function collectIds(value) {
   return ids;
 }
 
-function remapLayerExpressions(source, copy, mapping) {
+function remapLayerReferences(source, copy, mapping) {
   if (!Array.isArray(source?.nodes)) return;
   // ref() resolves only within its own layer. A colliding Composition/layer/
   // point ID or a node in another layer must not retarget a dangling expression.
@@ -50,6 +50,11 @@ function remapLayerExpressions(source, copy, mapping) {
       .filter((node) => mapping.has(node.id))
       .map((node) => [node.id, mapping.get(node.id)]),
   );
+  // Group membership, like ref(), is local to this layer. Do not rewrite
+  // arbitrary string arrays or turn dangling/non-node IDs into valid members.
+  for (const group of Array.isArray(copy.nodeGroups) ? copy.nodeGroups : [])
+    if (Array.isArray(group?.nodeIds))
+      group.nodeIds = group.nodeIds.map((id) => nodes.get(id) ?? id);
   for (const node of copy.nodes) {
     const parameters = Object.values(node.params ?? {});
     for (const point of Array.isArray(node.points) ? node.points : [])
@@ -97,7 +102,7 @@ export function remapIds(value, ids, occupied) {
   const copiedLayers = Array.isArray(copy) ? copy : copy?.layers;
   if (Array.isArray(sourceLayers))
     sourceLayers.forEach((layer, index) =>
-      remapLayerExpressions(layer, copiedLayers[index], mapping),
+      remapLayerReferences(layer, copiedLayers[index], mapping),
     );
   return copy;
 }
