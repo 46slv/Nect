@@ -4,7 +4,14 @@ import {
   prepareProjectCompositionImport,
   prepareProjectCompositionsImport,
 } from '../src/composition-project-import.js';
-import { validateCompositionProject } from '../src/composition-project-model.js';
+import { blankDocument, validate } from '../src/core.js';
+import {
+  activeCompositionDocument,
+  deserializeCompositionProject,
+  migrateLegacyDocumentToCompositionProject,
+  serializeCompositionProject,
+  validateCompositionProject,
+} from '../src/composition-project-model.js';
 
 function project(name, compositions, assets = {}) {
   return validateCompositionProject({
@@ -172,4 +179,51 @@ test('invalid references or missing assets reject without mutating either projec
   );
   assert.deepEqual(current, currentBefore);
   assert.equal(sourceProject.compositions.length, 2);
+});
+
+function groupedSource() {
+  const document = blankDocument();
+  document.schemaVersion = Math.max(document.schemaVersion, 44);
+  const layer = document.layers[0];
+  const memberId = layer.nodes[0].id;
+  layer.nodeGroups = [{ id: 'group-src', name: memberId, nodeIds: [memberId] }];
+  return migrateLegacyDocumentToCompositionProject(document);
+}
+
+test('Project Composition import preserves saved node-group members with and without ID collisions', () => {
+  const sourceProject = groupedSource();
+  const originalSource = serializeCompositionProject(sourceProject);
+  const sourceLayer = sourceProject.compositions[0].layers[0];
+  const sourceMemberId = sourceLayer.nodes[0].id;
+  const sourceGroup = sourceLayer.nodeGroups[0];
+  const unrelated = migrateLegacyDocumentToCompositionProject(blankDocument());
+  unrelated.compositions[0].id = 'destination-composition';
+
+  for (const [collision, current] of [
+    [false, unrelated],
+    [true, structuredClone(sourceProject)],
+  ]) {
+    const originalCurrent = serializeCompositionProject(current);
+    const { project: importedProject, compositionId } = prepareProjectCompositionImport(
+      current,
+      sourceProject,
+      sourceProject.compositions[0].id,
+    );
+    const imported = importedProject.compositions.find((item) => item.id === compositionId);
+    const importedLayer = imported.layers[0];
+    const importedMemberId = importedLayer.nodes[0].id;
+    const importedGroup = importedLayer.nodeGroups[0];
+
+    assert.equal(importedMemberId === sourceMemberId, !collision);
+    assert.equal(importedGroup.id === sourceGroup.id, !collision);
+    assert.deepEqual(importedGroup.nodeIds, [importedMemberId]);
+    assert.equal(importedGroup.name, sourceGroup.name);
+    assert.deepEqual(importedProject.compositions.slice(0, current.compositions.length), current.compositions);
+    validate(activeCompositionDocument(importedProject, compositionId));
+
+    const reopened = deserializeCompositionProject(serializeCompositionProject(importedProject));
+    validate(activeCompositionDocument(reopened, compositionId));
+    assert.equal(serializeCompositionProject(current), originalCurrent);
+    assert.equal(serializeCompositionProject(sourceProject), originalSource);
+  }
 });
