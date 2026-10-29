@@ -652,8 +652,9 @@ header {
 }
 .node-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  margin-top: 7px;
+  margin-bottom: 8px;
 }
 .warning {
   font-size: 11px;
@@ -816,6 +817,13 @@ header {
 .inspector-body h3 {
   font-size: 14px;
   margin: 0 0 14px;
+}
+.inspector-body .inspector-node-title {
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+.inspector-body .inspector-node-type {
+  margin: 0 0 10px;
 }
 .inspector-body p {
   font-size: 11px;

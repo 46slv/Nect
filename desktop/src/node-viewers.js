@@ -279,7 +279,10 @@ export function mountViewers(
       );
       refresh();
     };
-    root.querySelector('.inspector-body').prepend(controls);
+    const inspector = root.querySelector('.inspector-body'),
+      identity = inspector.querySelector('.inspector-node-type');
+    if (identity) identity.after(controls);
+    else inspector.prepend(controls);
   }
   refresh();
 }
