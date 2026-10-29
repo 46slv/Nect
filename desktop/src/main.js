@@ -1531,7 +1531,11 @@ function commandChange(type, payload, text, deferRender = false, envelope = sess
     result = session.dispatch({
       ...envelope,
       type,
-      payload: { layerId: current().id, ...payload },
+      // Palette creation/addition are project commands with closed payload schemas.
+      payload:
+        type === 'create-harmony-palette' || type === 'add-harmony-color'
+          ? payload
+          : { layerId: current().id, ...payload },
     });
     if (pointUI && history.doc !== beforeDocument && history.past.at(-1) !== oldPast) {
       selectionHistory.set(history.past.at(-1), pointUI);
