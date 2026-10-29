@@ -179,11 +179,123 @@ try {
   assert.deepEqual(await snap(), added);
   assert.equal(await page.locator('[data-wheel-setting="harmony"]').inputValue(), 'triadic');
   assert.equal(Number(await page.locator('[data-wheel-setting="hueRotation"]').inputValue()), 75);
-  await page.setViewportSize({ width: 900, height: 960 });
-  await page.locator('.shared-colors-panel').evaluate((el) => {
-    el.scrollTop = 0;
-  });
-  await page.screenshot({ path: resolve(out, 'harmony-narrow.png'), fullPage: true });
+  const visibleLayouts = [];
+  for (const height of [960, 720]) {
+    await page.setViewportSize({ width: 900, height });
+    const layout = await page.locator('.shared-colors-panel').evaluate(async (panel) => {
+      panel.scrollTop = 0;
+      panel.scrollLeft = 0;
+      await new Promise(requestAnimationFrame);
+      const rect = (el) => {
+        const { left, top, right, bottom, width, height } = el.getBoundingClientRect();
+        return { left, top, right, bottom, width, height };
+      };
+      const scrollport = (el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          left: r.left + el.clientLeft,
+          top: r.top + el.clientTop,
+          right: r.left + el.clientLeft + el.clientWidth,
+          bottom: r.top + el.clientTop + el.clientHeight,
+        };
+      };
+      // Intersect with the viewport and every clipping ancestor, not just the
+      // element's boundingBox: an offscreen/clipped element still has a box.
+      const visibleScrollport = (el) => {
+        const visible = scrollport(el);
+        visible.left = Math.max(visible.left, 0);
+        visible.top = Math.max(visible.top, 0);
+        visible.right = Math.min(visible.right, innerWidth);
+        visible.bottom = Math.min(visible.bottom, innerHeight);
+        for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+          const style = getComputedStyle(parent),
+            bounds = scrollport(parent);
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+            visible.left = Math.max(visible.left, bounds.left);
+            visible.right = Math.min(visible.right, bounds.right);
+          }
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+            visible.top = Math.max(visible.top, bounds.top);
+            visible.bottom = Math.min(visible.bottom, bounds.bottom);
+          }
+        }
+        return visible;
+      };
+      return {
+        viewport: { width: innerWidth, height: innerHeight },
+        scrollTop: panel.scrollTop,
+        panelClientWidth: panel.clientWidth,
+        panelScrollWidth: panel.scrollWidth,
+        panelScrollport: visibleScrollport(panel),
+        header: rect(panel.querySelector('header')),
+        wheel: rect(panel.querySelector('.harmony-wheel')),
+        markers: [...panel.querySelectorAll('[data-wheel-marker]')].map((el) => {
+          const bounds = rect(el),
+            circle = el.querySelector('circle'),
+            circleBounds = rect(circle),
+            matrix = circle.getScreenCTM(),
+            halfStroke = Number.parseFloat(getComputedStyle(circle).strokeWidth) / 2,
+            strokeX = halfStroke * Math.hypot(matrix.a, matrix.c),
+            strokeY = halfStroke * Math.hypot(matrix.b, matrix.d);
+          // SVG getBoundingClientRect excludes the painted stroke. Include it
+          // so even a marker's outermost edge must remain visible.
+          return {
+            id: el.dataset.wheelMarker,
+            left: Math.min(bounds.left, circleBounds.left - strokeX),
+            top: Math.min(bounds.top, circleBounds.top - strokeY),
+            right: Math.max(bounds.right, circleBounds.right + strokeX),
+            bottom: Math.max(bounds.bottom, circleBounds.bottom + strokeY),
+          };
+        }),
+        inspectorScrollport: visibleScrollport(document.querySelector('.inspector')),
+      };
+    });
+    const screenshot = height === 960 ? 'harmony-narrow.png' : 'harmony-narrow-short.png';
+    // A viewport screenshot preserves the actual 900 px width; fullPage could
+    // expand the image and disguise horizontal overflow or offscreen content.
+    const png = await page.screenshot({ path: resolve(out, screenshot), fullPage: false });
+    layout.screenshot = {
+      file: screenshot,
+      width: png.readUInt32BE(16),
+      height: png.readUInt32BE(20),
+    };
+    visibleLayouts.push(layout);
+    await writeFile(resolve(out, 'visible-layouts.json'), JSON.stringify(visibleLayouts, null, 2));
+    const context = `at 900×${height}`,
+      port = layout.panelScrollport,
+      insidePanel = (bounds, label) => {
+        assert.ok(
+          bounds.right > bounds.left && bounds.bottom > bounds.top,
+          `${label} has area ${context}`,
+        );
+        assert.ok(
+          bounds.left >= port.left &&
+            bounds.top >= port.top &&
+            bounds.right <= port.right &&
+            bounds.bottom <= port.bottom,
+          `${label} fits the visible Shared colors scrollport ${context}: ${JSON.stringify({ bounds, port })}`,
+        );
+      };
+    assert.deepEqual(layout.viewport, { width: 900, height });
+    assert.equal(layout.screenshot.width, 900, `screenshot keeps viewport width ${context}`);
+    assert.equal(layout.screenshot.height, height, `screenshot keeps viewport height ${context}`);
+    assert.equal(layout.scrollTop, 0, `wheel is visible without scrolling ${context}`);
+    assert.equal(
+      layout.panelScrollWidth,
+      layout.panelClientWidth,
+      `Shared colors has no horizontal overflow ${context}`,
+    );
+    insidePanel(layout.header, 'Shared colors header');
+    insidePanel(layout.wheel, 'Entire harmony wheel');
+    assert.equal(layout.markers.length, 3, `all three chromatic markers remain present ${context}`);
+    for (const bounds of layout.markers) insidePanel(bounds, `Painted marker ${bounds.id}`);
+    const inspector = layout.inspectorScrollport;
+    assert.ok(inspector.right > inspector.left, `Inspector retains visible width ${context}`);
+    assert.ok(
+      inspector.bottom - inspector.top >= 100,
+      `Inspector retains at least 100 px of accessible viewport ${context}: ${JSON.stringify(inspector)}`,
+    );
+  }
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(out, 'result.json'),
@@ -199,6 +311,7 @@ try {
         browserSaveReopen: true,
         schemaVersion: 56,
         viewportWidth: 900,
+        visibleLayouts,
         nativeDialogs: 'NOT_RUN',
         errors,
       },

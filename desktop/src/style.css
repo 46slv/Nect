@@ -2715,6 +2715,15 @@ input[data-scrub-step].scrubbing {
   padding: 8px;
   background: #fff;
 }
+/* The wheel must have a usable viewport instead of shrinking against the
+   Inspector's content. Swatches/settings continue to scroll within this area. */
+.shared-colors-panel:has(.harmony-wheel) {
+  flex: 0 1 clamp(320px, 52vh, 440px);
+  max-height: calc(100% - 200px);
+}
+.right:has(.harmony-wheel) > .inspector {
+  min-height: 120px;
+}
 .shared-colors-panel header {
   display: flex;
   align-items: center;
