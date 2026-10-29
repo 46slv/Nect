@@ -55,9 +55,11 @@ cannot prove float16 support and recover the distinct-ID AA fixture's component
 mass, mixed-ID angular support is withdrawn rather than repeatedly changing
 thresholds, inventing residual contributions, or assigning them to Other.
 Their masses share one full-paint alpha and occlude the backdrop only once.
-When all four validated stop IDs are identical (including all unbound), the full
-paint is attributed directly to that identity without auxiliary masks; this is
-exact even at faint antialiased edges and never compares HEX values.
+When every validated stop ID is identical (including all unbound), linear, radial
+and angular paints are attributed directly to that identity without auxiliary
+masks. This removes redundant SVG generation, decode and sampling-budget charges;
+it is exact even at faint antialiased edges and never compares HEX values. All
+stop identities and the production paint are still validated before use.
 Production wedge colors remain 8-bit; their color rounding and float16
 composite/readback differences are reconciled proportionally only within 4/255 per
 pixel. If a painted pixel has no recoverable component mass (including near-zero

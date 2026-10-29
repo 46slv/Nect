@@ -8,6 +8,7 @@ import {
   CommandSession,
   serialize,
   deserialize,
+  validate,
 } from '../src/core.js';
 import { colorCoveragePasses as passes } from '../src/color-coverage-passes.js';
 import { sampleColorCoverage } from '../src/color-coverage-sampling.js';
@@ -283,13 +284,15 @@ test('radial stop provenance is explicit, optional and never inferred from equal
   const scene = exportScene(doc);
   delete scene[0].paintProvenance;
   let fill = passes(scene, doc)[0];
-  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], [null, null]);
+  assert.equal(fill.slotId, null);
+  assert.equal(fill.split, undefined);
   fill = passes(
     scene,
     doc,
     new Map([[scene[0].layer.id, { fill: { startColor: 'first', endColor: 'first' } }]]),
   )[0];
-  assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], ['first', 'first']);
+  assert.equal(fill.slotId, 'first');
+  assert.equal(fill.split, undefined);
   fill = passes(scene, doc, new Map([[scene[0].layer.id, { fill: { endColor: 'second' } }]]))[0];
   assert.deepEqual([fill.split.startSlotId, fill.split.endSlotId], [null, 'second']);
 });
@@ -607,3 +610,95 @@ test('production basis colors preserve stop contribution through overlapping wed
     }
   }
 });
+
+for (const type of ['Linear Gradient Fill', 'Radial Gradient Fill']) {
+  test(`${type}: validated identical IDs and Other collapse without changing production paint`, async () => {
+    const { doc, gradient } = gradientFixture(type);
+    const distinct = passes(exportScene(doc), doc)[0];
+    assert.deepEqual([distinct.split.startSlotId, distinct.split.endSlotId], ['first', 'second']);
+    for (const id of ['first', null]) {
+      const scene = exportScene(doc);
+      scene[0].paintProvenance.fill = { startColor: id, endColor: id };
+      const before = JSON.stringify(scene);
+      const input = passes(scene, doc);
+      assert.equal(input[0].slotId, id);
+      assert.equal(input[0].split, undefined);
+      assert.equal(input[0].contributions, undefined);
+      assert.equal(input[0].svg, distinct.svg, 'original alpha and product rendering stay exact');
+      assert.equal(JSON.stringify(scene), before);
+      let calls = 0;
+      const result = await sampleColorCoverage(
+        ['first', 'second'],
+        input,
+        { width: 1, height: 1 },
+        (svg) => {
+          calls++;
+          return [svg === input[0].svg ? 0.5 : 0.25];
+        },
+      );
+      assert.equal(calls, 2, 'one full gradient and one stroke, no redundant weight raster');
+      assert.equal(result.slots[0].contribution, id === null ? 0 : 0.375);
+      assert.equal(result.other.contribution, id === null ? 0.625 : 0.25);
+      assert.equal(result.paintedPixelEquivalent, 0.625);
+      assert.equal(result.approximate, true);
+      for (const key of ['startColor', 'endColor']) {
+        const invalid = structuredClone(scene);
+        invalid[0].paintProvenance.fill[key] = 'invalid id';
+        assert.throws(() => passes(invalid, doc), /provenance/);
+      }
+      const invalid = structuredClone(scene);
+      if (type === 'Linear Gradient Fill') invalid[0].value.fill.end = invalid[0].value.fill.start;
+      else invalid[0].value.fill.radius = 0;
+      assert.throws(() => passes(invalid, doc));
+    }
+    // Authored dangling references still reject before a validated scene exists.
+    gradient.params.startColor.colorSlotId = 'missing';
+    gradient.params.endColor.colorSlotId = 'missing';
+    assert.throws(() => validate(doc), /slot|binding/i);
+  });
+
+  test(`${type}: identical-ID collapse removes redundant SVG and sampling budget charges`, async () => {
+    const { doc } = gradientFixture(type);
+    const scene = exportScene(doc);
+    scene[0].value.stroke = undefined;
+    // Each full SVG is below 4 MiB, but five full + split SVGs exceed 16 MiB.
+    scene[0].layer.name = 'x'.repeat(1800000);
+    assert.throws(() => passes(Array(5).fill(scene[0]), doc), /SVG budget/);
+    scene[0].paintProvenance.fill = { startColor: 'first', endColor: 'first' };
+    const input = passes(Array(5).fill(scene[0]), doc);
+    assert.equal(input.length, 5);
+    assert.ok(input.every((paint) => !paint.split));
+    // 33 full masks fit 4 Mi samples; 66 full + weight masks would not.
+    scene[0].layer.name = 'small';
+    const many = passes(Array(33).fill(scene[0]), doc);
+    let calls = 0;
+    await sampleColorCoverage(
+      ['first', 'second'],
+      many,
+      { width: 256, height: 256 },
+      (_svg, size) => {
+        calls++;
+        return new Float32Array(size.width * size.height);
+      },
+    );
+    assert.equal(calls, 33);
+    scene[0].paintProvenance.fill.endColor = 'second';
+    calls = 0;
+    await assert.rejects(
+      sampleColorCoverage(
+        ['first', 'second'],
+        passes(Array(33).fill(scene[0]), doc),
+        { width: 256, height: 256 },
+        () => {
+          calls++;
+        },
+      ),
+      /sampling budget/,
+    );
+    assert.equal(
+      calls,
+      0,
+      'distinct IDs still require masks and preflight rejects before decoding',
+    );
+  });
+}

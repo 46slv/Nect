@@ -69,7 +69,7 @@ export function colorCoveragePasses(scene, { width, height }, bindings = new Map
         : null;
       // Identical explicit IDs own the entire paint exactly, including Other.
       // Validate every stop above before collapsing; equal HEX is irrelevant.
-      if (angular && stopIds.every((id) => id === stopIds[0])) {
+      if (stopIds && stopIds.every((id) => id === stopIds[0])) {
         slotId = stopIds[0];
         stopIds = null;
       }

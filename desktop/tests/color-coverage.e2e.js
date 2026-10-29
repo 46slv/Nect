@@ -666,6 +666,7 @@ try {
       const layers = [],
         diagnosticRasterErrors = [],
         productionPrecisionReceipts = [];
+      let productionRasterCount = 0;
       for (const pass of passes)
         layers.push({
           slotId: pass.slotId,
@@ -687,6 +688,7 @@ try {
       try {
         measured = await sampleColorCoverage(slots, passes, doc, async (svg, size) => {
           try {
+            productionRasterCount++;
             const alpha = await rasterizeCoverageAlpha(svg, size);
             if (size.channel === 'premultiplied-red')
               productionPrecisionReceipts.push(alpha.coveragePrecision ?? null);
@@ -773,6 +775,11 @@ try {
         measured,
         measurementError,
         productionPrecisionReceipts,
+        productionRasterCount,
+        expectedRasterCount: passes.reduce(
+          (count, pass) => count + 1 + (pass.split ? 1 : 0) + (pass.contributions?.length ?? 0),
+          0,
+        ),
         expectedContributionRasterCount: passes.reduce(
           (count, pass) => count + (pass.contributions?.length ?? 0),
           0,
@@ -987,6 +994,15 @@ try {
     results.find((r) => r.name === 'radial-reversed-overlap-order').measured.slots[0].contribution,
     'radial contribution respects overlap and fill-before-stroke order',
   );
+  for (const name of [
+    'gradient-reversed-pad-same-id-antialiased-geometry',
+    'radial-same-id-antialiased-clipped-triangle',
+    'radial-minimum-radius-unbound-stops-use-outer-pad',
+  ]) {
+    const receipt = results.find((result) => result.name === name);
+    assert.equal(receipt.productionRasterCount, 1, `${name}: only full paint is decoded`);
+    assert.equal(receipt.expectedRasterCount, 1);
+  }
   const radialAA = results.find((r) => r.name === 'radial-same-id-antialiased-clipped-triangle');
   assert.ok(radialAA.antialiasedPixels > 0, 'radial fixture exercises actual antialiasing');
   assert.equal(
