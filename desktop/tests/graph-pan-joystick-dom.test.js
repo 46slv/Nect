@@ -6,7 +6,8 @@ function setup(t, canPan = () => true) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
   const doc = win.document;
-  doc.body.innerHTML = '<div class="body"><div class="viewport"></div></div><input type="number">';
+  doc.body.innerHTML =
+    '<div class="body"><div class="viewport" tabindex="0"></div></div><input type="number">';
   const container = doc.querySelector('.body'),
     viewport = doc.querySelector('.viewport');
   let width = 800,
@@ -261,5 +262,47 @@ test('zero-area viewport stops, hides, then restores the control without an old 
   s.fire(s.element, 'pointerdown', 110, 110);
   assert.equal(s.controller.active, true);
   s.fire(s.doc, 'pointerup');
+  s.controller.destroy();
+});
+
+test('explicit hide stops pointer and key pan, releases capture and stays hidden through resize', (t) => {
+  const s = setup(t);
+  for (const input of ['pointer', 'keyboard']) {
+    s.controller.setVisible(true);
+    s.element.focus();
+    if (input === 'pointer') s.fire(s.element, 'pointerdown', 120, 120);
+    else s.key('keydown', 'ArrowRight');
+    s.flush(0);
+    s.flush(16);
+    assert.equal(s.controller.active, true);
+    s.controller.setVisible(false);
+    assert.equal(s.controller.visible, false);
+    assert.equal(s.controller.active, false);
+    assert.equal(s.element.hidden, true);
+    assert.equal(s.element.querySelector('span').style.transform, 'translate(0px, 0px)');
+    assert.equal(s.captured.size, 0);
+    assert.equal(s.frames.size, 0);
+    assert.equal(s.doc.activeElement, s.doc.querySelector('.viewport'));
+    const count = s.moves.length;
+    s.fire(s.doc, 'pointermove', 120, 120);
+    s.key('keydown', 'ArrowRight', s.element, { repeat: true });
+    s.flush(32);
+    assert.equal(s.moves.length, count, 'no held input survives hiding');
+    s.resize(400, 60);
+    assert.equal(s.element.hidden, true, 'normal layout does not undo user hide');
+    s.resize(400, 0);
+    s.controller.setVisible(true);
+    assert.equal(s.element.hidden, true, 'show never overrides zero-area safety');
+    s.resize(800, 300);
+    assert.equal(s.element.hidden, false);
+    assert.deepEqual(s.controller.layout, { size: 80, right: 25, bottom: 25 });
+    s.element.focus();
+    if (input === 'pointer') s.fire(s.element, 'pointerdown', 120, 120);
+    else s.key('keydown', 'ArrowRight');
+    s.flush(48);
+    s.flush(64);
+    assert.ok(s.moves.length > count, 'fresh input works after showing');
+    s.controller.stop();
+  }
   s.controller.destroy();
 });
