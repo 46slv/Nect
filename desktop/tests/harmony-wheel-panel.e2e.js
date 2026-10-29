@@ -238,13 +238,45 @@ try {
   );
   await activateCommand(page, 'undo');
   assert.equal(await encoded(), original);
+  // Explicit per-ID Chroma remains a draft until Apply; Auto is the default.
+  await page.locator('[data-wheel-entry]').selectOption(primary);
+  assert.equal(await page.locator('[data-wheel-chroma-mode]').inputValue(), 'auto');
+  await page.locator('[data-wheel-chroma-mode]').selectOption('override');
+  await change(page.locator('[data-wheel-chroma]'), 0.03);
+  await page.locator('[data-chroma-preview]').click();
+  await page.locator('[data-chroma-cancel]').click();
+  assert.equal(await encoded(), original, 'cancelled override preview never authors');
+  assert.equal(Number(await page.locator('[data-wheel-chroma]').inputValue()), 0.03);
+  await page.locator('[data-chroma-preview]').click();
+  await page.locator('[data-chroma-apply]').click();
+  const chromaApplied = await snap();
+  assert.equal(chromaApplied.schemaVersion, 57);
+  assert.equal(chromaApplied.colorDesign.palette.find(({ id }) => id === primary).overrideC, 0.03);
+  const overrideHex = chromaApplied.colorSlots.find(({ id }) => id === primary).value.hex;
+  assert.equal(
+    await marker(primary).locator('[data-wheel-marker-color]').getAttribute('style'),
+    `fill:${overrideHex};stroke:none`,
+  );
+  await page.waitForFunction(
+    (hex) => [...document.querySelectorAll('.shape')].some((el) => el.getAttribute('fill') === hex),
+    overrideHex,
+  );
+  await activateCommand(page, 'undo');
+  assert.equal(await encoded(), original);
+  await activateCommand(page, 'redo');
+  assert.deepEqual(await snap(), chromaApplied);
+  await activateCommand(page, 'undo');
+  assert.equal(await encoded(), original);
   await change(page.locator('[data-wheel-setting="hueRotation"]'), 75);
-  // Keep protects the exact original literal even when the wheel's sampled hue changes.
+  await page.locator('[data-wheel-chroma-mode]').selectOption('override');
+  await change(page.locator('[data-wheel-chroma]'), 0.04);
+  // Keep protects the exact original literal even against an explicit Chroma override.
   await page.locator(`[data-chroma-lock="${primary}"]`).check();
   await page.locator('[data-chroma-preview]').click();
   await page.locator('[data-chroma-apply]').click();
   const rotated = await snap();
   assert.equal(rotated.colorDesign.wheel.hueRotation, 75);
+  assert.equal(rotated.colorDesign.palette.find(({ id }) => id === primary).overrideC, 0.04);
   assert.deepEqual(
     rotated.colorSlots.find((x) => x.id === primary).value,
     created.colorSlots.find((x) => x.id === primary).value,
@@ -313,7 +345,7 @@ try {
   assert.deepEqual(added.colorSlots.slice(0, 5), dragged.colorSlots);
   const download = page.waitForEvent('download');
   await activateCommand(page, 'save-as');
-  const file = resolve(out, 'harmony-schema56.json');
+  const file = resolve(out, 'harmony-schema57.json');
   await (await download).saveAs(file);
   assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), added);
   await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
@@ -323,6 +355,40 @@ try {
   await (await chooser).setFiles(file);
   await page.waitForFunction((id) => window.nect.commandState.sessionId !== id, old);
   assert.deepEqual(await snap(), added);
+  await page.locator('[data-wheel-entry]').selectOption(primary);
+  assert.equal(await page.locator('[data-wheel-chroma-mode]').inputValue(), 'override');
+  assert.equal(Number(await page.locator('[data-wheel-chroma]').inputValue()), 0.04);
+  await page.setViewportSize({ width: 900, height: 720 });
+  await page.locator('[data-wheel-chroma]').scrollIntoViewIfNeeded();
+  const chromaControlLayout = await page.locator('[data-wheel-chroma]').evaluate((el) => {
+    const panel = el.closest('.shared-colors-panel');
+    const { left, right, top, bottom } = el.getBoundingClientRect();
+    const port = panel.getBoundingClientRect();
+    return {
+      id: el.dataset.wheelId,
+      value: el.value,
+      left,
+      right,
+      top,
+      bottom,
+      visible:
+        left >= port.left &&
+        right <= port.right &&
+        top >= port.top &&
+        bottom <= port.bottom &&
+        bottom <= innerHeight,
+      panelClientWidth: panel.clientWidth,
+      panelScrollWidth: panel.scrollWidth,
+      screenshot: 'harmony-chroma-override.png',
+    };
+  });
+  assert.equal(chromaControlLayout.id, primary);
+  assert.equal(chromaControlLayout.visible, true);
+  assert.equal(chromaControlLayout.panelScrollWidth, chromaControlLayout.panelClientWidth);
+  await page.screenshot({ path: resolve(out, chromaControlLayout.screenshot), fullPage: false });
+  await page.locator('[data-wheel-entry]').selectOption(created.colorDesign.palette[4].id);
+  assert.equal(await page.locator('[data-wheel-chroma-mode]').count(), 0);
+  assert.equal(await page.locator('[data-wheel-chroma-neutral]').textContent(), 'Chroma 0');
   assert.equal(await page.locator('[data-wheel-setting="harmony"]').inputValue(), 'triadic');
   assert.equal(Number(await page.locator('[data-wheel-setting="hueRotation"]').inputValue()), 75);
   const visibleLayouts = [];
@@ -492,7 +558,16 @@ try {
         radialDraftAndScroll: true,
         addPreservesStableIds: true,
         browserSaveReopen: true,
-        schemaVersion: 56,
+        schemaVersion: 57,
+        perColorChroma: {
+          defaultAuto: true,
+          explicitDraftApplyCancel: true,
+          stableIdAndRenderedArtwork: true,
+          keepTakesPrecedence: true,
+          neutralProtected: true,
+          undoRedoAndSaveReopen: true,
+          controlLayout: chromaControlLayout,
+        },
         viewportWidth: 900,
         visibleLayouts,
         contrast: {

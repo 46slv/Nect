@@ -154,6 +154,42 @@ test('shipped Shared Colors sends closed harmony payloads through the app comman
   );
 
   await t.test(
+    'Chroma override passes through the shipped dispatcher as one schema57 palette Apply',
+    async () => {
+      const s = await boot(main, 'chroma-override');
+      try {
+        s.click('[data-harmony-create]');
+        const before = s.snapshot(),
+          past = s.ui().past;
+        const id = before.colorDesign.palette[0].id;
+        s.change('[data-wheel-chroma-mode]', 'override');
+        s.change('[data-wheel-chroma]', '0.03');
+        s.click('[data-chroma-preview]');
+        s.click('[data-chroma-cancel]');
+        assert.deepEqual(s.snapshot(), before);
+        assert.equal(s.ui().past, past);
+        s.click('[data-chroma-preview]');
+        s.click('[data-chroma-apply]');
+        const after = s.snapshot();
+        assert.equal(after.schemaVersion, 57);
+        assert.equal(after.colorDesign.palette.find((entry) => entry.id === id).overrideC, 0.03);
+        assert.equal(s.ui().past, past + 1);
+        assert.equal(s.ui().error, false);
+        s.click('[data-action="undo"]');
+        assert.deepEqual(s.snapshot(), before);
+        s.click('[data-action="redo"]');
+        assert.deepEqual(s.snapshot(), after);
+        s.win.nect.load(JSON.stringify(after));
+        assert.deepEqual(s.snapshot(), after);
+        assert.equal(s.query('[data-wheel-chroma-mode]').value, 'override');
+        assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.03);
+      } finally {
+        await s.win.happyDOM.abort();
+      }
+    },
+  );
+
+  await t.test(
     'negative control: original layerId injection rejects Create and Add atomically',
     async () => {
       // Change only this isolated import's dispatcher back to the pre-fix app

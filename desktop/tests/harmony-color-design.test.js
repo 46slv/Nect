@@ -703,3 +703,126 @@ for (const kind of ['document', 'composition']) {
     assertReopen(f.session);
   });
 }
+
+for (const kind of ['document', 'composition']) {
+  test(`${kind}: optional Chroma override upgrades schema56 only on Apply, preserves IDs/history and reopens`, () => {
+    const doc = documentFixture();
+    doc.schemaVersion = 56;
+    doc.colorDesign = designFor();
+    const f = fixture(kind, doc),
+      before = stateOf(f.session);
+    const design = designFor();
+    design.palette[0].overrideC = 0;
+    design.palette.reverse();
+    const payload = freezeTree({ updates: [{ slotId: 'slot-a', value: changed }], design });
+    f.send('set-color-slots', payload);
+    const snapshot = f.session.snapshot(),
+      after = stateOf(f.session);
+    assert.equal(snapshot.schemaVersion, 57);
+    assert.equal(snapshot.colorDesign.version, 2);
+    assert.equal(snapshot.colorDesign.palette.find(({ id }) => id === 'slot-a').overrideC, 0);
+    assert.equal(
+      snapshot.layers[0].nodes.find(({ type }) => type === 'Color').params.value.colorSlotId,
+      'slot-a',
+    );
+    assert.deepEqual(
+      snapshot.colorSlots.map(({ id }) => id),
+      doc.colorSlots.map(({ id }) => id),
+    );
+    assert.equal(after.past.length, before.past.length + 1);
+    assertReopen(f.session);
+    f.send('undo');
+    assertSaved(f.session, before);
+    f.send('redo');
+    assertSaved(f.session, after);
+    f.send('rename-color-slot', { slotId: 'slot-a', name: 'Renamed' });
+    assert.equal(
+      f.session.snapshot().colorDesign.palette.find(({ id }) => id === 'slot-a').overrideC,
+      0,
+    );
+    f.send('add-harmony-color');
+    assert.equal(
+      f.session.snapshot().colorDesign.palette.find(({ id }) => id === 'slot-a').overrideC,
+      0,
+    );
+    assert.ok(!Object.hasOwn(f.session.snapshot().colorDesign.palette.at(-1), 'overrideC'));
+    const reset = structuredClone(f.session.snapshot().colorDesign);
+    delete reset.palette.find(({ id }) => id === 'slot-a').overrideC;
+    f.send('set-color-slots', { updates: [], design: reset });
+    assert.equal(f.session.snapshot().schemaVersion, 57);
+    assertReopen(f.session);
+  });
+
+  test(`${kind}: malformed or neutral Chroma overrides reject atomically without consuming Redo`, () => {
+    const f = fixture(kind);
+    f.send('set-color-slots', { updates: [], design: designFor() });
+    f.send('undo');
+    const before = stateOf(f.session);
+    for (const overrideC of [
+      undefined,
+      null,
+      NaN,
+      Infinity,
+      -Infinity,
+      -0.001,
+      0.450001,
+      '0.1',
+      {},
+      [],
+    ]) {
+      const design = designFor();
+      design.palette[0].overrideC = overrideC;
+      assert.throws(() =>
+        f.send('set-color-slots', { updates: [{ slotId: 'slot-a', value: changed }], design }),
+      );
+      assert.deepEqual(stateOf(f.session), before);
+    }
+    for (const overrideC of [0, 0.1, 0.45]) {
+      const design = designFor();
+      design.palette[1].overrideC = overrideC;
+      assert.throws(() => f.send('set-color-slots', { updates: [], design }));
+      assert.deepEqual(stateOf(f.session), before);
+    }
+    f.send('redo');
+    assert.equal(f.session.snapshot().schemaVersion, 56);
+    for (const overrideC of [0, 0.45]) {
+      const design = designFor();
+      design.palette[0].overrideC = overrideC;
+      f.send('set-color-slots', { updates: [], design });
+      assert.equal(f.session.snapshot().schemaVersion, 57);
+      assertReopen(f.session);
+    }
+  });
+}
+
+test('native Document and Composition schema56 reject override fields; schema57 accepts only explicit bounded chromatic C', () => {
+  for (const kind of ['document', 'composition']) {
+    const base =
+      kind === 'document'
+        ? documentFixture()
+        : migrateLegacyDocumentToCompositionProject(documentFixture());
+    const check = kind === 'document' ? validate : validateCompositionProject;
+    const decode = kind === 'document' ? deserialize : deserializeCompositionProject;
+    for (const schemaVersion of [54, 55, 56]) {
+      const design = designFor();
+      design.palette[0].overrideC = 0.1;
+      const invalid = { ...structuredClone(base), schemaVersion, colorDesign: design };
+      assert.throws(() => check(invalid));
+      assert.throws(() => decode(JSON.stringify(invalid)));
+    }
+    for (const overrideC of [null, -0.01, 0.451, '0.1']) {
+      const design = designFor();
+      design.palette[0].overrideC = overrideC;
+      const invalid = { ...structuredClone(base), schemaVersion: 57, colorDesign: design };
+      assert.throws(() => check(invalid));
+      assert.throws(() => decode(JSON.stringify(invalid)));
+    }
+    for (const overrideC of [0, 0.1, 0.45]) {
+      const design = designFor();
+      design.palette[0].overrideC = overrideC;
+      const valid = { ...structuredClone(base), schemaVersion: 57, colorDesign: design };
+      check(valid);
+      assert.deepEqual(decode(JSON.stringify(valid)).colorDesign, design);
+    }
+  }
+});

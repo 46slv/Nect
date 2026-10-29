@@ -69,6 +69,11 @@ export function createAutoChromaPanel({
     render,
     notify,
     getState: () => getSession().state,
+    getSlotChroma: (id) => {
+      const slot = slots().find((slot) => slot.id === id);
+      if (!slot) throw Error('Palette color is no longer available');
+      return colorChromaCoordinates(slot.value.hex).C;
+    },
     onEdit: () => {
       preview = null;
     },
@@ -211,7 +216,11 @@ export function createAutoChromaPanel({
             h: coordinates.h,
             role: entry.role,
             alpha: slot.value.alpha,
-            ...(entry.kind === 'neutral' ? { overrideC: 0 } : {}),
+            ...(entry.kind === 'neutral'
+              ? { overrideC: 0 }
+              : entry.overrideC === undefined
+                ? {}
+                : { overrideC: entry.overrideC }),
             ...(locked.has(slot.id) ? { anchor: { ...slot.value } } : {}),
           };
         }
@@ -285,14 +294,18 @@ export function createAutoChromaPanel({
       synchronize();
       if (!slots().length) return '';
       const names = new Map(slots().map((slot) => [slot.id, slot]));
-      return `<section class="auto-chroma-controls" aria-label="Auto Chroma">${harmony.html({ slots: slots(), profile, colorfulness: strength })}<strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><label><span>Use visible area</span><input type="checkbox" data-chroma-area ${areaAware ? 'checked' : ''}></label><div class="chroma-locks">${slots()
+      const displayedSlots = slots().map((slot) => ({
+        ...slot,
+        value: preview?.rows.find((row) => row.id === slot.id)?.value || slot.value,
+      }));
+      return `<section class="auto-chroma-controls" aria-label="Auto Chroma">${harmony.html({ slots: displayedSlots, profile, colorfulness: strength, lockedSlotIds: [...locked] })}<strong>Auto Chroma</strong><label>Profile <select data-chroma-profile aria-label="Auto Chroma profile">${['balanced', 'fidelity', 'vibrant', 'soft', 'uniform'].map((name) => `<option value="${name}" ${name === profile ? 'selected' : ''}>${name}</option>`).join('')}</select></label><label>Colorfulness <input type="number" min="0" max="1" step="0.01" data-chroma-strength value="${strength}" aria-label="Auto Chroma colorfulness"></label><label><span>Use visible area</span><input type="checkbox" data-chroma-area ${areaAware ? 'checked' : ''}></label><div class="chroma-locks">${slots()
         .map(
           (slot) =>
             `<label><input type="checkbox" data-chroma-lock="${esc(slot.id)}" ${locked.has(slot.id) ? 'checked' : ''}>Keep ${esc(slot.name)}</label>`,
         )
         .join(
           '',
-        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast below checks only explicitly assigned Text/Background candidates.</p>${contrastHTML(getDocument(), 'current')}<button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button><button type="button" data-chroma-reload>Reload saved settings</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
+        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast below checks only explicitly assigned Text/Background candidates.</p>${contrastHTML(getDocument(), 'current')}<button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button><button type="button" data-chroma-reload>Reload saved settings</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output>${row.gamutLimited ? '<span class="font-note" data-chroma-gamut-limited>Gamut limited</span>' : ''}</div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
     },
   };
 }

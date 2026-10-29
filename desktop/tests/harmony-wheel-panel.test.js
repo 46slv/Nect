@@ -585,3 +585,245 @@ test('a retained palette field cannot retarget the newly selected stable color',
     'Secondary',
   );
 });
+
+test('per-color Chroma inherits global by default; an explicit override is a cancellable stable-ID draft', (t) => {
+  const s = setup(t),
+    before = structuredClone(s.model);
+  assert.equal(s.query('[data-wheel-chroma-mode]').value, 'auto');
+  assert.equal(s.query('[data-wheel-chroma]'), null);
+  s.change('[data-wheel-chroma-mode]', 'override');
+  assert.equal(
+    Number(s.query('[data-wheel-chroma]').value),
+    colorChromaCoordinates(before.colorSlots[0].value.hex).C,
+  );
+  s.change('[data-wheel-chroma]', 0.02);
+  s.change('[data-chroma-strength]', 0);
+  const grid = s.query('.harmony-wheel-grid').innerHTML;
+  s.preview();
+  assert.deepEqual(s.calls, []);
+  assert.deepEqual(s.model, before);
+  const proposed = () =>
+    s.query('[data-wheel-marker="primary"] [data-wheel-marker-color]').style.fill;
+  const manual = proposeAutoChroma(
+    [
+      {
+        id: 'primary',
+        ...wheelPoint(DEFAULT_HARMONY_WHEEL, 0, 2),
+        role: 'Primary',
+        overrideC: 0.02,
+        alpha: before.colorSlots[0].value.alpha,
+      },
+    ],
+    { colorfulness: 0 },
+  )[0];
+  assert.equal(proposed(), manual.value.hex);
+  assert.equal(
+    s.query('.harmony-wheel-grid').innerHTML,
+    grid,
+    'individual color never repaints the global wheel grid',
+  );
+  s.click('[data-chroma-cancel]');
+  assert.deepEqual(s.model, before);
+  assert.equal(
+    s.query('[data-wheel-chroma-mode]').value,
+    'override',
+    'Cancel preview retains the local recipe draft',
+  );
+  assert.equal(
+    proposed(),
+    before.colorSlots[0].value.hex,
+    'Cancel restores the saved marker swatch',
+  );
+  s.change('[data-wheel-entry]', 'secondary');
+  assert.equal(s.query('[data-wheel-chroma-mode]').value, 'auto');
+  s.change('[data-wheel-entry]', 'primary');
+  assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.02);
+  s.preview();
+  s.apply();
+  const { design, updates } = s.calls.at(-1).payload;
+  assert.equal(design.palette.find(({ id }) => id === 'primary').overrideC, 0.02);
+  assert.ok(
+    design.palette
+      .filter(({ id }) => id !== 'primary')
+      .every((entry) => !Object.hasOwn(entry, 'overrideC')),
+  );
+  assert.deepEqual(updates.find(({ slotId }) => slotId === 'primary').value, manual.value);
+  assert.equal(updates.find(({ slotId }) => slotId === 'secondary').value.hex, '#636363');
+  s.click('[data-chroma-reload]');
+  assert.equal(s.query('[data-wheel-chroma-mode]').value, 'auto');
+  assert.equal(s.query('[data-wheel-chroma]'), null);
+});
+
+test('override follows stable ID across palette/registry reorder and preserves Keep and neutral colors', (t) => {
+  const s = setup(t);
+  s.model.colorDesign.palette[2].overrideC = 0.04;
+  s.model.colorDesign.palette.reverse();
+  s.model.colorSlots.reverse();
+  s.render();
+  s.change('[data-wheel-entry]', 'accent');
+  assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.04);
+  const anchor = structuredClone(s.model.colorSlots.find(({ id }) => id === 'accent').value);
+  s.change('[data-chroma-lock="accent"]', true);
+  s.change('[data-wheel-chroma]', 0.45);
+  s.change('[data-wheel-setting="hueRotation"]', 136);
+  s.preview();
+  s.apply();
+  const { design, updates } = s.calls.at(-1).payload;
+  assert.equal(design.palette.find(({ id }) => id === 'accent').overrideC, 0.45);
+  assert.deepEqual(updates.find(({ slotId }) => slotId === 'accent').value, anchor);
+  assert.deepEqual(design.lockedSlotIds, ['accent']);
+  s.change('[data-chroma-lock="accent"]', false);
+  s.preview();
+  assert.ok(s.query('[data-chroma-gamut-limited]'));
+  s.apply();
+  assert.notDeepEqual(
+    s.calls.at(-1).payload.updates.find(({ slotId }) => slotId === 'accent').value,
+    anchor,
+  );
+  for (const id of ['background', 'text']) {
+    s.change('[data-wheel-entry]', id);
+    assert.equal(s.query('[data-wheel-chroma-mode]'), null);
+    assert.equal(s.query('[data-wheel-chroma]'), null);
+    assert.equal(s.query('[data-wheel-chroma-neutral]').textContent, 'Chroma 0');
+    const neutral = s.calls.at(-1).payload.updates.find(({ slotId }) => slotId === id).value.hex;
+    assert.equal(neutral.slice(1, 3), neutral.slice(3, 5));
+    assert.equal(neutral.slice(3, 5), neutral.slice(5, 7));
+  }
+});
+
+test('Chroma fields reject malformed, stale and neutral-target edits without corrupting the last valid draft', (t) => {
+  const s = setup(t);
+  s.change('[data-wheel-chroma-mode]', 'override');
+  s.change('[data-wheel-chroma]', 0);
+  for (const value of ['', '-0.001', '0.450001', 'NaN', 'Infinity', 'text']) {
+    s.preview();
+    s.change('[data-wheel-chroma]', value);
+    assert.match(s.notices.at(-1)[0], /Enter a palette coordinate|Chroma must/);
+    assert.equal(s.query('[data-chroma-apply]'), null);
+    assert.equal(Number(s.query('[data-wheel-chroma]').value), 0);
+  }
+  s.change('[data-wheel-chroma]', 0.45);
+  const stale = s.query('[data-wheel-chroma]');
+  s.change('[data-wheel-entry]', 'secondary');
+  s.query('.harmony-entry-controls').append(stale);
+  stale.value = '0.1';
+  s.fire(stale);
+  assert.match(s.notices.at(-1)[0], /stale/);
+  s.change('[data-wheel-entry]', 'text');
+  stale.dataset.wheelId = 'text';
+  s.query('.harmony-entry-controls').append(stale);
+  s.fire(stale);
+  assert.match(s.notices.at(-1)[0], /Choose Chroma override/);
+  s.change('[data-wheel-entry]', 'primary');
+  assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.45);
+  s.session.state.expectedRevision++;
+  s.change('[data-wheel-chroma]', 0.2);
+  assert.match(s.notices.at(-1)[0], /stale/);
+  assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.45);
+  assert.deepEqual(s.calls, []);
+});
+
+test('real Session Chroma Apply/Auto reset round-trip in one history step without upgrading untouched schema56', (t) => {
+  const s = setup(t, { realSession: true });
+  const before = serialize(s.model),
+    past = s.session.historyView.past.length;
+  s.change('[data-wheel-entry]', 'accent');
+  s.change('[data-wheel-chroma-mode]', 'override');
+  s.change('[data-wheel-chroma]', 0.031);
+  s.preview();
+  s.click('[data-chroma-cancel]');
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.model.schemaVersion, 56);
+  assert.equal(s.session.historyView.past.length, past);
+  s.preview();
+  s.apply();
+  const after = serialize(s.model);
+  assert.equal(s.model.schemaVersion, 57);
+  assert.equal(s.model.colorDesign.palette.find(({ id }) => id === 'accent').overrideC, 0.031);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.query('[data-wheel-chroma-mode]').value, 'auto');
+  const future = structuredClone(s.session.historyView.future);
+  s.change('[data-wheel-chroma-mode]', 'override');
+  s.change('[data-wheel-chroma]', 0.12);
+  s.preview();
+  s.click('[data-chroma-cancel]');
+  assert.deepEqual(
+    s.session.historyView.future,
+    future,
+    'local override drafts never consume Redo',
+  );
+  s.session.dispatch({ ...s.session.state, type: 'redo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), after);
+  s.session = new CommandSession(deserialize(after));
+  s.render();
+  assert.equal(s.query('[data-wheel-chroma-mode]').value, 'override');
+  assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.031);
+  s.change('[data-wheel-chroma-mode]', 'auto');
+  s.preview();
+  s.apply();
+  assert.equal(s.model.schemaVersion, 57, 'returning to Auto never downgrades the native document');
+  assert.ok(
+    !Object.hasOwn(
+      s.model.colorDesign.palette.find(({ id }) => id === 'accent'),
+      'overrideC',
+    ),
+  );
+  assert.deepEqual(deserialize(serialize(s.model)), s.model);
+});
+
+test('preset, ring resnap and role edits retain independent per-ID override values', (t) => {
+  const s = setup(t);
+  s.change('[data-wheel-chroma-mode]', 'override');
+  s.change('[data-wheel-chroma]', 0.03);
+  s.change('[data-wheel-entry]', 'secondary');
+  s.change('[data-wheel-chroma-mode]', 'override');
+  s.change('[data-wheel-chroma]', 0.08);
+  s.change('[data-wheel-setting="harmony"]', 'analogous');
+  s.change('[data-wheel-setting="lightnessSteps"]', 4);
+  s.change('[data-wheel-role]', 'Accent');
+  s.preview();
+  s.apply();
+  const entries = s.calls.at(-1).payload.design.palette;
+  assert.equal(entries.find(({ id }) => id === 'primary').overrideC, 0.03);
+  assert.equal(entries.find(({ id }) => id === 'secondary').overrideC, 0.08);
+  assert.ok(
+    !Object.hasOwn(
+      entries.find(({ id }) => id === 'accent'),
+      'overrideC',
+    ),
+  );
+  assert.deepEqual(
+    entries.map(({ id }) => id),
+    s.model.colorDesign.palette.map(({ id }) => id),
+  );
+});
+
+test('accepted empty, v1 and neutral-only states never require a missing marker hex', (t) => {
+  const s = setup(t, { realSession: true, empty: true });
+  assert.equal(s.query('[data-wheel-marker]'), null);
+  s.click('[data-harmony-create]');
+  const doc = s.model;
+  doc.colorDesign.palette = doc.colorDesign.palette.filter(({ kind }) => kind === 'neutral');
+  doc.colorSlots = doc.colorSlots.filter(({ id }) =>
+    doc.colorDesign.palette.some((entry) => entry.id === id),
+  );
+  s.session = new CommandSession(doc);
+  s.render();
+  assert.equal(s.query('[data-wheel-marker]'), null);
+  assert.equal(s.query('[data-wheel-chroma-neutral]').textContent, 'Chroma 0');
+  s.preview();
+  s.apply();
+  assert.equal(s.notices.length, 0);
+  const v1 = s.model;
+  delete v1.colorDesign.wheel;
+  delete v1.colorDesign.palette;
+  v1.colorDesign.version = 1;
+  s.session = new CommandSession(v1);
+  s.render();
+  assert.equal(s.query('.harmony-wheel-panel'), null);
+  assert.equal(s.notices.length, 0);
+});

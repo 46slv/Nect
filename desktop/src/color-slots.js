@@ -4,10 +4,19 @@ import {
   wheelPoint,
   resolveHarmonyPalette,
 } from './harmony-wheel.js';
+import { MAX_CHROMA } from './auto-chroma.js';
 // Authored shared colors. Identity is independent of the resolved Color value.
 export const COLOR_SLOTS_SCHEMA_VERSION = 54;
 export const COLOR_DESIGN_SCHEMA_VERSION = 55;
 export const HARMONY_DESIGN_SCHEMA_VERSION = 56;
+export const CHROMA_OVERRIDE_SCHEMA_VERSION = 57;
+function designSchemaVersion(design) {
+  if (design?.version !== 2) return COLOR_DESIGN_SCHEMA_VERSION;
+  return Array.isArray(design.palette) &&
+    design.palette.some((entry) => entry && Object.hasOwn(entry, 'overrideC'))
+    ? CHROMA_OVERRIDE_SCHEMA_VERSION
+    : HARMONY_DESIGN_SCHEMA_VERSION;
+}
 export const colorSlotCommands = new Set([
   'create-color-slot',
   'create-harmony-palette',
@@ -50,8 +59,7 @@ export function validateColorDesign(doc, slots) {
     ...(wheelDesign ? ['wheel', 'palette'] : []),
   ];
   if (
-    doc.schemaVersion <
-      (wheelDesign ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION) ||
+    doc.schemaVersion < designSchemaVersion(design) ||
     !design ||
     typeof design !== 'object' ||
     Array.isArray(design) ||
@@ -67,7 +75,7 @@ export function validateColorDesign(doc, slots) {
     design.lockedSlotIds.length > 256
   )
     throw Error(
-      `Invalid saved color design; requires schemaVersion ${wheelDesign ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION}`,
+      `Invalid saved color design; requires schemaVersion ${designSchemaVersion(design)}`,
     );
   const seen = new Set();
   for (const id of design.lockedSlotIds) {
@@ -95,7 +103,14 @@ export function validateColorDesign(doc, slots) {
       const fields =
         entry.kind === 'neutral'
           ? ['id', 'kind', 'L', 'role']
-          : ['id', 'kind', 'position', 'ring', 'role'];
+          : [
+              'id',
+              'kind',
+              'position',
+              'ring',
+              'role',
+              ...(Object.hasOwn(entry, 'overrideC') ? ['overrideC'] : []),
+            ];
       if (
         Object.keys(entry).length !== fields.length ||
         Object.keys(entry).some((key) => !fields.includes(key))
@@ -104,7 +119,14 @@ export function validateColorDesign(doc, slots) {
       if (entry.kind === 'neutral') {
         if (!Number.isFinite(entry.L) || entry.L < 0 || entry.L > 1)
           throw Error('Invalid neutral lightness');
-      } else wheelPoint(design.wheel, entry.position, entry.ring);
+      } else {
+        wheelPoint(design.wheel, entry.position, entry.ring);
+        if (
+          Object.hasOwn(entry, 'overrideC') &&
+          (!Number.isFinite(entry.overrideC) || entry.overrideC < 0 || entry.overrideC > MAX_CHROMA)
+        )
+          throw Error('Invalid palette chroma override');
+      }
     }
   }
 }
@@ -251,10 +273,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
       validateColorDesign(
         {
           ...doc,
-          schemaVersion: Math.max(
-            doc.schemaVersion,
-            design?.version === 2 ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION,
-          ),
+          schemaVersion: Math.max(doc.schemaVersion, designSchemaVersion(design)),
           colorDesign: design,
         },
         slots,
@@ -264,10 +283,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     for (const update of updates) update.slot.value = update.value;
     if (design !== undefined) {
       doc.colorDesign = design;
-      doc.schemaVersion = Math.max(
-        doc.schemaVersion,
-        design.version === 2 ? HARMONY_DESIGN_SCHEMA_VERSION : COLOR_DESIGN_SCHEMA_VERSION,
-      );
+      doc.schemaVersion = Math.max(doc.schemaVersion, designSchemaVersion(design));
     }
     return { slotIds: [...seen] };
   }

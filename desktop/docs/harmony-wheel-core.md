@@ -49,3 +49,33 @@ Shared Colors scroll position is preserved across renders, so a partially scroll
 wheel does not jump during dragging. Old fields cannot retarget a newly selected
 color. Full renderer attribution, print/ICC and universal design correctness are
 not claimed.
+
+## Optional per-color Chroma
+
+Schema57 extends version-2 chromatic palette entries with optional `overrideC`,
+using the existing OKLCH engine's absolute 0–0.45 range. An absent field means
+Auto (global): profile, colorfulness and area weighting remain the default.
+An explicit zero is an override, not inheritance. Override Chroma bypasses those
+soft weights but still respects the existing sRGB gamut boundary; the requested
+number persists and a gamut-limited preview is labeled. Hue/ring geometry is
+unchanged. Keep literals take precedence, including their exact alpha.
+Neutral entries cannot carry this field and continue to resolve with C=0 unless
+an explicit Keep literal takes precedence.
+
+The selected chromatic slot offers Auto (global) or Override. Enabling Override
+starts from the current literal's Chroma; the numeric field is shown only then.
+Changing it is a local draft. Preview and Cancel never alter authored state;
+Cancel preview retains the local draft, while Reload saved settings discards it.
+Apply commits colors and the stable-ID recipe in one existing Session history
+step. Numbered marker interiors show saved/proposed slot RGB, independently of
+the globally weighted wheel cells. No automatic Guard, new harmony family,
+continuous-angle editing, dependency editor or aesthetic guarantee is added.
+
+Schema54 shared colors, schema55 version-1 recipes and schema56 version-2
+recipes retain their existing semantics and do not upgrade merely by opening,
+previewing or editing a view draft. Only an applied explicit override requires
+schema57. Schema56 data containing an override field is rejected rather than
+silently ignoring it; returning to Auto deletes the optional field without
+lowering the document schema. Save/reopen, both Document/Composition sessions,
+Undo/Redo and stale/invalid controls are covered by focused tests. Browser and
+native screen acceptance remain separate from these model/DOM tests.
