@@ -42,7 +42,7 @@ const markerPositions = () =>
     .evaluateAll((nodes) => nodes.map((n) => [n.dataset.wheelMarker, n.getAttribute('transform')]));
 // Keep these captures separate from the wheel-at-scrollTop=0 fixtures below.
 // Bounds alone do not prove visibility inside the panel's nested scrollports.
-const captureContrastReport = async (mode, label) => {
+const captureContrastReport = async (mode, label, expectedPairs) => {
   const report = page.locator(`[data-palette-contrast="${mode}"]`);
   assert.equal(await report.count(), 1);
   await report.scrollIntoViewIfNeeded();
@@ -81,6 +81,10 @@ const captureContrastReport = async (mode, label) => {
       reportClientWidth: el.clientWidth,
       reportScrollWidth: el.scrollWidth,
       pairCount: el.querySelectorAll('[data-contrast-text-id]').length,
+      pairs: [...el.querySelectorAll('[data-contrast-text-id]')].map((row) => ({
+        textId: row.dataset.contrastTextId,
+        backgroundId: row.dataset.contrastBackgroundId,
+      })),
       textBlocks: [...el.querySelectorAll('strong, p')].map((node) => {
         const style = getComputedStyle(node),
           range = document.createRange();
@@ -119,7 +123,15 @@ const captureContrastReport = async (mode, label) => {
   assert.match(layout.text, /Not an artwork or whole-WCAG audit\. No colors are changed\./);
   assert.match(layout.text, /\d+ pass, \d+ fail, \d+ unknown/);
   assert.match(layout.text, /[\d.]+:1 · (pass|fail)/);
-  assert.equal(layout.pairCount, 1, `${label} retains the actual Text/Background pair`);
+  layout.expectedPairs = expectedPairs;
+  assert.equal(layout.pairCount, expectedPairs.length, `${label} retains every authored role pair`);
+  const pairKeys = (pairs) =>
+    pairs.map(({ textId, backgroundId }) => `${textId}/${backgroundId}`).sort();
+  assert.deepEqual(
+    pairKeys(layout.pairs),
+    pairKeys(expectedPairs),
+    `${label} rows retain the exact Text/Background stable IDs independent of status ordering`,
+  );
   assert.ok(layout.panelScrollTop > 0, `${label} is reached by scrolling the real panel`);
   assert.equal(layout.panelScrollWidth, layout.panelClientWidth, `${label}: no panel overflow`);
   assert.equal(layout.reportScrollWidth, layout.reportClientWidth, `${label}: no report overflow`);
@@ -137,7 +149,11 @@ const captureContrastReport = async (mode, label) => {
     );
   };
   inside(layout.bounds, layout.visibleScrollport, `${label} report`);
-  assert.equal(layout.textBlocks.length, 4, `${label} heading, scope, counts and pair are present`);
+  assert.equal(
+    layout.textBlocks.length,
+    3 + expectedPairs.length,
+    `${label} heading, scope, counts and all authored pairs are present`,
+  );
   for (const block of layout.textBlocks) {
     assert.ok(block.text.trim(), `${label} text is not empty`);
     assert.notEqual(block.display, 'none');
@@ -165,6 +181,11 @@ try {
   assert.equal(created.colorDesign.version, 2);
   assert.equal(created.colorSlots.length, 5);
   assert.equal(created.colorDesign.palette.length, 5);
+  assert.deepEqual(
+    created.colorDesign.palette.map(({ role }) => role),
+    ['Primary', 'Secondary', 'Accent', 'Background', 'Text'],
+    'the default recipe has one explicitly authored Text/Background pair',
+  );
   const defaultSavedContrastStatus = await page
     .locator('[data-palette-contrast="current"]')
     .getAttribute('data-contrast-status');
@@ -287,6 +308,8 @@ try {
   const added = await snap();
   assert.equal(added.colorSlots.length, 6);
   assert.equal(added.colorDesign.palette.at(-1).kind, 'neutral');
+  assert.equal(added.colorDesign.palette.at(-1).role, 'Background');
+  assert.deepEqual(added.colorDesign.palette.slice(0, 5), dragged.colorDesign.palette);
   assert.deepEqual(added.colorSlots.slice(0, 5), dragged.colorSlots);
   const download = page.waitForEvent('download');
   await activateCommand(page, 'save-as');
@@ -421,15 +444,33 @@ try {
   }
   // Preserve the 900×960/720 wheel screenshots above; now scroll to the
   // real saved/proposed reports instead of mistaking the wheel for contrast evidence.
+  // Neutral Add is a second Background, so the reopened authored recipe has
+  // two candidates. Derive their Cartesian product from roles, never UI rows.
+  const contrastRecipe = added.colorDesign.palette,
+    expectedContrastPairs = contrastRecipe
+      .filter(({ role }) => role === 'Text')
+      .flatMap(({ id: textId }) =>
+        contrastRecipe
+          .filter(({ role }) => role === 'Background')
+          .map(({ id: backgroundId }) => ({ textId, backgroundId })),
+      );
+  assert.deepEqual(expectedContrastPairs, [
+    { textId: created.colorDesign.palette[4].id, backgroundId: created.colorDesign.palette[3].id },
+    { textId: created.colorDesign.palette[4].id, backgroundId: contrastRecipe.at(-1).id },
+  ]);
   const beforeContrastPreview = await encoded(),
-    savedContrast = await captureContrastReport('current', 'Saved');
+    savedContrast = await captureContrastReport('current', 'Saved', expectedContrastPairs);
   await page.locator('[data-chroma-preview]').click();
   assert.equal(
     await encoded(),
     beforeContrastPreview,
     'contrast preview does not edit the project',
   );
-  const proposedContrast = await captureContrastReport('preview', 'Proposed');
+  const proposedContrast = await captureContrastReport(
+    'preview',
+    'Proposed',
+    expectedContrastPairs,
+  );
   await page.locator('[data-chroma-cancel]').click();
   assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
   assert.equal(await encoded(), beforeContrastPreview, 'Cancel preserves the saved palette');
