@@ -11,6 +11,8 @@ const out = resolve('test-results');
 await mkdir(out, { recursive: true });
 const fixture = blankDocument(),
   layer = fixture.layers[0];
+// The fixture authors the existing AE-style 2D mode directly (schema 37).
+fixture.schemaVersion = 37;
 fixture.width = 320;
 fixture.height = 240;
 layer.name = 'UI review composition';
