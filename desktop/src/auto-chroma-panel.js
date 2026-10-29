@@ -1,3 +1,4 @@
+import { analyzePaletteContrast } from './palette-contrast.js';
 import { proposeAutoChroma } from './auto-chroma.js';
 import { wheelPoint } from './harmony-wheel.js';
 import { createHarmonyWheelPanel } from './harmony-wheel-panel.js';
@@ -6,6 +7,26 @@ const esc = (v) =>
     /[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   );
+function contrastHTML(doc, mode) {
+  const report = analyzePaletteContrast(doc);
+  const names = new Map((doc.colorSlots || []).map((slot) => [slot.id, slot.name]));
+  const labels = {
+    pass: 'Pairs meet 4.5:1',
+    fail: 'Low contrast',
+    unknown: 'Unknown',
+    'not-applicable': 'No text/background pair',
+  };
+  const counts = ['pass', 'fail', 'unknown']
+    .map((status) => `${report.pairs.filter((pair) => pair.status === status).length} ${status}`)
+    .join(', ');
+  const rows = [...report.pairs]
+    .sort(
+      (a, b) =>
+        ({ unknown: 0, fail: 1, pass: 2 })[a.status] - { unknown: 0, fail: 1, pass: 2 }[b.status],
+    )
+    .slice(0, 16);
+  return `<section class="font-note" data-palette-contrast="${mode}" data-contrast-status="${report.status}" aria-label="${mode === 'preview' ? 'Proposed' : 'Saved'} palette contrast"><strong>${mode === 'preview' ? 'Proposed' : 'Saved'} normal-text contrast: ${labels[report.status]}</strong><p>Text × Background candidates, 4.5:1. Not an artwork or whole-WCAG audit. No colors are changed.</p>${report.pairs.length ? `<p>${counts}</p>` : ''}${rows.map((pair) => `<p data-contrast-text-id="${esc(pair.textId)}" data-contrast-background-id="${esc(pair.backgroundId)}" data-contrast-status="${pair.status}">${esc(names.get(pair.textId) || pair.textId)} / ${esc(names.get(pair.backgroundId) || pair.backgroundId)}: ${pair.ratio === null ? 'unknown' : `${pair.ratio.toFixed(2)}:1`} · ${pair.status}${pair.reason ? ` (${esc(pair.reason)})` : ''}</p>`).join('')}${report.pairs.length > 16 ? `<p>Showing 16 of ${report.pairs.length} pairs; counts include all pairs.</p>` : ''}${report.reason ? `<p>${esc(report.reason)}</p>` : ''}</section>`;
+}
 export function colorChromaCoordinates(hex) {
   if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) throw Error('Invalid shared color');
   const [r, g, b] = [1, 3, 5]
@@ -271,7 +292,7 @@ export function createAutoChromaPanel({
         )
         .join(
           '',
-        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast is not checked.</p><button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button><button type="button" data-chroma-reload>Reload saved settings</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
+        )}</div><p class="font-note">${harmony.design ? 'Palette colors use wheel coordinates and roles; unmanaged colors preserve their current lightness and hue. Alpha and Keep literals are preserved.' : 'Preserves lightness, hue and alpha. Neutral colors stay neutral.'} Apply saves colors and these settings; Cancel leaves the project unchanged. Contrast below checks only explicitly assigned Text/Background candidates.</p>${contrastHTML(getDocument(), 'current')}<button type="button" data-chroma-preview>${harmony.design ? 'Preview palette' : 'Preview saturation'}</button><button type="button" data-chroma-reload>Reload saved settings</button>${preview ? `<div class="chroma-preview" aria-label="Proposed colors"><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output></div>`).join('')}<button type="button" data-chroma-apply>Apply colors</button><button type="button" data-chroma-cancel>Cancel preview</button></div>` : ''}</section>`;
     },
   };
 }

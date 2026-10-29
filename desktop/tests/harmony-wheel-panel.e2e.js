@@ -52,6 +52,14 @@ try {
   assert.equal(created.colorDesign.version, 2);
   assert.equal(created.colorSlots.length, 5);
   assert.equal(created.colorDesign.palette.length, 5);
+  assert.equal(
+    await page.locator('[data-palette-contrast="current"]').getAttribute('data-contrast-status'),
+    'pass',
+  );
+  assert.equal(
+    await page.locator('[data-palette-contrast="current"] [data-contrast-text-id]').count(),
+    1,
+  );
   assert.equal(await page.locator('.harmony-wheel-grid path').count(), 84);
   assert.equal(await page.locator('[data-wheel-marker]').count(), 3);
   const afterCreate = await encoded();
@@ -81,7 +89,9 @@ try {
   );
   assert.equal(await encoded(), original);
   await page.locator('[data-chroma-preview]').click();
+  assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 1);
   await page.locator('[data-chroma-cancel]').click();
+  assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
   assert.equal(await encoded(), original);
   // A normal palette Apply reaches actual rendered artwork through its stable binding.
   await page.locator('[data-chroma-preview]').click();
