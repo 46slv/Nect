@@ -58,6 +58,7 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
+import { ensureGraphToolbarOverflow } from './graph-toolbar-overflow.js';
 import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
@@ -4014,6 +4015,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // Finalize header geometry before fitting. Deferring menu compaction to the
   // observer changes the stage height between the two presses of a double-click.
   ensureCommandMenus(app, document);
+  ensureGraphToolbarOverflow(app, document);
   ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();

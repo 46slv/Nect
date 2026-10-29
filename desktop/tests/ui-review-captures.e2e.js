@@ -15,7 +15,8 @@ const fixture = blankDocument(),
 fixture.schemaVersion = 37;
 fixture.width = 320;
 fixture.height = 240;
-layer.name = 'UI review composition';
+layer.name =
+  'UI review composition · A long layer name must truncate without clipping graph controls';
 const source = node('Curve', 40, 40),
   transform = node('Transform', 40, 340),
   repeat = node('Geometry Repeater', 340, 40),
@@ -126,9 +127,11 @@ const capture = async (name, action, state) => {
             attributes: [...active.attributes].map((a) => [a.name, a.value]),
           }
         : null,
-      panels: [...document.querySelectorAll('.graph-scroll, .inspector, .shared-colors-panel')].map(
-        measure,
-      ),
+      panels: [
+        ...document.querySelectorAll(
+          '.graph-toolbar, .graph-view-more, .graph-view-more[open] .command-menu-items, .graph-scroll, .inspector, .shared-colors-panel',
+        ),
+      ].map(measure),
       hierarchy: [...document.querySelectorAll('.inspector-body > h3, .source-navigation')].map(
         measure,
       ),
@@ -181,6 +184,145 @@ const checkPaletteTopLayout = async () => {
     'Primary actions fit one row',
   );
 };
+const checkGraphToolbar = async (width) => {
+  const compact = width === 900;
+  await page.waitForFunction(
+    (expected) =>
+      document.querySelector('.graph-toolbar').classList.contains('graph-toolbar-compact') ===
+      expected,
+    compact,
+  );
+  const menu = page.locator('.graph-view-more');
+  const summary = menu.locator('summary');
+  const actions = ['graph-fit-selection', 'graph-reset', 'graph-overview'];
+  const checkVisibleControls = async (secondary = false) => {
+    const layout = await page.locator('.graph-toolbar').evaluate((toolbar, includeSecondary) => {
+      const bounds = toolbar.getBoundingClientRect();
+      const controls = [...toolbar.querySelectorAll('select,button,output,summary')].filter(
+        (el) =>
+          el.getClientRects().length &&
+          (includeSecondary || !el.closest('.graph-view-more .command-menu-items')),
+      );
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        viewportWidth: innerWidth,
+        controls: controls.map((el) => {
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          return {
+            action: el.dataset.action || el.id || el.tagName,
+            contained: r.left >= bounds.left && r.right <= bounds.right,
+            centerHit: top === el || el.contains(top),
+          };
+        }),
+      };
+    }, secondary);
+    assert.ok(layout.documentWidth <= layout.viewportWidth, 'toolbar does not widen the document');
+    for (const control of layout.controls) {
+      assert.equal(control.contained, true, `${width}: ${control.action} inside graph width`);
+      assert.equal(control.centerHit, true, `${width}: ${control.action} center is unobscured`);
+    }
+  };
+  for (const action of actions)
+    assert.equal(await page.locator(`[data-action="${action}"]`).count(), 1);
+  await checkVisibleControls();
+  await capture(
+    `graph-toolbar-${width}`,
+    'Inspect graph view controls at current panel width',
+    compact ? 'Secondary view commands in closed More disclosure' : 'All view commands direct',
+  );
+  if (!compact) {
+    assert.equal(await menu.count(), 0);
+    return;
+  }
+  const before = await encoded();
+  const commandBefore = await page.evaluate(() => JSON.stringify(window.nect.commandState));
+  const name = await page.locator('.graph-layer-name').evaluate((el) => ({
+    clipped: el.scrollWidth > el.clientWidth,
+    ellipsis: getComputedStyle(el).textOverflow,
+  }));
+  assert.equal(name.clipped, true, 'long layer name yields its space to controls');
+  assert.equal(name.ellipsis, 'ellipsis');
+  for (let i = 0; i < 2; i++) {
+    await summary.focus();
+    await summary.press(i ? 'Space' : 'Enter');
+    assert.notEqual(await menu.getAttribute('open'), null);
+    await page.keyboard.press('Escape');
+    assert.equal(await menu.getAttribute('open'), null);
+    assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
+  }
+  await summary.press('Enter');
+  await checkVisibleControls(true);
+  await capture(
+    'graph-toolbar-more-900',
+    'Open More with native keyboard activation',
+    'Original Fit selection / Reset view / Overview buttons reachable',
+  );
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await page
+      .locator('[data-action="graph-fit-selection"]')
+      .evaluate((el) => document.activeElement === el),
+    true,
+  );
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await page
+      .locator('[data-action="graph-reset"]')
+      .evaluate((el) => document.activeElement === el),
+    true,
+  );
+  await page.keyboard.press('Tab');
+  assert.equal(
+    await page
+      .locator('[data-action="graph-overview"]')
+      .evaluate((el) => document.activeElement === el),
+    true,
+  );
+  await page.keyboard.press('Tab');
+  assert.equal(await menu.getAttribute('open'), null, 'Tab leaves and dismisses, not a focus trap');
+  for (const action of actions) {
+    await summary.press('Enter');
+    await page.locator(`[data-action="${action}"]`).press('Enter');
+    assert.equal(await menu.getAttribute('open'), null);
+    assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
+  }
+  // Return Overview to its original closed state, still through the same button.
+  await summary.press('Enter');
+  await page.locator('[data-action="graph-overview"]').press('Enter');
+  await summary.press('Enter');
+  await page.locator('[data-action="graph-reset"]').click();
+  assert.equal(await menu.getAttribute('open'), null);
+  assert.equal(
+    await page.locator('.graph-scroll').evaluate((el) => document.activeElement === el),
+    true,
+    'pointer navigation keeps the existing viewport focus',
+  );
+  await summary.press('Enter');
+  await page.locator('[data-zoom="graph"]').click();
+  assert.equal(await menu.getAttribute('open'), null, 'outside click dismisses');
+  await summary.focus();
+  await summary.press('Enter');
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.waitForFunction(() => !document.querySelector('.graph-view-more'));
+  assert.equal(
+    await page
+      .locator('[data-action="graph-fit-selection"]')
+      .evaluate((el) => document.activeElement === el),
+    true,
+  );
+  await page.setViewportSize({ width: 900, height: 720 });
+  await page.waitForSelector('.graph-view-more');
+  assert.equal(await summary.evaluate((el) => document.activeElement === el), true);
+  assert.equal(await menu.getAttribute('open'), null, 'resize does not reopen stale More');
+  await checkVisibleControls();
+  assert.equal(
+    await encoded(),
+    before,
+    'view commands and responsive layout do not author project changes',
+  );
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.commandState)), commandBefore);
+};
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
   await page.waitForFunction(() => typeof window.nect?.load === 'function');
@@ -193,6 +335,7 @@ try {
     await page.setViewportSize(viewport);
     await card().locator('.node-head strong').click();
     await card().locator('.node-head strong').focus();
+    await checkGraphToolbar(viewport.width);
     assert.equal(await page.locator('.inspector-body > h3').innerText(), repeat.name);
     assert.equal(await card().locator('.node-actions button').count(), 3);
     await capture(
@@ -385,6 +528,7 @@ try {
         },
         integrity: {
           navigationDoesNotAuthor: true,
+          graphToolbarKeyboardAndResizeReachability: true,
           explicitJoystickHideExposesDeleteCenter: true,
           previewDoesNotAuthor: true,
           cancelPreservesSaved: true,

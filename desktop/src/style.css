@@ -1609,6 +1609,24 @@ input[data-scrub-step].scrubbing {
   width: 120px;
   min-width: 100px;
 }
+.graph-view-more[hidden] {
+  display: none;
+}
+.graph-view-more .command-menu-items {
+  left: auto;
+  right: 0;
+  z-index: 40;
+}
+.graph-toolbar-compact > strong {
+  display: none;
+}
+.graph-toolbar-compact #add-node {
+  width: 100px;
+  flex: none;
+}
+.graph-toolbar-compact .graph-layer-name {
+  flex: 0 1 140px;
+}
 .graph-pan-joystick {
   position: absolute;
   z-index: 26;
