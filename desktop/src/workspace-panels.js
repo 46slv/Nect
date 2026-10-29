@@ -59,10 +59,17 @@ export function createWorkspacePanels({
     const toolHeight = panel ? Math.min(280, Math.max(144, available * 0.36)) : 0;
     slot.style.height = `${toolHeight}px`;
     const colors = right.querySelector('.shared-colors-panel');
-    if (colors) colors.style.maxHeight = `${Math.max(88, Math.min(240, available * 0.24))}px`;
-    const colorHeight = colors?.getBoundingClientRect().height || 0;
     const alignmentHeight =
       right.querySelector('.alignment-panel')?.getBoundingClientRect().height || 0;
+    if (colors) {
+      // A wheel needs more than the compact swatch list's 24% allocation.
+      // Preserve at least 96px for Layers and 134px for Inspector/separators.
+      const limit = colors.querySelector('.harmony-wheel')
+        ? available - toolHeight - alignmentHeight - 230
+        : Math.min(240, available * 0.24);
+      colors.style.maxHeight = `${Math.max(88, limit)}px`;
+    }
+    const colorHeight = colors?.getBoundingClientRect().height || 0;
     const height = clampLayerHeight(
       preferredHeight,
       available,
