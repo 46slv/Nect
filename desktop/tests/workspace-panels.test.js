@@ -130,3 +130,32 @@ test('viewport movement realigns the portal even when sidebar size is unchanged'
   assert.equal(panel.style.width, '290px');
   f.window.happyDOM.abort();
 });
+
+test('wheel allocation overrides the compact swatch cap and reserves other panels', () => {
+  const f = fixture();
+  try {
+    const right = f.root.querySelector('.right');
+    Object.defineProperty(right, 'clientHeight', { value: 628, configurable: true });
+    const colors = f.window.document.createElement('section');
+    colors.className = 'shared-colors-panel';
+    right.insertBefore(colors, right.querySelector('.inspector'));
+    f.controller.refresh();
+    assert.equal(colors.style.maxHeight, '150.72px');
+    colors.innerHTML = '<svg class="harmony-wheel"></svg>';
+    f.controller.refresh();
+    assert.equal(colors.style.maxHeight, '398px');
+    const alignment = f.window.document.createElement('section');
+    alignment.className = 'alignment-panel';
+    alignment.getBoundingClientRect = () => ({ height: 100 });
+    right.append(alignment);
+    f.controller.refresh();
+    assert.equal(colors.style.maxHeight, '298px');
+    f.open();
+    assert.equal(colors.style.maxHeight, '88px');
+    colors.innerHTML = '';
+    f.controller.refresh();
+    assert.equal(colors.style.maxHeight, '150.72px');
+  } finally {
+    f.window.happyDOM.abort();
+  }
+});

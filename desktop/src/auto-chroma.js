@@ -1,5 +1,6 @@
 // Pure proposal stage from the accepted Color Guard v1.1 prototype.
 // Role/area weights are design heuristics, not a guarantee of good composition.
+export const MAX_CHROMA = 0.45;
 const weights = {
   balanced: { Primary: 1, Secondary: 0.76, Accent: 1.16, Background: 0.28, Text: 0.04 },
   fidelity: { Primary: 1, Secondary: 0.94, Accent: 1.03, Background: 0.45, Text: 0.04 },
@@ -43,21 +44,21 @@ function gamutIntervals(L, hue) {
     [-1.2684380046, 2.6097574011, -0.3413193965],
     [-0.0041960863, -0.7034186147, 1.707614701],
   ];
-  const points = [0, 0.45];
+  const points = [0, MAX_CHROMA];
   for (const row of matrix) {
     const sum = (power) => row.reduce((v, m, i) => v + m * k[i] ** power, 0);
     const c = [L ** 3 * sum(0), 3 * L * L * sum(1), 3 * L * sum(2), sum(3)];
     const A = 3 * c[3],
       B = 2 * c[2],
       C = c[1];
-    const cuts = [0, 0.45];
+    const cuts = [0, MAX_CHROMA];
     if (Math.abs(A) < 1e-14) {
       if (Math.abs(B) > 1e-14) cuts.push(-C / B);
     } else {
       const d = B * B - 4 * A * C;
       if (d >= 0) cuts.push((-B - Math.sqrt(d)) / (2 * A), (-B + Math.sqrt(d)) / (2 * A));
     }
-    const ordered = cuts.filter((x) => x >= 0 && x <= 0.45).sort((x, y) => x - y);
+    const ordered = cuts.filter((x) => x >= 0 && x <= MAX_CHROMA).sort((x, y) => x - y);
     for (const boundary of [-1e-7, 1 + 1e-7]) {
       const f = (x) => ((c[3] * x + c[2]) * x + c[1]) * x + c[0] - boundary;
       for (let i = 1; i < ordered.length; i++) {
@@ -145,7 +146,7 @@ export function proposeAutoChroma(slots, settings = {}, coverage = null) {
     if (slot.alpha !== undefined && !unit(slot.alpha)) throw Error('Invalid slot alpha');
     if (
       slot.overrideC !== undefined &&
-      (!Number.isFinite(slot.overrideC) || slot.overrideC < 0 || slot.overrideC > 0.45)
+      (!Number.isFinite(slot.overrideC) || slot.overrideC < 0 || slot.overrideC > MAX_CHROMA)
     )
       throw Error('Invalid chroma override');
     if (

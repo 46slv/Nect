@@ -2715,6 +2715,15 @@ input[data-scrub-step].scrubbing {
   padding: 8px;
   background: #fff;
 }
+/* The wheel must have a usable viewport instead of shrinking against the
+   Inspector's content. Swatches/settings continue to scroll within this area. */
+.shared-colors-panel:has(.harmony-wheel) {
+  flex: 0 1 clamp(320px, 52vh, 440px);
+  max-height: calc(100% - 200px);
+}
+.right:has(.harmony-wheel) > .inspector {
+  min-height: 120px;
+}
 .shared-colors-panel header {
   display: flex;
   align-items: center;
@@ -2794,4 +2803,72 @@ input[data-scrub-step].scrubbing {
   height: 18px;
   flex: 0 0 18px;
   border: 1px solid var(--line);
+}
+
+.harmony-wheel-panel {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+.harmony-wheel {
+  display: block;
+  width: min(100%, 310px);
+  margin: 0 auto 6px;
+  aspect-ratio: 1;
+  touch-action: none;
+  user-select: none;
+}
+.harmony-wheel-grid path {
+  stroke: #fff;
+  stroke-width: 0.25;
+}
+.harmony-wheel-spokes {
+  stroke: #fff;
+  stroke-width: 1.4;
+  fill: #fff;
+  pointer-events: none;
+}
+[data-wheel-marker] {
+  cursor: ns-resize;
+  outline: none;
+}
+[data-wheel-marker] circle {
+  fill: #fff;
+  stroke: #68717c;
+  stroke-width: 0.7;
+}
+[data-wheel-marker][aria-pressed='true'] circle,
+[data-wheel-marker]:focus circle {
+  stroke: #202d40;
+  stroke-width: 1.8;
+}
+[data-wheel-marker] text {
+  fill: #182434;
+  font-size: 7px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.harmony-wheel-settings label,
+.harmony-entry-controls label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  margin: 5px 0;
+}
+.harmony-entry-controls {
+  border-top: 1px solid var(--line);
+  padding-top: 5px;
+  margin-top: 6px;
+}
+.harmony-entry-controls select,
+.harmony-wheel-settings select {
+  min-width: 0;
+  max-width: 65%;
+}
+.harmony-add-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 8px 0;
 }

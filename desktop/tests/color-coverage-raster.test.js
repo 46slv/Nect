@@ -22,6 +22,16 @@ function fakeBrowser(t, options = {}) {
       else delete globalThis[name];
     });
   };
+  if (options.float16) {
+    // Contract-test surrogate only; real precision is proved by Chrome receipts.
+    class Float16Array extends Float32Array {
+      static BYTES_PER_ELEMENT = 2;
+      get BYTES_PER_ELEMENT() {
+        return 2;
+      }
+    }
+    replaceGlobal('Float16Array', Float16Array);
+  }
   t.mock.method(URL, 'createObjectURL', (blob) => {
     state.blobs.push(blob);
     return 'blob:coverage-test';
@@ -62,10 +72,16 @@ function fakeBrowser(t, options = {}) {
       const canvas = {
         getContext(type, config) {
           assert.equal(type, '2d');
-          assert.deepEqual(config, { willReadFrequently: true });
+          assert.deepEqual(config, {
+            willReadFrequently: true,
+            ...(options.float16 ? { colorType: 'float16', colorSpace: 'srgb' } : {}),
+          });
           if (options.failAt === 'get-context') throw failure;
           if (options.failAt === 'missing-context') return null;
           return {
+            getContextAttributes: options.noAttributes
+              ? undefined
+              : () => options.attributes ?? { colorType: 'float16', colorSpace: 'srgb' },
             drawImage(...args) {
               state.draws.push(args);
               if (options.failAt === 'draw') throw failure;
@@ -73,6 +89,15 @@ function fakeBrowser(t, options = {}) {
             getImageData(...args) {
               state.reads.push(args);
               if (options.failAt === 'read') throw failure;
+              if (options.float16) {
+                assert.deepEqual(args[4], { colorSpace: 'srgb', pixelFormat: 'rgba-float16' });
+                return {
+                  pixelFormat: 'rgba-float16',
+                  colorSpace: 'srgb',
+                  data: new globalThis.Float16Array(options.pixels ?? [0.5, 0.5, 0.5, 0.5]),
+                  ...options.readback,
+                };
+              }
               return { data: options.pixels ?? new Uint8ClampedArray([123, 45, 67, 255]) };
             },
           };
@@ -177,4 +202,72 @@ test('image source cleanup failure cannot prevent URL revocation', async (t) => 
   const { state, failure } = fakeBrowser(t, { failAt: 'image-cleanup' });
   await assert.rejects(rasterize('<svg/>', { width: 1, height: 1 }), (error) => error === failure);
   assertReleased(state);
+});
+
+test('contribution readback uses premultiplied red once, preserving transparent and antialiased pixels', async (t) => {
+  const { state } = fakeBrowser(t, {
+    float16: true,
+    pixels: [1, 0, 0, 0, 0.5, 0.5, 0.5, 0.5, 1, 1, 1, 0.25, 0, 0, 0, 1],
+  });
+  const mass = await rasterize('<svg/>', { width: 4, height: 1, channel: 'premultiplied-red' });
+  assert.deepEqual([...mass], [0, 0.25, 0.25, 0]);
+  assertReleased(state);
+});
+
+test('unsupported contribution channels reject before browser resource allocation', async (t) => {
+  const { state } = fakeBrowser(t);
+  for (const channel of [null, 'red', 'luminance', 0, {}])
+    await assert.rejects(rasterize('<svg/>', { width: 1, height: 1, channel }), /raster request/);
+  assert.deepEqual(state.blobs, []);
+  assert.deepEqual(state.images, []);
+});
+
+test('basis decode verifies actual float16 context/readback and records precision evidence', async (t) => {
+  const { state } = fakeBrowser(t, { float16: true, pixels: [0.5, 0, 0, 1 / 255] });
+  const result = await rasterize('<svg/>', { width: 1, height: 1, channel: 'premultiplied-red' });
+  assert.equal(result[0], Math.fround(Math.fround(1 / 255) * 0.5));
+  assert.deepEqual(result.coveragePrecision, {
+    contextColorType: 'float16',
+    contextColorSpace: 'srgb',
+    pixelFormat: 'rgba-float16',
+    readbackColorSpace: 'srgb',
+    arrayType: 'Float16Array',
+    bytesPerElement: 2,
+  });
+  assert.equal(Object.isFrozen(result.coveragePrecision), true);
+  assertReleased(state);
+});
+
+test('unsupported actual precision never falls back or converts unorm8 and always cleans up', async (t) => {
+  for (const options of [
+    { noAttributes: true },
+    { attributes: { colorType: 'unorm8', colorSpace: 'srgb' } },
+    { attributes: { colorType: 'float16', colorSpace: 'display-p3' } },
+    { readback: { pixelFormat: 'rgba-unorm8' } },
+    { readback: { colorSpace: 'display-p3' } },
+    { readback: { data: new Uint8ClampedArray([128, 0, 0, 1]) } },
+    { readback: { data: new Float32Array([0.5, 0, 0, 0.5]) } },
+    { pixels: [NaN, 0, 0, 0.5] },
+    { pixels: [1, 0, 0, Infinity] },
+  ])
+    await t.test(JSON.stringify(options), async (t) => {
+      const { state } = fakeBrowser(t, { float16: true, ...options });
+      await assert.rejects(
+        rasterize('<svg/>', { width: 1, height: 1, channel: 'premultiplied-red' }),
+        /float16|readback/,
+      );
+      assertReleased(state);
+    });
+});
+
+test('float16 draw/read rejection propagates while releasing images and URLs', async (t) => {
+  for (const failAt of ['draw', 'read'])
+    await t.test(failAt, async (t) => {
+      const { state, failure } = fakeBrowser(t, { float16: true, failAt });
+      await assert.rejects(
+        rasterize('<svg/>', { width: 1, height: 1, channel: 'premultiplied-red' }),
+        (error) => error === failure,
+      );
+      assertReleased(state);
+    });
 });

@@ -1,6 +1,8 @@
 import {
   COLOR_SLOTS_SCHEMA_VERSION,
   COLOR_DESIGN_SCHEMA_VERSION,
+  HARMONY_DESIGN_SCHEMA_VERSION,
+  CHROMA_OVERRIDE_SCHEMA_VERSION,
   colorSlotCommands,
   validateColorSlots,
   validateColorSlotBinding,
@@ -4089,9 +4091,29 @@ export function evaluate(
           ['Linear Gradient Fill', 'Radial Gradient Fill', 'Angular Gradient Fill'].includes(n.type)
         )
           setEvaluatedPaintSlot(result, 'fill', null);
-        if (n.type === 'Linear Gradient Fill') result.fill = linearGradientSettings(read);
-        if (n.type === 'Radial Gradient Fill') result.fill = radialGradientSettings(read);
-        if (n.type === 'Angular Gradient Fill') result.fill = angularGradientSettings(read);
+        if (n.type === 'Linear Gradient Fill') {
+          result.fill = linearGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
+        if (n.type === 'Radial Gradient Fill') {
+          result.fill = radialGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
+        if (n.type === 'Angular Gradient Fill') {
+          result.fill = angularGradientSettings(read);
+          setEvaluatedPaintSlot(result, 'fill', {
+            startColor: parameterColorSlot(n.params.startColor),
+            color1: parameterColorSlot(n.params.color1),
+            color2: parameterColorSlot(n.params.color2),
+            endColor: parameterColorSlot(n.params.endColor),
+          });
+        }
         if (n.type === 'Stroke') {
           const width = read('width');
           if (width < 0 || width > 100000) throw Error('Stroke width must be from 0 to 100000 px');
@@ -4691,7 +4713,9 @@ export function validate(doc) {
       doc.schemaVersion !== MASK_LUMINANCE_SCHEMA_VERSION &&
       doc.schemaVersion !== SVG_ASSET_SCHEMA_VERSION &&
       doc.schemaVersion !== COLOR_SLOTS_SCHEMA_VERSION &&
-      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION)
+      doc.schemaVersion !== COLOR_DESIGN_SCHEMA_VERSION &&
+      doc.schemaVersion !== HARMONY_DESIGN_SCHEMA_VERSION &&
+      doc.schemaVersion !== CHROMA_OVERRIDE_SCHEMA_VERSION)
   )
     throw Error('Unsupported project version');
   const colorSlots = validateColorSlots(doc);
@@ -5559,7 +5583,7 @@ function exportValidatedScene(doc, fonts) {
       return {
         layer: l,
         value: result.path,
-        ...(paintProvenance ? { paintProvenance: { ...paintProvenance } } : {}),
+        ...(paintProvenance ? { paintProvenance: clone(paintProvenance) } : {}),
       };
     });
 }

@@ -109,3 +109,64 @@ fixture now creates schema-54 bound colors and calls the adapter without supplie
 identity guesses. That changed browser fixture is NOT RUN until its exact-head CI.
 Seven coverage-pass tests and 90 existing bypass/fingerprint tests passed in the
 independent review; a related 53-test local run passed. This is not panel acceptance.
+
+## Two-stop linear-gradient coverage (2026-10-29)
+
+This extends the now-integrated Shared Colors measurement, not all gradient or
+appearance support. Earlier prototype-only/unimported descriptions above record
+historical checkpoints. The current adapter accepts plain paths with solid paints
+and the production two-stop `Linear Gradient Fill`; radial/angular gradients,
+gradient strokes, authored masks/filters/blends, painted groups/images, independent
+contour groups and repeater appearance still refuse the entire measurement.
+
+The evaluator exports `{fill: {startColor: slotId|null, endColor: slotId|null}}`
+only as derived paint provenance. Direct bindings and Color-node chains retain
+stable IDs; unbound literal stops are Other even when their HEX equals a bound
+stop. Replacing the fill replaces its provenance. Output, supported bypass,
+Undo/Redo and native save/reopen retain the actual authored reference contract.
+No new document schema, authored metadata or RGB-to-ID matching is introduced.
+
+### Attribution semantics
+
+Nect's renderer specifies absolute artboard-space, two-stop, padded sRGB gradients.
+SVG interpolates colors without premultiplication: a fully transparent stop can
+still supply hue to mixed pixels. For interpolation coordinate `t` (clamped 0–1),
+actual paint alpha `A(t)` and geometry coverage `g`, the two contributions are
+`g*A(t)*(1-t)` and `g*A(t)*t`. These are reference/interpolation coverage, not a
+radiometric decomposition or a visual-similarity metric. See the [SVG paint-server
+specification](https://www.w3.org/TR/SVG2/pservers.html).
+
+The bridge renders the original production alpha and one auxiliary copy through a
+private generated scalar weight mask, using the same production gradient serializer
+for the `(1-t)` ramp. This private measurement mask does not add support for masks
+in the authored scene. The sampler decodes both, clamps small independent 8-bit
+quantization overshoot, and derives end mass as full alpha minus start mass.
+Grossly inconsistent masks reject. The two stops share **one** source-over paint
+layer: they never occlude each other, and their full alpha attenuates the backdrop
+exactly once. Fill remains before Stroke. Both stop IDs may be the same.
+
+Actual renderer alpha/antialiasing and artboard clipping are retained. Separate
+8-bit rasterizations and the existing at-most-256px sampling remain approximate;
+very small contributions can round to zero and complementary attribution may
+absorb a one-quantum rounding residual. Both raster masks count toward the
+existing aggregate alpha/SVG budgets. Integer nonempty percentages, including
+Other, still sum to 100. Sampling snapshots inputs, copies decoder-owned buffers,
+rejects stale work and never edits the document or its history.
+
+### Verification boundary
+
+Focused unit regressions cover joint compositing/occlusion, stable equal-HEX and
+same-ID stops, Other, alpha conservation, immutable provenance, Color source chains,
+fill replacement/bypass, binding Undo/Redo and native serialization roundtrip,
+malformed/unsupported scenes, auxiliary buffer/SVG budgets, quantization clamping,
+borrowed buffers, stale sampling and decoder failures.
+
+`desktop/tests/color-coverage.e2e.js` extends the existing CI fixture with four
+production SVG/canvas gradient cases: opaque equal-HEX distinct IDs; a transparent
+bound stop to unbound Other; padded diagonal translucent gradient plus stroke and
+front/back objects; and reversed endpoints with same-ID stops on an antialiased
+triangle. It compares analytic attribution where applicable, total/full-export
+alpha, one-paint composition, nonmutation and rounded percentages. This changed
+browser fixture is **NOT RUN locally**: the previous Chromium sandbox denial is
+not bypassed or retried. Exact-head CI browser acceptance and native Windows
+acceptance remain separate pending evidence; unit/build success is not UI proof.

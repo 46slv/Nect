@@ -143,6 +143,8 @@ jobs:
             desktop/test-results/color-coverage/results.json
             desktop/test-results/shared-colors-panel/*.png
             desktop/test-results/shared-colors-panel/*.json
+            desktop/test-results/harmony-wheel-panel/*.png
+            desktop/test-results/harmony-wheel-panel/*.json
             desktop/test-results/native-isolation-rust.log
             desktop/test-results/native-acceptance-build.json
             desktop/test-results/windows-japanese-font-capability.json

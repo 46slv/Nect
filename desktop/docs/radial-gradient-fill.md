@@ -47,6 +47,7 @@ Adobe's [radial-gradient controls](https://helpx.adobe.com/illustrator/desktop/p
 - `radial-gradient-pipeline.test.js`: paint order, typed source/fallback/lock/expression/history behavior, invalid dormant values, unchanged geometry/groups/text metadata, mixed paint IDs, SVG reopen and sample CLI/JSON parity.
 - `radial-gradient-import.test.js`: forward/shared references, editable remapped paths, independent alpha/stroke, compound holes, mixed paint grouping, minimum radius, hostile/unused definitions and aggregate gradient budget.
 - `radial-gradient-dom.test.js`: graph/inspector controls, radius validation/cancelled scrub, source menus, fallback/lock/history and atomic file import/repeated Undo/Redo.
+- `color-coverage-passes.test.js` and `color-coverage.e2e.js`: explicit evaluator-owned stop IDs and visible-area attribution through the production concentric radial paint and private scalar mask, with analytical distance/pad, alpha, clipping/AA and paint-order expectations. See [Shared Colors](shared-colors-panel.md) for the bounded measurement contract and separate acceptance evidence.
 - `radial-gradient.e2e.js`: real Chrome controls, analytical circular RGB/alpha and pad samples, equal-distance points, transparent independent overlaps, mixed linear/radial ID separation, full RGBA SHA-256 equality across SVG/PNG and their reopened copies, JSON reload, hostile import refusal, external-request/page-error checks and screenshot.
 - `production-csp.e2e.js`: mixed radial/linear sample in the production bundle under native CSP, with eval still blocked.
 

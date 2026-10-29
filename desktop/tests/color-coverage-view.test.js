@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createColorCoverageView } from '../src/color-coverage-view.js';
+import { sampleColorCoverage } from '../src/color-coverage-sampling.js';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const coverage = (a = 60, b = 30, other = 10) => ({
@@ -264,4 +265,55 @@ test('output patches preserve focused input identity, selection, draft, and IME 
   assert.equal(edits, 0, 'Derived measurements must not dispatch authored input edits');
   input.dispatchEvent(new s.window.CompositionEvent('compositionend', { data: '編集中' }));
   assert.equal(composing, false, 'The original input retains its composition event listeners');
+});
+
+test('angular precision failure clears every percentage, preserves focused draft and exposes no usable snapshot', async (t) => {
+  const s = setup(t);
+  s.view.refresh();
+  await flush();
+  s.requests[0].resolve(coverage());
+  await flush();
+  const input = s.app.querySelector('input');
+  input.focus();
+  input.value = 'Composing draft';
+  s.revision = 2;
+  s.view.refresh();
+  await flush();
+  const angular = {
+    slotId: null,
+    svg: 'full',
+    contributions: ['slot-a', 'slot-b', null, null].map((slotId, i) => ({
+      slotId,
+      svg: `stop${i}`,
+    })),
+  };
+  const failure = await sampleColorCoverage(
+    ['slot-a', 'slot-b'],
+    [angular],
+    { width: 1, height: 1 },
+    (svg) => [svg === 'full' ? 1 / 255 : 0],
+  ).then(
+    () => assert.fail('Precision loss must not return coverage'),
+    (error) => error,
+  );
+  s.requests[1].reject(failure);
+  await flush();
+  for (const output of s.app.querySelectorAll('output')) assert.equal(output.textContent, '—');
+  assert.match(s.status.textContent, /Coverage unavailable.*below raster precision/);
+  assert.equal(s.view.snapshot(), null);
+  assert.equal(s.document.activeElement, input);
+  assert.equal(input.value, 'Composing draft');
+  s.revision = 3;
+  s.view.refresh();
+  await flush();
+  s.requests[2].resolve(
+    await sampleColorCoverage(['slot-a', 'slot-b'], [angular], { width: 1, height: 1 }, (svg) => [
+      svg === 'full' || svg === 'stop1' ? 0.5 : 0,
+    ]),
+  );
+  await flush();
+  assert.equal(s.output('slot-a').textContent, '0%');
+  assert.equal(s.output('slot-b').textContent, '100%');
+  assert.ok(s.view.snapshot());
+  assert.equal(s.document.activeElement, input);
 });
