@@ -50,12 +50,22 @@ function setup(
     restoreRenderFocus = false,
     live = false,
     nativeChangeOnRemoval = false,
+    deferAdvancedToggle = false,
   } = {},
 ) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
   win.document.body.innerHTML = '<main></main>';
   const app = win.document.querySelector('main');
+  if (deferAdvancedToggle)
+    app.addEventListener(
+      'toggle',
+      (event) => {
+        // Model the browser's interval before its queued toggle is delivered.
+        if (event.target.matches?.('[data-color-advanced]')) event.stopImmediatePropagation();
+      },
+      true,
+    );
   let model = fixture(),
     session = { state: { sessionId: 'session-a', expectedRevision: 3 } },
     coverage = null;
@@ -1143,3 +1153,52 @@ for (const selector of ['[data-wheel-setting="hueRotation"]', '[data-chroma-stre
     assert.equal(s.query(selector).value, s.query(selector).defaultValue);
     assert.deepEqual(s.notices, []);
   });
+
+test('Advanced survives an immediate color commit before native toggle is delivered', async (t) => {
+  const s = setup(t, { realSession: true, live: true, deferAdvancedToggle: true });
+  const before = serialize(s.model),
+    state = s.session.state,
+    past = s.session.historyView.past.length;
+  s.query('[data-color-advanced]').open = true;
+  assert.equal(serialize(s.model), before, 'opening Advanced is view-only');
+  assert.deepEqual(s.session.state, state);
+  s.change('[data-wheel-chroma-mode]', 'override');
+  assert.equal(s.query('[data-color-advanced]').open, true);
+  assert.ok(s.query('[data-wheel-chroma]'));
+  assert.equal(s.session.historyView.past.length, past + 1, 'only the color edit authors history');
+  assert.equal(s.session.state.expectedRevision, state.expectedRevision + 1);
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(s.query('[data-color-advanced]').open, true, 'old queued events cannot close it');
+  const edited = serialize(s.model),
+    editedState = s.session.state;
+  s.query('[data-color-advanced]').open = false;
+  assert.equal(serialize(s.model), edited, 'closing Advanced is also view-only');
+  assert.deepEqual(s.session.state, editedState);
+  s.change('[data-wheel-setting="hueRotation"]', 22);
+  assert.equal(s.query('[data-color-advanced]').open, false);
+  assert.equal(s.session.historyView.past.length, past + 2);
+  assert.deepEqual(s.notices, []);
+});
+
+test('unmounted or unrelated details cannot replace the remembered Advanced view state', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const before = serialize(s.model),
+    state = s.session.state,
+    past = s.session.historyView.past.length;
+  const old = s.query('[data-color-advanced]');
+  old.open = true;
+  s.panel.html();
+  s.query('.shared-colors-panel').remove();
+  old.open = false;
+  s.fire(old, 'toggle');
+  const unrelated = s.win.document.createElement('details');
+  unrelated.dataset.colorAdvanced = '';
+  s.app.append(unrelated);
+  s.fire(unrelated, 'toggle');
+  s.render();
+  assert.equal(s.query('[data-color-advanced]').open, true);
+  assert.equal(serialize(s.model), before);
+  assert.deepEqual(s.session.state, state);
+  assert.equal(s.session.historyView.past.length, past);
+  assert.deepEqual(s.notices, []);
+});

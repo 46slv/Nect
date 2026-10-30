@@ -294,10 +294,14 @@ export function createAutoChromaPanel({
     },
     render,
   });
+  function currentAdvanced() {
+    const details = app.querySelector('.shared-colors-panel [data-color-advanced]');
+    return details?.isConnected && app.contains(details) ? details : null;
+  }
   app.addEventListener(
     'toggle',
     (event) => {
-      if (event.target.matches?.('[data-color-advanced]')) advancedOpen = event.target.open;
+      if (event.target === currentAdvanced()) advancedOpen = event.target.open;
     },
     true,
   );
@@ -481,6 +485,10 @@ export function createAutoChromaPanel({
       liveEdit.schedule();
     },
     html({ savedColors = '' } = {}) {
+      // Native toggle is queued. Preserve the actual view before a synchronous
+      // color edit replaces the panel or builds an incremental preview template.
+      const details = currentAdvanced();
+      if (details) advancedOpen = details.open;
       synchronize();
       if (!slots().length) return '';
       const names = new Map(slots().map((slot) => [slot.id, slot]));
