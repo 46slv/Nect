@@ -94,6 +94,9 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     export const listDesktopFontFaces = async () => [];
     export const listDesktopFontAxes = async () => [];
     export const shapeDesktopText = async () => { throw Error('No OS text shaping in integration fixture'); };
+    export const openPrivateFontFile = async () => null;
+    export const listPrivateFontAxes = async () => [];
+    export const shapePrivateFontText = async () => { throw Error('No private font shaping in integration fixture'); };
     export const beginRecovery = async () => { const id = 'memory-recovery-' + (++io.recoverySequence); io.recovery.set(id, null); return id; };
     export const writeRecovery = async (copy) => { const savedAt = new Date(Date.now() + (++io.recoveryWriteSequence)).toISOString(); io.recovery.set(copy.id, { ...structuredClone(copy), savedAt }); return savedAt; };
     export const listRecovery = async () => [...io.recovery.entries()].filter(([, copy]) => copy).map(([id, copy]) => ({ id, name: copy.name, savedAt: copy.savedAt }));

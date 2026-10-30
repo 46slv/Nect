@@ -1,3 +1,4 @@
+import { samePrivateFontSource } from './private-font-source.js';
 import { fontPickerCapability, sameFontFace } from './font-choice-ui.js';
 
 /**
@@ -14,6 +15,7 @@ export function createFontChoiceController({
   characterIds,
   isCurrent,
   prepareWindows,
+  preparePrivate,
   prepareVariable,
   onPreview = () => {},
   onStatus = () => {},
@@ -119,15 +121,23 @@ export function createFontChoiceController({
         else if (route === 'set-os-font-text') {
           onStatus('Preparing font; Escape cancels…', false);
           const settings = { ligatures: original.osFont?.outline?.ligatures ?? false };
-          const outline = await prepareWindows(original, choice.face, {
-            signal: abort.signal,
-            settings,
-          });
+          const prepared =
+            choice.source === 'file-native'
+              ? await preparePrivate(original, choice, { signal: abort.signal, settings })
+              : await prepareWindows(original, choice.face, { signal: abort.signal, settings });
+          if (
+            choice.source === 'file-native' &&
+            !samePrivateFontSource(prepared?.source, choice.sourceRef)
+          )
+            throw Error('Font response did not match the selected file; no change applied');
+          const outline = choice.source === 'file-native' ? prepared?.outline : prepared;
           if (closed || request !== serial) return false;
           if (!sameFontFace(outline?.face, choice.face))
             throw Error('Font response did not match the selected face; no change applied');
           if (outline.ligatures !== settings.ligatures)
             throw Error('Font response did not preserve standard ligatures; no change applied');
+          if (choice.source === 'file-native') payload.source = choice.sourceRef;
+          else if (original.osFont?.source !== undefined) payload.source = null;
           payload.outline = outline;
           payload.settings = settings;
         } else if (route === 'set-variable-font') {

@@ -57,6 +57,7 @@ import { splitPathSegment } from './path-point-insertion.js';
 import { osOutlineGeometry } from './os-font-outline.js';
 import { validateOsFontText, osFontTextPath } from './os-font-text.js';
 import { desktopTextIntent, desktopOsReference, desktopFontTextPath } from './desktop-font-text.js';
+import { PRIVATE_FONT_SCHEMA_VERSION } from './private-font-source.js';
 import {
   createVariableDocumentPreparer as createVariableBridge,
   assertVariableDocumentReady,
@@ -7178,6 +7179,14 @@ export class CommandSession {
           'directwrite-v3',
           'directwrite-v4',
         ].includes(payload.outline?.engine);
+        // Source removal is an explicit installed-font choice. An edit adapter
+        // that forgot a file capability must not relabel its retained geometry
+        // as a same-named system font.
+        if (source.osFont?.source !== undefined && payload.source === undefined)
+          throw Error('Private font source is missing; reattach or choose an installed font');
+        if (!modern && payload.source !== undefined)
+          throw Error('Private font sources require DirectWrite Text');
+        const referenceSource = payload.source === null ? undefined : payload.source;
         const settings = payload.settings || {};
         if (
           settings.axes !== undefined &&
@@ -7209,7 +7218,7 @@ export class CommandSession {
           font: 'default',
           params: clone(source.params),
           osFont: modern
-            ? desktopOsReference(payload.outline)
+            ? desktopOsReference(payload.outline, referenceSource)
             : {
                 version: 1,
                 family: payload.outline?.family,
@@ -7249,7 +7258,7 @@ export class CommandSession {
               ))
           )
             throw Error('Mismatched prepared font axes');
-          desktopTextIntent(next, next.osFont.face);
+          desktopTextIntent(next, next.osFont.face, {}, next.osFont.source);
         } else
           osOutlineGeometry(payload.outline, { ...source, text: next.text }, uid, {
             allowEmpty: true,
@@ -7262,6 +7271,7 @@ export class CommandSession {
         Object.assign(source, next);
         candidate.schemaVersion = Math.max(
           candidate.schemaVersion,
+          source.osFont.source ? PRIVATE_FONT_SCHEMA_VERSION : 0,
           source.osFont.version === 5
             ? 34
             : source.osFont.version === 4

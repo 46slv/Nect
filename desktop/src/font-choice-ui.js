@@ -1,3 +1,4 @@
+import { privateFontChoiceId, samePrivateFontSource } from './private-font-source.js';
 import { fontChoiceCatalog, fontChoiceCapability } from './font-choice.js';
 
 const faceKeys = ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'];
@@ -10,7 +11,7 @@ const normalized = (value) =>
     .normalize('NFKC')
     .toLowerCase();
 const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-const sourceOrder = { embedded: 0, installed: 1, windows: 2 };
+const sourceOrder = { embedded: 0, installed: 1, windows: 2, 'file-native': 3 };
 export const FONT_FILE_IMPORT_REQUIRED =
   'Font file import is required; use Advanced for a file you may embed';
 
@@ -33,6 +34,7 @@ export function fontPickerCatalogs({
   bundledFont,
   installed = [],
   windows = [],
+  fileNative = [],
 } = {}) {
   return {
     embedded: [
@@ -50,6 +52,24 @@ export function fontPickerCatalogs({
       disabledReason,
       metadata,
     })),
+    fileNative: fileNative.flatMap(({ token, sha256, faces }) =>
+      faces.map(({ faceIndex, face }) => {
+        const sourceRef = { kind: 'file-native-v1', sha256, faceIndex };
+        return {
+          id: privateFontChoiceId(sourceRef),
+          token,
+          sourceRef,
+          face,
+          label: `${face.family} · ${face.name}`,
+          metadata: {
+            family: face.family,
+            subfamily: face.name,
+            weightClass: face.weight,
+            italic: face.style !== 0,
+          },
+        };
+      }),
+    ),
     windows: windows.map((face) => ({
       id: windowsFontChoiceId(face),
       label: `${face.family} · ${face.name}`,
@@ -74,7 +94,11 @@ export function fontPickerItems(catalogs, node, options = {}) {
       metadata.family || 'Unknown family',
       metadata.subfamily || 'Unknown style',
       metadata.weightClass == null ? 'weight unknown' : `weight ${metadata.weightClass}`,
-      choice.source === 'embedded' ? 'In document' : 'On this computer',
+      choice.source === 'embedded'
+        ? 'In document'
+        : choice.source === 'file-native'
+          ? 'Open font file (not embedded)'
+          : 'On this computer',
       capability.reason,
     ].filter(Boolean);
     return {
@@ -128,7 +152,10 @@ export function fontPickerItems(catalogs, node, options = {}) {
 export function selectedFontPickerId(node, rows) {
   return rows.find(({ choice }) =>
     node.osFont
-      ? choice.source === 'windows' && sameFontFace(choice.face, node.osFont.face)
+      ? node.osFont.source
+        ? choice.source === 'file-native' &&
+          samePrivateFontSource(choice.sourceRef, node.osFont.source)
+        : choice.source === 'windows' && sameFontFace(choice.face, node.osFont.face)
       : choice.source === 'embedded' && choice.id === node.font,
   )?.id;
 }

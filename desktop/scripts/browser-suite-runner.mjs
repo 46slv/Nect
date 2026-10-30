@@ -79,6 +79,7 @@ export const browserTestFiles = Object.freeze([
   'tests/composition-point-selection.e2e.js',
   'tests/svg-to-png.e2e.js',
   'tests/unified-font-picker.e2e.js',
+  'tests/private-font-flow.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

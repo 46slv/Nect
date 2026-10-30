@@ -5,6 +5,11 @@ import {
   JAPANESE_WRAP_POLICY,
 } from './text-wrap.js';
 import { parseOsContours } from './os-font-outline.js';
+import {
+  PRIVATE_FONT_SCHEMA_VERSION,
+  validatePrivateFontSource,
+  samePrivateFontSource,
+} from './private-font-source.js';
 const exact = (value, keys) =>
   value &&
   Object.getPrototypeOf(value) === Object.prototype &&
@@ -74,8 +79,9 @@ export function validateDesktopAxes(axes) {
   }
   return Object.fromEntries(axes.map((a) => [a.tag, a.value]));
 }
-export function desktopTextIntent(n, face, patch = {}) {
+export function desktopTextIntent(n, face, patch = {}, sourceIdentity) {
   validateDesktopFace(face);
+  if (sourceIdentity !== undefined) validatePrivateFontSource(sourceIdentity);
   if (n?.type !== 'Text' || n.variation || n.pathAttachment || n.leading || n.characterArrangement)
     throw Error('Windows Text requires text without character/path/asset-variable adjustments');
   if (
@@ -115,7 +121,10 @@ export function desktopTextIntent(n, face, patch = {}) {
   const wrap = Object.hasOwn(patch, 'textWrap') ? (patch.textWrap ?? undefined) : n.textWrap;
   validateTextWrap(wrap, writingMode, n.pathAttachment);
   if (wrap && Math.fround(wrapExtent(wrap)) <= 0) throw Error('Windows wrap width is too small');
-  const retained = n.osFont?.version >= 3 && equalFace(n.osFont.face, face);
+  const retained =
+    n.osFont?.version >= 3 &&
+    equalFace(n.osFont.face, face) &&
+    samePrivateFontSource(n.osFont.source, sourceIdentity);
   if (retained || wrap || patch.axes !== undefined || writingMode === 'vertical-rl') {
     const axes = patch.axes ?? (retained ? validateDesktopAxes(n.osFont.axes) : {});
     if (
@@ -192,7 +201,7 @@ export function validateDesktopLineSpans(raw) {
   }
   if (end !== raw.text.length) throw Error('Incomplete Windows line spans');
 }
-export function validateDesktopText(n, schemaVersion = 34) {
+export function validateDesktopText(n, schemaVersion = 35) {
   const ref = n.osFont;
   const basic = ref?.version === 5,
     wrapped = ref?.version >= 4,
@@ -201,10 +210,23 @@ export function validateDesktopText(n, schemaVersion = 34) {
     schemaVersion < (basic ? 34 : wrapped ? 32 : extended ? 30 : 29) ||
     n.type !== 'Text' ||
     n.font !== 'default' ||
-    !exact(ref, ['version', 'family', 'style', 'face', 'outline', ...(extended ? ['axes'] : [])]) ||
+    !exact(ref, [
+      'version',
+      'family',
+      'style',
+      'face',
+      'outline',
+      ...(extended ? ['axes'] : []),
+      ...(ref?.source !== undefined ? ['source'] : []),
+    ]) ||
     ![2, 3, 4, 5].includes(ref.version)
   )
     throw Error('Invalid shaped Windows Text schema');
+  if (ref.source !== undefined) {
+    if (schemaVersion < PRIVATE_FONT_SCHEMA_VERSION)
+      throw Error('Private font Text requires project schema 35');
+    validatePrivateFontSource(ref.source);
+  }
   validateDesktopFace(ref.face);
   if (ref.family !== ref.face.family || ref.style !== ref.face.style)
     throw Error('Unmatched Windows Text reference');
@@ -243,7 +265,7 @@ export function validateDesktopText(n, schemaVersion = 34) {
     !equalFace(raw.face, ref.face)
   )
     throw Error('Invalid shaped Windows outline snapshot');
-  const intent = desktopTextIntent(n, ref.face);
+  const intent = desktopTextIntent(n, ref.face, {}, ref.source);
   if ((intent.wrapPolicy === JAPANESE_WRAP_POLICY) !== basic)
     throw Error('Windows wrapping policy needs fresh preparation');
   const extentKey = basic && raw.writingMode === 'vertical-rl' ? 'wrapHeight' : 'wrapWidth',
@@ -341,7 +363,8 @@ export function desktopFontTextPath(n, position, size, boundsOf) {
       pt.position = pt.position.map((v, k) => v + position[k] - (k ? y : x));
   return path;
 }
-export function desktopOsReference(raw) {
+export function desktopOsReference(raw, source) {
+  if (source !== undefined) validatePrivateFontSource(source);
   return {
     version:
       raw.engine === 'directwrite-v4'
@@ -355,6 +378,7 @@ export function desktopOsReference(raw) {
     style: raw.face.style,
     face: structuredClone(raw.face),
     outline: structuredClone(raw),
+    ...(source === undefined ? {} : { source: structuredClone(source) }),
     ...(['directwrite-v2', 'directwrite-v3', 'directwrite-v4'].includes(raw.engine)
       ? { axes: structuredClone(raw.axes) }
       : {}),

@@ -14,6 +14,7 @@ mod build_identity_sources;
 mod desktop_font_layout;
 mod document_storage;
 mod os_font_outlines;
+mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
 mod recovery_acceptance_gate;
 use desktop_font_layout::{list_desktop_font_axes, list_desktop_font_faces, shape_desktop_text};
@@ -166,6 +167,7 @@ fn run() -> Result<(), String> {
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
+        .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
             build_identity::query_build_identity,
@@ -185,6 +187,10 @@ fn run() -> Result<(), String> {
             list_desktop_font_faces,
             list_desktop_font_axes,
             shape_desktop_text,
+            private_fonts::open_private_font_file,
+            private_fonts::list_private_font_files,
+            private_fonts::list_private_font_axes,
+            private_fonts::shape_private_font_text,
             open_project,
             save_project,
             release_project,
