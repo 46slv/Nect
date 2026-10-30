@@ -44,7 +44,13 @@ function fixture() {
 }
 function setup(
   t,
-  { realSession = false, empty = false, restoreRenderFocus = false, live = false } = {},
+  {
+    realSession = false,
+    empty = false,
+    restoreRenderFocus = false,
+    live = false,
+    nativeChangeOnRemoval = false,
+  } = {},
 ) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
@@ -65,9 +71,21 @@ function setup(
   const currentDocument = () => (realSession ? session.snapshot() : model);
   const calls = [],
     notices = [];
+  let removalChanges = 0;
   const render = () => {
     const focus = restoreRenderFocus ? captureFocus(app) : null;
-    app.innerHTML = panel.html();
+    const html = panel.html();
+    const active = win.document.activeElement;
+    if (
+      nativeChangeOnRemoval &&
+      removalChanges === 0 &&
+      active?.matches('input[type="number"]') &&
+      active.value !== active.defaultValue
+    ) {
+      removalChanges++;
+      active.dispatchEvent(new win.Event('change', { bubbles: true }));
+    }
+    app.innerHTML = html;
     if (restoreRenderFocus) restoreFocus(app, focus);
   };
   const panel = createSharedColorsPanel({
@@ -116,6 +134,9 @@ function setup(
     fire,
     click,
     change,
+    get removalChanges() {
+      return removalChanges;
+    },
     get model() {
       return currentDocument();
     },
@@ -1099,3 +1120,26 @@ test('invalid final numeric text rolls back rather than committing its earlier v
   assert.equal(s.session.historyView.past.length, past);
   assert.equal(s.panel.previewDocument, null);
 });
+
+for (const selector of ['[data-wheel-setting="hueRotation"]', '[data-chroma-strength]'])
+  test(`Escape ignores native removal change from ${selector}`, async (t) => {
+    const s = setup(t, { realSession: true, live: true, nativeChangeOnRemoval: true });
+    const before = serialize(s.model),
+      state = s.session.state,
+      past = s.session.historyView.past.length;
+    const input = s.query(selector);
+    input.focus();
+    input.value = selector.includes('hueRotation') ? '75' : '0.3';
+    s.fire(input, 'input');
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.ok(s.panel.previewDocument, 'a valid live preview exists before Escape');
+    s.fire(input, 'keydown', { key: 'Escape' });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(s.removalChanges, 1, 'the connected old field emits native removal change');
+    assert.equal(serialize(s.model), before);
+    assert.deepEqual(s.session.state, state);
+    assert.equal(s.session.historyView.past.length, past);
+    assert.equal(s.panel.previewDocument, null);
+    assert.equal(s.query(selector).value, s.query(selector).defaultValue);
+    assert.deepEqual(s.notices, []);
+  });

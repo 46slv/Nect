@@ -467,6 +467,8 @@ try {
       'Scroll real parameter region to Chroma Spread while typing remains active',
       'Same live edit; wheel, swatches and compact status remain pinned above settings',
     );
+    assert.equal(await encoded(), saved, 'scrolling and capturing do not commit the live edit');
+    assert.equal(await rotation.evaluate((el) => document.activeElement === el), true);
     await rotation.focus();
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);

@@ -38,10 +38,12 @@ export function createSharedColorsPanel({
     app.addEventListener(
       type,
       (event) => {
+        // Removing a changed, focused number can emit native change. A render is
+        // reconciliation, not a new authoring action after Escape/rollback.
         if (
           live &&
           event.target.closest?.('.shared-colors-panel') &&
-          (event.isComposing || composingInputs.has(event.target))
+          (rendering || event.isComposing || composingInputs.has(event.target))
         )
           event.stopImmediatePropagation();
       },

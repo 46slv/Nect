@@ -535,8 +535,17 @@ try {
   await idle();
   assert.equal((await snapshot()).colorDesign.wheel.hueRotation, baseRotation + 1);
   await undoTo(original, 'native ArrowUp is one edit');
+  await rotation().scrollIntoViewIfNeeded();
   const spinner = await rotation().boundingBox();
   assert.ok(spinner);
+  assert.equal(
+    await rotation().evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      return document.elementFromPoint(box.right - 6, box.top + box.height * 0.25) === el;
+    }),
+    true,
+    'the physical spinner click reaches the rotation input, not clipped neighboring settings',
+  );
   await page.mouse.click(spinner.x + spinner.width - 6, spinner.y + spinner.height * 0.25);
   await rotation().press('Tab');
   await idle();

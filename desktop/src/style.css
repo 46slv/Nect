@@ -2746,7 +2746,7 @@ input[data-scrub-step].scrubbing {
 .shared-colors-panel:has(.harmony-wheel) {
   display: flex;
   flex-direction: column;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-height: 0;
   overflow: hidden;
 }
