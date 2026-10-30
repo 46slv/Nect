@@ -8,6 +8,10 @@ Select one character or a range to change its font, font size, horizontal width,
 
 Horizontal **Wrap width · auto height** composes Latin words and a bounded Japanese punctuation subset without changing source text or stable character IDs. Long unbreakable spans remain visible and export intact. [Contract and limits](docs/text-wrap.md) · [Editable sample](examples/text-wrap-width.json).
 
+## Live color editing
+
+Color parameters update the wheel and artwork while typing or dragging, with one Undo per completed edit. Wheel swatches and saved-area badges stay visible while parameters scroll; Layers can collapse. [Interaction and verification boundaries](docs/live-color-panel.md).
+
 ## Run the editor
 
 Node 22+ is recommended.

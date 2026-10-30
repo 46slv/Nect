@@ -42,7 +42,10 @@ function fixture() {
     },
   };
 }
-function setup(t, { realSession = false, empty = false, restoreRenderFocus = false } = {}) {
+function setup(
+  t,
+  { realSession = false, empty = false, restoreRenderFocus = false, live = false } = {},
+) {
   const win = new Window();
   t.after(() => win.happyDOM.abort());
   win.document.body.innerHTML = '<main></main>';
@@ -69,6 +72,7 @@ function setup(t, { realSession = false, empty = false, restoreRenderFocus = fal
   };
   const panel = createSharedColorsPanel({
     app,
+    live,
     getSession: () => session,
     getDocument: currentDocument,
     getCoverageSnapshot: () => coverage,
@@ -935,4 +939,166 @@ test('moved actions keep stable keyboard focus, returning to Preview when Apply/
   s.click('[data-chroma-cancel]');
   assert.equal(s.calls.length, 1, 'Repeated Preview/Cancel adds no history');
   assert.deepEqual(s.notices, []);
+});
+
+test('palette swatches immediately follow the wheel and select exact stable IDs without authoring', (t) => {
+  const s = setup(t, { realSession: true });
+  const before = serialize(s.model);
+  const palette = s.query('.harmony-palette-swatches');
+  assert.equal(palette.previousElementSibling, s.query('.harmony-wheel'));
+  assert.deepEqual(
+    [...palette.querySelectorAll('button')].map((el) => el.dataset.wheelSelect),
+    s.model.colorDesign.palette.map((item) => item.id),
+  );
+  s.click('[data-wheel-select="text"]');
+  assert.equal(s.query('[data-wheel-entry]').value, 'text');
+  assert.equal(s.query('[data-wheel-lightness]').dataset.wheelId, 'text');
+  assert.equal(serialize(s.model), before);
+  assert.ok(s.query('.chroma-settings-scroll .shared-color-list'));
+  assert.ok(!s.query('.chroma-settings-scroll .harmony-wheel'));
+});
+
+for (const [selector, original, expected] of [
+  ['[data-wheel-setting="hueRotation"]', 0, 10],
+  ['[data-wheel-setting="lightnessRange"]', 0.7, 0.8],
+  ['[data-chroma-strength]', 0.72, 0.82],
+])
+  test(`rendered ${selector} scrubs as a view draft and Apply is exactly one Undo`, (t) => {
+    const s = setup(t, { realSession: true, restoreRenderFocus: true });
+    s.change(selector, original);
+    const before = serialize(s.model),
+      past = s.session.historyView.past.length;
+    const input = s.query(selector);
+    input.focus();
+    s.fire(input, 'pointerdown', { pointerId: 21, button: 0, clientX: 20 });
+    s.fire(s.app, 'pointermove', { pointerId: 21, clientX: 34 });
+    assert.equal(Number(s.query(selector).value), expected);
+    s.fire(s.app, 'pointerup', { pointerId: 21 });
+    assert.equal(Number(s.query(selector).value), expected);
+    assert.equal(serialize(s.model), before);
+    assert.equal(s.session.historyView.past.length, past);
+    s.preview();
+    s.click('[data-chroma-cancel]');
+    assert.equal(serialize(s.model), before);
+    s.preview();
+    s.apply();
+    assert.equal(s.session.historyView.past.length, past + 1);
+    s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+    s.render();
+    assert.equal(serialize(s.model), before);
+  });
+
+for (const interruption of ['pointercancel', 'lostpointercapture', 'Escape', 'blur'])
+  test(`wheel numeric ${interruption} restores the whole recipe and input`, (t) => {
+    const s = setup(t, { realSession: true, restoreRenderFocus: true });
+    const before = serialize(s.model),
+      past = s.session.historyView.past.length;
+    const input = s.query('[data-wheel-setting="lightnessSteps"]');
+    const original = input.value;
+    const markers = [...s.app.querySelectorAll('[data-wheel-marker]')].map((el) =>
+      el.getAttribute('transform'),
+    );
+    input.focus();
+    s.fire(input, 'pointerdown', { pointerId: 21, button: 0, clientX: 20 });
+    s.fire(s.app, 'pointermove', { pointerId: 21, clientX: 26 });
+    assert.notEqual(s.query('[data-wheel-setting="lightnessSteps"]').value, original);
+    if (interruption === 'Escape') s.fire(s.app, 'keydown', { key: 'Escape' });
+    else if (interruption === 'blur') s.win.dispatchEvent(new s.win.Event('blur'));
+    else s.fire(s.app, interruption, { pointerId: 21 });
+    assert.equal(s.query('[data-wheel-setting="lightnessSteps"]').value, original);
+    assert.deepEqual(
+      [...s.app.querySelectorAll('[data-wheel-marker]')].map((el) => el.getAttribute('transform')),
+      markers,
+    );
+    assert.equal(serialize(s.model), before);
+    assert.equal(s.session.historyView.past.length, past);
+    assert.equal(s.panel.open, true, 'Escape cancels the gesture, not the whole panel');
+  });
+
+test('color scroll offsets survive repeated recipe edits and swatch selection', (t) => {
+  const s = setup(t);
+  s.query('.chroma-settings-scroll').scrollTop = 190;
+  s.query('.harmony-palette-swatches').scrollLeft = 17;
+  s.change('[data-wheel-setting="hueRotation"]', 22);
+  assert.equal(s.query('.chroma-settings-scroll').scrollTop, 190);
+  assert.equal(s.query('.harmony-palette-swatches').scrollLeft, 17);
+  s.click('[data-wheel-select="background"]');
+  assert.equal(s.query('.chroma-settings-scroll').scrollTop, 190);
+  assert.equal(s.query('.harmony-palette-swatches').scrollLeft, 17);
+});
+
+test('live alpha drag uses stable IDs even when two saved colors have the same name', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const before = serialize(s.model),
+    originalFirst = s.model.colorSlots.find((slot) => slot.id === 'primary').value.alpha,
+    past = s.session.historyView.past.length;
+  const input = s.query('[data-shared-color-id="secondary"][data-shared-color-edit="alpha"]');
+  s.fire(input, 'pointerdown', { pointerId: 31, button: 0, clientX: 20 });
+  s.fire(s.app, 'pointermove', { pointerId: 31, clientX: 34 });
+  s.fire(s.app, 'pointerup', { pointerId: 31 });
+  assert.equal(s.model.colorSlots.find((slot) => slot.id === 'secondary').value.alpha, 0.1);
+  assert.equal(s.model.colorSlots.find((slot) => slot.id === 'primary').value.alpha, originalFirst);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  s.session.dispatch({ ...s.session.state, type: 'undo', payload: {} });
+  s.render();
+  assert.equal(serialize(s.model), before);
+});
+
+
+test('live ring-count input samples preserve fixed stable-ID centers when returning to the origin', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const before = serialize(s.model),
+    past = s.session.historyView.past.length;
+  const input = s.query('[data-wheel-setting="lightnessSteps"]');
+  for (const value of ['1', '7']) {
+    input.value = value;
+    s.fire(input, 'input');
+  }
+  s.fire(input, 'change');
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.session.historyView.past.length, past);
+  assert.equal(s.panel.previewDocument, null);
+  const range = s.query('[data-wheel-range="hueSteps"]');
+  assert.equal(range.min, '3');
+  assert.equal(range.step, '3');
+});
+
+
+test('a second primary pointer cannot settle or retarget the first live color gesture', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const before = serialize(s.model),
+    angle = s.model.colorDesign.wheel.hueRotation,
+    strength = s.model.colorDesign.colorfulness,
+    past = s.session.historyView.past.length;
+  const first = s.query('[data-wheel-setting="hueRotation"]');
+  s.fire(first, 'pointerdown', { pointerId: 41, button: 0, clientX: 20 });
+  s.fire(s.app, 'pointermove', { pointerId: 41, clientX: 34 });
+  const second = s.query('[data-chroma-strength]');
+  const rejected = s.fire(second, 'pointerdown', { pointerId: 42, button: 0, clientX: 20 });
+  assert.equal(rejected.defaultPrevented, true);
+  s.fire(s.app, 'pointerup', { pointerId: 42 });
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.session.historyView.past.length, past);
+  s.fire(s.app, 'pointerup', { pointerId: 41 });
+  assert.equal(s.model.colorDesign.wheel.hueRotation, angle + 10);
+  assert.equal(s.model.colorDesign.colorfulness, strength);
+  assert.equal(s.session.historyView.past.length, past + 1);
+  assert.equal(s.app.querySelectorAll('[data-color-coverage-status]').length, 1);
+});
+
+
+test('invalid final numeric text rolls back rather than committing its earlier valid preview on navigation', (t) => {
+  const s = setup(t, { realSession: true, live: true });
+  const before = serialize(s.model),
+    past = s.session.historyView.past.length;
+  const input = s.query('[data-chroma-strength]');
+  input.focus();
+  input.value = '0.3';
+  s.fire(input, 'input');
+  input.value = '';
+  s.fire(input, 'input');
+  s.fire(s.query('[data-wheel-select="text"]'), 'pointerdown', { pointerId: 51, button: 0 });
+  assert.equal(serialize(s.model), before);
+  assert.equal(s.session.historyView.past.length, past);
+  assert.equal(s.panel.previewDocument, null);
 });

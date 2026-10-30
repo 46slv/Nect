@@ -8,7 +8,7 @@ import {
 } from '../src/workspace-panels.js';
 
 const markup =
-  '<div class="workspace"><nav class="tools"></nav><main class="middle"></main><aside class="right"><section class="layers"></section><section class="inspector"></section></aside></div>';
+  '<div class="workspace"><nav class="tools"></nav><main class="middle"></main><aside class="right"><section class="layers"><div class="panel-head"><strong>Layers</strong></div></section><section class="inspector"></section></aside></div>';
 function fixture(saved = null) {
   const window = new Window();
   const root = window.document.createElement('div');
@@ -158,4 +158,43 @@ test('wheel allocation overrides the compact swatch cap and reserves other panel
   } finally {
     f.window.happyDOM.abort();
   }
+});
+
+test('Layers collapse is persistent view state and Focus Layers visibly reopens it', () => {
+  const f = fixture();
+  f.root.querySelector('[data-collapse-layers]').click();
+  assert.equal(f.root.querySelector('.layers').hidden, true);
+  assert.equal(f.root.querySelector('[data-layers-resize]').hidden, true);
+  assert.equal(JSON.parse(f.values.get(WORKSPACE_PREFERENCES_KEY)).layersVisible, false);
+  f.root.innerHTML = markup;
+  f.controller.attach(f.root);
+  assert.equal(f.root.querySelector('.layers').hidden, true);
+  f.root.querySelector('[data-workspace-panel="layers"]').click();
+  assert.equal(f.root.querySelector('.layers').hidden, false);
+  assert.equal(f.root.querySelector('[data-layers-resize]').hidden, false);
+  assert.equal(f.window.document.activeElement, f.root.querySelector('.layers'));
+  assert.equal(f.root.querySelector('.workspace').dataset.focusedPanel, 'layers');
+  assert.equal(
+    f.root.querySelector('[data-workspace-panel="layers"]').getAttribute('aria-expanded'),
+    'true',
+  );
+  assert.notEqual(JSON.parse(f.values.get(WORKSPACE_PREFERENCES_KEY)).layersVisible, false);
+  f.window.happyDOM.abort();
+});
+
+test('Focus Inspector reveals its content and manual Layers resize clears temporary priority', () => {
+  const f = fixture();
+  const inspector = f.root.querySelector('.inspector');
+  inspector.scrollTop = 190;
+  f.root.querySelector('[data-workspace-panel="inspector"]').click();
+  assert.equal(inspector.scrollTop, 0);
+  assert.equal(f.window.document.activeElement, inspector);
+  assert.equal(inspector.style.minHeight, '225px');
+  const separator = f.root.querySelector('[data-layers-resize]');
+  assert.equal(separator.getAttribute('aria-valuemax'), '269');
+  f.root.querySelector('[data-workspace-panel="layers"]').click();
+  separator.dispatchEvent(new f.window.KeyboardEvent('keydown', { key: 'Home' }));
+  assert.equal(separator.getAttribute('aria-valuenow'), '96');
+  assert.equal(f.root.querySelector('.workspace').dataset.focusedPanel, '');
+  f.window.happyDOM.abort();
 });

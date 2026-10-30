@@ -49,13 +49,15 @@ function name(value) {
 export function validateColorDesign(doc, slots) {
   const design = doc.colorDesign;
   if (design === undefined) return;
-  const wheelDesign = design?.version === 2;
+  const wheelDesign = design?.version === 2,
+    hasSpread = Object.hasOwn(design || {}, 'spread');
   const keys = [
     'version',
     'profile',
     'colorfulness',
     'areaAware',
     'lockedSlotIds',
+    ...(hasSpread ? ['spread'] : []),
     ...(wheelDesign ? ['wheel', 'palette'] : []),
   ];
   if (
@@ -70,6 +72,8 @@ export function validateColorDesign(doc, slots) {
     !Number.isFinite(design.colorfulness) ||
     design.colorfulness < 0 ||
     design.colorfulness > 1 ||
+    (hasSpread &&
+      (!Number.isFinite(design.spread) || design.spread < 0 || design.spread > 1)) ||
     typeof design.areaAware !== 'boolean' ||
     !Array.isArray(design.lockedSlotIds) ||
     design.lockedSlotIds.length > 256
@@ -228,6 +232,7 @@ export function applyColorSlotCommand(doc, type, payload, makeId) {
     const generated = resolveHarmonyPalette(design.wheel, newEntries, {
       profile: design.profile,
       colorfulness: design.colorfulness,
+      spread: design.spread ?? 0.62,
       areaAware: design.areaAware,
     }).colors;
     const added = generated.map((row, index) => ({

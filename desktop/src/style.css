@@ -2744,8 +2744,11 @@ input[data-scrub-step].scrubbing {
 /* The wheel must have a usable viewport instead of shrinking against the
    Inspector's content. Swatches/settings continue to scroll within this area. */
 .shared-colors-panel:has(.harmony-wheel) {
-  flex: 0 1 clamp(320px, 52vh, 440px);
-  max-height: calc(100% - 200px);
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 .right:has(.harmony-wheel) > .inspector {
   min-height: 120px;
@@ -2793,9 +2796,7 @@ input[data-scrub-step].scrubbing {
 }
 /* One action row stays available while inspecting the draft and comparison. */
 .chroma-draft-bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   padding: 0 0 4px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--line);
@@ -2872,7 +2873,9 @@ input[data-scrub-step].scrubbing {
 }
 .harmony-wheel {
   display: block;
-  width: min(100%, 310px);
+  width: min(100%, var(--harmony-wheel-size, 210px));
+  height: auto;
+  flex-shrink: 0;
   margin: 0 auto 6px;
   aspect-ratio: 1;
   touch-action: none;
@@ -2931,4 +2934,191 @@ input[data-scrub-step].scrubbing {
   flex-wrap: wrap;
   gap: 5px;
   margin: 8px 0;
+}
+
+/* Only parameters scroll. The wheel, palette and actions occupy their own rows. */
+.shared-colors-panel:has(.harmony-wheel) > header {
+  flex: 0 0 auto;
+}
+.shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.chroma-settings-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+.chroma-settings-scroll > label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 5px 0;
+}
+.shared-colors-panel:has(.harmony-wheel) .harmony-wheel-panel {
+  flex: 0 0 auto;
+  min-height: 0;
+  margin: 0 0 5px;
+  padding-bottom: 4px;
+}
+.harmony-palette-swatches {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 2px;
+}
+.harmony-palette-swatches button {
+  flex: 0 0 42px;
+  width: 42px;
+  min-width: 0;
+  padding: 3px;
+  font-size: 10px;
+}
+.harmony-palette-swatches button > span:not(.harmony-palette-chip) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.harmony-palette-chip {
+  display: block;
+  height: 16px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.harmony-palette-swatches button[aria-pressed='true'] {
+  border-color: var(--selection);
+  outline: 1px solid var(--selection);
+}
+input[data-color-scrub-step] {
+  cursor: ew-resize;
+  touch-action: none;
+}
+.layers[hidden],
+.layers-resize[hidden] {
+  display: none;
+}
+.workspace-panel-bar button[aria-current='true'] {
+  background: #dae3e9;
+  border-color: var(--selection);
+}
+[data-focused-panel='layers'] .layers > .panel-head,
+[data-focused-panel='inspector'] .inspector > .panel-head {
+  background: #eaf3ff;
+}
+.layers:focus,
+.inspector:focus {
+  outline: 2px solid var(--selection);
+  outline-offset: -2px;
+}
+
+.harmony-palette-swatches output {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+}
+.harmony-coverage-status {
+  margin: 3px 0 0;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.color-parameter-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 64%;
+}
+.color-parameter-value input[type='range'] {
+  flex: 1 1 0;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+  accent-color: #303840;
+}
+.auto-chroma-controls .color-parameter-value input[type='number'],
+.color-parameter-value select {
+  flex: 0 0 54px;
+  width: 54px;
+  max-width: 54px;
+  min-width: 0;
+}
+.harmony-palette-role {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 8px;
+  white-space: nowrap;
+}
+.harmony-neutral-lane {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 5px 4px 0;
+  font-size: 10px;
+}
+.harmony-neutral-track {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  margin: 0 9px;
+  border: 1px solid var(--line);
+  background: linear-gradient(90deg, #fff, #999 50%, #111);
+}
+[data-wheel-neutral] {
+  position: absolute;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #303840;
+  background: #fff;
+  font-size: 9px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+[data-wheel-neutral][data-selected='true'] {
+  outline: 2px solid var(--selection);
+}
+.harmony-selected-color {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 10px;
+}
+.color-advanced {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+}
+.color-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.chroma-draft-bar.chroma-live-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+  pointer-events: none;
+}
+.harmony-coverage-status {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

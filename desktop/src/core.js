@@ -5885,6 +5885,37 @@ export class CommandSession {
   }
   #gestureCandidate(base, target, update) {
     if (!target || typeof target !== 'object') throw Error('Invalid gesture target');
+    if (target.kind === 'color-slots') {
+      const slots = new Set((base.colorSlots || []).map((slot) => slot.id));
+      if (
+        Object.getPrototypeOf(target) !== Object.prototype ||
+        Object.keys(target).length !== 2 ||
+        Object.keys(target).some((key) => !['kind', 'slotIds'].includes(key)) ||
+        !Array.isArray(target.slotIds) ||
+        !target.slotIds.length ||
+        target.slotIds.length > 256 ||
+        new Set(target.slotIds).size !== target.slotIds.length ||
+        target.slotIds.some((id) => typeof id !== 'string' || !slots.has(id))
+      )
+        throw Error('Select distinct existing shared Color slots');
+      if (
+        !update ||
+        Object.getPrototypeOf(update) !== Object.prototype ||
+        Object.keys(update).some((key) => !['updates', 'design'].includes(key)) ||
+        !Array.isArray(update.updates) ||
+        update.updates.length !== target.slotIds.length ||
+        update.updates.some(
+          (row) =>
+            !row ||
+            Object.getPrototypeOf(row) !== Object.prototype ||
+            Object.keys(row).length !== 2 ||
+            Object.keys(row).some((key) => !['slotId', 'value'].includes(key)) ||
+            !target.slotIds.includes(row.slotId),
+        )
+      )
+        throw Error('Color gesture updates must match the frozen slot targets');
+      return this.#commandCandidate('set-color-slots', update, base).candidate;
+    }
     if (target.kind === 'transform-anchor')
       return this.#commandCandidate(
         'reposition-transform-anchor',
@@ -6698,7 +6729,7 @@ export class CommandSession {
       const layer = base.layers.find((layer) => layer.id === target?.layerId),
         node = layer?.nodes.find((node) => node.id === target.nodeId);
       const q = node && target.kind === 'parameter' ? parameter(node, target.key) : null;
-      const initial =
+      let initial =
         target?.kind === 'text-font'
           ? { initial: true }
           : target?.kind === 'text-values'
@@ -6727,6 +6758,13 @@ export class CommandSession {
                             : q?.value,
                       }
                     : { width: node?.width ?? 264 };
+      if (target?.kind === 'color-slots')
+        initial = {
+          updates: (Array.isArray(target.slotIds) ? target.slotIds : []).map((slotId) => ({
+            slotId,
+            value: base.colorSlots?.find((slot) => slot.id === slotId)?.value,
+          })),
+        };
       this.#gestureCandidate(base, target, initial);
       this.#gesture = {
         id: uid('gesture'),

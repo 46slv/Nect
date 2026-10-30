@@ -113,7 +113,7 @@ const capture = async (name, action, state) => {
         (el) => el.dataset.id,
       ),
       deleteCenterHitTest,
-      paletteDraft: [
+      paletteState: [
         ...document.querySelectorAll(
           '.chroma-draft-bar, [data-chroma-state], .shared-colors-heading',
         ),
@@ -137,7 +137,7 @@ const capture = async (name, action, state) => {
       ),
       actions: [
         ...document.querySelectorAll(
-          '.graph .node.selected .node-actions button, [data-chroma-preview], [data-chroma-apply], [data-chroma-cancel]',
+          '.graph .node.selected .node-actions button, [data-wheel-select]',
         ),
       ].map(measure),
     };
@@ -146,7 +146,7 @@ const capture = async (name, action, state) => {
   await page.screenshot({ path: resolve(out, file), fullPage: false });
   captures.push({ file, action, state, ...geometry });
 };
-// Preserve the whole wheel and a single compact primary row at panel top.
+// Preserve separate status, wheel, palette and parameter rows while parameters scroll.
 // This asserts box containment/order only, not full interaction actionability.
 const checkPaletteTopLayout = async () => {
   const layout = await page.locator('.shared-colors-panel').evaluate((panel) => {
@@ -164,12 +164,19 @@ const checkPaletteTopLayout = async () => {
       },
       bar: rect(panel.querySelector('.chroma-draft-bar')),
       wheel: rect(panel.querySelector('.harmony-wheel')),
-      buttons: [...panel.querySelectorAll('.chroma-draft-actions button')].map(rect),
+      swatches: rect(panel.querySelector('.harmony-palette-swatches')),
+      neutral: rect(panel.querySelector('.harmony-neutral-track')),
+      parameters: rect(panel.querySelector('.chroma-settings-scroll')),
+      buttons: panel.querySelectorAll(
+        '[data-chroma-preview],[data-chroma-apply],[data-chroma-cancel]',
+      ).length,
     };
   });
   for (const [label, bounds] of [
     ['status/actions', layout.bar],
     ['whole wheel', layout.wheel],
+    ['palette colors', layout.swatches],
+    ['neutral track', layout.neutral],
   ])
     assert.ok(
       bounds.left >= layout.port.left &&
@@ -178,11 +185,14 @@ const checkPaletteTopLayout = async () => {
         bounds.bottom <= layout.port.bottom,
       `${label} is contained at panel top: ${JSON.stringify(layout)}`,
     );
-  assert.ok(layout.wheel.top >= layout.bar.bottom, 'Sticky bar does not cover the wheel at top');
+  assert.ok(layout.wheel.top >= layout.bar.bottom, 'Status row does not cover the wheel');
+  assert.ok(layout.swatches.top >= layout.wheel.bottom, 'Colors sit immediately below wheel');
+  assert.ok(layout.neutral.top >= layout.swatches.bottom, 'Neutral track follows palette chips');
   assert.ok(
-    layout.buttons.every((b) => b.top === layout.buttons[0].top),
-    'Primary actions fit one row',
+    layout.parameters.top >= layout.neutral.bottom,
+    'Parameters scroll below wheel and palette',
   );
+  assert.equal(layout.buttons, 0, 'Live controls have no Preview/Apply gate');
 };
 const checkGraphToolbar = async (width) => {
   const compact = width === 900;
@@ -409,6 +419,8 @@ try {
   await page.locator('[data-harmony-create]').click();
   const saved = await encoded();
   assert.equal((await snapshot()).colorDesign.palette.length, 5);
+  assert.equal(await page.locator('[data-color-advanced]').evaluate((el) => el.open), false);
+  assert.equal(await page.locator('[data-chroma-lock]').first().isVisible(), false);
   assert.equal(
     await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
     'saved',
@@ -418,100 +430,75 @@ try {
     { width: 900, height: 720 },
   ]) {
     await page.setViewportSize(viewport);
-    await page.locator('.shared-colors-panel').evaluate((el) => {
+    await page.locator('.chroma-settings-scroll').evaluate((el) => {
       el.scrollTop = 0;
     });
     await checkPaletteTopLayout();
     await capture(
       `palette-saved-${viewport.width}`,
-      'Open actual Shared Colors harmony panel at top',
-      'Saved default five-role palette, no preview',
+      'Open actual Shared Colors harmony panel',
+      'Saved default five-role palette; wheel and palette colors in separate pinned rows',
     );
     const rotation = page.locator('[data-wheel-setting="hueRotation"]');
+    const before = await page.evaluate(() => window.nect.commandState);
     await rotation.fill('75');
-    await rotation.press('Tab');
+    await page.waitForFunction(
+      () => window.nect.colorPreviewSnapshot()?.colorDesign.wheel.hueRotation === 75,
+    );
     assert.equal(
       await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
-      'draft',
+      'editing',
     );
-    await page.locator('[data-chroma-preview]').focus();
-    await page.locator('[data-chroma-preview]').press('Enter');
-    assert.equal(
-      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
-      'preview',
-    );
-    assert.equal(await page.locator('[data-chroma-apply]').count(), 1);
-    assert.equal(await page.locator('[data-chroma-cancel]').count(), 1);
-    assert.equal(
-      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
-      true,
-    );
-    await page.keyboard.press('Tab');
-    assert.equal(
-      await page.locator('[data-chroma-apply]').evaluate((el) => document.activeElement === el),
-      true,
-    );
-    await page.keyboard.press('Tab');
-    assert.equal(
-      await page.locator('[data-chroma-cancel]').evaluate((el) => document.activeElement === el),
-      true,
-    );
-    assert.equal(await encoded(), saved, 'Preview does not author project changes');
+    assert.equal(await encoded(), saved, 'Typing projects live without authoring each keystroke');
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), before);
     assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 1);
-    await page.locator('.shared-colors-panel').evaluate((el) => {
-      el.scrollTop = 0;
-    });
     await checkPaletteTopLayout();
     await capture(
-      `palette-preview-top-${viewport.width}`,
-      'Preview hue rotation 75; scroll panel to top',
-      'Saved palette plus non-authored proposed draft',
+      `palette-live-editing-${viewport.width}`,
+      'Type hue rotation 75 without Enter or Apply',
+      'Live detached color edit; committed project and history unchanged',
     );
-    await page.locator('.chroma-preview > div').first().scrollIntoViewIfNeeded();
+    await page.locator('[data-wheel-setting="lightnessRange"]').scrollIntoViewIfNeeded();
+    assert.ok(await page.locator('.chroma-settings-scroll').evaluate((el) => el.scrollTop > 0));
+    await checkPaletteTopLayout();
     await capture(
-      `palette-preview-actions-${viewport.width}`,
-      'Scroll real panel to proposed-color comparison without applying',
-      'Same draft, sticky action geometry and scroll metrics',
+      `palette-live-parameters-${viewport.width}`,
+      'Scroll real parameter region to Lightness range while typing remains active',
+      'Same live edit; wheel, swatches and compact status remain pinned above settings',
     );
-    await page.locator('[data-chroma-cancel]').focus();
-    await page.locator('[data-chroma-cancel]').press('Enter');
-    assert.equal(
-      await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
-      true,
-    );
-    assert.equal(
-      await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
-      'draft',
-    );
-    assert.equal(await encoded(), saved, 'Cancel preserves saved palette');
-    assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
-    await page.locator('[data-chroma-reload]').click();
+    await rotation.focus();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
+    assert.equal(await page.locator('.shared-colors-panel').count(), 1);
     assert.equal(
       await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
       'saved',
     );
+    assert.equal(await encoded(), saved, 'Escape rolls back the exact live edit');
+    assert.deepEqual(await page.evaluate(() => window.nect.commandState), before);
+    assert.equal(await page.locator('[data-palette-contrast="preview"]').count(), 0);
   }
+  const beforeCommit = await page.evaluate(() => window.nect.commandState);
   await page.locator('[data-wheel-setting="hueRotation"]').fill('75');
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
   await page.locator('[data-wheel-setting="hueRotation"]').press('Tab');
-  await page.locator('[data-chroma-preview]').click();
-  await page.locator('[data-chroma-apply]').focus();
-  await page.locator('[data-chroma-apply]').press('Enter');
-  assert.equal(
-    await page.locator('[data-chroma-preview]').evaluate((el) => document.activeElement === el),
-    true,
-  );
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
   assert.equal(
     await page.locator('[data-chroma-state]').getAttribute('data-chroma-state'),
     'saved',
   );
-  assert.notEqual(await encoded(), saved, 'Apply authors the proposed palette');
+  assert.notEqual(await encoded(), saved, 'Blur commits the live palette once');
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    beforeCommit.expectedRevision + 1,
+  );
   await capture(
-    'palette-applied-900',
-    'Apply the same proposed draft',
-    'Authored palette, preview dismissed',
+    'palette-live-committed-900',
+    'Leave a valid live field with Tab; no Apply button',
+    'Authored palette; one completed edit',
   );
   await activateCommand(page, 'undo');
-  assert.equal(await encoded(), saved);
+  assert.equal(await encoded(), saved, 'One Undo restores the complete live edit');
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(out, 'workflow-ui-review-captures.json'),
@@ -530,9 +517,10 @@ try {
           navigationDoesNotAuthor: true,
           graphToolbarKeyboardAndResizeReachability: true,
           explicitJoystickHideExposesDeleteCenter: true,
-          previewDoesNotAuthor: true,
-          cancelPreservesSaved: true,
-          applyUndoRestoresSaved: true,
+          liveInputDoesNotAuthorEachKeystroke: true,
+          escapeRollsBackWithoutClosingPanel: true,
+          liveBlurCommitSingleUndo: true,
+          wheelAndPalettePinnedWhileParametersScroll: true,
           errors,
         },
         limits: [

@@ -11,12 +11,14 @@ export function createColorCoverageView({ app, getKey, isOpen, measure }) {
       output.textContent = row ? `${row.percent}%` : '—';
     }
     const status = app.querySelector('[data-color-coverage-status]');
-    if (status)
+    if (status) {
       status.textContent = result?.error
         ? `Coverage unavailable: ${result.error}`
         : result?.value
           ? `Visible area · approx. ${result.value.sampleSize.width} × ${result.value.sampleSize.height} sample · Other ${result.value.other.percent}%`
           : 'Measuring visible area…';
+      status.title = status.textContent;
+    }
   }
   function refresh() {
     if (!isOpen()) return;

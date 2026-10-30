@@ -5,7 +5,7 @@ import { chromium } from 'playwright-core';
 import { blankDocument, blankLayer, node, connect, serialize } from '../src/core.js';
 import { activateCommand } from './command-menu-actions.js';
 
-// Shared colors and transient saturation preview; no persisted recipe/native-dialog acceptance.
+// Shared literals and live saturation edits; native dialogs are not covered.
 const output = resolve('test-results/shared-colors-panel');
 await mkdir(output, { recursive: true });
 const fixture = blankDocument();
@@ -43,6 +43,12 @@ const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const saved = async () => JSON.stringify(await snapshot());
+const openAdvanced = async () => {
+  const details = page.locator('[data-color-advanced]');
+  await details.waitFor();
+  if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click();
+  assert.equal(await details.evaluate((el) => el.open), true);
+};
 const documentSnapshot = () => page.evaluate(() => window.nect.document);
 const inspectTarget = async () => {
   await page.locator(`[data-select-layer="${target.layer.id}"]`).click();
@@ -164,6 +170,9 @@ try {
   let slots = (await documentSnapshot()).colorSlots;
   assert.equal(slots.length, 1);
   const slotId = slots[0].id;
+  assert.equal(await page.locator('[data-color-advanced]').evaluate((el) => el.open), false);
+  assert.equal(await page.locator('[data-chroma-lock]').first().isVisible(), false);
+  await openAdvanced();
   await change(row(slotId).locator('[data-shared-color-edit="name"]'), 'Brand <&>');
   await row(slotId)
     .locator('[data-shared-color-edit="hex"]')
@@ -215,7 +224,27 @@ try {
 
   // A shared edit updates the bound output and remains exactly one Undo step.
   const beforeSharedEdit = await saved();
-  await change(row(slotId).locator('[data-shared-color-edit="alpha"]'), '0.25');
+  const beforeSharedState = await page.evaluate(() => window.nect.commandState);
+  await row(slotId).locator('[data-shared-color-edit="alpha"]').fill('0.25');
+  await shapeHasColor('#2468ab', 0.25);
+  assert.equal(
+    await saved(),
+    beforeSharedEdit,
+    'alpha input reaches artwork before blur, without committing each keystroke',
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeSharedState);
+  assert.equal(
+    (await page.evaluate(() => window.nect.colorPreviewSnapshot())).colorSlots.find(
+      (slot) => slot.id === slotId,
+    ).value.alpha,
+    0.25,
+  );
+  await row(slotId).locator('[data-shared-color-edit="alpha"]').press('Tab');
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    beforeSharedState.expectedRevision + 1,
+  );
   await shapeHasColor('#2468ab', 0.25);
   const quarterAlphaShare = await rendererShare();
   assert.equal(quarterAlphaShare.percent, 29, 'equal-area 0.25 / 0.6 renderer contribution');
@@ -298,6 +327,7 @@ try {
   );
   assert.deepEqual(await snapshot(), expectedProject);
   await inspectTarget();
+  await openAdvanced();
   assert.equal(await binding().inputValue(), slotId);
   await shapeHasColor('#2468ab', 0.25);
   await assertCoverage(slotId, otherSlotId, 29, 'browser reopen');
@@ -316,61 +346,79 @@ try {
   await staleBinding.dispose();
   await assertCoverage(slotId, otherSlotId, 29, 'stale unlink rejected');
   await assertAssetRetained();
-  // Real preview uses the current shared literals and commits one atomic batch.
-  const beforeChroma = await saved();
-  const beforeChromaState = await page.evaluate(() => window.nect.commandState);
-  await page.locator('[data-chroma-profile]').selectOption('soft');
-  assert.equal(await page.locator('[data-chroma-profile]').inputValue(), 'soft');
-  await page.locator(`[data-chroma-lock="${otherSlotId}"]`).check();
-  await page.locator('[data-chroma-preview]').click();
-  assert.match(
-    await page.locator('[data-chroma-area-status]').textContent(),
-    /current visible area/,
+  // v1 controls now apply immediately: each discrete setting is its own edit.
+  assert.equal(
+    await page.locator('[data-chroma-preview],[data-chroma-apply],[data-chroma-cancel]').count(),
+    0,
   );
-  const proposed = await page.locator('.chroma-preview output').allTextContents();
-  assert.equal(await saved(), beforeChroma, 'preview is not an authored edit');
-  assert.deepEqual(await page.evaluate(() => window.nect.commandState), beforeChromaState);
-  assert.equal(proposed.length, 2);
-  await page.setViewportSize({ width: 900, height: 960 });
-  await page.locator('[data-chroma-apply]').scrollIntoViewIfNeeded();
-  const previewBounds = await page.locator('[data-chroma-apply]').evaluate((el) => {
-    const button = el.getBoundingClientRect();
-    const panel = el.closest('.shared-colors-panel').getBoundingClientRect();
-    return {
-      visible: button.top >= panel.top && button.bottom <= panel.bottom,
-      viewportWidth: window.innerWidth,
-    };
-  });
-  assert.equal(previewBounds.visible, true, 'preview Apply is inside the scrollable panel');
-  assert.equal(previewBounds.viewportWidth, 900);
-  await page.screenshot({ path: resolve(output, 'chroma-preview-narrow.png'), fullPage: true });
-  await page.locator('[data-chroma-cancel]').click();
-  assert.equal(await saved(), beforeChroma);
-  assert.equal(await page.locator('[data-chroma-apply]').count(), 0);
-  await page.locator('[data-chroma-preview]').click();
-  await page.locator('[data-chroma-apply]').click();
+  const beforeKeep = await saved();
+  const keptLiteral = (await documentSnapshot()).colorSlots.find(
+    (slot) => slot.id === otherSlotId,
+  ).value;
+  await openAdvanced();
+  await page.locator(`[data-chroma-lock="${otherSlotId}"]`).check();
+  const afterKeep = await saved();
+  assert.notEqual(afterKeep, beforeKeep);
+  assert.deepEqual((await snapshot()).colorDesign.lockedSlotIds, [otherSlotId]);
+  await activateCommand(page, 'undo');
+  assert.equal(await saved(), beforeKeep, 'Keep is a single discrete setting edit');
+  await activateCommand(page, 'redo');
+  assert.equal(await saved(), afterKeep);
+  const beforeChroma = await saved();
+  const beforeProfileColor = (await documentSnapshot()).colorSlots.find(
+    (slot) => slot.id === slotId,
+  ).value;
+  await page.locator('[data-chroma-profile]').selectOption('soft');
   const chromaDoc = await documentSnapshot();
   const changedColor = chromaDoc.colorSlots.find((slot) => slot.id === slotId).value;
-  assert.notEqual(changedColor.hex, '#2468ab');
+  assert.notEqual(changedColor.hex, beforeProfileColor.hex);
   assert.equal(changedColor.alpha, 0.25);
-  assert.equal(chromaDoc.colorSlots.find((slot) => slot.id === otherSlotId).value.hex, '#808080');
+  assert.deepEqual(chromaDoc.colorSlots.find((slot) => slot.id === otherSlotId).value, keptLiteral);
   await shapeHasColor(changedColor.hex, 0.25);
   const afterChroma = await saved();
-  assert.equal(await page.locator('[data-chroma-apply]').count(), 0);
+  assert.equal((await snapshot()).colorDesign.profile, 'soft');
+  assert.equal(await page.locator('[data-color-advanced]').evaluate((el) => el.open), true);
   await activateCommand(page, 'undo');
-  assert.equal(await saved(), beforeChroma, 'one Undo restores the full palette');
+  assert.equal(await saved(), beforeChroma, 'one Undo restores one immediate profile edit');
   await activateCommand(page, 'redo');
   assert.equal(await saved(), afterChroma);
-  await activateCommand(page, 'undo');
   await assertAssetRetained();
-  await page.locator('[data-chroma-preview]').click();
+
+  const strengthState = await page.evaluate(() => window.nect.commandState);
+  await page.locator('[data-chroma-strength]').fill('0.35');
+  await page.waitForFunction(
+    () => window.nect.colorPreviewSnapshot()?.colorDesign.colorfulness === 0.35,
+  );
+  assert.equal(
+    await saved(),
+    afterChroma,
+    'strength is live before Enter/blur but not yet committed',
+  );
+  assert.deepEqual(await page.evaluate(() => window.nect.commandState), strengthState);
+  const strengthProjection = await page.evaluate(() => window.nect.colorPreviewSnapshot());
+  const strengthColor = strengthProjection.colorSlots.find((slot) => slot.id === slotId).value;
+  await shapeHasColor(strengthColor.hex, strengthColor.alpha);
+  await page.locator('[data-chroma-strength]').press('Tab');
+  await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
+  assert.equal((await snapshot()).colorDesign.colorfulness, 0.35);
+  assert.equal(
+    (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+    strengthState.expectedRevision + 1,
+  );
+  await activateCommand(page, 'undo');
+  assert.equal(await saved(), afterChroma, 'one Undo restores the full live strength edit');
+  await page.setViewportSize({ width: 900, height: 960 });
+  await page.locator('[data-chroma-profile]').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: resolve('test-results/workflow-color-live-shared-narrow.png'),
+    fullPage: false,
+  });
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
   assert.equal(await page.locator('.shared-colors-panel').count(), 0);
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
   assert.equal(await launcher.evaluate((el) => el === document.activeElement), true);
-  assert.equal(await saved(), reopened);
-  // Applying saves controls and stable Keep references with the palette.
-  await activateCommand(page, 'redo');
+  assert.equal(await saved(), afterChroma, 'closing an idle live panel does not author state');
+  // Immediate edits save controls and stable Keep references with the palette.
   assert.equal(await saved(), afterChroma);
   const chromaProject = await snapshot();
   assert.deepEqual(chromaProject.colorDesign, {
@@ -393,6 +441,7 @@ try {
   await page.waitForFunction((id) => window.nect.commandState.sessionId !== id, designSession);
   assert.deepEqual(await snapshot(), chromaProject);
   await launcher.click();
+  await openAdvanced();
   assert.equal(await page.locator('[data-chroma-profile]').inputValue(), 'soft');
   assert.equal(Number(await page.locator('[data-chroma-strength]').inputValue()), 0.72);
   assert.equal(await page.locator('[data-chroma-area]').isChecked(), true);
@@ -408,10 +457,11 @@ try {
       {
         ok: true,
         scope:
-          'shared colors, area-aware saturation preview and saved controls; harmony recipe and contrast guards pending',
+          'shared literal live edits, exact binding/unbinding, area attribution, immediate saturation settings and browser save/reopen',
         savedChromaControlsBrowserReopen: true,
-        chromaPreviewCancelApplyAtomicHistory: true,
-        currentVisibleAreaWeightsPreview: true,
+        liveSharedAlphaBeforeBlur: true,
+        immediateSettingsSingleEditHistory: true,
+        liveStrengthBeforeBlurAndSingleCommit: true,
         actualPanelAndInspector: true,
         exactBindingAndUnlinkMaterialization: true,
         sharedEditAndUnlinkUndoRedo: true,
