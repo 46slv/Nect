@@ -177,6 +177,7 @@ try {
     assert.equal(start.trusted, true, 'browser must initiate the actual HTML drag');
     assert.equal(start.path, name);
     assert.ok(start.types.includes('application/x-nect-library-ticket'));
+    await page.waitForFunction(() => document.querySelector('[data-asset-library]')?.style.opacity === '0');
     return before;
   };
   const finishDrag = async (point) => {
@@ -184,6 +185,7 @@ try {
     // Chromium requires a second move over the destination before native drop.
     await page.mouse.move(...point);
     await page.mouse.up();
+    await page.waitForFunction(() => document.querySelector('[data-asset-library]')?.style.opacity !== '0');
   };
   const dropAsset = async (name, route) => {
     const point = await targetPoint(route);

@@ -825,6 +825,7 @@ const sharedColors = createSharedColorsPanel({
   dispatch: (type, payload, envelope) => commandChange(type, payload, undefined, false, envelope),
   render: () => render(),
   notify: (message, error) => notify(message, error),
+  onClose: () => workspacePanels.close('colors'),
 });
 const coverageFontIds = new WeakMap();
 let nextCoverageFontId = 0;
@@ -870,10 +871,8 @@ const workspacePanels = createWorkspacePanels({
   },
   onColors: () => sharedColors.toggle(),
   onAlign: () => {
-    const opening = !alignmentPreferences.open;
-    closeAssetLibrary();
-    alignmentPreferences.open = opening;
-    dockedAlignment = opening;
+    alignmentPreferences.open = true;
+    dockedAlignment = true;
     saveAlignmentPreferences();
     render();
   },
@@ -1504,7 +1503,9 @@ function alignmentPanel(move) {
     .join('');
   return `<section class="alignment-panel" aria-label="Alignment panel"><div class="alignment-heading"><strong>Align</strong><output aria-label="Alignment selection">${count} selected</output><button data-action="align-panel" aria-label="Hide alignment panel" title="Hide alignment panel">×</button></div><div class="alignment-icon-row" role="group" aria-label="Align objects">${alignButtons}</div><div class="alignment-icon-row" role="group" aria-label="Distribute objects">${spreadButtons}</div><div class="alignment-gap-row" role="group" aria-label="Distribute gaps"><span>Spacing</span>${gapButtons}<input type="number" data-align-spacing aria-label="Artwork gap spacing" min="-100000" max="100000" step="any" placeholder="Auto" value="${alignmentPreferences.spacing ?? ''}" title="Blank: equal gaps with outer edges fixed. Number: fixed gap from leading artwork."><span>px</span></div><div class="alignment-reference"><label>Align to <select data-align-reference aria-label="Alignment reference"><option value="selection" ${alignmentPreferences.reference === 'selection' ? 'selected' : ''}>Selection</option><option value="artboard" ${alignmentPreferences.reference === 'artboard' ? 'selected' : ''}>Artboard</option></select></label></div>${allowed || (!count && (artworkTarget || !selection.size)) ? '' : `<output class="alignment-error" role="status">${esc(move.reason)}</output>`}</section>`;
 }
+let privateFontMissingStatus = null;
 function notify(text, bad = false) {
+  privateFontMissingStatus = null;
   message = text;
   error = bad;
   let s = document.querySelector('.status');
@@ -3994,7 +3995,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${alignmentPreferences.open}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
+    )}</nav><main class="middle"><div class="canvas-wrap"><div class="canvas-toolbar" role="toolbar" aria-label="Artboard view"><button data-action="zoom-out" aria-label="Artboard zoom out" title="Zoom out (−)">−</button><output data-zoom="canvas" aria-label="Artboard zoom"></output><button data-action="zoom-in" aria-label="Artboard zoom in" title="Zoom in (+)">+</button><button data-action="fit" title="Fit artboard (Shift+1)">Fit artboard</button><button data-action="actual-size" title="Actual size: one document unit per CSS pixel (Ctrl/Cmd+1)">100%</button><button data-action="snap" class="${aids.snap ? 'active' : ''}" aria-pressed="${aids.snap}" title="Snap to enabled guides, artwork, artboard, grid and 45° directions; hold Alt to bypass">Snap</button><button data-action="align-panel" aria-pressed="${workspacePanels.active.right === 'align'}" title="Show alignment panel">Align</button><button data-action="grid-panel" aria-expanded="${gridOpen}">Grid</button><button data-action="layout-panel" aria-expanded="${layoutOpen}">Layout Grid</button><button data-action="guides-panel" aria-expanded="${guidesOpen}">Guides</button><span data-artboard-size aria-label="Artboard size">${formatDocumentLength(doc.width, artboardUnit)} &#215; ${formatDocumentLength(doc.height, artboardUnit)} ${artboardUnit}</span>${penDraft ? '<button data-pen-finish>Finish path</button><button data-pen-cancel>Cancel path</button>' : ''}</div>${gridPanel()}${layoutOpen ? `<section class="guides-panel" aria-label="Layout Grid">${layoutPanel()}</section>` : ''}${guidesPanel()}<div class="canvas-stage" tabindex="0" aria-label="Artboard viewport" aria-describedby="canvas-navigation-hint" title="Wheel: pan · Alt or Ctrl/Cmd+wheel: zoom · Space or middle drag: pan; Select blank drag: bounds overlap; Shift adds"><svg class="artboard" viewBox="0 0 ${doc.width} ${doc.height}" aria-label="Artwork canvas">${gridOverlay()}${results
     .filter(([x, r]) => layerShown(x) && r.path && !r.error)
     .map(([x, r]) => layerShape(x, r.path))
     .join(
@@ -4016,7 +4017,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}</section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(l.name)}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
       ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
@@ -4036,7 +4037,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
         : hasEmptyOutput(l)
           ? '<h3>Empty composition</h3>'
           : '<p>Select artwork or a graph node.</p>'
-  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div>${results
+  }<hr style="border:0;border-top:1px solid #d8dde2"><div class="field"><label>Layer name</label><input class="string" data-layer-name value="${esc(l.name)}" aria-label="Layer name"></div>${results
     .filter(([, r]) => r.error || r.warnings.length)
     .map(
       ([x, r]) => `<p class="warning">${esc(x.name)}: ${esc(r.error || r.warnings.join(' '))}</p>`,
@@ -6586,13 +6587,8 @@ async function openCompositionImportDialog() {
   select.focus();
 }
 function openAssetLibrary() {
-  if (!getAssetLibraryPanel() && alignmentPreferences.open) {
-    alignmentPreferences.open = false;
-    dockedAlignment = false;
-    saveAlignmentPreferences();
-    render();
-  }
   mountAssetLibrary({
+    onDragState: (dragging) => workspacePanels.setRetreat(dragging),
     resolveDrop: (event) => {
       const target = event.target;
       if (
@@ -6620,8 +6616,7 @@ function openAssetLibrary() {
       return null;
     },
     onClose: () => {
-      workspacePanels.refresh();
-      app.querySelector('[data-workspace-panel="assets"]')?.focus({ preventScroll: true });
+      workspacePanels.close('assets');
     },
     capture: () => ({
       owner: session,
@@ -7225,13 +7220,8 @@ app.addEventListener('click', async (e) => {
     return;
   }
   if (d.action === 'align-panel') {
-    dockedAlignment = false;
-    closeAssetLibrary();
-    const opening = !alignmentPreferences.open;
-    if (opening) closeTransientPanels('align');
-    alignmentPreferences.open = !alignmentPreferences.open;
-    saveAlignmentPreferences();
-    render();
+    if (b.closest('.workspace-drawer')) workspacePanels.close('align');
+    else workspacePanels.select('align');
     return;
   }
   if (d.distributeArtwork !== undefined || d.distributeGap !== undefined) {
@@ -7576,7 +7566,7 @@ app.addEventListener('click', async (e) => {
           }
           break;
         case 'asset-library':
-          openAssetLibrary();
+          workspacePanels.select('assets');
           break;
         case 'add-svg-part':
           svgPartTarget(history.doc, current().id);
@@ -7853,6 +7843,14 @@ app.addEventListener('click', async (e) => {
         render();
         return;
       }
+      const currentNode = current().nodes.find((node) => node.id === nodeId);
+      const choice = currentNode?.osFont?.source && privateFontChoice(currentNode.osFont.source);
+      if (privateFontMissingStatus?.owner === owner &&
+          privateFontMissingStatus.layerId === layerId &&
+          privateFontMissingStatus.nodeId === nodeId &&
+          samePrivateFontSource(privateFontMissingStatus.source, currentNode?.osFont?.source) &&
+          choice && sameFontFace(choice.face, currentNode.osFont.face))
+        notify('Font file attached for this session');
       render();
       const control = [...document.querySelectorAll('[data-change-font]')].find(
         (el) => el.dataset.changeFont === nodeId,
@@ -8511,8 +8509,11 @@ async function commitOsText(nodeId, value, settings = {}) {
       render();
     }
   } catch (error) {
-    if (osTextDrafts.get(nodeId) === draft && draft.request === ticket)
+    if (osTextDrafts.get(nodeId) === draft && draft.request === ticket) {
       notify(`Text preserved: ${error.message || error}`, true);
+      if (error.message === 'Font file missing; reattach the same file' && n.osFont.source)
+        privateFontMissingStatus = { owner, layerId, nodeId, source: n.osFont.source };
+    }
   } finally {
     if (osTextDrafts.get(nodeId) === draft && draft.request === ticket) {
       if (settingsOnly) osTextDrafts.delete(nodeId);
@@ -14281,7 +14282,7 @@ document.addEventListener('click', (event) => {
   document.querySelectorAll('.command-menu[open]').forEach((menu) => (menu.open = false));
   if (
     event.target.closest(
-      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.asset-library,.shared-colors-panel',
+      '.canvas-toolbar,.guides-panel,.alignment-panel,.workspace-panel-bar,.workspace-drawer,.asset-library,.shared-colors-panel',
     )
   )
     return;

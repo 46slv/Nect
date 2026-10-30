@@ -16,6 +16,7 @@ export function createSharedColorsPanel({
   notify,
   live = false,
   onPreview = () => {},
+  onClose = () => {},
 }) {
   let activeColorPointer = null,
     rendering = false;
@@ -318,6 +319,7 @@ export function createSharedColorsPanel({
     chroma.reset();
     open = false;
     render();
+    onClose();
     app.querySelector('[data-workspace-panel="colors"]')?.focus({ preventScroll: true });
   }
   function perform(action) {

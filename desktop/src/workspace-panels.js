@@ -1,341 +1,162 @@
-// Workspace geometry is view state, never an authored Session mutation.
+// Workspace controls are view state only. The real panels and commands keep their owners.
 export const WORKSPACE_PREFERENCES_KEY = 'nect.workspace-panels.v1';
-
 export function layerHeightBounds(sidebarHeight, toolHeight = 0) {
   const height = Number.isFinite(sidebarHeight) ? sidebarHeight : 500;
-  const maximum = Math.max(96, height - Math.max(0, toolHeight) - 134);
-  return { minimum: 96, maximum };
+  return { minimum: 96, maximum: Math.max(96, height - Math.max(0, toolHeight) - 134) };
 }
-
 export function clampLayerHeight(value, sidebarHeight, toolHeight = 0) {
   const { minimum, maximum } = layerHeightBounds(sidebarHeight, toolHeight);
   return Math.max(minimum, Math.min(maximum, Number.isFinite(value) ? value : 160));
 }
 
-export function createWorkspacePanels({
-  getAssetPanel,
-  onAssets,
-  onAlign,
-  onColors,
-  onGeometry = () => {},
-  storage,
-}) {
-  let root,
-    observer,
-    view,
-    preferredHeight = 160,
-    layersVisible = true,
-    layersResized = false,
-    focusedPanel = null,
-    resizing = null;
-  try {
-    const saved = JSON.parse(storage?.getItem(WORKSPACE_PREFERENCES_KEY) || '{}');
-    layersVisible = saved.layersVisible !== false;
-    if (Number.isFinite(saved.layersHeight)) {
-      preferredHeight = Math.max(96, Math.min(1200, saved.layersHeight));
-      layersResized = true;
-    }
-  } catch {
-    /* Unavailable or stale preferences must not prevent editing. */
-  }
+// Definitions are deliberately small: each item binds an existing panel owner, not document state.
+const ITEMS = [
+  { id: 'assets', side: 'left', label: 'Toggle Assets panel', glyph: '▧' },
+  { id: 'colors', side: 'left', label: 'Toggle Shared Colors panel', glyph: '●' },
+  { id: 'layers', side: 'right', label: 'Focus Layers', glyph: '▤', selector: '.layers' },
+  { id: 'align', side: 'right', label: 'Toggle Alignment panel', glyph: '↔', selector: '.alignment-panel' },
+  { id: 'inspector', side: 'right', label: 'Focus Inspector', glyph: '≡', selector: '.inspector' },
+];
+const SHAPE = 'M0 0 H10 C10 30 12 49 34 68 C51 83 51 145 34 160 C12 179 10 198 10 228 H0 Z';
 
-  function save() {
-    try {
-      storage?.setItem(
-        WORKSPACE_PREFERENCES_KEY,
-        JSON.stringify({
-          layersHeight: preferredHeight,
-          ...(!layersVisible ? { layersVisible: false } : {}),
-        }),
-      );
-    } catch {
-      /* Workspace preferences are optional, unlike document saves. */
-    }
-  }
-
+export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors }) {
+  let root, view, observer, active = { left: null, right: 'inspector' }, retreated = false;
+  const item = (id) => ITEMS.find((entry) => entry.id === id);
+  const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
   function refresh() {
     if (!root?.isConnected) return;
-    const workspace = root.querySelector('.workspace');
-    const right = root.querySelector('.right');
-    const layers = right?.querySelector('.layers');
-    const slot = right?.querySelector('[data-workspace-asset-slot]');
-    const separator = right?.querySelector('[data-layers-resize]');
-    if (!workspace || !right || !layers || !slot || !separator) return;
+    const wrap = root.querySelector('.canvas-wrap');
+    if (!wrap) return;
+    const stage = wrap.querySelector('.canvas-stage');
+    if (stage) {
+      wrap.style.setProperty('--stage-left', `${stage.offsetLeft}px`);
+      wrap.style.setProperty('--stage-right', `${Math.max(0, wrap.clientWidth - stage.offsetLeft - stage.clientWidth)}px`);
+      wrap.style.setProperty('--stage-width', `${stage.clientWidth}px`);
+    }
+    if (stage) for (const overlay of wrap.querySelectorAll('.workspace-drawer, .workspace-panel-bar')) {
+      overlay.style.top = `${stage.offsetTop}px`;
+      overlay.style.height = `${stage.clientHeight}px`;
+    }
+    for (const side of ['left', 'right']) {
+      const host = wrap.querySelector(`[data-drawer-side="${side}"]`);
+      const selected = item(active[side]);
+      const shown = !!selected && !(side === 'left' && retreated);
+      host.dataset.activePanel = selected?.id || '';
+      host.hidden = !shown;
+      host.inert = !shown;
+    }
+    for (const entry of ITEMS) {
+      const button = trigger(entry.id);
+      button?.setAttribute('aria-expanded', String(active[entry.side] === entry.id));
+      button?.setAttribute('aria-pressed', String(active[entry.side] === entry.id));
+      if (entry.selector) {
+        const panel = wrap.querySelector(entry.selector);
+        if (panel) panel.hidden = active[entry.side] !== entry.id;
+      }
+    }
+    const colors = wrap.querySelector('.shared-colors-panel');
+    if (colors) colors.hidden = active.left !== 'colors';
+    const slot = wrap.querySelector('[data-workspace-asset-slot]');
     const panel = getAssetPanel();
-    workspace.classList.toggle('has-workspace-assets', !!panel);
-    slot.hidden = !panel;
-    layers.hidden = !layersVisible;
-    separator.hidden = !layersVisible;
-    workspace.dataset.focusedPanel = focusedPanel || '';
-    const available = right.clientHeight || 500;
-    const inspectorReserve =
-      focusedPanel === 'inspector' ? Math.max(128, Math.min(300, available * 0.45)) : 128;
-    right.querySelector('.inspector').style.minHeight = `${inspectorReserve}px`;
-    const layersReserve = layersVisible
-      ? focusedPanel === 'layers'
-        ? Math.min(240, available * 0.4)
-        : layersResized
-          ? preferredHeight
-          : 96
-      : 0;
-    const toolHeight = panel ? Math.min(280, Math.max(144, available * 0.36)) : 0;
-    slot.style.height = `${toolHeight}px`;
-    const colors = right.querySelector('.shared-colors-panel');
-    const alignmentHeight =
-      right.querySelector('.alignment-panel')?.getBoundingClientRect().height || 0;
-    if (colors) {
-      const wheel = colors.querySelector('.harmony-wheel');
-      const limit = wheel
-        ? available -
-          toolHeight -
-          alignmentHeight -
-          layersReserve -
-          (layersVisible ? 6 : 0) -
-          inspectorReserve
-        : Math.min(240, available * 0.24);
-      const allocation = Math.max(88, Math.min(560, limit));
-      colors.style.maxHeight = `${allocation}px`;
-      colors.style.height = wheel ? `${allocation}px` : '';
-      // Reserve header/actions, swatches and a usable parameters viewport.
-      colors.style.setProperty(
-        '--harmony-wheel-size',
-        `${Math.max(64, Math.min(210, allocation - 290))}px`,
-      );
-    }
-    const colorHeight = colors?.getBoundingClientRect().height || 0;
-    const occupied = toolHeight + alignmentHeight + colorHeight + inspectorReserve - 128;
-    const height = clampLayerHeight(
-      focusedPanel === 'layers' ? Math.max(preferredHeight, layersReserve) : preferredHeight,
-      available,
-      occupied,
-    );
-    layers.style.height = `${height}px`;
-    for (const button of root.querySelectorAll(
-      '[data-workspace-panel="layers"],[data-workspace-panel="inspector"]',
-    ))
-      button.setAttribute('aria-current', String(button.dataset.workspacePanel === focusedPanel));
-    root
-      .querySelector('[data-workspace-panel="layers"]')
-      ?.setAttribute('aria-expanded', String(layersVisible));
-    const limits = layerHeightBounds(available, occupied);
-    separator.setAttribute('aria-valuemin', String(Math.round(limits.minimum)));
-    separator.setAttribute('aria-valuemax', String(Math.round(limits.maximum)));
-    separator.setAttribute('aria-valuenow', String(Math.round(height)));
-    separator.setAttribute('aria-valuetext', `Layers height ${Math.round(height)} pixels`);
-    root
-      .querySelector('[data-workspace-panel="assets"]')
-      ?.setAttribute('aria-pressed', String(!!panel));
-    root
-      .querySelector('[data-workspace-panel="align"]')
-      ?.setAttribute('aria-pressed', String(!!right.querySelector('.alignment-panel')));
-    root
-      .querySelector('[data-workspace-panel="colors"]')
-      ?.setAttribute('aria-pressed', String(!!colors));
-    // Keep the library's live DOM outside render()'s replaceable #app. Its async
-    // reads, selection, focus and native file chooser retain their identities.
+    if (slot) slot.hidden = active.left !== 'assets';
     if (panel) {
-      const rect = slot.getBoundingClientRect();
-      panel.classList.add('asset-library-docked');
-      Object.assign(panel.style, {
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-        right: 'auto',
-        bottom: 'auto',
-      });
+      const visible = active.left === 'assets' && slot && !slot.hidden;
+      panel.hidden = !visible;
+      panel.inert = !visible;
+      panel.style.opacity = retreated ? '0' : '';
+      panel.style.pointerEvents = retreated ? 'none' : '';
+      if (visible) {
+        const rect = slot.getBoundingClientRect();
+        panel.classList.add('asset-library-docked');
+        Object.assign(panel.style, {
+          left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`,
+          height: `${rect.height}px`, right: 'auto', bottom: 'auto',
+        });
+      }
     }
-    onGeometry();
   }
-
+  function select(id, { focus = true } = {}) {
+    const entry = item(id);
+    if (!entry) return;
+    if (active[entry.side] === id) return close(id, focus);
+    active[entry.side] = id;
+    retreated = false;
+    // These callbacks may synchronously render; set active before invoking them.
+    if (id === 'assets' && !getAssetPanel()) onAssets();
+    if (id === 'align') onAlign();
+    if (id === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
+    refresh();
+    if (focus && id !== 'assets') {
+      const target = root.querySelector(entry.selector || '.shared-colors-panel');
+      if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }); }
+    }
+  }
+  function close(id, focus = true) {
+    const entry = item(id);
+    if (!entry || active[entry.side] !== id) return;
+    active[entry.side] = null;
+    retreated = false;
+    // Preserve the Assets DOM and in-flight work across panel switches/close.
+    refresh();
+    if (focus) trigger(id)?.focus({ preventScroll: true });
+  }
   function attach(nextRoot) {
     observer?.disconnect();
     view?.removeEventListener('resize', refresh);
-    if (resizing) {
-      preferredHeight = resizing.previous;
-      layersResized = resizing.previousResized;
-      focusedPanel = resizing.previousFocus;
-      resizing = null;
-    }
+    root?.ownerDocument.removeEventListener('keydown', onKeydown);
     root = nextRoot;
     view = root.ownerDocument.defaultView;
-    // A fixed-width sidebar can move without resizing (e.g. 1000 → 900 px).
-    // ResizeObserver alone cannot keep the body-mounted portal aligned.
-    view?.addEventListener('resize', refresh);
-    const workspace = root.querySelector('.workspace');
+    const wrap = root.querySelector('.canvas-wrap');
     const right = root.querySelector('.right');
-    const layers = right?.querySelector('.layers');
-    const inspector = right?.querySelector('.inspector');
-    if (!workspace || !right || !layers || !inspector) return;
-    workspace.classList.add('has-workspace-panels');
-    const heading = layers.querySelector('.panel-head');
-    if (heading && !heading.querySelector('[data-collapse-layers]')) {
-      const collapse = root.ownerDocument.createElement('button');
-      collapse.type = 'button';
-      collapse.className = 'mini';
-      collapse.dataset.collapseLayers = '';
-      collapse.textContent = '−';
-      collapse.title = 'Collapse Layers panel';
-      collapse.setAttribute('aria-label', 'Collapse Layers panel');
-      collapse.addEventListener('click', (event) => {
-        event.stopPropagation();
-        layersVisible = false;
-        focusedPanel = null;
-        refresh();
-        save();
-        root.querySelector('[data-workspace-panel="layers"]')?.focus({ preventScroll: true });
-      });
-      heading.append(collapse);
-    }
-    let slot = right.querySelector('[data-workspace-asset-slot]');
-    if (!slot) {
-      slot = root.ownerDocument.createElement('div');
-      slot.dataset.workspaceAssetSlot = '';
-      slot.className = 'workspace-asset-slot';
-      slot.hidden = true;
-      right.insertBefore(slot, inspector);
-    }
-    let separator = right.querySelector('[data-layers-resize]');
-    if (!separator) {
-      separator = root.ownerDocument.createElement('div');
-      separator.dataset.layersResize = '';
-      separator.className = 'layers-resize';
-      separator.tabIndex = 0;
-      separator.setAttribute('role', 'separator');
-      separator.setAttribute('aria-label', 'Resize Layers');
-      separator.setAttribute('aria-orientation', 'horizontal');
-      layers.after(separator);
-      separator.addEventListener('pointerdown', (event) => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        const previousFocus = focusedPanel,
-          previousResized = layersResized;
-        focusedPanel = null;
-        layersResized = true;
-        resizing = {
-          id: event.pointerId,
-          y: event.clientY,
-          height: layers.getBoundingClientRect().height,
-          previous: preferredHeight,
-          previousFocus,
-          previousResized,
-        };
-        separator.setPointerCapture?.(event.pointerId);
-      });
-      separator.addEventListener('pointermove', (event) => {
-        if (!resizing || resizing.id !== event.pointerId) return;
-        event.preventDefault();
-        preferredHeight = resizing.height + event.clientY - resizing.y;
-        refresh();
-      });
-      const finish = (event) => {
-        if (!resizing || resizing.id !== event.pointerId) return;
-        if (event.type !== 'pointerup') {
-          preferredHeight = resizing.previous;
-          layersResized = resizing.previousResized;
-          focusedPanel = resizing.previousFocus;
-        } else preferredHeight = Number(separator.getAttribute('aria-valuenow'));
-        resizing = null;
-        if (separator.hasPointerCapture?.(event.pointerId))
-          separator.releasePointerCapture(event.pointerId);
-        refresh();
-        if (event.type === 'pointerup') save();
-      };
-      separator.addEventListener('pointerup', finish);
-      separator.addEventListener('pointercancel', finish);
-      separator.addEventListener('lostpointercapture', finish);
-      separator.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && resizing) {
-          event.preventDefault();
-          event.stopPropagation();
-          finish({ type: 'pointercancel', pointerId: resizing.id });
-          return;
-        }
-        const current = Number(separator.getAttribute('aria-valuenow'));
-        const next = {
-          ArrowUp: current - 16,
-          ArrowDown: current + 16,
-          Home: Number(separator.getAttribute('aria-valuemin')),
-          End: Number(separator.getAttribute('aria-valuemax')),
-        }[event.key];
-        if (!Number.isFinite(next) || event.altKey || event.ctrlKey || event.metaKey) return;
-        event.preventDefault();
-        event.stopPropagation();
-        focusedPanel = null;
-        layersResized = true;
-        preferredHeight = next;
-        refresh();
-        preferredHeight = Number(separator.getAttribute('aria-valuenow'));
-        save();
-      });
-    }
-    let bar = workspace.querySelector('.workspace-panel-bar');
-    if (!bar) {
-      bar = root.ownerDocument.createElement('nav');
-      bar.className = 'workspace-panel-bar';
-      bar.setAttribute('aria-label', 'Workspace panels');
-      for (const [id, label, glyph, action] of [
-        ['layers', 'Focus Layers', '▤', () => focus('.layers')],
-        ['assets', 'Toggle Assets panel', '▧', onAssets],
-        ['align', 'Toggle Alignment panel', '↔', onAlign],
-        ...(onColors ? [['colors', 'Toggle Shared Colors panel', '●', toggleColors]] : []),
-        ['inspector', 'Focus Inspector', '≡', () => focus('.inspector')],
-      ]) {
+    const tools = root.querySelector('.tools');
+    if (!wrap || !right || !tools) return;
+    wrap.append(tools, right);
+    right.classList.add('workspace-drawer');
+    right.dataset.drawerSide = 'right';
+    right.setAttribute('aria-label', 'Editing panels');
+    const left = root.ownerDocument.createElement('aside');
+    left.className = 'workspace-drawer workspace-drawer-left';
+    left.dataset.drawerSide = 'left';
+    left.setAttribute('aria-label', 'Assets and colors');
+    const slot = root.ownerDocument.createElement('div');
+    slot.dataset.workspaceAssetSlot = '';
+    slot.className = 'workspace-asset-slot';
+    left.append(slot);
+    const colors = right.querySelector('.shared-colors-panel');
+    if (colors) left.append(colors);
+    wrap.append(left);
+    for (const side of ['left', 'right']) {
+      const bar = root.ownerDocument.createElement('nav');
+      bar.className = `workspace-panel-bar workspace-panel-bar-${side}`;
+      bar.setAttribute('aria-label', `${side === 'left' ? 'Assets and colors' : 'Editing'} panels`);
+      bar.innerHTML = `<svg viewBox="0 0 58 228" preserveAspectRatio="none" aria-hidden="true"><path d="${SHAPE}"></path></svg>`;
+      for (const entry of ITEMS.filter((entry) => entry.side === side)) {
         const button = root.ownerDocument.createElement('button');
         button.type = 'button';
-        button.dataset.workspacePanel = id;
-        button.textContent = glyph;
-        button.title = label;
-        button.setAttribute('aria-label', label);
-        if (id === 'assets' || id === 'align' || id === 'colors')
-          button.setAttribute('aria-pressed', 'false');
-        button.addEventListener('click', (event) => {
-          event.stopPropagation();
-          action();
-          refresh();
-        });
+        button.dataset.workspacePanel = entry.id;
+        button.textContent = entry.glyph;
+        button.title = entry.label;
+        button.setAttribute('aria-label', entry.label);
+        button.addEventListener('click', (event) => { event.stopPropagation(); select(entry.id); });
         bar.append(button);
       }
-      workspace.append(bar);
+      wrap.append(bar);
     }
+    view?.addEventListener('resize', refresh);
+    root.ownerDocument.addEventListener('keydown', onKeydown);
+    const ResizeObserver = view?.ResizeObserver;
+    if (ResizeObserver) { observer = new ResizeObserver(refresh); observer.observe(wrap); }
     refresh();
-    const ResizeObserver = root.ownerDocument.defaultView?.ResizeObserver;
-    if (ResizeObserver) {
-      observer = new ResizeObserver(refresh);
-      observer.observe(right);
-      observer.observe(workspace);
-    }
   }
-
-  function toggleColors() {
-    const reveal = focusedPanel && root.querySelector('.shared-colors-panel');
-    focusedPanel = null;
-    if (!reveal) onColors();
-    else focus('.shared-colors-panel');
+  function onKeydown(event) {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing ||
+        event.target.closest?.('dialog[open], input, textarea, select, [contenteditable="true"]')) return;
+    const drawer = event.target.closest?.('[data-drawer-side]');
+    const rail = event.target.closest?.('.workspace-panel-bar');
+    const side = drawer?.dataset.drawerSide || (rail?.classList.contains('workspace-panel-bar-left') ? 'left' : rail ? 'right' : null);
+    const id = side ? active[side] : null;
+    if (id) { event.preventDefault(); close(id); }
   }
-
-  function focus(selector) {
-    const element = root?.querySelector(selector);
-    if (!element) return;
-    if (selector === '.layers') {
-      layersVisible = true;
-      save();
-    }
-    focusedPanel =
-      selector === '.layers' ? 'layers' : selector === '.inspector' ? 'inspector' : null;
-    refresh();
-    element.scrollTop = 0;
-    if (selector === '.layers')
-      element.querySelector('.layer.selected')?.scrollIntoView?.({ block: 'nearest' });
-    element.tabIndex = -1;
-    element.focus({ preventScroll: true });
-  }
-  return {
-    attach,
-    refresh,
-    get layersHeight() {
-      return preferredHeight;
-    },
-  };
+  function setRetreat(value) { retreated = !!value && active.left === 'assets'; refresh(); }
+  return { attach, refresh, select, close, setRetreat, get active() { return active; } };
 }

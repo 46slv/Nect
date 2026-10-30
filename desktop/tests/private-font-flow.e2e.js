@@ -180,6 +180,8 @@ try {
     .getByRole('status')
     .filter({ hasText: /attached/i })
     .waitFor();
+  assert.match(await page.locator('.status .message').innerText(), /attached for this session/i);
+  assert.equal(await page.locator('.status').evaluate((el) => el.classList.contains('error')), false);
   await page.screenshot({ path: 'test-results/workflow-private-font-reattached.png' });
   assert.equal(await snapshot(), applied);
 

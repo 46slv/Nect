@@ -59,7 +59,7 @@ function previewImage(svg) {
     : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {} }) {
+export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {}, onDragState = () => {} }) {
   if (mounted) {
     mounted.querySelector('[data-asset-search]').focus();
     return;
@@ -170,6 +170,7 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
     document.removeEventListener('dragover', dragover);
     document.removeEventListener('drop', drop);
     dragTicket = null;
+    onDragState(false);
     onClose();
   }
   closeMounted = closePanel;
@@ -312,9 +313,12 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
             };
             event.dataTransfer.setData(dragType, dragTicket.id);
             event.dataTransfer.effectAllowed = 'copy';
+            // Defer until native dragstart has returned; keep the source node alive.
+            requestAnimationFrame(() => { if (alive && dragTicket) onDragState(true); });
           };
           button.ondragend = () => {
             dragTicket = null;
+            onDragState(false);
           };
         }
       }

@@ -213,6 +213,13 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     /Font file missing/,
     'equal face names on a different file do not reattach the saved source',
   );
+  assert.match(q('.status .message').textContent, /Font file missing/);
+  await attach();
+  cancel();
+  assert.match(q('.inspector-body .text-font-choice').textContent, /attached for this session/);
+  assert.match(q('.status .message').textContent, /attached for this session/);
+  assert.equal(q('.status').classList.contains('error'), false);
+  assert.equal(snapshot(), saved, 'reattachment is view capability, not document history');
   win.nect.load(serialize(win.nect.document));
   select();
   await attach();
