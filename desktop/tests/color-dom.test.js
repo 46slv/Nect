@@ -91,6 +91,13 @@ test('synthetic Color controls: source display, fallback restoration, alpha vali
   const outputId = win.nect.document.layers[0].nodes.find((n) => n.type === 'Fill').id;
   const field = (id, key) =>
     document.querySelector(`.graph .field[data-node="${id}"][data-key="${key}"]`);
+  await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff0000');
+  assert.ok(field(colorId, 'value').querySelector('[data-color="hsl-h"]'));
+  await change(field(colorId, 'value').querySelector('[data-color="hsl-h"]'), '120');
+  assert.equal(
+    win.nect.document.layers[0].nodes.find((n) => n.id === colorId).params.value.value.hex,
+    '#00ff00',
+  );
   await change(field(colorId, 'value').querySelector('[data-color="hex"]'), '#ff8000');
   await change(field(colorId, 'value').querySelector('[data-color="alpha"]'), '0.5');
   await change(field(outputId, 'color').querySelector('[data-color="hex"]'), '#2040ff');
