@@ -1,13 +1,5 @@
 // Workspace controls are view state only. The real panels and commands keep their owners.
-export const WORKSPACE_PREFERENCES_KEY = 'nect.workspace-panels.v1';
-export function layerHeightBounds(sidebarHeight, toolHeight = 0) {
-  const height = Number.isFinite(sidebarHeight) ? sidebarHeight : 500;
-  return { minimum: 96, maximum: Math.max(96, height - Math.max(0, toolHeight) - 134) };
-}
-export function clampLayerHeight(value, sidebarHeight, toolHeight = 0) {
-  const { minimum, maximum } = layerHeightBounds(sidebarHeight, toolHeight);
-  return Math.max(minimum, Math.min(maximum, Number.isFinite(value) ? value : 160));
-}
+export const DRAWER_PREFERENCES_KEY = 'nect.workspace-drawers.v1';
 
 // Definitions are deliberately small: each item binds an existing panel owner, not document state.
 const ITEMS = [
@@ -19,8 +11,22 @@ const ITEMS = [
 ];
 const SHAPE = 'M0 0 H10 C10 30 12 49 34 68 C51 83 51 145 34 160 C12 179 10 198 10 228 H0 Z';
 
-export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors }) {
+export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColors, storage }) {
   let root, view, observer, active = { left: null, right: 'inspector' }, retreated = false;
+  let attachVersion = 0, restorePending = true;
+  try {
+    const saved = JSON.parse(storage?.getItem(DRAWER_PREFERENCES_KEY) || 'null');
+    if (saved && typeof saved === 'object') {
+      for (const side of ['left', 'right']) {
+        if (saved[side] === null || ITEMS.some((entry) => entry.side === side && entry.id === saved[side]))
+          active[side] = saved[side];
+      }
+    }
+  } catch { /* Bad or obsolete preferences never prevent editing. */ }
+  function save() {
+    try { storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify(active)); }
+    catch { /* View preferences are optional. */ }
+  }
   const item = (id) => ITEMS.find((entry) => entry.id === id);
   const trigger = (id) => root?.querySelector(`[data-workspace-panel="${id}"]`);
   function refresh() {
@@ -33,9 +39,16 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       wrap.style.setProperty('--stage-right', `${Math.max(0, wrap.clientWidth - stage.offsetLeft - stage.clientWidth)}px`);
       wrap.style.setProperty('--stage-width', `${stage.clientWidth}px`);
     }
-    if (stage) for (const overlay of wrap.querySelectorAll('.workspace-drawer, .workspace-panel-bar')) {
-      overlay.style.top = `${stage.offsetTop}px`;
-      overlay.style.height = `${stage.clientHeight}px`;
+    if (stage) {
+      const toolbar = wrap.querySelector('.canvas-toolbar');
+      const top = Math.max(stage.offsetTop,
+        toolbar ? toolbar.getBoundingClientRect().bottom - wrap.getBoundingClientRect().top + 8 : stage.offsetTop);
+      const height = Math.max(0, stage.offsetTop + stage.clientHeight - top);
+      wrap.style.setProperty('--drawer-top', `${top}px`);
+      for (const overlay of wrap.querySelectorAll('.workspace-drawer, .workspace-panel-bar')) {
+        overlay.style.top = `${top}px`;
+        overlay.style.height = `${height}px`;
+      }
     }
     for (const side of ['left', 'right']) {
       const host = wrap.querySelector(`[data-drawer-side="${side}"]`);
@@ -54,6 +67,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         if (panel) panel.hidden = active[entry.side] !== entry.id;
       }
     }
+    root.querySelector('.canvas-toolbar [data-action="align-panel"]')?.setAttribute('aria-pressed', String(active.right === 'align'));
     const colors = wrap.querySelector('.shared-colors-panel');
     if (colors) colors.hidden = active.left !== 'colors';
     const slot = wrap.querySelector('[data-workspace-asset-slot]');
@@ -65,7 +79,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       panel.inert = !visible;
       panel.style.opacity = retreated ? '0' : '';
       panel.style.pointerEvents = retreated ? 'none' : '';
-      if (visible) {
+      // Keep the last valid portal rectangle while the ancestor is hidden during native drag.
+      if (visible && !retreated) {
         const rect = slot.getBoundingClientRect();
         panel.classList.add('asset-library-docked');
         Object.assign(panel.style, {
@@ -80,22 +95,26 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     if (!entry) return;
     if (active[entry.side] === id) return close(id, focus);
     active[entry.side] = id;
-    retreated = false;
+    save();
+    if (entry.side === 'left') retreated = false;
     // These callbacks may synchronously render; set active before invoking them.
     if (id === 'assets' && !getAssetPanel()) onAssets();
     if (id === 'align') onAlign();
-    if (id === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
+    if (id === 'colors') onColors?.();
     refresh();
-    if (focus && id !== 'assets') {
-      const target = root.querySelector(entry.selector || '.shared-colors-panel');
-      if (target) { target.tabIndex = -1; target.focus({ preventScroll: true }); }
+    if (focus) {
+      const target = id === 'assets'
+        ? getAssetPanel()?.querySelector('[data-asset-search]')
+        : root.querySelector(entry.selector || '.shared-colors-panel');
+      if (target) { if (id !== 'assets') target.tabIndex = -1; target.focus({ preventScroll: true }); }
     }
   }
   function close(id, focus = true) {
     const entry = item(id);
     if (!entry || active[entry.side] !== id) return;
     active[entry.side] = null;
-    retreated = false;
+    save();
+    if (entry.side === 'left') retreated = false;
     // Preserve the Assets DOM and in-flight work across panel switches/close.
     refresh();
     if (focus) trigger(id)?.focus({ preventScroll: true });
@@ -110,13 +129,23 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const right = root.querySelector('.right');
     const tools = root.querySelector('.tools');
     if (!wrap || !right || !tools) return;
+    if (wrap.querySelector('.workspace-panel-bar')) {
+      view?.addEventListener('resize', refresh);
+      root.ownerDocument.addEventListener('keydown', onKeydown);
+      const ResizeObserver = view?.ResizeObserver;
+      if (ResizeObserver) { observer = new ResizeObserver(refresh); observer.observe(wrap); }
+      refresh();
+      return;
+    }
     wrap.append(tools, right);
     right.classList.add('workspace-drawer');
     right.dataset.drawerSide = 'right';
+    right.id = 'workspace-drawer-right';
     right.setAttribute('aria-label', 'Editing panels');
     const left = root.ownerDocument.createElement('aside');
     left.className = 'workspace-drawer workspace-drawer-left';
     left.dataset.drawerSide = 'left';
+    left.id = 'workspace-drawer-left';
     left.setAttribute('aria-label', 'Assets and colors');
     const slot = root.ownerDocument.createElement('div');
     slot.dataset.workspaceAssetSlot = '';
@@ -137,6 +166,7 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         button.textContent = entry.glyph;
         button.title = entry.label;
         button.setAttribute('aria-label', entry.label);
+        button.setAttribute('aria-controls', `workspace-drawer-${side}`);
         button.addEventListener('click', (event) => { event.stopPropagation(); select(entry.id); });
         bar.append(button);
       }
@@ -147,6 +177,17 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const ResizeObserver = view?.ResizeObserver;
     if (ResizeObserver) { observer = new ResizeObserver(refresh); observer.observe(wrap); }
     refresh();
+    // Restore only real owners, after render has completed. A newer close or
+    // attach wins; transient drag/focus state is never persisted.
+    const version = ++attachVersion;
+    if (restorePending) queueMicrotask(() => {
+      if (version !== attachVersion || !restorePending) return;
+      restorePending = false;
+      if (active.left === 'assets' && !getAssetPanel()) onAssets(false);
+      if (active.left === 'colors' && !root.querySelector('.shared-colors-panel')) onColors?.();
+      if (active.right === 'align') onAlign();
+      refresh();
+    });
   }
   function onKeydown(event) {
     if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing ||

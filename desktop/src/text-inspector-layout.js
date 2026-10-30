@@ -1,21 +1,24 @@
 // View-only ordering. Move existing controls; keep their handlers and identity.
 const sections = new Map();
-function disclosure(document, key, title) {
+function disclosure(document, key, title, scope = '', defaultOpen = false) {
+  const stateKey = JSON.stringify([scope, key]);
   const details = document.createElement('details');
   details.className = 'text-inspector-details';
   details.dataset.textInspectorSection = key;
   const summary = document.createElement('summary');
   summary.textContent = title;
   details.append(summary);
-  details.open = sections.get(key) || false;
+  details.open = sections.has(stateKey) ? sections.get(stateKey) : defaultOpen;
   // The global click handler can render while dismissing transient panels.
   // Store the requested state before that render replaces this summary.
   summary.addEventListener('click', (event) => {
     event.preventDefault();
     details.open = !details.open;
-    sections.set(key, details.open);
+    sections.set(stateKey, details.open);
   });
-  details.addEventListener('toggle', () => sections.set(key, details.open));
+  details.addEventListener('toggle', () => {
+    if (details.isConnected) sections.set(stateKey, details.open);
+  });
   return details;
 }
 // Save view-only Font/action disclosure state before a global click can rerender.
@@ -60,7 +63,17 @@ export function arrangeTextInspector(root, editingCharacters = false) {
   root.classList.add('text-inspector');
   retainTextFontDisclosures(root);
   const doc = root.ownerDocument;
+  const textInput = controls.querySelector('[data-text], [data-os-text]');
+  const scope = JSON.stringify([textInput?.dataset.text || textInput?.dataset.osText || '', editingCharacters ? 'characters' : 'node']);
   const field = (selector) => controls.querySelector(selector)?.closest('.field');
+  // Native typography already exposes these literals. Keep the generic rows
+  // available for connections, expressions and locks without showing a second
+  // set of literal fields beside the native controls.
+  const parameterLinks = controls.querySelector('.native-text-typography')
+    ? ['size', 'letterSpacing', 'lineSpacing']
+        .map((key) => root.querySelector(`:scope > .field[data-key="${key}"]`))
+        .filter(Boolean)
+    : [];
   const primary = [
     field('[data-text], [data-os-text]'),
     controls.querySelector('[data-apply-os-text]'),
@@ -77,16 +90,22 @@ export function arrangeTextInspector(root, editingCharacters = false) {
     root.querySelector('.field[data-key="lineSpacing"]'),
     controls.querySelector('.text-wrap-controls'),
     controls.querySelector('.text-leading-controls'),
-  ].filter(Boolean);
+  ].filter((child) => child && !parameterLinks.includes(child));
   const separate = [
     ...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions'),
   ];
-  const advanced = disclosure(doc, 'typography', 'More typography');
+  const advanced = disclosure(doc, 'typography', 'More typography', scope);
   for (const child of [...controls.children]) {
     if (!primary.includes(child) && !separate.includes(child)) advanced.append(child);
   }
   for (const child of primary) controls.append(child);
   if (advanced.children.length > 1) controls.append(advanced);
+  if (parameterLinks.length) {
+    const driven = parameterLinks.some((row) => row.classList.contains('connected') || row.querySelector('[data-expression]'));
+    const links = disclosure(doc, 'parameter-links', 'Parameter links', scope, driven);
+    for (const row of parameterLinks) links.append(row);
+    controls.append(links);
+  }
   controls.append(...separate);
   const identity = root.querySelector(':scope > .inspector-node-type');
   if (identity) identity.after(controls);
@@ -101,7 +120,7 @@ export function arrangeTextInspector(root, editingCharacters = false) {
       else root.prepend(characters);
     }
   }
-  const output = disclosure(doc, 'output', 'Node and output');
+  const output = disclosure(doc, 'output', 'Node and output', scope);
   for (const child of root.querySelectorAll(':scope > .viewer-assignment')) output.append(child);
   if (output.children.length > 1) root.append(output);
 }

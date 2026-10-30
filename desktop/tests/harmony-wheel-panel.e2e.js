@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -164,12 +165,12 @@ const pinnedLayout = async (label) => {
     `${label}: status does not cover wheel`,
   );
   assert.ok(
-    result.swatches.bounds.top >= result.wheel.bounds.bottom - 0.5,
-    `${label}: colors follow wheel`,
+    result.swatches.bounds.left >= result.wheel.bounds.right - 0.5,
+    `${label}: vertical colors sit to the right of the wheel`,
   );
   assert.ok(
-    result.neutral.bounds.top >= result.swatches.bounds.bottom - 0.5,
-    `${label}: neutral track follows palette chips`,
+    result.neutral.bounds.top >= result.wheel.bounds.bottom - 0.5,
+    `${label}: neutral track follows wheel`,
   );
   assert.ok(
     result.parameters.top >= result.neutral.bounds.bottom - 0.5,
@@ -323,8 +324,10 @@ try {
   const primary = created.colorDesign.palette[0].id,
     secondary = created.colorDesign.palette[1].id;
   const baseRotation = created.colorDesign.wheel.hueRotation;
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${layer.id}"]`).click();
   await page.locator(`.graph .node[data-id="${fill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await page
     .locator(`.inspector-body [data-shared-color-binding][data-shared-color-node="${fill.id}"]`)
     .selectOption(primary);

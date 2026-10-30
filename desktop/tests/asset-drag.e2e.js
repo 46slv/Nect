@@ -220,6 +220,19 @@ try {
     );
   };
 
+  // Cancel a native drag after retreat: the same live panel and search return,
+  // with no document or history effect.
+  await panel.getByRole('searchbox', { name: 'Search assets', exact: true }).fill('drag');
+  const identity = await panel.elementHandle();
+  const beforeCancel = await state();
+  await startDrag('drag-mark.svg');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('[data-asset-library]')?.style.opacity !== '0');
+  assert.equal(await page.evaluate((node) => node === document.querySelector('[data-asset-library]'), identity), true);
+  assert.equal(await panel.getByRole('searchbox', { name: 'Search assets', exact: true }).inputValue(), 'drag');
+  assert.deepEqual(await state(), beforeCancel, 'canceled drag leaves document and history unchanged');
+
   for (const name of ['drag-mark.svg', 'drag-pixel.png'])
     for (const route of ['graph', 'layer']) {
       const before = await reset();

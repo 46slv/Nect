@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
@@ -24,9 +25,11 @@ const screen = (p) =>
     return [r.x, r.y];
   }, p);
 const select = async () => {
+  await ensureWorkspacePanel(page, 'layers');
   for (let i = 0; i < ids.length; i++)
     await page.locator(`[data-select-layer="${ids[i]}"]`).click({ modifiers: i ? ['Shift'] : [] });
   await page.waitForFunction(() => document.querySelectorAll('.layer.selected').length === 5);
+  await ensureWorkspacePanel(page, 'inspector');
 };
 const load = async (d = fixture) => {
   await page.evaluate((d) => window.nect.load(JSON.stringify(d)), d);
@@ -96,7 +99,9 @@ try {
   await page.mouse.click(...star);
   await page.keyboard.up('Shift');
   await page.waitForFunction(() => document.querySelectorAll('.artwork-selection').length === 4);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${ids[1]}"]`).click({ modifiers: ['Shift'] });
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => document.querySelectorAll('.artwork-selection').length === 5);
   await verify(before);
   // Open itself is undoable; isolate movement's one-entry contract on the same reopened project.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
+import { activateCommand } from './command-menu-actions.js';
 
 const out = resolve('test-results/workspace-panels');
 await mkdir(out + '/parts', { recursive: true });
@@ -22,6 +23,15 @@ try {
   await page.waitForFunction(() => window.nect);
   await page.screenshot({ path: out + '/01-closed.png' });
   const initial = await state();
+  const svgIdentity = await page.locator('.artboard').elementHandle();
+  const insideShape = await page.evaluate(() => [...document.querySelectorAll('.workspace-panel-bar')].every((bar) => {
+    const path = bar.querySelector('path'), inverse = path.getScreenCTM().inverse();
+    return [...bar.querySelectorAll('button')].every((button) => {
+      const r = button.getBoundingClientRect();
+      return [[r.left + 1, r.top + 1], [r.right - 1, r.top + 1], [r.left + 1, r.bottom - 1], [r.right - 1, r.bottom - 1]].every(([x,y]) => path.isPointInFill(new DOMPoint(x,y).matrixTransform(inverse)));
+    });
+  }));
+  assert.equal(insideShape, true, 'all button hit boxes fit inside the accepted silhouette');
   const stage = page.locator('.canvas-stage'), graph = page.locator('.graph-panel');
   const initialGraph = await graph.boundingBox();
   assert.ok(initialGraph.x <= initial.stage[0], 'Graph extends under the upper creation rail');
@@ -43,6 +53,7 @@ try {
   await page.screenshot({ path: out + '/02-assets-and-alignment.png' });
   await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
   same(await state(), initial, 'switching left panel leaves both surfaces stable');
+  assert.equal(await page.evaluate((node) => node === document.querySelector('.artboard'), svgIdentity), true, 'view-only toggles do not replace or refit the canvas');
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   assert.equal(await page.evaluate((node) => node === document.querySelector('[data-asset-library]'), identity), true);
   assert.equal(await page.getByRole('searchbox', { name: 'Search assets', exact: true }).inputValue(), 'blue');
@@ -55,7 +66,13 @@ try {
     assert.ok(boundaries[side].top >= boundaries.stage.top - 1 && boundaries[side].bottom <= boundaries.stage.bottom + 1, `${side} drawer stays in stage`);
     assert.ok(boundaries[side].bottom <= boundaries.graph.top + 1, `${side} drawer never covers graph`);
   }
-  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  await page.evaluate(() => { const dialog = document.createElement('dialog'); dialog.id = 'workspace-modal-probe'; dialog.innerHTML = '<button>Modal owner</button>'; document.body.append(dialog); dialog.showModal(); });
+  await page.keyboard.press('Escape');
+  assert.equal(await panel.count(), 1, 'native modal owns Escape');
+  await page.evaluate(() => document.querySelector('#workspace-modal-probe').remove());
+  await page.getByRole('searchbox', { name: 'Search assets', exact: true }).focus();
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Toggle Alignment panel', exact: true }).click();
   same(await state(), initial, 'closing is view-only');
   // Manual zoom and pan must remain stable too, not only fit mode.
@@ -79,6 +96,30 @@ try {
     await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
   }
+  // A valid native numeric draft follows the existing blur/commit policy even
+  // when the next click switches drawers; one Undo restores the authored value.
+  await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
+  const oldWidth = await page.evaluate(() => window.nect.document.width);
+  await page.locator('[data-dimension="width"]').fill(String(oldWidth + 11));
+  await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
+  await page.waitForFunction((value) => window.nect.document.width === value, oldWidth + 11);
+  assert.equal(await page.locator('.inspector').isVisible(), true);
+  await activateCommand(page, 'undo');
+  assert.equal(await page.evaluate(() => window.nect.document.width), oldWidth);
+
+  // The visible Artboard controls address the active Composition, not its selected layer.
+  await activateCommand(page, 'add-composition');
+  await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
+  const projectBefore = await page.evaluate(() => window.nect.projectSnapshot());
+  const activeId = await page.evaluate(() => window.nect.activeCompositionId);
+  const target = projectBefore.compositions.find((composition) => composition.id === activeId);
+  assert.ok((await page.locator('.artboard-settings').innerText()).includes(target.name));
+  const width = page.locator('[data-dimension="width"]');
+  await width.fill(String(target.width + 13));
+  await width.press('Tab');
+  const projectAfter = await page.evaluate(() => window.nect.projectSnapshot());
+  assert.equal(projectAfter.compositions.find((composition) => composition.id === activeId).width, target.width + 13);
+  assert.deepEqual(projectAfter.compositions.filter((composition) => composition.id !== activeId), projectBefore.compositions.filter((composition) => composition.id !== activeId));
   assert.deepEqual(errors, []);
   await writeFile(out + '/result.json', JSON.stringify({ ok: true, errors }, null, 2));
   console.log('workspace overlay PASS: stable fit/manual geometry, panel state, boundaries and asset identity');

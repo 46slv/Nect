@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -58,8 +59,10 @@ try {
     return { j: j.id, s: s.id, sl: sl.id };
   });
   assert.equal(await page.locator('.artboard .shape').first().locator('path').count(), 2);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${ids.sl}"]`).click();
   await page.locator(`.node[data-id="${ids.s}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   const ctl = (key) => page.locator(`.inspector-body [data-stroke-${key}="${ids.s}"]`);
   await ctl('cap').selectOption('round');
   await ctl('join').selectOption('bevel');

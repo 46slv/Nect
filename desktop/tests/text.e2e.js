@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
@@ -21,6 +22,7 @@ const fixture = 'tests/fixtures/fonts/NectJPFixture-Regular.otf';
 const text = '「日本。、」ABC12\n（文章）ーぁ';
 const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));
 async function commit(selector, value) {
+  await ensureWorkspacePanel(page, 'inspector');
   const input = page.locator(`.inspector-body ${selector}`);
   await input.fill(String(value));
   await input.dispatchEvent('change');
@@ -125,6 +127,7 @@ try {
   const restoredLayer = await page.evaluate(
     () => window.nect.document.layers.find((l) => l.nodes.some((n) => n.type === 'Text')).id,
   );
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${restoredLayer}"]`).click();
   await page
     .locator('.node')
@@ -223,6 +226,7 @@ try {
   // The fixture has no middle dot; use plain ASCII in this licensed subset example.
   showcase.layers[0].nodes[0].text = '日本語、。ー（文章）\nNect SVG / ガパヴ';
   await page.evaluate((json) => window.nect.load(json), JSON.stringify(showcase));
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('.layer .name').filter({ hasText: 'Vertical' }).click();
   await page.waitForTimeout(150);
   assert.equal(await page.locator('.warning').count(), 0);

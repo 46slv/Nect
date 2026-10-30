@@ -59,9 +59,9 @@ function previewImage(svg) {
     : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {}, onDragState = () => {} }) {
+export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {}, onDragState = () => {}, focus = true }) {
   if (mounted) {
-    mounted.querySelector('[data-asset-search]').focus();
+    if (focus) mounted.querySelector('[data-asset-search]').focus();
     return;
   }
   const panel = element('aside', undefined, {
@@ -175,6 +175,8 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
   }
   closeMounted = closePanel;
   function keydown(e) {
+    // Native Escape cancels an in-flight drag; it must not destroy the source panel.
+    if (e.key === 'Escape' && dragTicket) return;
     if (
       e.key === 'Escape' &&
       !e.defaultPrevented &&
@@ -591,6 +593,6 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
     }
   })();
   buttons();
-  search.focus();
+  if (focus) search.focus();
   return panel;
 }

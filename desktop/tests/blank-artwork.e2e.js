@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -250,7 +251,9 @@ try {
   // +Blank appends from hidden/locked old work; demo artwork is fixture-only.
   await load(demo);
   const oldId = JSON.parse(demo).layers[0].id;
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-lock="${oldId}"]`).click();
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-visible="${oldId}"]`).click();
   const prior = await snapshot();
   await click('add-blank-layer');
@@ -260,6 +263,7 @@ try {
   assert.deepEqual(d.layers[0], JSON.parse(prior).layers[0]);
   assert.equal(d.layers[1].nodes.length, 1);
   assert.equal(await page.locator('.shape').count(), 0);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${d.layers[1].id}"]`).click();
   assert.equal(await page.locator('.artwork-selection').count(), 0);
   await click('undo');
@@ -309,6 +313,7 @@ try {
     await load(blank);
     await click('new');
     await click('fit');
+    await ensureWorkspacePanel(page, 'inspector');
     assert.equal(await page.locator('.inspector-body h3').innerText(), 'Empty composition');
     assert.equal(await page.locator('.node.selected').count(), 0);
     const button = page.locator('[data-action="add-blank-layer"]'),

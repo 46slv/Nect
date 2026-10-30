@@ -17,6 +17,7 @@ export function createSharedColorsPanel({
   live = false,
   onPreview = () => {},
   onClose = () => {},
+  externalVisibility = false,
 }) {
   let activeColorPointer = null,
     rendering = false;
@@ -78,7 +79,7 @@ export function createSharedColorsPanel({
       }
     });
   };
-  let open = false;
+  let open = externalVisibility;
   const stamp = () => {
     const s = getSession().state;
     return `data-shared-color-session="${esc(s.sessionId)}" data-shared-color-revision="${s.expectedRevision}"`;
@@ -317,6 +318,11 @@ export function createSharedColorsPanel({
   function close() {
     alphaScrub.stop();
     chroma.reset();
+    if (externalVisibility) {
+      onPreview();
+      onClose();
+      return;
+    }
     open = false;
     render();
     onClose();

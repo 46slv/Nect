@@ -193,6 +193,7 @@ try {
     };
     return {
       panel: bounds(panel),
+      stage: bounds(document.querySelector('.canvas-stage')),
       fieldset: bounds(typography),
       clientWidth: typography.clientWidth,
       scrollWidth: typography.scrollWidth,
@@ -204,7 +205,8 @@ try {
       })),
     };
   });
-  assert.ok(narrowTypography.panel.width <= 275 && narrowTypography.panel.width >= 220);
+  assert.ok(narrowTypography.panel.width >= 220 && narrowTypography.panel.width <= narrowTypography.stage.width / 2);
+  assert.ok(narrowTypography.panel.left >= narrowTypography.stage.left && narrowTypography.panel.right <= narrowTypography.stage.right);
   assert.ok(narrowTypography.scrollWidth <= narrowTypography.clientWidth + 1);
   assert.ok(narrowTypography.fieldset.right <= narrowTypography.panel.right + 1);
   assert.equal(narrowTypography.rows.length, 8);

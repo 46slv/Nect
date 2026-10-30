@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createWorkspacePanels } from '../src/workspace-panels.js';
+import { createWorkspacePanels, DRAWER_PREFERENCES_KEY } from '../src/workspace-panels.js';
 
 const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
@@ -59,7 +59,13 @@ test('asset DOM and search survive switch, render and temporary drag retreat', (
   f.controller.select('assets');
   const panel = f.panel, input = panel.querySelector('input');
   input.value = 'retained search';
+  const slot = f.root.querySelector('[data-workspace-asset-slot]');
+  slot.getBoundingClientRect = () => ({ left: 55, top: 70, width: 300, height: 420 });
+  f.controller.refresh();
+  const rect = [panel.style.left, panel.style.top, panel.style.width, panel.style.height];
+  slot.getBoundingClientRect = () => ({ left: 0, top: 0, width: 0, height: 0 });
   f.controller.setRetreat(true);
+  assert.deepEqual([panel.style.left, panel.style.top, panel.style.width, panel.style.height], rect);
   assert.equal(panel.style.opacity, '0');
   assert.equal(panel.style.pointerEvents, 'none');
   assert.equal(panel.isConnected, true);
@@ -78,6 +84,8 @@ test('asset DOM and search survive switch, render and temporary drag retreat', (
 
 test('repeat attach does not multiply triggers and Escape does not steal text editing', () => {
   const f = fixture();
+  f.controller.attach(f.root);
+  assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 5);
   f.root.innerHTML = markup;
   f.controller.attach(f.root);
   assert.equal(f.root.querySelectorAll('[data-workspace-panel]').length, 5);
@@ -92,4 +100,33 @@ test('repeat attach does not multiply triggers and Escape does not steal text ed
   assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, true);
   assert.equal(f.window.document.activeElement, f.root.querySelector('[data-workspace-panel="inspector"]'));
   f.window.happyDOM.abort();
+});
+
+
+test('drawer preferences restore real owners and ignore invalid or legacy data', async () => {
+  const w = new Window(), root = w.document.createElement('div');
+  w.document.body.append(root);
+  const values = new Map([[DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers' })], ['nect.workspace-panels.v1', '{broken']]);
+  let panel = null, opens = 0, focused = null;
+  const storage = { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) };
+  const create = () => createWorkspacePanels({
+    storage, getAssetPanel: () => panel,
+    onAssets: (focus) => { opens++; focused = focus; panel = w.document.createElement('aside'); w.document.body.append(panel); },
+    onAlign: () => {}, onColors: () => {},
+  });
+  root.innerHTML = markup;
+  const controller = create(); controller.attach(root);
+  await Promise.resolve();
+  assert.equal(opens, 1); assert.equal(focused, false);
+  assert.equal(root.querySelector('.layers').hidden, false);
+  assert.equal(panel.hidden, false);
+  controller.select('inspector');
+  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), { left: 'assets', right: 'inspector' });
+  controller.setRetreat(true);
+  assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), { left: 'assets', right: 'inspector' });
+  values.set(DRAWER_PREFERENCES_KEY, '{broken');
+  root.innerHTML = markup;
+  const fallback = create(); fallback.attach(root);
+  assert.equal(root.querySelector('.inspector').hidden, false);
+  w.happyDOM.abort();
 });

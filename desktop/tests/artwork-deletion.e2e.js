@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import {
   loadArtworkProject,
@@ -24,7 +25,10 @@ const snapshot = () => artworkDocumentSnapshot(page),
   load = (doc) => loadArtworkProject(page, doc),
   stage = () => page.locator('.canvas-stage'),
   deletion = (id) => page.locator(`[data-delete-layer="${id}"]`),
-  select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
+  select = async (id) => {
+    await ensureWorkspacePanel(page, 'layers');
+    await page.locator(`[data-select-layer="${id}"]`).click();
+  },
   click = (action) => activateCommand(page, action),
   clear = async (expectArtboardFocus = true) => {
     assert.equal(
@@ -219,6 +223,7 @@ try {
   await load(textDoc);
   await select(text.layerId);
   await page.locator(`[data-rename-node="${text.nodeId}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   const textInput = page.locator(`.inspector-body [data-text="${text.nodeId}"]`),
     textBefore = await snapshot();
   await textInput.dispatchEvent('compositionstart', { bubbles: true });

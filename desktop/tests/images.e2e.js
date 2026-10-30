@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -107,7 +108,9 @@ try {
   assert.equal(await snapshot(), before);
   await page.locator('[data-action="redo"]').click();
   await page.waitForSelector('image.shape');
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${imageId}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await page
     .locator('.graph .node')
     .filter({ has: page.locator('[data-position-reference]') })
@@ -142,6 +145,7 @@ try {
   );
   await page.locator('[data-action="redo"]').click();
   await page.locator('[data-action="undo"]').click();
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-lock="${imageId}"]`).click();
   const locked = await snapshot();
   await page.mouse.move(...start);
@@ -149,6 +153,7 @@ try {
   await page.mouse.move(start[0] + 15, start[1] + 15, { steps: 3 });
   await page.mouse.up();
   assert.equal(await snapshot(), locked);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-lock="${imageId}"]`).click();
   const beforePen = await snapshot();
   await page.getByRole('button', { name: 'Pen / Curve', exact: true }).click();
@@ -180,13 +185,17 @@ try {
     [0, 0, 0, 0],
   ]);
   // Guides, image guide layers and hidden layers never enter either export.
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-guide="${imageId}"]`).click();
   const guidePNG = await download('export-png', 'test-results/workflow-guide-excluded.png');
   assert.deepEqual((await pixels(guidePNG, [[340, 120]])).colors, [[0, 0, 0, 0]]);
   assert.doesNotMatch(await page.evaluate(() => window.nect.export()), /<image /);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-guide="${imageId}"]`).click();
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-visible="${imageId}"]`).click();
   assert.doesNotMatch(await page.evaluate(() => window.nect.export()), /<image /);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-visible="${imageId}"]`).click();
   // Wait for load completion, not just model values already true before this async reload.
   // Editable JSON reload preserves embedded asset and output bytes.
@@ -293,7 +302,9 @@ try {
   await page.waitForFunction(() => window.nect.document.width === 320);
   await revealCommandMenu(page, 'Export');
   await page.locator('#png-scale').selectOption('2');
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${imageId}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await page.screenshot({ path: 'test-results/workflow-image-editor.png', fullPage: true });
   assert.notEqual(before, restored);
   assert.deepEqual(errors, []);

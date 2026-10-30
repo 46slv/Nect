@@ -132,7 +132,7 @@ function openSearchPanel({
     lastNotified;
   let familyFilter = '',
     weightFilter = '';
-  let familySelect, weightSelect;
+  let familySelect, weightSelect, technicalDetails, technicalIdentity;
   if (fontFilters) {
     const filters = document.createElement('div');
     filters.className = 'picker-search picker-font-filters';
@@ -199,6 +199,14 @@ function openSearchPanel({
     note.textContent =
       'Choose a real face/style below. Unknown metadata stays unknown; no synthetic bold or italic.';
     filters.after(note);
+    technicalDetails = document.createElement('details');
+    technicalDetails.className = 'font-technical-details';
+    technicalDetails.hidden = true;
+    const summary = document.createElement('summary');
+    summary.textContent = 'Technical details';
+    technicalIdentity = document.createElement('code');
+    technicalDetails.append(summary, technicalIdentity);
+    dialog.querySelector('footer').before(technicalDetails);
   }
   let categoryId = '';
   const expandedCategories = new Set(categories?.slice(0, 1).map((category) => category.id));
@@ -280,6 +288,13 @@ function openSearchPanel({
       if (scroll) reveal(optionElements[index]);
     } else input.removeAttribute('aria-activedescendant');
     apply.disabled = !active();
+    if (technicalDetails) {
+      const item = active();
+      technicalDetails.hidden = !item?.technicalIdentity;
+      technicalIdentity.textContent = item?.technicalIdentity
+        ? `${item.choice.source} · ${item.technicalIdentity}`
+        : '';
+    }
     if (forceNotify || lastNotified !== activeId) {
       lastNotified = activeId;
       status.textContent = '';
@@ -303,7 +318,7 @@ function openSearchPanel({
                 ? item.metadata?.weightClass == null
                 : String(item.metadata?.weightClass) === weightFilter)) &&
             words.every((word) =>
-              `${item.label} ${item.detail || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
+              `${item.label} ${item.detail || ''} ${item.metadata?.family || ''} ${item.metadata?.subfamily || ''} ${(item.metadata?.localizedNames || []).join(' ')}`
                 .normalize('NFKC')
                 .toLowerCase()
                 .includes(word),
@@ -463,7 +478,8 @@ function openSearchPanel({
       row.setAttribute('role', treeMode ? 'treeitem' : 'option');
       row.setAttribute('aria-disabled', String(!!item.disabled));
       const name = document.createElement('span');
-      name.textContent = item.label;
+      name.textContent = families && item.metadata?.subfamily ? item.metadata.subfamily : item.label;
+      row.setAttribute('aria-label', `${item.label}${item.detail ? ` · ${item.detail}` : ''}`);
       row.append(name);
       if (item.detail) {
         const detail = document.createElement('small');
@@ -814,10 +830,10 @@ let editorPicker = null,
 let keyerInputPicker = null;
 const ALIGN_PREFERENCES_KEY = 'nect.alignment-panel.v1';
 let alignmentPreferences = readAlignmentPreferences();
-let dockedAlignment = false;
 const sharedColors = createSharedColorsPanel({
   app,
   live: true,
+  externalVisibility: true,
   onPreview: () => updateCanvas(true),
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
@@ -831,7 +847,7 @@ const coverageFontIds = new WeakMap();
 let nextCoverageFontId = 0;
 const coverageView = createColorCoverageView({
   app,
-  isOpen: () => sharedColors.open,
+  isOpen: () => sharedColors.open && workspacePanels.active.left === 'colors',
   getKey: () =>
     JSON.stringify([
       session.state.sessionId,
@@ -858,45 +874,29 @@ const coverageView = createColorCoverageView({
     );
   },
 });
-let workspaceGeometryFrame = null;
 const workspacePanels = createWorkspacePanels({
   getAssetPanel: getAssetLibraryPanel,
   storage: {
     getItem: (key) => localStorage.getItem(key),
     setItem: (key, value) => localStorage.setItem(key, value),
   },
-  onAssets: () => {
+  onAssets: (focus = true) => {
     if (getAssetLibraryPanel()) closeAssetLibrary();
-    else openAssetLibrary();
+    else openAssetLibrary(focus);
   },
-  onColors: () => sharedColors.toggle(),
-  onAlign: () => {
-    alignmentPreferences.open = true;
-    dockedAlignment = true;
-    saveAlignmentPreferences();
-    render();
-  },
-  onGeometry: () => {
-    if (workspaceGeometryFrame !== null) return;
-    workspaceGeometryFrame = requestAnimationFrame(() => {
-      workspaceGeometryFrame = null;
-      fitCanvas();
-      updateGraphBounds();
-      drawWires();
-    });
-  },
+  onColors: () => coverageView.refresh(),
+  onAlign: () => {},
 });
 function readAlignmentPreferences() {
   try {
     const value = JSON.parse(localStorage.getItem(ALIGN_PREFERENCES_KEY) || '{}');
     return {
-      open: value.open !== false,
       reference: value.reference === 'artboard' ? 'artboard' : 'selection',
       spacing:
         Number.isFinite(value.spacing) && Math.abs(value.spacing) <= 100000 ? value.spacing : null,
     };
   } catch {
-    return { open: true, reference: 'selection', spacing: null };
+    return { reference: 'selection', spacing: null };
   }
 }
 function saveAlignmentPreferences() {
@@ -1249,7 +1249,6 @@ let focusedCompositionTabId = null,
   tabRenderSession = null,
   tabRenderCompositionId = null;
 function closeTransientPanels(except = '') {
-  if (except !== 'align' && !dockedAlignment) alignmentPreferences.open = false;
   if (except !== 'grid') gridOpen = false;
   if (except !== 'layout') layoutOpen = false;
   if (except !== 'guides') guidesOpen = false;
@@ -1469,7 +1468,6 @@ function alignmentIcon(action, distribute = false) {
   return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor" ${vertical ? 'style="transform:rotate(90deg)"' : ''}>${shape}</svg>`;
 }
 function alignmentPanel(move) {
-  if (!alignmentPreferences.open) return '';
   const resolved = alignmentTargets(move);
   move = resolved.move;
   const count = resolved.count ?? resolved.ids.length;
@@ -4013,11 +4011,11 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .reverse()
     .map(
       (x) =>
-        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
+        `<div class="layer ${!x.visible ? 'is-hidden' : ''} ${x.guide ? 'is-guide' : ''} ${(artworkTarget ? artworkSelection.has(x.id) : x.id === l.id) ? 'selected' : ''}" data-layer="${x.id}"><button class="layer-visibility" data-visible="${x.id}" aria-label="${x.visible ? 'Hide' : 'Show'} layer: ${esc(x.name)}" aria-pressed="${x.visible}" title="${x.visible ? 'Hide' : 'Show'} layer in canvas and export">${x.visible ? 'Hide' : 'Show'}</button><button class="layer-solo" data-layer-solo="${x.id}" aria-label="Solo layer: ${esc(x.name)}" aria-pressed="${x.solo === true}" title="Solo in preview and SVG/PNG; multiple allowed; Hide remains in effect">S</button>${nameEdit?.layerId === x.id && !nameEdit.nodeId ? nameInput('layer', x.id) : `<button class="name" data-select-layer="${x.id}" aria-pressed="${artworkTarget ? artworkSelection.has(x.id) : false}" title="${esc(x.name)} · Click to select; Shift-click to add/remove. Double-click or F2 to rename">${esc(x.name)}</button>`}<button data-layer-guide="${x.id}" class="${x.guide ? 'active' : ''}" aria-label="${x.guide ? 'Make artwork layer' : 'Make guide layer'}: ${esc(x.name)}" aria-pressed="${!!x.guide}" title="${x.guide ? 'Guide layer: excluded from SVG' : 'Convert to guide layer'}" ${x.locked ? 'disabled' : ''}>${x.guide ? 'Guide' : '◇'}</button><button data-layer-lock="${x.id}" title="Toggle layer lock">${x.locked ? '🔒' : '○'}</button><div class="layer-actions">${['backward', 'forward'].map((direction) => `<button data-order-layer="${x.id}" data-order-direction="${direction}" aria-label="${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${esc(x.name)}">${direction === 'forward' ? 'Forward ↑' : 'Backward ↓'}</button>`).join('')}<button class="danger" data-delete-layer="${x.id}" aria-label="Delete layer: ${esc(x.name)}" ${x.locked || deletionBusy() ? 'disabled' : ''} title="Delete this entire layer and its graph (Undo available)">Delete layer</button></div></div>`,
     )
     .join(
       '',
-    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(l.name)}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
+    )}${penDraft ? '<div class="layer selected" data-pen-draft role="status">Curve · Draft (not saved)</div>' : ''}<section class="artboard-settings" aria-label="Composition artboard settings"><h3>Artboard</h3><p>Target · ${esc(session.projectSnapshot().compositions.find((composition) => composition.id === session.activeCompositionId)?.name || 'Active composition')}</p><div class="field"><label for="artboard-unit">Artboard units</label><select id="artboard-unit" data-artboard-unit aria-label="Artboard units">${ARTBOARD_UNITS.map((unit) => `<option value="${unit}" ${unit === artboardUnit ? 'selected' : ''}>${unit}</option>`).join('')}</select></div><div class="field"><label>Artboard W (${artboardUnit})</label><input type="number" step="any" data-dimension="width" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.width, artboardUnit)}" aria-label="Artboard width (${artboardUnit})"></div><div class="field"><label>Artboard H (${artboardUnit})</label><input type="number" step="any" data-dimension="height" data-dimension-unit="${artboardUnit}" value="${formatDocumentLength(doc.height, artboardUnit)}" aria-label="Artboard height (${artboardUnit})"></div></section></section>${alignmentPanel(move)}${sharedColors.html()}<section class="inspector"><div class="panel-head"><strong>Inspector</strong></div><div class="inspector-body">${n ? `<h3 class="inspector-node-title">${esc(nodeDisplayName(n))}</h3><p class="inspector-node-type">Node · ${esc(nodeTypeLabel(n.type))} · ${outputType(n) || 'Scalar X/Y'}</p>` : ''}${sourceNavigationPanel()}${penDraft ? '<p role="status">Draft curve. Finish to edit its graph and properties; Cancel path discards it.</p><div inert>' : ''}${
     n
       ? `${bypassControl(n)}${['Rectangle', 'Ellipse', 'Circle', 'Polygon', 'Star', 'Text'].includes(n.type) ? `<p class="font-note">Dimension handles edit selected ${esc(nodeTypeLabel(n.type))} output before downstream nodes. Position and its reference stay fixed.${n.type === 'Text' ? ' Font size changes glyph size, not a layout box width.' : ''}</p>` : ''}${operationControls(n)}${strokeControls(n)}${gradientControls(n)}${offsetControls(n)}${mirrorControls(n)}${cornerRoundControls(n)}${trimControls(n)}${setPathStartControls(n)}${setClosureControls(n)}${reversePathControls(n)}${subdivideControls(n)}${expandStrokeControls(n)}${convertToPathControls(n)}${simplifyControls(n)}${puckerBloatControls(n)}${waveControls(n)}${taperControls(n)}${autoHandlesControls(n)}${bendControls(n)}${twistControls(n)}${polarControls(n)}${dashControls(n)}${resampleControls(n)}${roughenControls(n)}${smoothControls(n)}${radialControls(n)}${positionReferenceControls(n)}${transformControls(n)}${positionControllerControls(n)}${referenceControls(n, result)}${booleanInputNote(n)}${instancePointsControls(n)}${luminanceControls(n)}${n.type === 'Join Geometry' ? `${n.joinInputOrder.length >= 1024 ? '<p class="font-note">Input socket limit reached (1,024). Disconnect an unlocked additional input to free a socket.</p>' : ''}<p class="font-note">Connect paths; the last input adds a spare automatically (up to 1,024 sockets; 256 geometry groups). Bundle inputs without cutting or welding. Shared transforms and paint apply to all; overlapping transparent groups remain independently painted. Use Boolean Union to merge silhouettes.</p>` : ''}${repeaterControls(n)}${characterControls(n)}${textControls(n)}${multiPathControls(n)}${['Curve', 'Multi Path'].includes(n.type) ? ownedPointFields(n) : ''}${editorParameters(
           n,
@@ -6586,8 +6584,9 @@ async function openCompositionImportDialog() {
   dialog.showModal();
   select.focus();
 }
-function openAssetLibrary() {
+function openAssetLibrary(focus = true) {
   mountAssetLibrary({
+    focus,
     onDragState: (dragging) => workspacePanels.setRetreat(dragging),
     resolveDrop: (event) => {
       const target = event.target;
@@ -8440,6 +8439,8 @@ async function loadOsAxes(nodeId) {
     });
   } catch (error) {
     notify(error.message || String(error), true);
+    if (error.message === 'Font file missing; reattach the same file' && n.osFont.source)
+      privateFontMissingStatus = { owner, layerId, nodeId, source: n.osFont.source };
   }
 }
 async function commitOsText(nodeId, value, settings = {}) {
@@ -14286,17 +14287,11 @@ document.addEventListener('click', (event) => {
     )
   )
     return;
-  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
+  if (gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     if (canvasTextEdit) {
       // Closing view-only panels must not detach the focused native text editor.
-      for (const panel of app.querySelectorAll('.alignment-panel, .guides-panel')) {
-        if (!dockedAlignment || !panel.matches('.alignment-panel')) panel.remove();
-      }
-      if (!dockedAlignment)
-        app
-          .querySelector('.canvas-toolbar [data-action="align-panel"]')
-          ?.setAttribute('aria-pressed', 'false');
+      for (const panel of app.querySelectorAll('.guides-panel')) panel.remove();
       for (const button of app.querySelectorAll(
         '.canvas-toolbar [data-action="grid-panel"], .canvas-toolbar [data-action="layout-panel"], .canvas-toolbar [data-action="guides-panel"]',
       ))
@@ -14310,19 +14305,9 @@ document.addEventListener('keydown', (event) => {
   // dialog must not cancel the browser's native dialog close action.
   if (event.key !== 'Escape' || event.defaultPrevented || event.target.closest?.('dialog[open]'))
     return;
-  if (dockedAlignment && event.target.closest?.('.alignment-panel')) {
-    event.preventDefault();
-    dockedAlignment = false;
-    alignmentPreferences.open = false;
-    saveAlignmentPreferences();
-    render();
-    app.querySelector('[data-workspace-panel="align"]')?.focus({ preventScroll: true });
-    return;
-  }
   const open = [...document.querySelectorAll('.command-menu[open]')];
   if (
     !open.length &&
-    !(alignmentPreferences.open && !dockedAlignment) &&
     !gridOpen &&
     !layoutOpen &&
     !guidesOpen
@@ -14331,7 +14316,7 @@ document.addEventListener('keydown', (event) => {
   event.preventDefault();
   open.forEach((menu) => (menu.open = false));
   if (open.length) open[0].querySelector('summary')?.focus();
-  if ((alignmentPreferences.open && !dockedAlignment) || gridOpen || layoutOpen || guidesOpen) {
+  if (gridOpen || layoutOpen || guidesOpen) {
     closeTransientPanels();
     render();
   }
