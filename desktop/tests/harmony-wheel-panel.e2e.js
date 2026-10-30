@@ -40,9 +40,11 @@ const commandState = () => page.evaluate(() => window.nect.commandState);
 const rotation = () => page.locator('[data-wheel-setting="hueRotation"]');
 const marker = (id) => page.locator(`[data-wheel-marker="${id}"]`);
 const markerPositions = () =>
-  page.locator('[data-wheel-marker]').evaluateAll((nodes) =>
-    nodes.map((el) => [el.dataset.wheelMarker, el.getAttribute('transform')]),
-  );
+  page
+    .locator('[data-wheel-marker]')
+    .evaluateAll((nodes) =>
+      nodes.map((el) => [el.dataset.wheelMarker, el.getAttribute('transform')]),
+    );
 const change = async (locator, value) => {
   await locator.fill(String(value));
   await locator.press('Tab');
@@ -536,17 +538,23 @@ try {
   assert.equal((await snapshot()).colorDesign.wheel.hueRotation, baseRotation + 1);
   await undoTo(original, 'native ArrowUp is one edit');
   await rotation().scrollIntoViewIfNeeded();
-  const spinner = await rotation().boundingBox();
-  assert.ok(spinner);
-  assert.equal(
-    await rotation().evaluate((el) => {
-      const box = el.getBoundingClientRect();
-      return document.elementFromPoint(box.right - 6, box.top + box.height * 0.25) === el;
-    }),
-    true,
-    'the physical spinner click reaches the rotation input, not clipped neighboring settings',
-  );
-  await page.mouse.click(spinner.x + spinner.width - 6, spinner.y + spinner.height * 0.25);
+  const spinner = await rotation().evaluate((el) => {
+    const box = el.getBoundingClientRect(),
+      style = getComputedStyle(el),
+      paddingTop = parseFloat(style.paddingTop),
+      paddingBottom = parseFloat(style.paddingBottom),
+      x = box.right - parseFloat(style.borderRightWidth) - parseFloat(style.paddingRight) - 6,
+      y =
+        box.top +
+        parseFloat(style.borderTopWidth) +
+        paddingTop +
+        (el.clientHeight - paddingTop - paddingBottom) * 0.25;
+    return { x, y, hitsInput: document.elementFromPoint(x, y) === el };
+  });
+  assert.equal(spinner.hitsInput, true, 'the physical spinner point reaches the rotation input');
+  await page.mouse.move(spinner.x, spinner.y);
+  await capture('native-spinner-before');
+  await page.mouse.click(spinner.x, spinner.y);
   await rotation().press('Tab');
   await idle();
   assert.equal(
@@ -620,14 +628,11 @@ try {
   await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
   await page.mouse.down();
   await page.mouse.move(lane.x + lane.width * 0.7, lane.y + lane.height / 2, { steps: 8 });
-  await page.waitForFunction(
-    (id) => {
-      const projected = window.nect.colorPreviewSnapshot(),
-        entry = projected?.colorDesign.palette.find((item) => item.id === id);
-      return entry?.kind === 'neutral' && entry.L > 0.25 && entry.L < 0.35;
-    },
-    neutralId,
-  );
+  await page.waitForFunction((id) => {
+    const projected = window.nect.colorPreviewSnapshot(),
+      entry = projected?.colorDesign.palette.find((item) => item.id === id);
+    return entry?.kind === 'neutral' && entry.L > 0.25 && entry.L < 0.35;
+  }, neutralId);
   assert.equal(await encoded(), neutralBefore);
   assert.deepEqual(await commandState(), neutralState);
   await page.mouse.up();
@@ -718,9 +723,8 @@ try {
   await page.mouse.move(svg.x + svg.width / 2 + r, svg.y + svg.height / 2, { steps: 8 });
   await page.waitForFunction(
     (id) =>
-      window.nect
-        .colorPreviewSnapshot()
-        ?.colorDesign.palette.find((item) => item.id === id)?.ring === 6,
+      window.nect.colorPreviewSnapshot()?.colorDesign.palette.find((item) => item.id === id)
+        ?.ring === 6,
     secondary,
   );
   assert.equal(await encoded(), beforeRadial);
@@ -796,7 +800,10 @@ try {
   ]) {
     await page.setViewportSize(viewport);
     const top = await pinnedLayout(`top-${viewport.width}x${viewport.height}`);
-    assert.deepEqual(top.swatchIds, added.colorDesign.palette.map((item) => item.id));
+    assert.deepEqual(
+      top.swatchIds,
+      added.colorDesign.palette.map((item) => item.id),
+    );
     await page.locator('[data-wheel-setting="lightnessRange"]').scrollIntoViewIfNeeded();
     const scrolled = await pinnedLayout(`parameter-${viewport.width}x${viewport.height}`);
     assert.ok(scrolled.parameterScrollTop > 0, 'actual parameter scrolling occurs');

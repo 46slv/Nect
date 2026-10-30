@@ -2973,7 +2973,7 @@ input[data-scrub-step].scrubbing {
   padding: 2px;
 }
 .harmony-palette-swatches button {
-  flex: 0 0 42px;
+  flex: 1 0 38px;
   width: 42px;
   min-width: 0;
   padding: 3px;
@@ -3118,7 +3118,6 @@ input[data-color-scrub-step] {
   pointer-events: none;
 }
 .harmony-coverage-status {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }

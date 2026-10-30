@@ -133,9 +133,7 @@ export function createHarmonyWheelPanel({
       selected = raw;
     } else if (el.hasAttribute('data-wheel-setting')) {
       const key = el.dataset.wheelSetting;
-      if (
-        !['harmony', 'hueSteps', 'hueRotation', 'lightnessSteps', 'lightnessRange'].includes(key)
-      )
+      if (!['harmony', 'hueSteps', 'hueRotation', 'lightnessSteps', 'lightnessRange'].includes(key))
         throw Error('Invalid wheel setting');
       if (!raw.trim()) throw Error('Enter a wheel setting');
       const value = key === 'harmony' ? raw : Number(raw);
@@ -175,8 +173,7 @@ export function createHarmonyWheelPanel({
         }
       } else {
         const value = Number(raw);
-        if (!raw.trim() || !Number.isFinite(value))
-          throw Error('Enter a palette coordinate');
+        if (!raw.trim() || !Number.isFinite(value)) throw Error('Enter a palette coordinate');
         if (el.hasAttribute('data-wheel-chroma')) {
           if (item.kind !== 'chromatic' || item.overrideC === undefined)
             throw Error('Choose Chroma override first');

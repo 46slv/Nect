@@ -156,6 +156,7 @@ const checkPaletteTopLayout = async () => {
       return { left, top, right, bottom };
     };
     const bounds = rect(panel);
+    const coverage = panel.querySelector('.harmony-coverage-status');
     return {
       port: {
         left: bounds.left + panel.clientLeft,
@@ -166,7 +167,15 @@ const checkPaletteTopLayout = async () => {
       bar: rect(panel.querySelector('.chroma-draft-bar')),
       wheel: rect(panel.querySelector('.harmony-wheel')),
       swatches: rect(panel.querySelector('.harmony-palette-swatches')),
+      chips: [...panel.querySelectorAll('[data-wheel-select]')].map(rect),
       neutral: rect(panel.querySelector('.harmony-neutral-track')),
+      coverage: {
+        bounds: rect(coverage),
+        text: coverage.textContent,
+        title: coverage.title,
+        clientWidth: coverage.clientWidth,
+        scrollWidth: coverage.scrollWidth,
+      },
       parameters: rect(panel.querySelector('.chroma-settings-scroll')),
       buttons: panel.querySelectorAll(
         '[data-chroma-preview],[data-chroma-apply],[data-chroma-cancel]',
@@ -189,6 +198,18 @@ const checkPaletteTopLayout = async () => {
   assert.ok(layout.wheel.top >= layout.bar.bottom, 'Status row does not cover the wheel');
   assert.ok(layout.swatches.top >= layout.wheel.bottom, 'Colors sit immediately below wheel');
   assert.ok(layout.neutral.top >= layout.swatches.bottom, 'Neutral track follows palette chips');
+  assert.equal(layout.chips.length, 5);
+  for (const chip of layout.chips) {
+    assert.ok(chip.right - chip.left >= 38 && chip.bottom - chip.top >= 44);
+    assert.ok(chip.left >= layout.swatches.left && chip.right <= layout.swatches.right);
+  }
+  assert.equal(
+    layout.coverage.title,
+    layout.coverage.text,
+    'full status is also available on hover',
+  );
+  assert.equal(layout.coverage.scrollWidth, layout.coverage.clientWidth, 'status wraps, not clips');
+  assert.ok(layout.parameters.top >= layout.coverage.bounds.bottom, 'status never covers settings');
   assert.ok(
     layout.parameters.top >= layout.neutral.bottom,
     'Parameters scroll below wheel and palette',
