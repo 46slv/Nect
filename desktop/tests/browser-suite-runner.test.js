@@ -112,9 +112,11 @@ test('browser runner preserves all 55 original scripts, arguments, order, and CS
     'tests/harmony-wheel-panel.e2e.js',
     'tests/ui-review-captures.e2e.js',
     'tests/raster-direct-png.e2e.js',
+    'tests/composition-point-selection.e2e.js',
+    'tests/svg-to-png.e2e.js',
   ]);
-  assert.equal(browserTestFiles.length, 73);
-  assert.equal(new Set(browserTestFiles).size, 73);
+  assert.equal(browserTestFiles.length, 75);
+  assert.equal(new Set(browserTestFiles).size, 75);
   assert.ok(Object.isFrozen(browserTestFiles));
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
   assert.equal(

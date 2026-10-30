@@ -76,6 +76,8 @@ export const browserTestFiles = Object.freeze([
   'tests/harmony-wheel-panel.e2e.js',
   'tests/ui-review-captures.e2e.js',
   'tests/raster-direct-png.e2e.js',
+  'tests/composition-point-selection.e2e.js',
+  'tests/svg-to-png.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };
