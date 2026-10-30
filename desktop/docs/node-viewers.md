@@ -8,6 +8,8 @@ Wheel pans independently; Ctrl/Cmd/Alt + wheel zooms about the viewport center. 
 
 Bindings, views and Artwork/Viewers mode are local editor state, outside Document/CommandSession/history. Open/New replacement resets them even if IDs are reused; composition changes retain stable-ID bindings. Nothing is persisted in project JSON. Evaluation is synchronous and updates through existing render and gesture-preview paths; no asynchronous result cache or whole-graph observer is added. Shared evaluations are reused within one refresh. Existing evaluator-wide structural errors can still affect a slot.
 
+Returning to a Composition validates each saved binding against that node's current public outputs, using the same output IDs as assignment and live resolution. Ordinary default outputs use an absent/`undefined` port, not a synthetic `out` name. Named outputs (such as Separate Vector X/Y or Text Position) retain their explicit IDs. Missing Layer/Node identities and invalid public ports are cleared on tab restoration, never retargeted to another output. Tab navigation does not create a document edit or History entry; this is in-session state, not restart persistence.
+
 ## Evidence
 
 Focused command:
