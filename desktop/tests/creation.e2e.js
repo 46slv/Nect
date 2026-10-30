@@ -1,4 +1,5 @@
 import { activateCommand } from './command-menu-actions.js';
+import { verifyCompositionReferenceAuthoring } from './helpers/composition-reference-authoring.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -21,7 +22,6 @@ try {
     const { blankDocument } = await import('/src/core.js');
     window.nect.load(JSON.stringify(blankDocument()));
   });
-  const beforeMask = await page.evaluate(() => JSON.stringify(window.nect.document));
   const addByEnter = async (type) => {
     await page.locator('#add-node').click();
     const search = page.locator('.search-panel input').first();
@@ -30,6 +30,12 @@ try {
     await search.press('Enter');
     await page.waitForFunction(() => !document.querySelector('.search-panel'));
   };
+  await verifyCompositionReferenceAuthoring(page, addByEnter, errors);
+  await page.evaluate(async () => {
+    const { blankDocument } = await import('/src/core.js');
+    window.nect.load(JSON.stringify(blankDocument()));
+  });
+  const beforeMask = await page.evaluate(() => JSON.stringify(window.nect.document));
   await addByEnter('Mask');
   await page.waitForFunction(() => document.querySelector('[data-mask-luminance]'));
   assert.equal(
