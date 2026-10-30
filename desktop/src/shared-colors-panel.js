@@ -1,5 +1,6 @@
 import { createAutoChromaPanel } from './auto-chroma-panel.js';
 import { createColorDraftScrub } from './color-draft-scrub.js';
+import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
 // View state only; all authored edits go through the current typed Session.
 const esc = (v) =>
   String(v).replace(
@@ -349,7 +350,7 @@ export function createSharedColorsPanel({
     if (
       !live ||
       event.isComposing ||
-      !el.matches?.('[data-shared-color-edit="hex"],[data-shared-color-edit="alpha"]')
+      !el.matches?.('[data-shared-color-edit="hex"],[data-shared-color-edit="alpha"],[data-shared-color-edit^="hsl-"]')
     )
       return;
     event.stopImmediatePropagation();
@@ -359,7 +360,14 @@ export function createSharedColorsPanel({
         slot = getDocument().colorSlots.find((slot) => slot.id === id);
       const value = { ...slot.value };
       if (el.dataset.sharedColorEdit === 'hex') value.hex = el.value;
-      else {
+      else if (el.dataset.sharedColorEdit.startsWith('hsl-')) {
+        if (!el.value.trim()) return;
+        try {
+          value.hex = updateHexHsl(value.hex, el.dataset.sharedColorEdit.slice(4), el.value);
+        } catch {
+          return;
+        }
+      } else {
         if (
           !el.value.trim() ||
           !Number.isFinite(Number(el.value)) ||
@@ -406,6 +414,8 @@ export function createSharedColorsPanel({
       else {
         const value = { ...slot.value };
         if (kind === 'hex') value.hex = el.value;
+        else if (kind.startsWith('hsl-'))
+          value.hex = updateHexHsl(value.hex, kind.slice(4), el.value);
         else if (kind === 'alpha') {
           if (!el.value.trim()) throw Error('Enter an alpha between zero and one');
           value.alpha = Number(el.value);
@@ -470,7 +480,7 @@ export function createSharedColorsPanel({
       const rows = slots
         .map(
           (slot) =>
-            `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`,
+            `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha">${renderHslFields(slot.value.hex, { mode: "shared", name: slot.name, id: slot.id })}<output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`,
         )
         .join('');
       const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
