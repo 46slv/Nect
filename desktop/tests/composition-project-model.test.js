@@ -187,6 +187,44 @@ test('keeps legacy Layer-graph references within one outer Composition', () => {
   assert.throws(() => validateCompositionProject(project), /cannot cross outer Compositions/);
 });
 
+test('explicitly unbound Composition References validate and round-trip without changing scope', () => {
+  const project = twoCompositionProject(),
+    source = project.compositions[0].layers[0];
+  source.nodes.push({
+    id: 'unbound-reference',
+    type: 'Composition Reference',
+    compositionReference: null,
+  });
+  const before = structuredClone(project);
+  assert.strictEqual(validateCompositionProject(project), project);
+  assert.deepEqual(deserializeCompositionProject(serializeCompositionProject(project)), before);
+  assert.deepEqual(project, before, 'validation and serialization are read-only');
+});
+
+test('only exact null is unbound; absent, malformed and missing reference targets still reject', () => {
+  for (const target of [
+    undefined,
+    false,
+    0,
+    '',
+    [],
+    {},
+    { compositionId: null },
+    { compositionId: '' },
+    { compositionId: [] },
+    { compositionId: 'missing-layer' },
+  ]) {
+    const project = twoCompositionProject(),
+      source = project.compositions[0].layers[0],
+      reference = { id: 'invalid-reference', type: 'Composition Reference' };
+    if (target !== undefined) reference.compositionReference = target;
+    source.nodes.push(reference);
+    const before = structuredClone(project);
+    assert.throws(() => validateCompositionProject(project), /target is missing/);
+    assert.deepEqual(project, before, 'rejection must not alter the candidate');
+  }
+});
+
 test('legacy JSON is migrated once on read and new JSON is validated without remigration', () => {
   const legacy = legacyDocument({ width: 417, height: 263 }),
     migrated = deserializeCompositionProject(JSON.stringify(legacy)),
@@ -272,3 +310,4 @@ test('invalid active IDs and edited data fail without mutating the source projec
   );
   assert.equal(JSON.stringify(project), before);
 });
+
