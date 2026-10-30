@@ -19,6 +19,7 @@ import { colorCoveragePasses } from './color-coverage-passes.js';
 import { sampleColorCoverage } from './color-coverage-sampling.js';
 import { rasterizeCoverageAlpha } from './color-coverage-raster.js';
 import { createSharedColorsPanel } from './shared-colors-panel.js';
+import { renderHslFields, updateHexHsl } from './hsl-color-picker.js';
 import { mountAssetLibrary, getAssetLibraryPanel, closeAssetLibrary } from './asset-library.js';
 import { createWorkspacePanels } from './workspace-panels.js';
 import { installLayerReorder } from './layer-reorder.js';
@@ -2544,7 +2545,7 @@ function field(n, key, q, inspector = false) {
       color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
       disabled = current().locked || q.locked || q.colorSlotId !== undefined,
       base = driven ? ' data-color-base' : '';
-    const inputs = `<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
+    const inputs = `${renderHslFields(color.hex, { name: n.name + " " + name + (driven ? " base" : ""), disabled, base: driven })}<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
       let result;
       try {
@@ -9884,7 +9885,9 @@ app.addEventListener('change', async (e) => {
           if (d.color === 'alpha') {
             if (!el.value.trim()) throw Error('Alpha must be from 0 to 1');
             value.alpha = Number(el.value);
-          } else value.hex = el.value;
+          } else if (d.color.startsWith('hsl-'))
+            value.hex = updateHexHsl(value.hex, d.color.slice(4), el.value);
+          else value.hex = el.value;
         } else {
           if (el.matches('[data-mask-luminance]') && !['alpha', 'luminance'].includes(el.value))
             throw Error('Choose Alpha or Luminance');
