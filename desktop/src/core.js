@@ -7127,7 +7127,7 @@ export class CommandSession {
         result: {},
       };
     }
-    if (['set-os-font-text', 'clear-os-font-text'].includes(type)) {
+    if (['set-os-font-text', 'clear-os-font-text', 'replace-os-text-font'].includes(type)) {
       const candidate = cloneDocument(before),
         layer = candidate.layers.find((l) => l.id === payload.layerId),
         source = layer?.nodes.find((n) => n.id === payload.nodeId && n.type === 'Text');
@@ -7135,7 +7135,39 @@ export class CommandSession {
         throw Error('Select an unlocked enabled Text');
       if ([...this.#textDrafts.values()].some((d) => d.nodeId === source.id))
         throw Error('Finish or cancel the Text draft first');
-      if (type === 'clear-os-font-text') {
+      let replacement;
+      if (type === 'replace-os-text-font') {
+        if (!source.osFont) throw Error('Select OS font Text');
+        if (payload.characterIds !== undefined)
+          throw Error('OS font replacement requires whole Text');
+        const fromBytes = Object.hasOwn(payload, 'bytes');
+        if (fromBytes === Object.hasOwn(payload, 'fontId'))
+          throw Error('Choose exactly one replacement font');
+        if (fromBytes) {
+          if (!(payload.bytes instanceof ArrayBuffer) || payload.bytes.byteLength > MAX_FONT_BYTES)
+            throw Error('Font bytes require an ArrayBuffer up to 20 MB');
+          replacement = makeFontAsset(
+            payload.bytes.slice(0),
+            payload.fileName,
+            candidate.fontAssets,
+          );
+          candidate.fontAssets = { ...candidate.fontAssets, [replacement.id]: replacement.asset };
+        } else {
+          const asset = candidate.fontAssets?.[payload.fontId];
+          if (payload.fontId !== 'default' && !asset) throw Error('Missing replacement font');
+          if (asset?.kind) throw Error('OS font replacement requires a static font');
+          replacement = { id: payload.fontId, asset };
+        }
+        // The static legacy shaper defaults to ligatures-off. Keep a prepared
+        // Windows ligatures-on intent explicitly when the static layout/font
+        // can represent it; unsupported combinations fail below, never strip.
+        if (source.osFont.outline.ligatures === true && !source.fontFeatures) {
+          source.fontFeatures = { liga: true };
+          candidate.schemaVersion = Math.max(candidate.schemaVersion, OPENTYPE_SCHEMA_VERSION);
+        }
+        delete source.osFont;
+        source.font = replacement.id;
+      } else if (type === 'clear-os-font-text') {
         if (!source.osFont) throw Error('Select OS font Text');
         delete source.osFont;
         source.font = 'default';
@@ -7243,22 +7275,28 @@ export class CommandSession {
         validateOsFontText(source, candidate.schemaVersion);
       }
       validate(candidate);
-      if (type === 'clear-os-font-text') {
+      if (['clear-os-font-text', 'replace-os-text-font'].includes(type)) {
         // Replacing a saved OS appearance must be all-or-nothing. Validation
         // alone checks IDs/types, not coverage or layout in the replacement face.
-        const replacement = evaluate(
+        const evaluated = evaluate(
           { ...layer, output: source.id },
           resolveFonts(candidate, this.#fonts()),
           candidate.imageAssets,
           candidate,
         );
-        if (replacement.error)
+        if (evaluated.error)
           throw Error(
-            `OS font retained: replacement font cannot render this Text. ${replacement.error}`,
+            `OS font retained: replacement font cannot render this Text. ${evaluated.error}`,
           );
       }
       serialize(candidate);
-      return { candidate, result: { nodeId: source.id } };
+      return {
+        candidate,
+        result: {
+          nodeId: source.id,
+          ...(replacement ? { fontId: replacement.id, fontName: replacement.asset?.name } : {}),
+        },
+      };
     }
     if (['bake-text-outline', 'bake-os-text-outline'].includes(type)) {
       const layer = before.layers.find((l) => l.id === payload.layerId);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { arrangeTextInspector } from '../src/text-inspector-layout.js';
+import { arrangeTextInspector, retainTextFontDisclosures } from '../src/text-inspector-layout.js';
 import { normalizeSystemFontEntry } from '../src/storage.js';
 
 test('text inspector keeps editing, status and source return visible without replacing controls', () => {
@@ -67,4 +67,63 @@ test('localized installed-font aliases survive IPC normalization with bounded va
   assert.ok(Object.isFrozen(row[3].localizedNames));
   assert.equal(row[0], 'system-1');
   assert.equal(row[1], 'Meiryo');
+});
+
+test('native Text uses the same primary Font entry with separate import and destructive actions', () => {
+  const w = new Window(),
+    root = w.document.createElement('div');
+  root.innerHTML = `<div class="text-controls"><div class="field"><textarea data-os-text>日本語</textarea></div>
+    <button data-apply-os-text>Apply text</button><button data-cancel-os-text>Cancel text edit</button>
+    <section class="text-font-choice"><button data-change-font>Change font</button></section>
+    <fieldset><input data-os-setting="size"></fieldset>
+    <details class="text-font-advanced"><summary>Advanced font import</summary><button data-load-font>Import</button></details>
+    <details class="text-actions"><summary>Text actions</summary><button data-bake-text-outline>Convert</button></details>
+    <div class="advanced-control">Other typography</div></div>`;
+  const textarea = root.querySelector('textarea'),
+    font = root.querySelector('.text-font-choice');
+  arrangeTextInspector(root);
+  assert.equal(root.querySelector('textarea'), textarea);
+  assert.equal(root.querySelector('.text-font-choice'), font);
+  assert.equal(font.closest('details'), null);
+  assert.equal(root.querySelector('[data-apply-os-text]').closest('details'), null);
+  assert.equal(root.querySelector('[data-os-setting]').closest('details'), null);
+  assert.equal(
+    root.querySelector('[data-load-font]').closest('details').className,
+    'text-font-advanced',
+  );
+  assert.equal(root.querySelector('.text-font-advanced').parentElement.className, 'text-controls');
+  assert.equal(root.querySelector('.text-actions').parentElement.className, 'text-controls');
+  w.happyDOM.abort();
+});
+
+test('Font imports and Text actions retain native summary clicks across synchronous rerenders', async () => {
+  const w = new Window();
+  const root = w.document.createElement('div');
+  w.document.body.append(root);
+  const render = () => {
+    root.innerHTML = `<div class="text-controls"><textarea data-text>Unchanged text</textarea>
+      <details class="text-font-advanced"><summary>Advanced font import</summary><button data-load-font="disclosure-fixture">Import</button></details>
+      <details class="text-actions"><summary>Text actions</summary><button data-bake-text-outline="disclosure-fixture">Convert</button></details></div>`;
+    retainTextFontDisclosures(root);
+  };
+  w.document.addEventListener('click', (event) => {
+    if (event.target.matches('summary')) render();
+  });
+  render();
+  for (const selector of ['.text-font-advanced', '.text-actions']) {
+    const old = root.querySelector(selector);
+    assert.equal(old.open, false);
+    old.querySelector('summary').click();
+    assert.equal(old.isConnected, false);
+    assert.equal(root.querySelector(selector).open, true);
+    // A detached element's queued toggle cannot overwrite the restored state.
+    old.dispatchEvent(new w.Event('toggle'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    render();
+    assert.equal(root.querySelector(selector).open, true);
+    root.querySelector(`${selector} > summary`).click();
+    assert.equal(root.querySelector(selector).open, false);
+    assert.equal(root.querySelector('textarea').value, 'Unchanged text');
+  }
+  await w.happyDOM.close();
 });

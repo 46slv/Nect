@@ -2,6 +2,7 @@ import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
   headless: true,
@@ -10,8 +11,9 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
-// Exercise real browser controls with deterministic installed-font IPC responses.
-// Actual Windows catalog/extraction and packaged WebView2 remain separate checks.
+// Real browser controls with deterministic byte-only discovery. Normal selection
+// must not copy provider font files; licensed fixture import is explicit Advanced UI.
+// Actual Windows discovery/preparation and packaged WebView2 remain separate checks.
 await page.route('**/src/storage.js', (route) =>
   route.fulfill({
     contentType: 'text/javascript',
@@ -24,14 +26,13 @@ export const listSystemFonts = async () => [
   ['system-0', 'Japanese fixture', null, {localizedNames:['日本語テスト', 'ＭＳ テスト']}], ['system-1', 'DejaVu Sans', null],
   ['system-2', 'Variable font', 'Variable fonts unsupported']
 ];
-export async function readSystemFont(id) {
-  if (window.rejectFont) throw Error('Font file was removed');
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  return (await fetch(id === 'system-0' ? '/tests/fixtures/fonts/NectJPFixture-Regular.otf' : '/fonts/DejaVuSans.ttf')).arrayBuffer();
+export async function readSystemFont() {
+  window.installedFontReads = (window.installedFontReads || 0) + 1;
+  throw Error('Normal picker must not read installed font bytes');
 }`,
   }),
 );
-const picker = () => page.locator('.inspector-body [data-font]');
+const picker = () => page.locator('.inspector-body [data-change-font]');
 const state = () =>
   page.evaluate(() => ({
     document: JSON.stringify(window.nect.document),
@@ -58,65 +59,87 @@ try {
   await text.dispatchEvent('change');
   assert.equal(await picker().count(), 1);
   assert.equal(await page.locator('[data-system-font]').count(), 0);
-  assert.equal(await picker().locator('option[value="system-2"]').isDisabled(), true);
   const beforeSearch = (await state()).document;
   await picker().click();
   await page.locator('.search-panel input[type="search"]').fill('日本語テスト');
   await page.waitForFunction(
-    () => document.querySelectorAll('.search-panel [role="option"]').length === 1,
+    () => document.querySelectorAll('.search-panel .picker-option').length === 1,
   );
-  assert.match(await page.locator('.search-panel [role="option"]').innerText(), /Japanese fixture/);
+  const result = page.locator('.search-panel .picker-option');
+  assert.match(await result.innerText(), /Japanese fixture/);
+  assert.equal(await result.getAttribute('aria-disabled'), 'true');
+  assert.match(await result.innerText(), /Font file import is required; use Advanced/);
+  // A real pointer on an aria-disabled result must not activate or mutate it.
+  const disabledBounds = await result.boundingBox();
+  assert.ok(disabledBounds);
+  await page.mouse.click(
+    disabledBounds.x + disabledBounds.width / 2,
+    disabledBounds.y + disabledBounds.height / 2,
+  );
+  assert.equal((await state()).document, beforeSearch);
   await page.locator('.search-panel input[type="search"]').fill('MS テスト');
   await page.waitForFunction(
-    () => document.querySelectorAll('.search-panel [role="option"]').length === 1,
+    () => document.querySelectorAll('.search-panel .picker-option').length === 1,
+  );
+  assert.equal(
+    await page.locator('.search-panel .picker-option').getAttribute('aria-disabled'),
+    'true',
   );
   await page.locator('.search-panel .picker-cancel').click();
   assert.equal((await state()).document, beforeSearch);
-  await picker().selectOption('system-0');
+  assert.equal(await page.evaluate(() => window.installedFontReads || 0), 0);
+
+  const importFont = async (file) => {
+    await page.locator('.inspector-body .text-font-advanced').evaluate((el) => {
+      el.open = true;
+    });
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('.inspector-body [data-load-font]').click();
+    await (await chooser).setFiles(file);
+  };
+  await importFont(
+    fileURLToPath(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url)),
+  );
   await page.waitForFunction(() =>
     document.querySelector('.message').textContent.includes('Loaded Nect'),
   );
   const first = await state();
-  assert.equal(await picker().inputValue(), first.font);
-  await picker().selectOption('system-1');
+  assert.match(await page.locator('.inspector-body .text-font-choice').innerText(), /Nect/);
+  await importFont(fileURLToPath(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url)));
   await page.waitForFunction(() =>
     document.querySelector('.message').textContent.includes('Loaded DejaVu'),
   );
   const second = await state();
-  assert.equal(await picker().inputValue(), second.font);
+  assert.match(await page.locator('.inspector-body .text-font-choice').innerText(), /DejaVu/);
   assert.notEqual(second.path, first.path);
   assert.notEqual(second.svg, first.svg);
   assert.notEqual(second.canvas, first.canvas);
   await page.locator('[data-action="undo"]').click();
   assert.equal((await state()).svg, first.svg);
-  assert.equal(await picker().inputValue(), first.font);
   await page.locator('[data-action="redo"]').click();
   assert.equal((await state()).svg, second.svg);
   await page.evaluate((json) => window.nect.load(json), second.document);
   assert.equal((await state()).svg, second.svg);
-  // Reload opens the preserved first layer; explicitly select the new Text layer and node.
+  // Reload opens the preserved first layer; explicitly select the Text layer/node.
   const textLayer = await page.evaluate(() => window.nect.document.layers.at(-1).id);
   await page.locator(`[data-select-layer="${textLayer}"]`).click();
   await page
     .locator('.node-head strong')
     .filter({ hasText: /^Text$/ })
     .click();
-  assert.equal(await picker().inputValue(), second.font);
-  await page.evaluate(() => {
-    window.rejectFont = true;
-  });
-  await picker().selectOption('system-0');
+  assert.match(await page.locator('.inspector-body .text-font-choice').innerText(), /DejaVu/);
+  await importFont({ name: 'broken.otf', mimeType: 'font/otf', buffer: Buffer.alloc(12) });
   await page.waitForFunction(() =>
-    document.querySelector('.message').textContent.includes('Font file was removed'),
+    document.querySelector('.message').textContent.includes('Font rejected'),
   );
   assert.equal((await state()).document, second.document);
-  assert.equal(await picker().inputValue(), second.font);
   assert.equal(await picker().isDisabled(), false);
+  assert.equal(await page.evaluate(() => window.installedFontReads || 0), 0);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/font-single-picker.png' });
   assert.deepEqual(errors, []);
   console.log(
-    'PASS: one font picker; installed-font switch changes browser canvas and SVG outlines; Undo, redo, JSON reload and failure preserve the selected font.',
+    'PASS: one font picker keeps byte-only discovery disabled without reads; explicit licensed imports change canvas/SVG with Undo, redo, JSON reload and failure preservation.',
   );
 } finally {
   await browser.close();

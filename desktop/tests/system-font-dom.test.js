@@ -8,7 +8,7 @@ const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 };
-test('installed font selection is lazy, atomic, reusable and stale-safe', async () => {
+test('installed discovery never copies bytes; explicit file import remains atomic, reusable and stale-safe', async () => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
   for (const key of ['window', 'document', 'HTMLElement', 'DOMPoint', 'requestAnimationFrame'])
@@ -76,88 +76,114 @@ test('installed font selection is lazy, atomic, reusable and stale-safe', async 
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
   const snapshot = () => JSON.stringify(win.nect.document);
-  const select = (id = 'system-0') => {
-    document.querySelector('.message').textContent = '';
-    const el = document.querySelector('.inspector-body [data-font]');
-    el.value = id;
-    el.dispatchEvent(new win.Event('change', { bubbles: true }));
-  };
-  assert.equal(document.querySelector('[data-font] option[value="system-1"]').disabled, true);
-  assert.equal(
-    document.querySelectorAll('.inspector-body select[aria-label="Text font"]').length,
-    1,
-  );
-  assert.equal(document.querySelectorAll('[data-system-font]').length, 0);
+  const q = (selector) => document.querySelector(selector);
   const before = snapshot();
-  select();
-  await until(() => /Loaded /.test(document.querySelector('.message').textContent));
-  assert.equal(calls, 1);
+  q('.inspector-body [data-change-font]').dispatchEvent(
+    new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
+  );
+  await until(() => q('dialog[open] .picker-option'));
+  for (const group of [...document.querySelectorAll('.picker-family')]) {
+    const current = [...document.querySelectorAll('.picker-family')].find(
+      (g) => g.dataset.fontFamily === group.dataset.fontFamily,
+    );
+    if (current?.getAttribute('aria-expanded') === 'false')
+      current.querySelector('.picker-family-heading').click();
+  }
+  const rows = () => [...document.querySelectorAll('.picker-option')];
+  const row = (id) =>
+    rows().find((entry) => entry.dataset.id === JSON.stringify(['installed', id]));
+  assert.equal(document.querySelectorAll('.inspector-body [data-change-font]').length, 1);
+  assert.equal(document.querySelectorAll('[data-system-font]').length, 0);
+  for (const id of ['system-0', 'system-1', 'system-2']) {
+    assert.equal(row(id).getAttribute('aria-disabled'), 'true');
+    assert.match(row(id).textContent, /Font file import is required; use Advanced/);
+    row(id).click();
+  }
+  assert.match(row('system-1').textContent, /Variable fonts unsupported/);
+  assert.equal(snapshot(), before);
+  q('.picker-cancel').click();
+  assert.equal(calls, 0);
+  assert.equal(snapshot(), before);
+
+  const start = (file) => {
+    q('.inspector-body [data-load-font]').click();
+    const input = q('#font-file');
+    Object.defineProperty(input, 'files', { configurable: true, value: file ? [file] : [] });
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+  };
+  const bytes = await buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
+  const file = {
+    name: 'licensed-fixture.otf',
+    size: bytes.byteLength,
+    arrayBuffer: async () => bytes,
+  };
+  start(file);
+  await until(() => /Loaded /.test(q('.message').textContent));
+  assert.equal(calls, 0, 'explicit import does not use the installed catalog reader');
   assert.equal(win.nect.evaluate().error, null);
   assert.equal(Object.keys(win.nect.document.fontAssets).length, 1);
   const saved = snapshot(),
     svg = win.nect.export();
-  select();
-  await until(() => /Loaded /.test(document.querySelector('.message').textContent));
+  q('.message').textContent = '';
+  start(file);
+  await until(() => /Loaded /.test(q('.message').textContent));
   assert.equal(snapshot(), saved);
-  document.querySelector('[data-action="undo"]').click();
+  q('[data-action="undo"]').click();
   assert.equal(snapshot(), before);
-  document.querySelector('[data-action="redo"]').click();
+  q('[data-action="redo"]').click();
   assert.equal(win.nect.export(), svg);
   win.nect.load(saved);
   assert.equal(win.nect.export(), svg);
-  // Switching installed fonts must change actual outline geometry, not just labels.
+
+  // Explicitly imported licensed faces change actual outlines, not only labels.
   const firstPath = JSON.stringify(win.nect.evaluate().path);
-  select('system-2');
-  await until(() => /Loaded DejaVu/.test(document.querySelector('.message').textContent));
+  const latin = await buffer('../public/fonts/DejaVuSans.ttf');
+  q('.message').textContent = '';
+  start({ name: 'licensed-latin.ttf', size: latin.byteLength, arrayBuffer: async () => latin });
+  await until(() => /Loaded DejaVu/.test(q('.message').textContent));
   const second = snapshot(),
     secondSvg = win.nect.export();
   assert.notEqual(JSON.stringify(win.nect.evaluate().path), firstPath);
   assert.notEqual(secondSvg, svg);
-  assert.equal(
-    document.querySelector('.inspector-body [data-font] option[selected]').value,
-    win.nect.document.layers[0].nodes.find((n) => n.type === 'Text').font,
-  );
-  document.querySelector('[data-action="undo"]').click();
+  assert.match(q('.inspector-body .text-font-choice').textContent, /DejaVu/);
+  q('[data-action="undo"]').click();
   assert.equal(win.nect.export(), svg);
-  document.querySelector('[data-action="redo"]').click();
+  q('[data-action="redo"]').click();
   assert.equal(win.nect.export(), secondSvg);
   win.nect.load(second);
   assert.equal(win.nect.export(), secondSvg);
+
+  // A delayed explicit file read cannot overwrite a later authored Text edit.
   let finish;
-  globalThis.readInstalledTestFont = () =>
-    new Promise((r) => {
-      finish = r;
-    });
-  select();
-  assert.equal(document.querySelector('.inspector-body [data-font]').disabled, true);
-  assert.match(
-    document.querySelector('.inspector-body [role="status"]').textContent,
-    /Loading font/,
-  );
-  const textarea = document.querySelector('.inspector-body [data-text]');
-  textarea.value = '世界';
+  start({
+    ...file,
+    arrayBuffer: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
+  const textarea = q('.inspector-body [data-text]');
+  textarea.value = 'Changed';
   textarea.dispatchEvent(new win.Event('change', { bubbles: true }));
   const changed = snapshot();
-  finish(await buffer('./fixtures/fonts/NectJPFixture-Regular.otf'));
-  await until(() => /Document changed/.test(document.querySelector('.message').textContent));
+  finish(bytes);
+  await until(() => /Document changed/.test(q('.message').textContent));
   assert.equal(snapshot(), changed);
-  assert.match(document.querySelector('.message').textContent, /Document changed/);
-  globalThis.readInstalledTestFont = async () => {
-    throw Error('Font file was removed');
-  };
-  select();
-  await until(() => /Font file was removed/.test(document.querySelector('.message').textContent));
+  assert.match(q('.message').textContent, /Document changed/);
+  q('.message').textContent = '';
+  start({
+    ...file,
+    arrayBuffer: async () => {
+      throw Error('Font file was removed');
+    },
+  });
+  await until(() => /Font file was removed/.test(q('.message').textContent));
   assert.equal(snapshot(), changed);
-  assert.match(document.querySelector('.message').textContent, /Font file was removed/);
-  assert.equal(document.querySelector('.inspector-body [data-font]').disabled, false);
-  assert.equal(
-    document.querySelector('.inspector-body [data-font] option[selected]').value,
-    win.nect.document.layers[0].nodes.find((n) => n.type === 'Text').font,
-  );
-  globalThis.readInstalledTestFont = async () => new ArrayBuffer(12);
-  select();
-  await until(() => /Font rejected/.test(document.querySelector('.message').textContent));
+  assert.equal(q('.inspector-body [data-change-font]').disabled, false);
+  q('.message').textContent = '';
+  start({ ...file, arrayBuffer: async () => new ArrayBuffer(12) });
+  await until(() => /Font rejected/.test(q('.message').textContent));
   assert.equal(snapshot(), changed);
-  assert.match(document.querySelector('.message').textContent, /Font rejected/);
+  assert.equal(calls, 0);
   win.happyDOM.abort();
 });

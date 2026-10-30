@@ -18,20 +18,58 @@ function disclosure(document, key, title) {
   details.addEventListener('toggle', () => sections.set(key, details.open));
   return details;
 }
+// Save view-only Font/action disclosure state before a global click can rerender.
+// Native details toggling otherwise happens after the clicked summary is detached.
+const fontSections = new Map();
+const boundFontDisclosures = new WeakSet();
+export function retainTextFontDisclosures(root) {
+  for (const details of root.querySelectorAll('.text-font-advanced, .text-actions')) {
+    if (boundFontDisclosures.has(details)) continue;
+    const summary = details.querySelector(':scope > summary');
+    if (!summary) continue;
+    const control = details.querySelector(
+      '[data-load-font], [data-load-character-font], [data-bake-text-outline]',
+    );
+    const nodeId =
+      control?.dataset.loadFont ||
+      control?.dataset.loadCharacterFont ||
+      control?.dataset.bakeTextOutline ||
+      '';
+    const place = details.closest('.graph') ? 'graph' : 'inspector';
+    const kind = details.classList.contains('text-actions')
+      ? 'actions'
+      : details.classList.contains('text-character-font-advanced')
+        ? 'character-import'
+        : 'font-import';
+    const key = JSON.stringify([place, nodeId, kind]);
+    details.open = fontSections.get(key) || false;
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      details.open = !details.open;
+      fontSections.set(key, details.open);
+    });
+    details.addEventListener('toggle', () => {
+      if (details.isConnected) fontSections.set(key, details.open);
+    });
+    boundFontDisclosures.add(details);
+  }
+}
 export function arrangeTextInspector(root, editingCharacters = false) {
   const controls = root.querySelector('.text-controls');
-  if (!controls?.querySelector('[data-text]')) return;
+  if (!controls?.querySelector('[data-text], [data-os-text]')) return;
   root.classList.add('text-inspector');
+  retainTextFontDisclosures(root);
   const doc = root.ownerDocument;
   const field = (selector) => controls.querySelector(selector)?.closest('.field');
   const primary = [
-    field('[data-text]'),
+    field('[data-text], [data-os-text]'),
+    controls.querySelector('[data-apply-os-text]'),
+    controls.querySelector('[data-cancel-os-text]'),
     controls.querySelector('[data-style-text-range]'),
     controls.querySelector('[data-kern-text-cursor]'),
-    field('[data-font]'),
+    controls.querySelector('.text-font-choice') || field('[data-font]'),
+    controls.querySelector('fieldset:has([data-os-setting])'),
     ...controls.querySelectorAll(':scope > [role="status"]'),
-    controls.querySelector('[data-load-font]'),
-    root.querySelector('.os-font-outlines [data-os-text-font]'),
     root.querySelector('.field[data-key="size"]'),
     field('[data-writing-mode]'),
     field('[data-text-alignment]'),
@@ -40,14 +78,16 @@ export function arrangeTextInspector(root, editingCharacters = false) {
     controls.querySelector('.text-wrap-controls'),
     controls.querySelector('.text-leading-controls'),
   ].filter(Boolean);
+  const separate = [
+    ...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions'),
+  ];
   const advanced = disclosure(doc, 'typography', 'More typography');
   for (const child of [...controls.children]) {
-    if (!primary.includes(child)) advanced.append(child);
+    if (!primary.includes(child) && !separate.includes(child)) advanced.append(child);
   }
   for (const child of primary) controls.append(child);
-  const os = root.querySelector('.os-font-outlines');
-  if (os) advanced.append(os);
-  controls.append(advanced);
+  if (advanced.children.length > 1) controls.append(advanced);
+  controls.append(...separate);
   const identity = root.querySelector(':scope > .inspector-node-type');
   if (identity) identity.after(controls);
   else root.prepend(controls);
