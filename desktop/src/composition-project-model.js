@@ -157,6 +157,8 @@ function assertLayerReferenceScope(project) {
     for (const layer of composition.layers)
       for (const node of layer.nodes)
         if (node.type === 'Composition Reference') {
+          // Creation and clearing a source deliberately leave this node unbound.
+          if (node.type === 'Composition Reference' && node.compositionReference === null) continue;
           const targetId = node.compositionReference?.compositionId;
           if (!layerOwners.has(targetId)) throw Error('Composition Reference target is missing');
           if (layerOwners.get(targetId) !== composition.id)

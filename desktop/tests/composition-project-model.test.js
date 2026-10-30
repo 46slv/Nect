@@ -187,7 +187,7 @@ test('keeps legacy Layer-graph references within one outer Composition', () => {
   assert.throws(() => validateCompositionProject(project), /cannot cross outer Compositions/);
 });
 
-test('explicitly unbound Composition References validate and round-trip without changing scope', () => {
+test('null Composition References validate and round-trip without changing scope', () => {
   const project = twoCompositionProject(),
     source = project.compositions[0].layers[0];
   source.nodes.push({
@@ -201,7 +201,7 @@ test('explicitly unbound Composition References validate and round-trip without 
   assert.deepEqual(project, before, 'validation and serialization are read-only');
 });
 
-test('only exact null is unbound; absent, malformed and missing reference targets still reject', () => {
+test('only exact null is unbound; absent, malformed and missing targets still reject', () => {
   for (const target of [
     undefined,
     false,
@@ -310,4 +310,3 @@ test('invalid active IDs and edited data fail without mutating the source projec
   );
   assert.equal(JSON.stringify(project), before);
 });
-

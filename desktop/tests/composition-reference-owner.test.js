@@ -77,7 +77,7 @@ test('production owner creates, binds and clears a Reference with chronological 
   roundTrip(owner);
 });
 
-test('production owner can unlink an already-bound Reference and reopen the unbound project', () => {
+test('production owner unlinks bound References and reopens unbound projects', () => {
   const { owner, target, reference, send, currentReference } = fixture({ bound: true }),
     before = owner.projectSnapshot();
   send('set-composition-reference', {
@@ -94,7 +94,7 @@ test('production owner can unlink an already-bound Reference and reopen the unbo
   assert.equal(currentReference().compositionReference, null);
 });
 
-test('production owner retains malformed, missing and cross-outer target rejection atomically', () => {
+test('production owner rejects malformed, missing and cross-outer targets atomically', () => {
   const { owner, target, source, reference, send } = fixture({ bound: true });
   for (const invalid of [
     undefined,

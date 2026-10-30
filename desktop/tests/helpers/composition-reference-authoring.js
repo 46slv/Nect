@@ -16,6 +16,7 @@ export async function verifyCompositionReferenceAuthoring(page, addByEnter, page
       window.nect.load(JSON.stringify(document));
       return { targetId: target.id, sourceId: source.id };
     });
+    await page.locator(`[data-select-layer="${ids.targetId}"]`).click();
     const before = await project();
     receipt.stage = 'create';
     await addByEnter('Composition Reference');
@@ -25,8 +26,7 @@ export async function verifyCompositionReferenceAuthoring(page, addByEnter, page
     assert.equal(references.length, 1, 'Add must retain the newly created unbound Reference');
     const nodeId = references[0].id;
     assert.equal(references[0].compositionReference, null);
-    const selector = () =>
-      page.locator(`.inspector-body [data-composition-target="${nodeId}"]`);
+    const selector = () => page.locator(`.inspector-body [data-composition-target="${nodeId}"]`);
     assert.equal(await selector().inputValue(), '');
     assert.equal(await selector().isEnabled(), true);
     const created = await project();
@@ -41,8 +41,7 @@ export async function verifyCompositionReferenceAuthoring(page, addByEnter, page
     await selector().selectOption(ids.sourceId);
     const bound = await project();
     assert.deepEqual(
-      bound.compositions[0].layers[0].nodes.find((node) => node.id === nodeId)
-        .compositionReference,
+      bound.compositions[0].layers[0].nodes.find((node) => node.id === nodeId).compositionReference,
       { compositionId: ids.sourceId },
     );
     receipt.checks.push('source selector binds the same-outer Layer ID');
