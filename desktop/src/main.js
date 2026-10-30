@@ -77,10 +77,7 @@ import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
-import {
-  arrangeTextInspector,
-  retainTextFontDisclosures,
-} from './text-inspector-layout.js';
+import { arrangeTextInspector, retainTextFontDisclosures } from './text-inspector-layout.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({

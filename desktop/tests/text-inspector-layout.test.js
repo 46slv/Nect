@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import {
-  arrangeTextInspector,
-  retainTextFontDisclosures,
-} from '../src/text-inspector-layout.js';
+import { arrangeTextInspector, retainTextFontDisclosures } from '../src/text-inspector-layout.js';
 import { normalizeSystemFontEntry } from '../src/storage.js';
 
 test('text inspector keeps editing, status and source return visible without replacing controls', () => {
