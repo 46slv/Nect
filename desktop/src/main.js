@@ -2545,7 +2545,12 @@ function field(n, key, q, inspector = false) {
       color = (driven ? q.value : displayed) || { hex: current().fill, alpha: 1 },
       disabled = current().locked || q.locked || q.colorSlotId !== undefined,
       base = driven ? ' data-color-base' : '';
-    const inputs = `${renderHslFields(color.hex, { name: n.name + " " + name + (driven ? " base" : ""), disabled, base: driven })}<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
+    const hslFields = renderHslFields(color.hex, {
+      name: `${n.name} ${name}${driven ? ' base' : ''}`,
+      disabled,
+      base: driven,
+    });
+    const inputs = `${hslFields}<input type="color" data-color="hex"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} color" value="${esc(color.hex)}" ${disabled ? 'disabled' : ''}>${n.type === 'Keyer' && key === 'keyColor' ? '' : `<input type="number" ${driven ? '' : 'data-scrub-step="0.01"'} data-color="alpha"${base} aria-label="${esc(n.name + ' ' + name + (driven ? ' base' : ''))} alpha" title="Alpha" min="0" max="1" step="0.01" value="${color.alpha}" ${disabled ? 'disabled' : ''}>`}`;
     if (driven) {
       let result;
       try {
