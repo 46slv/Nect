@@ -40,11 +40,9 @@ const commandState = () => page.evaluate(() => window.nect.commandState);
 const rotation = () => page.locator('[data-wheel-setting="hueRotation"]');
 const marker = (id) => page.locator(`[data-wheel-marker="${id}"]`);
 const markerPositions = () =>
-  page
-    .locator('[data-wheel-marker]')
-    .evaluateAll((nodes) =>
-      nodes.map((el) => [el.dataset.wheelMarker, el.getAttribute('transform')]),
-    );
+  page.locator('[data-wheel-marker]').evaluateAll((nodes) =>
+    nodes.map((el) => [el.dataset.wheelMarker, el.getAttribute('transform')]),
+  );
 const change = async (locator, value) => {
   await locator.fill(String(value));
   await locator.press('Tab');
@@ -430,7 +428,8 @@ try {
 
   // A continuous real mouse scrub keeps controls/Inspector mounted and has one commit.
   const beforeDrag = await encoded(),
-    stateBeforeDrag = await commandState();
+    stateBeforeDrag = await commandState(),
+    metricsBeforeDrag = await page.evaluate(() => window.nect.colorPreviewMetrics());
   const inputIdentity = await rotation().elementHandle(),
     inspectorIdentity = await page.locator('.inspector').elementHandle();
   await page.evaluate(() => {
@@ -474,10 +473,21 @@ try {
   const dragged = await encoded();
   assert.equal((await snapshot()).colorDesign.wheel.hueRotation, baseRotation + 40);
   assert.equal((await commandState()).expectedRevision, stateBeforeDrag.expectedRevision + 1);
+  const metricsAfterDrag = await page.evaluate(() => window.nect.colorPreviewMetrics()),
+    deltaRequested = metricsAfterDrag.requested - metricsBeforeDrag.requested,
+    deltaEvaluated = metricsAfterDrag.evaluated - metricsBeforeDrag.evaluated;
+  assert.ok(deltaEvaluated > 0, 'continuous drag evaluated actual preview frames');
+  assert.ok(deltaRequested >= deltaEvaluated);
   interactions.push({
     kind: 'continuous-real-mouse',
     pointerMoves: await page.evaluate(() => window.__colorLivePointerMoves),
-    metrics: await page.evaluate(() => window.nect.colorPreviewMetrics()),
+    metrics: {
+      scope: 'continuous drag only',
+      requested: deltaRequested,
+      evaluated: deltaEvaluated,
+      coalescedRequests: deltaRequested - deltaEvaluated,
+      samples: metricsAfterDrag.samples.slice(-deltaEvaluated),
+    },
     singleCommit: true,
     stableControlAndInspector: true,
   });

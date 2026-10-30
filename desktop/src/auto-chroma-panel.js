@@ -526,9 +526,7 @@ export function createAutoChromaPanel({
           (slot) =>
             `<label><input type="checkbox" data-chroma-lock="${esc(slot.id)}" ${locked.has(slot.id) ? 'checked' : ''}>Keep ${esc(slot.name)}</label>`,
         )
-        .join(
-          '',
-        )}</div>`;
+        .join('')}</div>`;
       const reports = `${contrastHTML(getDocument(), 'current')}<button type="button" data-chroma-reload ${live ? 'hidden' : ''}>Reload saved settings</button>${preview && !live ? `<div class="chroma-preview" aria-label="Proposed colors"><strong>Proposed colors · not applied</strong><p class="font-note" data-chroma-area-status>${esc(preview.areaNote)}</p>${contrastHTML({ ...getDocument(), colorDesign: draftDesign(), colorSlots: slots().map((slot) => ({ ...slot, value: preview.rows.find((row) => row.id === slot.id)?.value || slot.value })) }, 'preview')}${preview.rows.map((row) => `<div><span>${esc(names.get(row.id).name)}</span><span style="background:${esc(names.get(row.id).value.hex)}" class="chroma-swatch" aria-label="Current ${esc(names.get(row.id).value.hex)}"></span>→<span style="background:${esc(row.value.hex)}" class="chroma-swatch" aria-label="Proposed ${esc(row.value.hex)}"></span><output>${esc(row.value.hex)}</output>${row.gamutLimited ? '<span class="font-note" data-chroma-gamut-limited>Gamut limited</span>' : ''}</div>`).join('')}</div>` : ''}${live && liveEdit.document ? contrastHTML(liveEdit.document, 'preview') : ''}`;
       const extra = live
         ? `<details data-color-advanced class="color-advanced" ${advancedOpen ? 'open' : ''}><summary>Advanced</summary>${entries}<strong>Legacy fixed colors</strong>${locks}${locked.size ? '<button type="button" data-chroma-clear-locks>Clear legacy fixed colors</button>' : ''}${savedColors}${reports}</details>`

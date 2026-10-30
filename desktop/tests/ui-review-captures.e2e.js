@@ -149,6 +149,7 @@ const capture = async (name, action, state) => {
 // Preserve separate status, wheel, palette and parameter rows while parameters scroll.
 // This asserts box containment/order only, not full interaction actionability.
 const checkPaletteTopLayout = async () => {
+  assert.equal(await page.locator('.harmony-coverage-status').isVisible(), true);
   const layout = await page.locator('.shared-colors-panel').evaluate((panel) => {
     const rect = (el) => {
       const { left, top, right, bottom } = el.getBoundingClientRect();
@@ -458,12 +459,12 @@ try {
       'Type hue rotation 75 without Enter or Apply',
       'Live detached color edit; committed project and history unchanged',
     );
-    await page.locator('[data-wheel-setting="lightnessRange"]').scrollIntoViewIfNeeded();
+    await page.locator('[data-chroma-spread]').scrollIntoViewIfNeeded();
     assert.ok(await page.locator('.chroma-settings-scroll').evaluate((el) => el.scrollTop > 0));
     await checkPaletteTopLayout();
     await capture(
       `palette-live-parameters-${viewport.width}`,
-      'Scroll real parameter region to Lightness range while typing remains active',
+      'Scroll real parameter region to Chroma Spread while typing remains active',
       'Same live edit; wheel, swatches and compact status remain pinned above settings',
     );
     await rotation.focus();

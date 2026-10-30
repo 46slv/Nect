@@ -17,7 +17,8 @@ export function createSharedColorsPanel({
   live = false,
   onPreview = () => {},
 }) {
-  let activeColorPointer = null;
+  let activeColorPointer = null,
+    rendering = false;
   const composingInputs = new WeakSet();
   app.addEventListener(
     'compositionstart',
@@ -55,7 +56,12 @@ export function createSharedColorsPanel({
       const el = app.querySelector(selector);
       return [el?.scrollTop || 0, el?.scrollLeft || 0];
     });
-    renderApp();
+    rendering = true;
+    try {
+      renderApp();
+    } finally {
+      rendering = false;
+    }
     if (live)
       for (const input of app.querySelectorAll(
         '.shared-colors-panel input:is([type="number"],[type="range"])',
@@ -265,9 +271,40 @@ export function createSharedColorsPanel({
     true,
   );
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture'])
-    app.addEventListener(type, (event) => {
-      if (event.pointerId === activeColorPointer) activeColorPointer = null;
-    }, true);
+    app.addEventListener(
+      type,
+      (event) => {
+        if (event.pointerId === activeColorPointer) activeColorPointer = null;
+      },
+      true,
+    );
+  app.addEventListener('focusout', (event) => {
+    const input = event.target;
+    if (
+      !live ||
+      rendering ||
+      !chroma.editing ||
+      !input.isConnected ||
+      !input.closest?.('.shared-colors-panel')
+    )
+      return;
+    queueMicrotask(() => {
+      if (
+        rendering ||
+        !chroma.editing ||
+        !input.isConnected ||
+        app.ownerDocument.activeElement === input
+      )
+        return;
+      if (
+        input.matches('input[type="number"]') &&
+        (!input.value.trim() || !input.validity.valid || composingInputs.has(input))
+      )
+        chroma.cancelEdit();
+      else chroma.finishEdit();
+      render();
+    });
+  });
   app.ownerDocument.defaultView?.addEventListener('blur', () => {
     activeColorPointer = null;
     if (!live || !chroma.editing) return;
@@ -428,7 +465,13 @@ export function createSharedColorsPanel({
     html() {
       if (!open) return '';
       const slots = (chroma.previewDocument || getDocument()).colorSlots || [];
-      const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${slots.map((slot) => `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`).join('') || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
+      const rows = slots
+        .map(
+          (slot) =>
+            `<div class="shared-color-row" data-shared-color-row="${esc(slot.id)}"><input type="color" data-shared-color-edit="hex" data-shared-color-id="${esc(slot.id)}" value="${esc(slot.value.hex)}" aria-label="${esc(slot.name)} color"><input type="text" data-shared-color-edit="name" data-shared-color-id="${esc(slot.id)}" maxlength="128" value="${esc(slot.name)}" aria-label="Shared color name"><input type="number" data-color-scrub-step="0.01" title="Drag horizontally to adjust; click to type" data-shared-color-edit="alpha" data-shared-color-id="${esc(slot.id)}" min="0" max="1" step="0.01" value="${slot.value.alpha}" aria-label="${esc(slot.name)} alpha"><output data-color-coverage-id="${esc(slot.id)}" aria-label="${esc(slot.name)} visible area">—</output></div>`,
+        )
+        .join('');
+      const savedColors = `<div class="shared-color-list" aria-label="Saved shared colors"><h3 class="shared-colors-heading">${live && chroma.editing ? 'Live colors' : 'Saved colors'}</h3>${rows || '<p class="font-note">Add a color, then link a Color field.</p>'}</div>${getDocument().colorDesign?.version === 2 ? '' : '<p class="font-note" data-color-coverage-status role="status">Measuring visible area…</p>'}`;
       return `<section class="shared-colors-panel" aria-label="Shared colors" ${stamp()}><header><strong>Shared colors</strong>${!live || getDocument().colorDesign?.version !== 2 ? '<button type="button" data-harmony-create>Create palette</button>' : ''}<button type="button" data-shared-color-add aria-label="Add shared color">+</button><button type="button" data-shared-color-close aria-label="Close Shared colors">×</button></header>${live || getDocument().colorDesign?.version === 2 ? chroma.html({ savedColors }) : savedColors + chroma.html()}</section>`;
     },
     bindingControl(node, key, q, layerId) {

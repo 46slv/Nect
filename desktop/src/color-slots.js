@@ -72,8 +72,7 @@ export function validateColorDesign(doc, slots) {
     !Number.isFinite(design.colorfulness) ||
     design.colorfulness < 0 ||
     design.colorfulness > 1 ||
-    (hasSpread &&
-      (!Number.isFinite(design.spread) || design.spread < 0 || design.spread > 1)) ||
+    (hasSpread && (!Number.isFinite(design.spread) || design.spread < 0 || design.spread > 1)) ||
     typeof design.areaAware !== 'boolean' ||
     !Array.isArray(design.lockedSlotIds) ||
     design.lockedSlotIds.length > 256

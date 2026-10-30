@@ -1044,7 +1044,6 @@ test('live alpha drag uses stable IDs even when two saved colors have the same n
   assert.equal(serialize(s.model), before);
 });
 
-
 test('live ring-count input samples preserve fixed stable-ID centers when returning to the origin', (t) => {
   const s = setup(t, { realSession: true, live: true });
   const before = serialize(s.model),
@@ -1062,7 +1061,6 @@ test('live ring-count input samples preserve fixed stable-ID centers when return
   assert.equal(range.min, '3');
   assert.equal(range.step, '3');
 });
-
 
 test('a second primary pointer cannot settle or retarget the first live color gesture', (t) => {
   const s = setup(t, { realSession: true, live: true });
@@ -1085,7 +1083,6 @@ test('a second primary pointer cannot settle or retarget the first live color ge
   assert.equal(s.session.historyView.past.length, past + 1);
   assert.equal(s.app.querySelectorAll('[data-color-coverage-status]').length, 1);
 });
-
 
 test('invalid final numeric text rolls back rather than committing its earlier valid preview on navigation', (t) => {
   const s = setup(t, { realSession: true, live: true });

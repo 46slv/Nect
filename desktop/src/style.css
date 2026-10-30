@@ -2810,7 +2810,7 @@ input[data-scrub-step].scrubbing {
 }
 /* The status bar replaces this repeated introduction, not the wheel itself. */
 .auto-chroma-controls > .harmony-wheel-panel > strong,
-.auto-chroma-controls > .harmony-wheel-panel > p.font-note {
+.auto-chroma-controls > .harmony-wheel-panel > p.font-note:not(.harmony-coverage-status) {
   display: none;
 }
 .chroma-draft-actions {

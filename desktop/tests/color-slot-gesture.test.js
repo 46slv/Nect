@@ -5,11 +5,14 @@ import { CommandSession, document, serialize, deserialize } from '../src/core.js
 function fixture() {
   const s = new CommandSession(document()),
     send = (type, payload = {}) => s.dispatch({ ...s.state, type, payload });
-  const ids = ['One', 'Two'].map((name) =>
-    send('create-color-slot', { name, value: { hex: '#123456', alpha: 0.25 } }).slotId,
+  const ids = ['One', 'Two'].map(
+    (name) => send('create-color-slot', { name, value: { hex: '#123456', alpha: 0.25 } }).slotId,
   );
   const updates = (hex = '#abcdef') =>
-    ids.map((slotId) => ({ slotId, value: { hex, alpha: 0.25 } }));
+    ids.map((slotId) => ({
+      slotId,
+      value: { hex, alpha: 0.25 },
+    }));
   return { s, send, ids, updates };
 }
 const saved = (s) => ({

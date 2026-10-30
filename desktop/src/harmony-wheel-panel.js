@@ -85,6 +85,8 @@ export function createHarmonyWheelPanel({
       onEdit();
       onCommit();
       render();
+      const picker = app.querySelector('[data-wheel-entry]');
+      if (picker) picker.value = selected;
     } catch (error) {
       fail(error);
     }
@@ -507,7 +509,23 @@ export function createHarmonyWheelPanel({
             (v) => `<option value="${esc(v)}" ${v === value ? 'selected' : ''}>${esc(v)}</option>`,
           )
           .join('');
-      const visual = `<section class="harmony-wheel-panel" aria-label="Harmony palette"><svg class="harmony-wheel" viewBox="-115 -115 230 230" aria-label="Discrete harmony wheel"><g class="harmony-wheel-grid" aria-hidden="true">${grid}</g><g class="harmony-wheel-spokes" aria-hidden="true">${points.map((p) => `<line x1="0" y1="0" x2="${p.x * 100}" y2="${p.y * 100}"/>`).join('')}<circle cx="0" cy="0" r="2"/></g>${points.map((p) => `<g tabindex="0" role="button" data-wheel-marker="${esc(p.id)}" aria-pressed="${selected === p.id}" aria-label="${esc(names.get(p.id) || p.id)}, palette color ${p.number}. Arrow keys change ring." transform="translate(${p.x * 100} ${p.y * 100})"><title>Ring ${p.ring + 1} of ${wheel.lightnessSteps}</title><circle r="7"/><circle r="5.7" data-wheel-marker-color style="fill:${esc(values.get(p.id))};stroke:none"/><text text-anchor="middle" dominant-baseline="central" style="fill:${markerInk(values.get(p.id))}">${p.number}</text></g>`).join('')}</svg><div class="harmony-palette-swatches" role="group" aria-label="${preview ? 'Preview palette colors' : 'Saved palette colors'}">${palette.map((p, i) => `<button type="button" data-wheel-select="${esc(p.id)}" aria-pressed="${p.id === selected}" aria-label="Select palette color ${i + 1}, ${esc(names.get(p.id) || p.id)}" title="${esc(names.get(p.id) || p.id)} ${esc(values.get(p.id))}"><span class="harmony-palette-chip" style="background:${esc(values.get(p.id))}" aria-hidden="true"></span><span>${i + 1}. ${esc(names.get(p.id) || p.id)}</span><small class="harmony-palette-role">${esc(p.role)}</small><output data-color-coverage-id="${esc(p.id)}" aria-label="${esc(names.get(p.id) || p.id)} saved visible area" title="Approximate saved artwork area">—</output></button>`).join('')}</div>${palette.some((p) => p.kind === 'neutral') ? `<div class="harmony-neutral-lane"><span>Neutral</span><div class="harmony-neutral-track">${palette.filter((p) => p.kind === 'neutral').map((p) => `<button type="button" data-wheel-neutral="${esc(p.id)}" role="slider" aria-label="${esc(names.get(p.id) || p.id)} neutral lightness" aria-valuemin="0" aria-valuemax="1" aria-valuenow="${p.L}" data-selected="${p.id === selected}" title="${esc(names.get(p.id) || p.id)}" style="left:${(1 - p.L) * 100}%">${palette.indexOf(p) + 1}</button>`).join('')}</div></div>` : ''}<p class="harmony-coverage-status font-note" data-color-coverage-status role="status">Measuring visible area…</p></section>`;
+      const chips = palette
+        .map(
+          (p, i) =>
+            `<button type="button" data-wheel-select="${esc(p.id)}" aria-pressed="${p.id === selected}" aria-label="Select palette color ${i + 1}, ${esc(names.get(p.id) || p.id)}" title="${esc(names.get(p.id) || p.id)} ${esc(values.get(p.id))}"><span class="harmony-palette-chip" style="background:${esc(values.get(p.id))}" aria-hidden="true"></span><span>${i + 1}. ${esc(names.get(p.id) || p.id)}</span><small class="harmony-palette-role">${esc(p.role)}</small><output data-color-coverage-id="${esc(p.id)}" aria-label="${esc(names.get(p.id) || p.id)} saved visible area" title="Approximate saved artwork area">—</output></button>`,
+        )
+        .join('');
+      const neutralEntries = palette.filter((p) => p.kind === 'neutral');
+      const neutralMarkers = neutralEntries
+        .map(
+          (p) =>
+            `<button type="button" data-wheel-neutral="${esc(p.id)}" role="slider" aria-label="${esc(names.get(p.id) || p.id)} neutral lightness" aria-valuemin="0" aria-valuemax="1" aria-valuenow="${p.L}" data-selected="${p.id === selected}" title="${esc(names.get(p.id) || p.id)}" style="left:${(1 - p.L) * 100}%">${palette.indexOf(p) + 1}</button>`,
+        )
+        .join('');
+      const neutralLane = neutralEntries.length
+        ? `<div class="harmony-neutral-lane"><span>Neutral</span><div class="harmony-neutral-track">${neutralMarkers}</div></div>`
+        : '';
+      const visual = `<section class="harmony-wheel-panel" aria-label="Harmony palette"><svg class="harmony-wheel" viewBox="-115 -115 230 230" aria-label="Discrete harmony wheel"><g class="harmony-wheel-grid" aria-hidden="true">${grid}</g><g class="harmony-wheel-spokes" aria-hidden="true">${points.map((p) => `<line x1="0" y1="0" x2="${p.x * 100}" y2="${p.y * 100}"/>`).join('')}<circle cx="0" cy="0" r="2"/></g>${points.map((p) => `<g tabindex="0" role="button" data-wheel-marker="${esc(p.id)}" aria-pressed="${selected === p.id}" aria-label="${esc(names.get(p.id) || p.id)}, palette color ${p.number}. Arrow keys change ring." transform="translate(${p.x * 100} ${p.y * 100})"><title>Ring ${p.ring + 1} of ${wheel.lightnessSteps}</title><circle r="7"/><circle r="5.7" data-wheel-marker-color style="fill:${esc(values.get(p.id))};stroke:none"/><text text-anchor="middle" dominant-baseline="central" style="fill:${markerInk(values.get(p.id))}">${p.number}</text></g>`).join('')}</svg><div class="harmony-palette-swatches" role="group" aria-label="${preview ? 'Preview palette colors' : 'Saved palette colors'}">${chips}</div>${neutralLane}<p class="harmony-coverage-status font-note" data-color-coverage-status role="status">Measuring visible area…</p></section>`;
       const settings = `<section class="harmony-wheel-parameters" aria-label="Harmony settings"><div class="harmony-wheel-settings"><label>Harmony <select data-wheel-setting="harmony" aria-label="Harmony preset">${presets.map((v) => `<option value="${v}" ${v === wheel.harmony ? 'selected' : ''} ${compatible(wheel, { harmony: v }) ? '' : 'disabled'}>${v === 'split' ? 'Split complementary' : v}</option>`).join('')}</select></label><label>Hue cells <span class="color-parameter-value">${live ? `<input type="range" data-wheel-range="hueSteps" min="${hueValues[0]}" max="${hueValues.at(-1)}" step="${hueValues.length > 1 ? hueValues[1] - hueValues[0] : 1}" value="${wheel.hueSteps}" aria-label="Hue cells slider">` : ''}<select data-wheel-setting="hueSteps" aria-label="Hue cells">${Array.from(
         { length: 70 },
         (_, i) => i + 3,

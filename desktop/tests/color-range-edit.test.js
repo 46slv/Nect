@@ -126,15 +126,17 @@ test('another pointer cannot finish an active native range edit', () => {
   assert.equal(f.commits, 1);
 });
 
-
-test('native range samples can restore their fixed gesture baseline before applying the next value', () => {
-  const f = fixture();
-  f.fire('pointerdown');
-  f.value = 0.3;
-  f.controller.restoreBaseline();
-  assert.equal(f.value, 0.62);
-  f.value = 0.5;
-  f.fire('pointerup');
-  assert.equal(f.value, 0.5);
-  assert.equal(f.commits, 1);
-});
+test(
+  'native range samples can restore their fixed gesture baseline before applying the next value',
+  () => {
+    const f = fixture();
+    f.fire('pointerdown');
+    f.value = 0.3;
+    f.controller.restoreBaseline();
+    assert.equal(f.value, 0.62);
+    f.value = 0.5;
+    f.fire('pointerup');
+    assert.equal(f.value, 0.5);
+    assert.equal(f.commits, 1);
+  },
+);
