@@ -13,9 +13,9 @@ export function textFontLabel(node, assets = {}) {
 }
 
 /** The normal inspector never asks the user to choose a font implementation. */
-export function fontChoiceControls(node, { assets, locked = false, status = '' } = {}) {
+export function fontChoiceControls(node, { assets, locked = false, status = '', desktop = false } = {}) {
   const disabled = locked || node.locked || node.bypassed ? 'disabled' : '';
-  return `<section class="text-font-choice" aria-label="Font"><div class="field"><label>Font</label><span>${escape(textFontLabel(node, assets))}</span><button type="button" class="mini" data-change-font="${escape(node.id)}" ${disabled}>Change font…</button></div>${status ? `<output role="status">${escape(status)}</output>` : ''}</section>`;
+  return `<section class="text-font-choice" aria-label="Font"><div class="field"><label>Font</label><span>${escape(textFontLabel(node, assets))}</span><button type="button" class="mini" data-change-font="${escape(node.id)}" ${disabled}>Change font…</button></div>${desktop ? `<button type="button" class="mini" data-open-private-font="${escape(node.id)}" ${disabled}>${node.osFont?.source ? 'Reattach / open font file…' : 'Open font file…'}</button><p class="font-note">Font file stays on this computer and is not embedded. Check its license before use.</p>` : ''}${status ? `<output role="status">${escape(status)}</output>` : ''}</section>`;
 }
 
 export function fontImportControls(node, { locked = false, desktop = false } = {}) {

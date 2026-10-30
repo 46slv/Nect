@@ -1,4 +1,5 @@
-// DirectWrite shapes active OS font references. No file/table/font-byte access.
+// DirectWrite shapes installed references or an explicit immutable private snapshot.
+// Private data is never registered globally, unpacked, rewritten, or written to disk.
 #define NOMINMAX
 #include <windows.h>
 #include <dwrite_3.h>
@@ -74,6 +75,40 @@ HRESULT resolveFace(IDWriteFactory3* factory,IDWriteFontCollection* fonts,const 
     if(face->GetWeight()!=weight||face->GetStyle()!=style||face->GetStretch()!=stretch||localized(names.Get())!=faceInput)return HRESULT_FROM_WIN32(ERROR_NOT_FOUND);
     return S_OK;
 }
+// Each operation owns an isolated loader/factory. Null ownerObject asks DirectWrite
+// to copy the snapshot; registration ends before the factory is destroyed.
+// API contracts: Microsoft Learn IDWriteInMemoryFontFileLoader::
+// CreateInMemoryFontFileReference and IDWriteFontFile::Analyze.
+class PrivateFont final {
+    bool registered=false;
+public:
+    ComPtr<IDWriteFactory5> factory;
+    ComPtr<IDWriteInMemoryFontFileLoader> loader;
+    ComPtr<IDWriteFontFile> file;
+    UINT32 count=0;
+    ~PrivateFont(){file.Reset();if(registered)factory->UnregisterFontFileLoader(loader.Get());}
+    HRESULT open(const unsigned char* bytes,UINT32 length){
+        if(!bytes||length<12||length>128u*1024u*1024u)return E_INVALIDARG;
+        HRESULT hr=DWriteCreateFactory(DWRITE_FACTORY_TYPE_ISOLATED,__uuidof(IDWriteFactory5),reinterpret_cast<IUnknown**>(factory.GetAddressOf()));
+        if(FAILED(hr))return E_NOTIMPL;
+        hr=factory->CreateInMemoryFontFileLoader(&loader);if(FAILED(hr))return hr;
+        hr=factory->RegisterFontFileLoader(loader.Get());if(FAILED(hr))return hr;registered=true;
+        hr=loader->CreateInMemoryFontFileReference(factory.Get(),bytes,length,nullptr,&file);if(FAILED(hr))return hr;
+        BOOL supported=FALSE;DWRITE_FONT_FILE_TYPE fileType;DWRITE_FONT_FACE_TYPE faceType;
+        hr=file->Analyze(&supported,&fileType,&faceType,&count);if(FAILED(hr))return hr;
+        if(!supported||!count||count>256)return E_INVALIDARG;
+        return S_OK;
+    }
+    HRESULT face(UINT32 index,ComPtr<IDWriteFontFace3>& result){
+        if(index>=count)return E_INVALIDARG;
+        ComPtr<IDWriteFontFaceReference> reference;
+        HRESULT hr=static_cast<IDWriteFactory3*>(factory.Get())->CreateFontFaceReference(file.Get(),index,DWRITE_FONT_SIMULATIONS_NONE,&reference);
+        if(FAILED(hr))return hr;
+        hr=reference->CreateFontFace(&result);
+        if(SUCCEEDED(hr)&&(result->GetIndex()!=index||result->GetSimulations()!=DWRITE_FONT_SIMULATIONS_NONE))return E_FAIL;
+        return hr;
+    }
+};
 struct AxisInfo {UINT32 tag;std::wstring name;float minimum,maximum,defaultValue,baseValue,value;bool hidden;};
 HRESULT readAxes(IDWriteFontFace3* face,std::vector<AxisInfo>& result){
     ComPtr<IDWriteFontFace5> variable;if(FAILED(face->QueryInterface(IID_PPV_ARGS(&variable)))||!variable->HasVariations())return S_OK;
@@ -222,13 +257,11 @@ extern "C" int nect_list_desktop_font_faces(DesktopFaceCallback callback,void* d
 }
 using DesktopLineCallback=void(*)(UINT32,UINT32,UINT32,UINT32,void*);
 using DesktopPathCallback=void(*)(const NativePoint*,const unsigned char*,int,float,float,float,int,int,void*);
-extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wchar_t* faceNameInput,int weight,int style,int stretch,
+static int shapeResolved(IDWriteFactory3* factory,ComPtr<IDWriteFontFace3> face,int weight,int style,int stretch,
     const wchar_t* text,int length,float size,float tracking,float lineSpacing,int kerning,int ligatures,int alignment,
     const UINT32* axisTags,const float* axisValues,int axisCount,int vertical,float wrapWidth,float wrapHeight,DesktopAxisCallback axisCallback,DesktopLineCallback lineCallback,DesktopPathCallback callback,void* data){
     if(length<0||length>4096||!std::isfinite(size)||size<0.01f||size>10000||!std::isfinite(tracking)||std::abs(tracking)>10000||!std::isfinite(lineSpacing)||lineSpacing<0.1f||lineSpacing>100||style<0||style>2||weight<1||weight>999||stretch<1||stretch>9||alignment<0||alignment>2)return E_INVALIDARG;
-    ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
-    ComPtr<IDWriteFontFace3> face;ComPtr<IDWriteFontFaceReference> reference;
-    hr=resolveFace(factory.Get(),fonts.Get(),familyNameInput,faceNameInput,weight,style,stretch,face);if(FAILED(hr))return hr;
+    HRESULT hr=S_OK;ComPtr<IDWriteFontFaceReference> reference;
     if(axisCount<-1||axisCount>32||vertical<0||vertical>1||!std::isfinite(wrapWidth)||wrapWidth<0||wrapWidth>100000||!std::isfinite(wrapHeight)||wrapHeight<0||wrapHeight>100000||(wrapWidth>0&&vertical)||(wrapHeight>0&&!vertical))return E_INVALIDARG;
     std::vector<AxisInfo> axes;std::vector<DWRITE_FONT_AXIS_VALUE> resolvedAxes;
     if(axisCount>=0){
@@ -303,4 +336,40 @@ extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wcha
     if(axisCount>=0)emitAxes(axes,axisCallback,data);
     callback(output.points.data(),output.types.data(),static_cast<int>(output.points.size()),ascent,textMetrics.widthIncludingTrailingWhitespace,advanceHeight,static_cast<int>(textMetrics.lineCount),static_cast<int>(output.glyphs),data);
     return 0;
+}
+
+
+extern "C" int nect_shape_desktop_text(const wchar_t* familyNameInput,const wchar_t* faceNameInput,int weight,int style,int stretch,
+    const wchar_t* text,int length,float size,float tracking,float lineSpacing,int kerning,int ligatures,int alignment,
+    const UINT32* axisTags,const float* axisValues,int axisCount,int vertical,float wrapWidth,float wrapHeight,DesktopAxisCallback axisCallback,DesktopLineCallback lineCallback,DesktopPathCallback callback,void* data){
+    ComPtr<IDWriteFactory3> factory;ComPtr<IDWriteFontCollection> fonts;HRESULT hr=system(factory,fonts);if(FAILED(hr))return hr;
+    ComPtr<IDWriteFontFace3> face;hr=resolveFace(factory.Get(),fonts.Get(),familyNameInput,faceNameInput,weight,style,stretch,face);if(FAILED(hr))return hr;
+    return shapeResolved(factory.Get(),face,weight,style,stretch,text,length,size,tracking,lineSpacing,kerning,ligatures,alignment,axisTags,axisValues,axisCount,vertical,wrapWidth,wrapHeight,axisCallback,lineCallback,callback,data);
+}
+using PrivateFaceCallback=void(*)(UINT32,const wchar_t*,const wchar_t*,int,int,int,int,int,void*);
+extern "C" int nect_list_private_font_faces(const unsigned char* bytes,UINT32 length,PrivateFaceCallback callback,void* data){
+    PrivateFont source;HRESULT hr=source.open(bytes,length);if(FAILED(hr))return hr;
+    struct Description {std::wstring family,name;int weight,style,stretch,format,color;};
+    std::vector<Description> descriptions;
+    for(UINT32 i=0;i<source.count;++i){
+        ComPtr<IDWriteFontFace3> face;hr=source.face(i,face);if(FAILED(hr))return hr;
+        ComPtr<IDWriteLocalizedStrings> families,names;
+        if(FAILED(face->GetFamilyNames(&families))||FAILED(face->GetFaceNames(&names)))return E_FAIL;
+        auto family=localized(families.Get()),name=localized(names.Get());if(family.empty()||name.empty())return E_INVALIDARG;
+        descriptions.push_back({family,name,face->GetWeight(),face->GetStyle(),face->GetStretch(),face->GetType(),face->IsColorFont()?1:0});
+    }
+    for(UINT32 i=0;i<source.count;++i){auto& d=descriptions[i];callback(i,d.family.c_str(),d.name.c_str(),d.weight,d.style,d.stretch,d.format,d.color,data);}
+    return static_cast<int>(source.count);
+}
+extern "C" int nect_list_private_font_axes(const unsigned char* bytes,UINT32 length,UINT32 index,DesktopAxisCallback callback,void* data){
+    PrivateFont source;HRESULT hr=source.open(bytes,length);if(FAILED(hr))return hr;
+    ComPtr<IDWriteFontFace3> face;hr=source.face(index,face);if(FAILED(hr))return hr;
+    std::vector<AxisInfo> axes;hr=readAxes(face.Get(),axes);if(FAILED(hr))return hr;emitAxes(axes,callback,data);return S_OK;
+}
+extern "C" int nect_shape_private_font_text(const unsigned char* bytes,UINT32 byteLength,UINT32 index,
+    const wchar_t* text,int length,float size,float tracking,float lineSpacing,int kerning,int ligatures,int alignment,
+    const UINT32* axisTags,const float* axisValues,int axisCount,int vertical,float wrapWidth,float wrapHeight,DesktopAxisCallback axisCallback,DesktopLineCallback lineCallback,DesktopPathCallback callback,void* data){
+    PrivateFont source;HRESULT hr=source.open(bytes,byteLength);if(FAILED(hr))return hr;
+    ComPtr<IDWriteFontFace3> face;hr=source.face(index,face);if(FAILED(hr))return hr;
+    return shapeResolved(source.factory.Get(),face,face->GetWeight(),face->GetStyle(),face->GetStretch(),text,length,size,tracking,lineSpacing,kerning,ligatures,alignment,axisTags,axisValues,axisCount,vertical,wrapWidth,wrapHeight,axisCallback,lineCallback,callback,data);
 }

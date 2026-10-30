@@ -12,6 +12,7 @@ mod build_identity_config;
 #[path = "../build_identity_sources.rs"]
 mod build_identity_sources;
 mod desktop_font_layout;
+mod private_fonts;
 mod document_storage;
 mod os_font_outlines;
 #[cfg(feature = "recovery-acceptance-test")]
@@ -166,6 +167,7 @@ fn run() -> Result<(), String> {
         .manage(Documents::default())
         .manage(CloseGuard::default())
         .manage(Catalog::default())
+        .manage(private_fonts::PrivateFonts::default())
         .manage(Recovery::default())
         .invoke_handler(tauri::generate_handler![
             build_identity::query_build_identity,
@@ -185,6 +187,10 @@ fn run() -> Result<(), String> {
             list_desktop_font_faces,
             list_desktop_font_axes,
             shape_desktop_text,
+            private_fonts::open_private_font_file,
+            private_fonts::list_private_font_files,
+            private_fonts::list_private_font_axes,
+            private_fonts::shape_private_font_text,
             open_project,
             save_project,
             release_project,
@@ -274,3 +280,4 @@ mod startup_tests {
         assert!(acceptance_window(&mut config, true).is_err());
     }
 }
+

@@ -1,5 +1,5 @@
 //! Shaped OS typography through DirectWrite references; geometry only over IPC.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DesktopFace {
     pub family: String,
@@ -213,6 +213,52 @@ mod native {
             ),
             data: *mut c_void,
         ) -> i32;
+        fn nect_list_private_font_faces(
+            bytes: *const u8,
+            length: u32,
+            callback: extern "C" fn(u32, *const u16, *const u16, i32, i32, i32, i32, i32, *mut c_void),
+            data: *mut c_void,
+        ) -> i32;
+        fn nect_list_private_font_axes(
+            bytes: *const u8,
+            length: u32,
+            face_index: u32,
+            callback: AxisCallback,
+            data: *mut c_void,
+        ) -> i32;
+        fn nect_shape_private_font_text(
+            bytes: *const u8,
+            byte_length: u32,
+            face_index: u32,
+            text: *const u16,
+            length: i32,
+            size: f32,
+            tracking: f32,
+            line_spacing: f32,
+            kerning: i32,
+            ligatures: i32,
+            alignment: i32,
+            axis_tags: *const u32,
+            axis_values: *const f32,
+            axis_count: i32,
+            vertical: i32,
+            wrap_width: f32,
+            wrap_height: f32,
+            axis_callback: AxisCallback,
+            line_callback: extern "C" fn(u32, u32, u32, u32, *mut c_void),
+            callback: extern "C" fn(
+                *const Point,
+                *const u8,
+                i32,
+                f32,
+                f32,
+                f32,
+                i32,
+                i32,
+                *mut c_void,
+            ),
+            data: *mut c_void,
+        ) -> i32;
     }
     unsafe fn string(value: *const u16) -> Option<String> {
         // The native producer bounds localized names to 255 units plus NUL.
@@ -255,6 +301,42 @@ mod native {
             format: format as u32,
             color: color != 0,
         });
+    }
+    extern "C" fn private_face(
+        face_index: u32, family: *const u16, name: *const u16,
+        weight: i32, style: i32, stretch: i32, format: i32, color: i32,
+        data: *mut c_void,
+    ) {
+        let mut parsed: Vec<DesktopFace> = Vec::new();
+        face(family, name, weight, style, stretch, format, color,
+            &mut parsed as *mut _ as *mut c_void);
+        if let Some(face) = parsed.pop() {
+            if (1..=999).contains(&face.weight) && face.style <= 2 && (1..=9).contains(&face.stretch) {
+                unsafe { &mut *(data as *mut Vec<crate::private_fonts::PrivateFace>) }
+                    .push(crate::private_fonts::PrivateFace { face_index, face });
+            }
+        }
+    }
+    pub fn private_faces(bytes: &[u8]) -> Result<Vec<crate::private_fonts::PrivateFace>, String> {
+        let mut result: Vec<crate::private_fonts::PrivateFace> = Vec::new();
+        let count = unsafe { nect_list_private_font_faces(bytes.as_ptr(), bytes.len() as u32,
+            private_face, &mut result as *mut _ as *mut c_void) };
+        if count == -2147467263 {
+            return Err("Private font loading is unavailable: this Windows DirectWrite runtime does not support in-memory font files".into());
+        }
+        if !(1..=256).contains(&count) || result.len() != count as usize
+            || result.iter().enumerate().any(|(i, item)| item.face_index != i as u32) {
+            return Err(format!("Private font discovery failed ({count}); no file was retained"));
+        }
+        Ok(result)
+    }
+    pub fn private_axes(bytes: &[u8], face_index: u32) -> Result<Vec<DesktopAxis>, String> {
+        let mut result: Vec<DesktopAxis> = Vec::new();
+        let status = unsafe { nect_list_private_font_axes(bytes.as_ptr(), bytes.len() as u32,
+            face_index, axis, &mut result as *mut _ as *mut c_void) };
+        if status != 0 { return Err(format!("Private font-axis discovery failed ({status})")); }
+        result.sort_by(|a: &DesktopAxis, b: &DesktopAxis| a.tag.cmp(&b.tag));
+        Ok(result)
     }
     extern "C" fn outline(
         points: *const Point,
@@ -430,6 +512,12 @@ mod native {
         Ok(items)
     }
     pub fn shape(request: DesktopTextRequest) -> Result<DesktopOutline, String> {
+        shape_source(request, None)
+    }
+    pub fn private_shape(request: DesktopTextRequest, bytes: &[u8], face_index: u32) -> Result<DesktopOutline, String> {
+        shape_source(request, Some((bytes, face_index)))
+    }
+    fn shape_source(request: DesktopTextRequest, private: Option<(&[u8], u32)>) -> Result<DesktopOutline, String> {
         let face = &request.face;
         if face.family.is_empty()
             || face.name.is_empty()
@@ -545,35 +633,65 @@ mod native {
             wrap_overflow: if wrapped { Some(false) } else { None },
         };
         let status = unsafe {
-            nect_shape_desktop_text(
-                family.as_ptr(),
-                name.as_ptr(),
-                face.weight as i32,
-                face.style as i32,
-                face.stretch as i32,
-                text.as_ptr(),
-                text.len() as i32,
-                result.size,
-                result.tracking,
-                result.line_spacing,
-                result.kerning as i32,
-                result.ligatures as i32,
-                result.alignment as i32,
-                axis_tags.as_ptr(),
-                axis_values.as_ptr(),
-                if extended { axis_tags.len() as i32 } else { -1 },
-                if result.writing_mode.as_deref() == Some("vertical-rl") {
-                    1
-                } else {
-                    0
-                },
-                result.wrap_width.unwrap_or(0.0),
-                result.wrap_height.unwrap_or(0.0),
-                outline_axis,
-                line_span,
-                outline,
-                &mut result as *mut _ as *mut c_void,
-            )
+            if let Some((bytes, face_index)) = private {
+                nect_shape_private_font_text(
+                    bytes.as_ptr(),
+                    bytes.len() as u32,
+                    face_index,
+                    text.as_ptr(),
+                    text.len() as i32,
+                    result.size,
+                    result.tracking,
+                    result.line_spacing,
+                    result.kerning as i32,
+                    result.ligatures as i32,
+                    result.alignment as i32,
+                    axis_tags.as_ptr(),
+                    axis_values.as_ptr(),
+                    if extended { axis_tags.len() as i32 } else { -1 },
+                    if result.writing_mode.as_deref() == Some("vertical-rl") {
+                        1
+                    } else {
+                        0
+                    },
+                    result.wrap_width.unwrap_or(0.0),
+                    result.wrap_height.unwrap_or(0.0),
+                    outline_axis,
+                    line_span,
+                    outline,
+                    &mut result as *mut _ as *mut c_void,
+                )
+            } else {
+                nect_shape_desktop_text(
+                    family.as_ptr(),
+                    name.as_ptr(),
+                    face.weight as i32,
+                    face.style as i32,
+                    face.stretch as i32,
+                    text.as_ptr(),
+                    text.len() as i32,
+                    result.size,
+                    result.tracking,
+                    result.line_spacing,
+                    result.kerning as i32,
+                    result.ligatures as i32,
+                    result.alignment as i32,
+                    axis_tags.as_ptr(),
+                    axis_values.as_ptr(),
+                    if extended { axis_tags.len() as i32 } else { -1 },
+                    if result.writing_mode.as_deref() == Some("vertical-rl") {
+                        1
+                    } else {
+                        0
+                    },
+                    result.wrap_width.unwrap_or(0.0),
+                    result.wrap_height.unwrap_or(0.0),
+                    outline_axis,
+                    line_span,
+                    outline,
+                    &mut result as *mut _ as *mut c_void,
+                )
+            }
         };
         if let Some(width) = result.wrap_width {
             result.wrap_overflow = Some(result.advance_width > width + 0.01);
@@ -625,6 +743,19 @@ mod native {
         }
         Ok(result)
     }
+}
+// Private entrypoints deliberately accept snapshots only, never paths or family lookup.
+pub fn private_faces(bytes: &[u8]) -> Result<Vec<crate::private_fonts::PrivateFace>, String> {
+    #[cfg(windows)] { native::private_faces(bytes) }
+    #[cfg(not(windows))] { let _ = bytes; Err("Private font loading requires Windows DirectWrite".into()) }
+}
+pub fn private_axes(bytes: &[u8], face_index: u32) -> Result<Vec<DesktopAxis>, String> {
+    #[cfg(windows)] { native::private_axes(bytes, face_index) }
+    #[cfg(not(windows))] { let _ = (bytes, face_index); Err("Private font axes require Windows DirectWrite".into()) }
+}
+pub fn prepare_private(request: DesktopTextRequest, bytes: &[u8], face_index: u32) -> Result<DesktopOutline, String> {
+    #[cfg(windows)] { native::private_shape(request, bytes, face_index) }
+    #[cfg(not(windows))] { let _ = (request, bytes, face_index); Err("Private font shaping requires Windows DirectWrite".into()) }
 }
 pub fn installed() -> Result<Vec<DesktopFace>, String> {
     #[cfg(windows)]
@@ -1337,3 +1468,4 @@ mod tests {
         );
     }
 }
+

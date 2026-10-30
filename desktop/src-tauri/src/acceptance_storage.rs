@@ -211,6 +211,78 @@ impl RunStorage {
         Ok(text)
     }
 
+    /// Read-only, bounded binary input with exactly the acceptance document
+    /// confinement used by Open/Save. No font path or OS error crosses IPC.
+    pub fn read_private_font(&self, path: &Path) -> Result<Vec<u8>, String> {
+        const LIMIT: u64 = 128 * 1024 * 1024;
+        let path = self.document_path(path, true)
+            .map_err(|_| "Selected private font is outside the permitted storage boundary or is not a regular file")?;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(windows)] {
+            use std::os::windows::fs::OpenOptionsExt;
+            // Open a final reparse point itself, never follow it between check
+            // and open. The handle metadata check below rejects that point.
+            options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let file = options.open(&path).map_err(|_| "Cannot open the selected private font file")?;
+        let metadata = file.metadata().map_err(|_| "Cannot inspect the selected private font file")?;
+        if !metadata.is_file() || is_reparse(&metadata) || !(12..=LIMIT).contains(&metadata.len()) {
+            return Err("Private font must be a regular file between 12 bytes and 128 MiB".into());
+        }
+        self.document_path(&path, true)
+            .map_err(|_| "Private font storage boundary changed before reading")?;
+        self.verify_private_font_handle(&file, &path)?;
+        let mut bytes = Vec::new();
+        (&file).take(LIMIT + 1).read_to_end(&mut bytes)
+            .map_err(|_| "Cannot read the selected private font file")?;
+        if !(12..=LIMIT as usize).contains(&bytes.len()) {
+            return Err("Private font must be between 12 bytes and 128 MiB".into());
+        }
+        self.document_path(&path, true)
+            .map_err(|_| "Private font storage boundary changed while reading")?;
+        self.verify_private_font_handle(&file, &path)?;
+        Ok(bytes)
+    }
+
+    fn verify_private_font_handle(&self, file: &fs::File, expected: &Path) -> Result<(), String> {
+        if self.0.is_none() {
+            return Ok(());
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
+            #[link(name = "kernel32")]
+            extern "system" {
+                fn GetFinalPathNameByHandleW(
+                    file: *mut std::ffi::c_void,
+                    path: *mut u16,
+                    size: u32,
+                    flags: u32,
+                ) -> u32;
+            }
+            let mut buffer = vec![0u16; 32768];
+            let length = unsafe {
+                GetFinalPathNameByHandleW(
+                    file.as_raw_handle(),
+                    buffer.as_mut_ptr(),
+                    buffer.len() as u32,
+                    0,
+                )
+            } as usize;
+            if length == 0 || length >= buffer.len() {
+                return Err("Cannot verify private font storage boundary".into());
+            }
+            let actual = PathBuf::from(OsString::from_wide(&buffer[..length]));
+            if !same_path(&actual, expected) {
+                return Err("Opened private font is outside its permitted storage boundary".into());
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = (file, expected);
+        Ok(())
+    }
+
     pub fn write_bytes(&self, path: &Path, contents: &[u8]) -> Result<(), String> {
         let path = self.document_path(path, false)?;
         let parent = path.parent().ok_or("Invalid destination")?;
@@ -306,6 +378,40 @@ mod tests {
             .read_svg_source(&path)
             .unwrap_err()
             .contains("UTF-8"));
+    }
+
+    #[test]
+    fn private_font_read_is_bounded_read_only_and_creates_no_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("synthetic.ttf");
+        let storage = RunStorage::default();
+        let bytes = b"OTTO\0\0\0\0\0\0\0\0";
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(storage.read_private_font(&path).unwrap(), bytes);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(128 * 1024 * 1024 + 1).unwrap();
+        assert!(storage.read_private_font(&path).unwrap_err().contains("128 MiB"));
+        file.set_len(0).unwrap();
+        assert!(storage.read_private_font(&path).is_err());
+        assert!(storage.read_private_font(dir.path()).is_err());
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn private_font_acceptance_read_is_confined_and_keeps_only_source_file() {
+        let (_fixture, storage) = fixture();
+        let paths = storage.0.as_ref().unwrap();
+        let path = paths.documents.join("synthetic.ttc");
+        let bytes = b"ttcf\0\x01\0\0\0\0\0\0";
+        fs::write(&path, bytes).unwrap();
+        assert_eq!(storage.read_private_font(&path).unwrap(), bytes);
+        assert_eq!(fs::read_dir(&paths.documents).unwrap().count(), 1);
+        let outside = tempfile::tempdir().unwrap();
+        let outside_path = outside.path().join("private.ttf");
+        fs::write(&outside_path, bytes).unwrap();
+        assert!(storage.read_private_font(&outside_path).is_err());
     }
 
     #[test]
@@ -408,6 +514,22 @@ mod tests {
 
     #[test]
     #[cfg(windows)]
+    fn private_font_opened_handle_cannot_impersonate_an_allowed_path() {
+        let (directory, storage) = fixture();
+        let allowed = storage.0.as_ref().unwrap().documents.join("allowed.otf");
+        let outside = directory.path().join("outside.otf");
+        fs::write(&allowed, b"OTTO12345678").unwrap();
+        fs::write(&outside, b"OTTOabcdefgh").unwrap();
+        let allowed = storage.document_path(&allowed, true).unwrap();
+        let safe_handle = fs::File::open(&allowed).unwrap();
+        assert!(storage.verify_private_font_handle(&safe_handle, &allowed).is_ok());
+        let outside_handle = fs::File::open(&outside).unwrap();
+        assert!(storage.verify_private_font_handle(&outside_handle, &allowed).is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"OTTOabcdefgh");
+    }
+
+    #[test]
+    #[cfg(windows)]
     fn fresh_root_and_native_roundtrip_stay_in_disposable_documents() {
         let (_fixture, storage) = fixture();
         let paths = storage.0.as_ref().unwrap();
@@ -468,6 +590,7 @@ mod tests {
         ] {
             assert!(storage.write_bytes(&target, b"bad").is_err());
             assert!(storage.read_project(&target).is_err());
+            assert!(storage.read_private_font(&target).is_err());
         }
         assert_eq!(fs::read(outside).unwrap(), b"preserve");
         assert_eq!(fs::read_dir(&paths.documents).unwrap().count(), 1);
@@ -499,6 +622,7 @@ mod tests {
         assert!(storage
             .read_project(&paths.documents.join("preserve.json"))
             .is_err());
+        assert!(storage.read_private_font(&paths.documents.join("preserve.json")).is_err());
         assert_eq!(fs::read(sentinel).unwrap(), b"unchanged");
         fs::remove_dir(&paths.documents).unwrap();
     }
@@ -513,3 +637,4 @@ mod tests {
         assert_eq!(fs::read_dir(fixture.path()).unwrap().count(), 1);
     }
 }
+

@@ -170,3 +170,21 @@ export async function shapeDesktopText(request) {
   if (!desktop) throw Error('Windows font shaping requires the Windows app');
   return invoke('shape_desktop_text', { request }).catch(nativeError);
 }
+
+
+// Opaque tokens remain in memory only. JavaScript never provides native paths.
+export async function openPrivateFontFile() {
+  if (!desktop) throw Error('Font files require the Windows desktop app');
+  return invoke('open_private_font_file').catch(nativeError);
+}
+export async function listPrivateFontFiles() {
+  return desktop ? invoke('list_private_font_files').catch(nativeError) : [];
+}
+export async function listPrivateFontAxes(token, faceIndex) {
+  if (!desktop) throw Error('Font files require the Windows desktop app');
+  return invoke('list_private_font_axes', { token, faceIndex }).catch(nativeError);
+}
+export async function shapePrivateFontText(token, faceIndex, request) {
+  if (!desktop) throw Error('Font files require the Windows desktop app');
+  return invoke('shape_private_font_text', { token, faceIndex, request }).catch(nativeError);
+}
