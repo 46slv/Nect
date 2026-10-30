@@ -20,18 +20,19 @@ function disclosure(document, key, title) {
 }
 export function arrangeTextInspector(root, editingCharacters = false) {
   const controls = root.querySelector('.text-controls');
-  if (!controls?.querySelector('[data-text]')) return;
+  if (!controls?.querySelector('[data-text], [data-os-text]')) return;
   root.classList.add('text-inspector');
   const doc = root.ownerDocument;
   const field = (selector) => controls.querySelector(selector)?.closest('.field');
   const primary = [
-    field('[data-text]'),
+    field('[data-text], [data-os-text]'),
+    controls.querySelector('[data-apply-os-text]'),
+    controls.querySelector('[data-cancel-os-text]'),
     controls.querySelector('[data-style-text-range]'),
     controls.querySelector('[data-kern-text-cursor]'),
-    field('[data-font]'),
+    controls.querySelector('.text-font-choice') || field('[data-font]'),
+    controls.querySelector('fieldset:has([data-os-setting])'),
     ...controls.querySelectorAll(':scope > [role="status"]'),
-    controls.querySelector('[data-load-font]'),
-    root.querySelector('.os-font-outlines [data-os-text-font]'),
     root.querySelector('.field[data-key="size"]'),
     field('[data-writing-mode]'),
     field('[data-text-alignment]'),
@@ -40,14 +41,14 @@ export function arrangeTextInspector(root, editingCharacters = false) {
     controls.querySelector('.text-wrap-controls'),
     controls.querySelector('.text-leading-controls'),
   ].filter(Boolean);
+  const separate = [...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions')];
   const advanced = disclosure(doc, 'typography', 'More typography');
   for (const child of [...controls.children]) {
-    if (!primary.includes(child)) advanced.append(child);
+    if (!primary.includes(child) && !separate.includes(child)) advanced.append(child);
   }
   for (const child of primary) controls.append(child);
-  const os = root.querySelector('.os-font-outlines');
-  if (os) advanced.append(os);
-  controls.append(advanced);
+  if (advanced.children.length > 1) controls.append(advanced);
+  controls.append(...separate);
   const identity = root.querySelector(':scope > .inspector-node-type');
   if (identity) identity.after(controls);
   else root.prepend(controls);

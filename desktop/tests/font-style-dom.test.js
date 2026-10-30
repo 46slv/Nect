@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { parseFont } from '../src/fonts.js';
+import { makeFontAsset, parseFont } from '../src/fonts.js';
 import { Window } from 'happy-dom';
 import {
   document as newDocument,
@@ -71,10 +71,9 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     ['system-unknown', 'Bold name is not metadata', null, { family: 'Unknown test' }],
   ];
   let calls = [];
-  let reader = async (id) => (id === 'system-bold' ? bold : oblique);
   globalThis.readRichFont = (id) => {
     calls.push(id);
-    return reader(id);
+    throw Error('Normal font selection must not read installed font bytes');
   };
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
@@ -100,6 +99,11 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   const doc = newDocument(),
     t = node('Text'),
     out = node('Output');
+  const boldAsset = makeFontAsset(bold, 'bold.ttf'),
+    obliqueAsset = makeFontAsset(oblique, 'oblique.ttf');
+  boldAsset.asset.name = 'Same face name';
+  obliqueAsset.asset.name = 'Same face name';
+  doc.fontAssets = { [boldAsset.id]: boldAsset.asset, [obliqueAsset.id]: obliqueAsset.asset };
   t.text = 'ABA';
   t.characterPositions = createCharacterPositions(t.text);
   doc.schemaVersion = 3;
@@ -118,13 +122,18 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     control.dispatchEvent(new win.Event('change', { bubbles: true }));
   };
   const open = async (range = false) => {
-    q(range ? '[data-character-style="font"]' : '.inspector-body [data-font]').dispatchEvent(
+    q(range ? '[data-character-style="font"]' : '.inspector-body [data-change-font]').dispatchEvent(
       new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
     );
     await tick();
     assert.ok(q('dialog[open]'));
+    for (const group of [...document.querySelectorAll('.picker-family')]) {
+      const current = [...document.querySelectorAll('.picker-family')].find((g) => g.dataset.fontFamily === group.dataset.fontFamily);
+      if (current?.getAttribute('aria-expanded') === 'false') current.querySelector('.picker-family-heading').click();
+    }
   };
-  const row = (id) => q(`.picker-option[data-id="${id}"]`);
+  const row = (id, source = 'embedded') => [...document.querySelectorAll('.picker-option')]
+    .find((entry) => entry.dataset.id === JSON.stringify([source, id])) || null;
   const ready = () => until(() => q('.picker-apply') && !q('.picker-apply').disabled);
   const cancel = () => q('.picker-cancel').click();
   const apply = async () => {
@@ -138,23 +147,27 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   assert.equal(calls.length, 0);
   await open();
   assert.equal(calls.length, 0, 'catalog grouping does not read installed bytes');
-  assert.match(row('system-bold').textContent, /Bold · weight 700/);
-  assert.match(row('system-oblique').textContent, /Oblique · weight 400/);
-  assert.match(row('system-unknown').textContent, /Unknown style · weight unknown/);
-  assert.match(row('system-legacy').textContent, /Unknown family/);
-  assert.match(row('system-bold').textContent, /face system-bold/);
-  assert.equal(row('system-disabled').getAttribute('aria-disabled'), 'true');
-  row('system-bold').querySelector('.picker-star').click();
+  assert.match(row('system-bold', 'installed').textContent, /Bold · weight 700/);
+  assert.match(row('system-oblique', 'installed').textContent, /Oblique · weight 400/);
+  assert.match(row('system-unknown', 'installed').textContent, /Unknown style · weight unknown/);
+  assert.match(row('system-legacy', 'installed').textContent, /Unknown family/);
+  assert.match(row('system-bold', 'installed').textContent, /face system-bold/);
+  assert.equal(row('system-disabled', 'installed').getAttribute('aria-disabled'), 'true');
+  assert.equal(row('system-bold', 'installed').getAttribute('aria-disabled'), 'true');
+  assert.match(row('system-bold', 'installed').textContent, /Font file import is required; use Advanced/);
+  row(boldAsset.id).querySelector('.picker-star').click();
   assert.equal(
-    row('system-oblique').querySelector('.picker-star').getAttribute('aria-pressed'),
+    row(obliqueAsset.id).querySelector('.picker-star').getAttribute('aria-pressed'),
     'false',
   );
   change('[aria-label="Font family"]', 'family:DejaVu Sans');
-  assert.equal(row('system-legacy'), null);
+  assert.equal(row('system-legacy', 'installed'), null);
   change('[aria-label="Available weight"]', '700');
   await ready();
-  assert.equal(row('system-oblique'), null);
-  assert.match(row('system-disabled').textContent, /Variable fonts unsupported/);
+  assert.equal(row('system-oblique', 'installed'), null);
+  assert.match(row('system-disabled', 'installed').textContent, /Variable fonts unsupported/);
+  row(boldAsset.id).click();
+  await ready();
   assert.equal(saved(), baseline, 'preview does not commit');
   assert.equal(win.nect.export(), baselineSVG);
   await apply();
@@ -185,7 +198,7 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   textarea.dispatchEvent(new win.Event('select', { bubbles: true }));
   q('.inspector-body [data-style-text-range]').click();
   await open(true);
-  row('system-oblique').click();
+  row(obliqueAsset.id).click();
   await ready();
   await apply();
   const ranged = saved(),
@@ -222,38 +235,35 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }
-  // A late response cannot replace a newer candidate or a cancelled transaction.
+  // Normal browsing cannot start an installed byte read, even for same-name rows.
+  // Rapid asynchronous native results are covered by unified-font-choice tests.
   await open();
-  let finish;
-  reader = (id) =>
-    id === 'system-bold'
-      ? new Promise((resolve) => {
-          finish = resolve;
-        })
-      : Promise.resolve(oblique);
-  row('system-bold').click();
-  row('system-oblique').click();
+  row('system-bold', 'installed').click();
+  row('system-oblique', 'installed').click();
+  await tick();
+  assert.equal(calls.length, 0);
+  assert.equal(saved(), ranged);
+  cancel();
+  assert.equal(saved(), ranged);
+  assert.equal(win.nect.export(), rangedSVG);
+  // Repeated real document-face previews remain cancelable without authored edits.
+  await open();
+  row(boldAsset.id).click();
+  row(obliqueAsset.id).click();
   await ready();
   const canvas = q('.artboard').innerHTML;
-  finish(bold);
   await tick();
   assert.equal(q('.artboard').innerHTML, canvas);
   assert.equal(saved(), ranged);
   cancel();
   assert.equal(saved(), ranged);
   assert.equal(win.nect.export(), rangedSVG);
-  await open();
-  row('system-bold').click();
-  cancel();
-  finish(bold);
-  await tick();
-  assert.equal(saved(), ranged);
-  assert.equal(win.nect.export(), rangedSVG);
-  // Legacy catalogs retain their flat, selectable rows and searchable reasons.
+  // Legacy discovery rows retain unknown metadata and an explicit import reason.
   await open();
   change('[aria-label="Font family"]', '__unknown__');
-  assert.ok(row('system-legacy'));
-  assert.equal(row('system-bold'), null);
+  assert.ok(row('system-legacy', 'installed'));
+  assert.equal(row('system-legacy', 'installed').getAttribute('aria-disabled'), 'true');
+  assert.equal(row('system-bold', 'installed'), null);
   cancel();
   win.nect.load(baseline);
   assert.equal(win.nect.export(), baselineSVG, 'old project output unchanged');

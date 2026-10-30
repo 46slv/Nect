@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { Window } from 'happy-dom';
 import { document as newDocument, node, serialize, createCharacterPositions } from '../src/core.js';
-import { parseFont } from '../src/fonts.js';
+import { parseFont, makeFontAsset } from '../src/fonts.js';
 const buffer = async (path) => {
   const b = await fs.readFile(new URL(path, import.meta.url));
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
@@ -269,21 +269,55 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   start([{ name: 'bad.ttf', size: 20, arrayBuffer: async () => new ArrayBuffer(20) }]);
   await wait(() => status().includes('Font rejected'), 'invalid font');
   assert.equal(snapshot(), final);
+  // Explicit static import replaces an existing variable Text with the parsed asset ID in one edit.
+  const variableBeforeStatic = structuredClone(current());
+  const beforeStaticAssets = new Set(Object.keys(win.nect.document.fontAssets));
+  const beforeStaticRevision = win.nect.commandState.expectedRevision;
+  document.querySelector('.inspector-body [data-load-font]').click();
+  const wholeStaticInput = document.querySelector('#font-file');
+  Object.defineProperty(wholeStaticInput, 'files', { configurable: true, value: [{
+    name: 'static-from-variable.ttf', size: staticBytes.byteLength, arrayBuffer: async () => staticBytes,
+  }] });
+  wholeStaticInput.dispatchEvent(new win.Event('change', { bubbles: true }));
+  await wait(() => !current().variation && current().font !== variableBeforeStatic.font, 'variable to static explicit import');
+  const actualStaticId = current().font;
+  assert.equal(beforeStaticAssets.has(actualStaticId), false);
+  assert.equal(Object.keys(win.nect.document.fontAssets).length, beforeStaticAssets.size + 1);
+  assert.ok(win.nect.document.fontAssets[actualStaticId]);
+  assert.equal(win.nect.commandState.expectedRevision, beforeStaticRevision + 1);
+  assert.equal(win.nect.evaluate().error, null);
+  assert.deepEqual(current().params, variableBeforeStatic.params);
+  assert.equal(current().text, variableBeforeStatic.text);
+  assert.deepEqual(Buffer.from(win.nect.document.fontAssets[actualStaticId].data, 'base64'), Buffer.from(staticBytes));
+  const importedWholeStatic = snapshot();
+  document.querySelector('[data-action="undo"]').click();
+  await wait(() => snapshot() === final, 'variable to static one Undo restores exact source');
+  document.querySelector('[data-action="redo"]').click();
+  await wait(() => snapshot() === importedWholeStatic, 'variable to static exact Redo');
+  document.querySelector('[data-action="undo"]').click();
+  await wait(() => snapshot() === final, 'restore variable source for mixed tests');
   // Static Text keeps its rich picker even while another Text uses a live variable bank.
   const mixed = JSON.parse(final),
     staticText = node('Text');
+  const staticAsset = makeFontAsset(staticBytes, 'Embedded static fixture', mixed.fontAssets);
+  mixed.fontAssets = { ...mixed.fontAssets, [staticAsset.id]: staticAsset.asset };
   staticText.text = 'AV';
   staticText.characterPositions = createCharacterPositions(staticText.text);
   mixed.layers[0].nodes.unshift(staticText);
   await win.nect.load(JSON.stringify(mixed));
   const q = (selector) => document.querySelector(selector);
   const openPicker = async (range = false) => {
-    q(range ? '[data-character-style="font"]' : '.inspector-body [data-font]').dispatchEvent(
+    q(range ? '[data-character-style="font"]' : '.inspector-body [data-change-font]').dispatchEvent(
       new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
     );
     await wait(() => !!q('dialog[open]'), 'mixed picker open');
+    for (const group of [...document.querySelectorAll('.picker-family')]) {
+      const current = [...document.querySelectorAll('.picker-family')].find((g) => g.dataset.fontFamily === group.dataset.fontFamily);
+      if (current?.getAttribute('aria-expanded') === 'false') current.querySelector('.picker-family-heading').click();
+    }
   };
-  const row = (id) => q(`.picker-option[data-id="${id}"]`);
+  const row = (id) => [...document.querySelectorAll('.picker-option')].find((el) =>
+    el.dataset.id === JSON.stringify([id.startsWith('system-') ? 'installed' : 'embedded', id]));
   const apply = async () => {
     await wait(() => q('.picker-apply') && !q('.picker-apply').disabled, 'mixed picker ready');
     q('.picker-apply').click();
@@ -296,7 +330,8 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.ok(q('[aria-label="Font family"]'), 'static family filters survive mixed documents');
   assert.ok(row('system-static').querySelector('.picker-star'));
   assert.equal(row('system-variable').getAttribute('aria-disabled'), 'true');
-  row('system-static').click();
+  assert.equal(row('system-static').getAttribute('aria-disabled'), 'true');
+  row(staticAsset.id).click();
   await apply();
   assert.notEqual(current().font, 'default');
   assert.equal(JSON.stringify(win.nect.document.layers[0].nodes[1]), variableBefore);
@@ -321,20 +356,17 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.equal(current().characterPositions.styles.c1.font, 'default');
   assert.equal(win.nect.evaluate().error, null);
   const mixedRange = snapshot();
-  // A cancelled installed-font read cannot publish after the picker closes.
-  let finishInstalled;
-  readInstalled = () =>
-    new Promise((resolve) => {
-      finishInstalled = resolve;
-    });
+  // A byte-only discovery never starts a normal picker read, even in a mixed document.
+  let installedReads = 0;
+  readInstalled = async () => { installedReads++; return staticBytes; };
   await openPicker();
+  assert.equal(row('system-static').getAttribute('aria-disabled'), 'true');
   row('system-static').click();
   q('.picker-cancel').click();
-  finishInstalled(staticBytes);
   await new Promise((r) => setTimeout(r, 40));
+  assert.equal(installedReads, 0);
   assert.equal(snapshot(), mixedRange);
   assert.equal(win.nect.evaluate().error, null);
-  readInstalled = async () => staticBytes;
   const importedStaticBytes = await buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
   q('.inspector-body [data-load-font]').click();
   const staticInput = q('#font-file');

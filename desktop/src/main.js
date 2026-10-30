@@ -1,3 +1,9 @@
+import { createFontChoiceController } from './font-choice-controller.js';
+import {
+  fontPickerCatalogs, fontPickerItems, selectedFontPickerId, migrateFontFavorites, fontFamilyGroups,
+  FONT_FILE_IMPORT_REQUIRED,
+} from './font-choice-ui.js';
+import { fontChoiceControls, fontImportControls, textOutlineActions } from './font-choice-inspector.js';
 import { createColorCoverageView } from './color-coverage-view.js';
 import { colorCoveragePasses } from './color-coverage-passes.js';
 import { sampleColorCoverage } from './color-coverage-sampling.js';
@@ -79,6 +85,7 @@ function openSearchPanel({
   toggleFavorite,
   fontFilters = false,
   categories,
+  families,
   filterItems,
   context,
   fallbackFocus,
@@ -136,7 +143,7 @@ function openSearchPanel({
     }
     familySelect = select('Font family');
     weightSelect = select('Available weight');
-    option(familySelect, '', 'All families / flat list');
+    option(familySelect, '', 'All families');
     for (const family of [
       ...new Set(items.map((item) => item.metadata?.family).filter(Boolean)),
     ].sort())
@@ -162,6 +169,9 @@ function openSearchPanel({
     }
     familySelect.onchange = () => {
       familyFilter = familySelect.value;
+      for (const family of families || [])
+        if (familyFilter === `family:${family.label}` || (familyFilter === '__unknown__' && !family.known))
+          expandedFamilies.add(family.id);
       weights();
       refresh();
     };
@@ -179,6 +189,13 @@ function openSearchPanel({
   }
   let categoryId = '';
   const expandedCategories = new Set(categories?.slice(0, 1).map((category) => category.id));
+  const familyByItem = new Map((families || []).flatMap((family) =>
+    family.itemIds.map((id) => [id, family.id])));
+  const enabledItemIds = new Set(items.filter((item) => !item.disabled).map((item) => item.id));
+  const initialFamily = families?.find((family) => family.id === familyByItem.get(selectedId)) ||
+    families?.find((family) => family.itemIds.some((id) => enabledItemIds.has(id))) || families?.[0];
+  const expandedFamilies = new Set(initialFamily ? [initialFamily.id] : []);
+  let previousFontQuery = '';
   let optionElements = [];
   const scrollSpace = document.createElement('div');
   scrollSpace.setAttribute('aria-hidden', 'true');
@@ -283,14 +300,34 @@ function openSearchPanel({
     }
     const grouped = categories && !input.value.trim() && !categoryId;
     const candidates = rows;
+    const familyCandidates = new Map();
+    if (families) {
+      for (const item of candidates) {
+        const id = familyByItem.get(item.id);
+        if (!id) continue;
+        if (!familyCandidates.has(id)) familyCandidates.set(id, []);
+        familyCandidates.get(id).push(item);
+      }
+      if (input.value !== previousFontQuery) {
+        previousFontQuery = input.value;
+        if (input.value.trim())
+          for (const family of families)
+            if (familyCandidates.has(family.id))
+              expandedFamilies.add(family.id);
+      }
+      rows = [...candidates.filter((item) => !familyByItem.has(item.id)),
+        ...families.flatMap((family) => expandedFamilies.has(family.id)
+          ? familyCandidates.get(family.id) || [] : [])];
+    }
     if (grouped)
       rows = categories.flatMap((category) =>
         expandedCategories.has(category.id)
           ? candidates.filter((item) => item.categoryId === category.id)
           : [],
       );
-    list.setAttribute('role', grouped ? 'tree' : 'listbox');
-    input.setAttribute('aria-haspopup', grouped ? 'tree' : 'listbox');
+    const treeMode = grouped || !!families;
+    list.setAttribute('role', treeMode ? 'tree' : 'listbox');
+    input.setAttribute('aria-haspopup', treeMode ? 'tree' : 'listbox');
     const scrollTop = list.scrollTop;
     if (!grouped) scrollSpace.style.height = '0px';
     if (!rows.some((item) => item.id === activeId && !item.disabled))
@@ -348,12 +385,58 @@ function openSearchPanel({
         groups.set(category.id, children);
       }
     }
+    if (families) {
+      for (const family of families) {
+        const count = familyCandidates.get(family.id)?.length || 0;
+        if (!count) continue;
+        const group = document.createElement('div');
+        group.className = 'picker-category picker-family';
+        group.dataset.fontFamily = family.id;
+        group.setAttribute('role', 'treeitem');
+        group.setAttribute('aria-label', family.label);
+        group.setAttribute('aria-expanded', String(expandedFamilies.has(family.id)));
+        group.tabIndex = 0;
+        const heading = document.createElement('div');
+        heading.className = 'picker-category-heading picker-family-heading';
+        heading.textContent = `${expandedFamilies.has(family.id) ? '▾' : '▸'} ${family.label} (${count})`;
+        const children = document.createElement('div');
+        children.setAttribute('role', 'group');
+        children.hidden = !expandedFamilies.has(family.id);
+        group.append(heading, children);
+        const toggle = () => {
+          if (closed || composing) return;
+          if (expandedFamilies.has(family.id)) expandedFamilies.delete(family.id);
+          else expandedFamilies.add(family.id);
+          refresh();
+          const next = [...list.children].find((entry) => entry.dataset.fontFamily === family.id);
+          next?.focus({ preventScroll: true });
+          reveal(next?.querySelector('.picker-family-heading'));
+        };
+        heading.onclick = toggle;
+        group.onkeydown = (event) => {
+          if (event.target !== group || event.isComposing || event.keyCode === 229 || composing) return;
+          if (['Enter', ' ', 'ArrowRight', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault();
+            if (event.repeat || (event.key === 'ArrowRight' && expandedFamilies.has(family.id)) ||
+                (event.key === 'ArrowLeft' && !expandedFamilies.has(family.id))) return;
+            toggle();
+          } else if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+            event.preventDefault();
+            const next = event.key === 'ArrowDown' ? group.nextElementSibling : group.previousElementSibling;
+            next?.focus({ preventScroll: true });
+            reveal(next?.querySelector('.picker-family-heading'));
+          }
+        };
+        list.append(group);
+        groups.set(family.id, children);
+      }
+    }
     rows.forEach((item, index) => {
       const row = document.createElement('div');
       row.className = 'picker-option';
       row.dataset.id = item.id;
       row.id = `${listId}-${index}`;
-      row.setAttribute('role', grouped ? 'treeitem' : 'option');
+      row.setAttribute('role', treeMode ? 'treeitem' : 'option');
       row.setAttribute('aria-disabled', String(!!item.disabled));
       const name = document.createElement('span');
       name.textContent = item.label;
@@ -390,7 +473,7 @@ function openSearchPanel({
           commit();
         }
       };
-      (groups.get(item.categoryId) || list).append(row);
+      (groups.get(familyByItem.get(item.id) || item.categoryId) || list).append(row);
       optionElements.push(row);
     });
     if (grouped) {
@@ -465,7 +548,10 @@ function openSearchPanel({
     } else if (['ArrowDown', 'ArrowUp'].includes(event.key) && event.target === input) {
       event.preventDefault();
       const enabled = rows.filter((item) => !item.disabled);
-      if (!enabled.length) return;
+      if (!enabled.length) {
+        if (families) list.querySelector('.picker-family')?.focus({ preventScroll: true });
+        return;
+      }
       const index = enabled.findIndex((item) => item.id === activeId);
       activeId =
         enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]
@@ -573,7 +659,6 @@ import {
   chooseUnsaved,
   registerClose,
   listSystemFonts,
-  readSystemFont,
   listOsOutlineFonts,
   outlineOsText,
   listDesktopFontFaces,
@@ -592,6 +677,7 @@ import {
   parseFont,
   resolveFonts,
   makeVariableFontAsset,
+  makeFontAsset,
   MAX_FONT_BYTES,
   MAX_PROJECT_BYTES,
 } from './fonts.js';
@@ -3259,7 +3345,7 @@ function variableControls(n) {
   const presets = instances.length
     ? `<div class="field"><label>Named instance</label><select data-variable-instance="${n.id}" aria-label="Variable named instance"><option value="" ${selectedInstance < 0 ? 'selected' : ''} disabled>Custom axes</option>${instances.map((instance, index) => `<option value="${index}" ${selectedInstance === index ? 'selected' : ''}>${esc(instance.name)}</option>`).join('')}</select></div>`
     : '';
-  return `<button class="mini" data-load-variable-font="${n.id}">Load variable TTF (experimental)…</button>${
+  return `${
     axes
       ? `<p class="font-note">Experimental variable font: whole, single-line horizontal Latin text only. No wrap, path, vertical, character overrides or maintained arrangement. Axis changes are prepared before commit; Escape cancels pending work.</p>${presets}${Object.entries(
           axes,
@@ -3327,23 +3413,10 @@ function textControls(n) {
         desktop,
         pending: osFontCatalogPending,
       });
-    return `<div class="text-controls"><div class="field"><label>OS font</label><span>${esc(n.osFont.family)} · ${n.osFont.version >= 2 ? esc(n.osFont.face.name) + ' · ' + n.osFont.face.weight : ['Regular', 'Bold', 'Italic', 'Bold Italic'][n.osFont.style]}</span></div><button class="mini" data-os-text-font="${n.id}">Choose OS font…</button><button class="mini" data-refresh-os-fonts>Refresh fonts</button><output role="status">${esc(availability)}</output><label>Text<textarea rows="3" data-os-text="${n.id}" aria-label="OS font text" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></label><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button><button class="mini" data-bake-text-outline="${n.id}">Convert to paths</button>${desktopTypographyControls(n)}<button class="mini" data-clear-os-text="${n.id}">Use DejaVu Sans</button></div>`;
+    return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-os-text="${n.id}" aria-label="Text content" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></div><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, status: availability })}${desktopTypographyControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}</div>`;
   }
-  const osControls = desktop
-    ? `<section class="os-font-outlines"><button class="mini" data-os-text-font="${n.id}" ${current().locked ? 'disabled' : ''}>Choose OS font…</button><button class="mini" data-os-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>OS font / Adobe Fonts → paths…</button><p class="font-note">Replaces Text with paths. Undo restores Text.</p></section>`
-    : '';
   return (
-    osControls +
-    `<div class="text-controls"><button class="mini" data-bake-text-outline="${n.id}" ${current().locked ? 'disabled' : ''}>Convert text to editable paths</button><p class="font-note">Freezes the current outlines into separate path units. Text and font editing are removed; Undo restores the Text node.</p><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p><div class="field"><label>Default font</label><select data-font="${n.id}" aria-label="Text font" ${fontRequest?.node === n.id ? 'disabled' : ''}><option value="default" ${n.font === 'default' ? 'selected' : ''}>DejaVu Sans (Latin)</option>${Object.entries(
-      history.doc.fontAssets || {},
-    )
-      .map(
-        ([id, asset]) =>
-          `<option value="${id}" ${n.font === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
-      )
-      .join(
-        '',
-      )}${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></div>${desktop ? `<p class="font-note" role="status">${fontRequest?.node === n.id ? 'Loading font…' : esc(systemFontStatus)}</p>` : ''}<button class="mini" data-load-font="${n.id}">Load TTF / OTF…</button>${variableControls(n)}${openTypeControls(n)}<p class="font-note">Font bytes stay local and are included in saved JSON. Use a font licensed for editable embedding; check its license before sharing. File flags do not guarantee license permission.</p>${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
+    `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked })}${variableControls(n)}${openTypeControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`
   );
 }
 function unitPointIds(n, unit) {
@@ -3977,7 +4050,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     region.append(help);
   }
   for (const control of app.querySelectorAll(
-    '#add-node, [data-font], [data-character-style="font"]',
+    '#add-node, [data-change-font], [data-font], [data-character-style="font"]',
   )) {
     control.setAttribute('aria-haspopup', 'dialog');
     control.title =
@@ -4583,8 +4656,8 @@ function typographyControls(context) {
           `<option value="${esc(id)}" ${fontValue === id ? 'selected' : ''}>${esc(asset.name)}</option>`,
       )
       .join('')}
-    ${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" ${reason ? 'disabled' : ''}>${esc(name)}${reason ? ` — ${esc(reason)}` : ''}</option>`).join('')}</optgroup>` : ''}</select></label>
-    <button class="mini" data-load-character-font="${context.n.id}" ${disabled || fontRequest ? 'disabled' : ''}>Load font for selection…</button>
+    ${desktop && systemFonts.length ? `<optgroup label="Installed Windows fonts">${systemFonts.map(([id, name, reason]) => `<option value="${esc(id)}" disabled>${esc(name)} — ${esc(reason || FONT_FILE_IMPORT_REQUIRED)}</option>`).join('')}</optgroup>` : ''}</select></label>
+    <details class="text-font-advanced text-character-font-advanced text-inspector-details"><summary>Advanced font import</summary><button class="mini" data-load-character-font="${context.n.id}" ${disabled || fontRequest ? 'disabled' : ''}>Import font for selection…</button><p class="font-note" role="note">Imported font bytes stay local and are included in saved JSON. Use a file licensed for editable embedding; file flags do not guarantee permission.</p></details>
     <div class="typography-fields">${[
       ['size', 'Font size px', 0.01, 100000, 1],
       ['width', 'Horizontal width %', 1, 1000, 100],
@@ -5729,228 +5802,87 @@ function fontFavorites() {
   }
 }
 function openFontPicker(control, query = '') {
-  if (
-    editorPicker ||
-    document.querySelector('dialog[open]') ||
-    current().locked ||
-    navigationBusy() ||
-    penDraft
-  )
-    return;
+  if (editorPicker || document.querySelector('dialog[open]') || current().locked ||
+      navigationBusy() || penDraft || variableAction) return;
   document.activeElement?.blur();
   const context = control.dataset.characterStyle === 'font' ? characterContext() : null;
-  const nodeId = context?.n.id || control.dataset.font;
-  if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason)))
-    return;
-  if (variableNode(nodeId)) {
-    if (context) {
-      notify('Variable Text currently supports whole-text font selection only', true);
-      return;
-    }
-    editorPicker = openSearchPanel({
-      title: 'Font',
-      action: 'Apply font',
-      selectedId: current().nodes.find((n) => n.id === nodeId)?.font,
-      query,
-      items: [
-        { id: 'default', label: 'DejaVu Sans (Latin)' },
-        ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
-          id,
-          label: asset.name,
-        })),
-      ],
-      onCommit(item) {
-        if (!item) return;
-        const picker = editorPicker;
-        editorPicker = null;
-        picker.close();
-        void preparedChange(
-          'set-variable-font',
-          {
-            nodeId,
-            fontId: item.id,
-            axes: history.doc.fontAssets?.[item.id]?.kind === 'variable-glyf-v1' ? {} : null,
-          },
-          'Font updated',
-        );
-      },
-      onCancel() {
-        editorPicker = null;
-      },
-    });
+  const nodeId = context?.n.id || control.dataset.changeFont || control.dataset.font;
+  if (!nodeId || (context && (!context.typographySelected.length || context.typographyReason))) return;
+  if (osTextDrafts.has(nodeId)) {
+    notify('Apply or cancel the Text edit first', true);
     return;
   }
-  const owner = session,
-    envelope = session.state;
-  let token;
-  try {
-    token = owner.dispatch({
-      ...envelope,
-      type: 'begin-gesture',
-      payload: {
-        target: {
-          kind: 'text-font',
-          layerId: current().id,
-          nodeId,
-          ...(context ? { characterIds: [...characterEdit.selected] } : {}),
+  if (!flushArrangementText(nodeId)) return;
+  const source = current().nodes.find((n) => n.id === nodeId);
+  if (source?.type !== 'Text' || source.locked || source.bypassed) {
+    notify('Select an unlocked enabled Text', true);
+    return;
+  }
+  const owner = session, envelope = owner.state, layerId = current().id;
+  const selectedAtOpen = selected;
+  const characterIds = context ? [...characterEdit.selected] : undefined;
+  const characterKey = characterIds && JSON.stringify([...characterIds].sort());
+  const items = fontPickerItems(fontPickerCatalogs({
+    assets: history.doc.fontAssets, fonts, bundledFont,
+    installed: systemFonts, windows: osFontCatalog.faces || [],
+  }), source, { characterIds });
+  const favorites = migrateFontFavorites(fontFavorites(), items);
+  let picker;
+  const controller = createFontChoiceController({
+    owner, envelope, layerId, nodeId, source, characterIds,
+    isCurrent: () => session === owner && current().id === layerId &&
+      selected === selectedAtOpen && !current().locked &&
+      (characterIds === undefined || (characterEdit?.node === nodeId &&
+        JSON.stringify([...(characterEdit?.selected || [])].sort()) === characterKey)),
+    prepareWindows: (node, face, options) => prepareDesktopText(node, face, options.settings),
+    async prepareVariable(command, { signal }) {
+      variableBridge ||= createVariableDocumentPreparer();
+      const bridge = variableBridge;
+      const token = await owner.prepareCommand(command, bridge, { signal });
+      let active = true;
+      return {
+        commit() {
+          if (!active) throw Error('Font preparation expired; choose the font again');
+          const result = owner.commitPrepared(token);
+          active = false;
+          return result;
         },
-      },
-    });
-  } catch (error) {
-    notify(error.message, true);
-    return;
-  }
-  const items = [
-    ...(context ? [{ id: '', label: 'Inherit default font', key: 'inherit' }] : []),
-    {
-      id: 'default',
-      label: 'DejaVu Sans (Latin)',
-      key: 'default',
-      metadata: bundledFont?.nectMetadata,
+        cancel() {
+          if (!active) return;
+          active = false;
+          owner.cancelPrepared(bridge);
+        },
+      };
     },
-    ...Object.entries(history.doc.fontAssets || {}).map(([id, asset]) => ({
-      id,
-      label: asset.name,
-      key: `asset:${id}`,
-      legacyKey: `font:${asset.name}`,
-      metadata: fonts[id]?.nectMetadata,
-      variable: asset.kind === 'variable-glyf-v1',
-      disabled: !!context && asset.kind === 'variable-glyf-v1',
-      detail:
-        asset.kind === 'variable-glyf-v1'
-          ? 'Experimental variable font · whole-text only · prepared on Apply'
-          : '',
-    })),
-    ...systemFonts.map(([id, name, reason, metadata]) => ({
-      id,
-      label: name,
-      key: `installed:${id}`,
-      legacyKey: `font:${name}`,
-      metadata,
-      detail: reason,
-      disabled: !!reason,
-      installed: true,
-    })),
-  ];
-  // Names describe a face; only its opaque ID chooses the bytes. Keep duplicate
-  // names as separate rows, including separate favorite controls.
-  for (const item of items) {
-    if (item.id === '') continue;
-    const m = item.metadata;
-    const style = m?.subfamily || 'Unknown style';
-    const weight = m?.weightClass == null ? 'weight unknown' : `weight ${m.weightClass}`;
-    const family = m?.family || 'Unknown family';
-    item.detail = `${family} · ${style} · ${weight}${item.detail ? ` · ${item.detail}` : ''}`;
-  }
-  const duplicateNames = new Set(
-    items
-      .filter((item, i) => items.findIndex((other) => other.label === item.label) !== i)
-      .map((item) => item.label),
-  );
-  for (const item of items) if (duplicateNames.has(item.label)) item.detail += ` · face ${item.id}`;
-  const favorites = fontFavorites();
-  // Migrate name-based favorites to the currently visible IDs without merging
-  // same-name faces when the user subsequently toggles one of them.
-  for (const item of items)
-    if (item.legacyKey && favorites.has(item.legacyKey)) favorites.add(item.key);
-  for (const item of items) if (item.legacyKey) favorites.delete(item.legacyKey);
-  let picker,
-    request = 0,
-    pending = Promise.resolve(),
-    readyId,
-    committing = false;
-  async function preview(item) {
-    const serial = ++request;
-    readyId = undefined;
-    if (!item) return;
-    if (item.variable) {
-      // Variable geometry cannot enter the synchronous static font gesture.
-      // Leave the active bank intact; prepare the whole-text switch on Apply.
-      fontPreview = null;
-      readyId = item.id;
+    onPreview(document) {
+      fontPreview = document;
       updateCanvas(true);
-      picker.status('Experimental variable font · prepared on Apply');
-      return;
-    }
-    picker.status(item.installed ? 'Loading font…' : '', false);
-    try {
-      const update = item.installed
-        ? { bytes: await readSystemFont(item.id), fileName: item.label }
-        : { font: item.id };
-      if (picker.closed || serial !== request || session !== owner) return;
-      token = owner.dispatch({
-        ...envelope,
-        type: 'update-gesture',
-        payload: { ...token, update },
-      });
-      fontPreview = owner.previewSnapshot(token.gestureId).document;
-      readyId = item.id;
-      updateCanvas(true);
-      picker.status('');
-    } catch (error) {
-      if (!picker.closed && serial === request)
-        picker.status(error.message || String(error), false);
-    }
-  }
+    },
+    onStatus(message, ready) { picker?.status(message, ready); },
+    onApplied() {
+      if (editorPicker === picker) editorPicker = null;
+      picker.close();
+      if (current().nodes.find((n) => n.id === nodeId)?.osFont) characterEdit = null;
+      notify('Font updated');
+      render();
+    },
+  });
   picker = editorPicker = openSearchPanel({
-    title: 'Font',
-    fontFilters: true,
-    action: 'Apply font',
-    items,
-    query,
-    selectedId: control.value,
+    title: 'Font', fontFilters: true, families: fontFamilyGroups(items), action: 'Apply font', items, query,
+    selectedId: context ? items.find((row) => row.choice.source === 'embedded' &&
+      row.choice.id === control.value)?.id : selectedFontPickerId(source, items),
     isFavorite: (item) => favorites.has(item.key),
     toggleFavorite(item) {
       if (favorites.has(item.key)) favorites.delete(item.key);
       else favorites.add(item.key);
-      try {
-        localStorage.setItem(FONT_FAVORITES_KEY, JSON.stringify([...favorites]));
-      } catch {
-        picker.status('Favorites could not be saved', false);
-      }
+      try { localStorage.setItem(FONT_FAVORITES_KEY, JSON.stringify([...favorites])); }
+      catch { picker.status('Favorites could not be saved', false); }
     },
-    onSelect(item) {
-      pending = preview(item);
-    },
-    async onCommit(item) {
-      if (!item || committing) return;
-      committing = true;
-      const serial = request;
-      try {
-        await pending;
-        if (picker.closed || request !== serial || readyId !== item.id || session !== owner) return;
-        if (item.variable) {
-          owner.dispatch({ ...envelope, type: 'cancel-gesture', payload: token });
-          fontPreview = null;
-          editorPicker = null;
-          picker.close();
-          await preparedChange(
-            'set-variable-font',
-            { nodeId, fontId: item.id, axes: {} },
-            'Font updated',
-            envelope,
-          );
-          return;
-        }
-        owner.dispatch({ ...envelope, type: 'commit-gesture', payload: token });
-        fontPreview = null;
-        editorPicker = null;
-        picker.close();
-        notify('Font updated');
-        render();
-      } catch (error) {
-        picker.status(error.message || String(error), false);
-      } finally {
-        committing = false;
-      }
-    },
+    onSelect: (item) => controller.select(item),
+    onCommit: (item) => controller.apply(item),
     onCancel() {
-      request++;
-      if (owner.hasGesture && owner.gestureState?.gestureId === token.gestureId)
-        owner.dispatch({ ...owner.state, type: 'cancel-gesture', payload: token });
-      fontPreview = null;
-      editorPicker = null;
-      updateCanvas(true);
+      controller.cancel();
+      if (editorPicker === picker) editorPicker = null;
     },
   });
 }
@@ -5960,7 +5892,7 @@ function openFontPicker(control, query = '') {
 app.addEventListener(
   'pointerdown',
   (event) => {
-    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    const control = event.target.closest?.('#add-node, [data-change-font], [data-font], [data-character-style="font"]');
     if (!control || event.button !== 0 || control.disabled) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -5972,7 +5904,7 @@ app.addEventListener(
   'keydown',
   (event) => {
     if (event.isComposing || event.keyCode === 229 || composing) return;
-    const control = event.target.closest?.('#add-node, [data-font], [data-character-style="font"]');
+    const control = event.target.closest?.('#add-node, [data-change-font], [data-font], [data-character-style="font"]');
     if (!control || control.disabled || event.ctrlKey || event.metaKey || event.altKey) return;
     if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key) && event.key.length !== 1)
       return;
@@ -7806,9 +7738,19 @@ app.addEventListener('click', async (e) => {
     }
     return;
   }
+  if (d.changeFont) {
+    openFontPicker(b);
+    return;
+  }
   if (d.loadFont || d.loadCharacterFont || d.loadVariableFont) {
-    if (current().locked) {
-      notify('Composition is locked', true);
+    const target = current().nodes.find((n) => n.id ===
+      (d.loadFont || d.loadCharacterFont || d.loadVariableFont));
+    if (d.loadVariableFont && target?.osFont) {
+      notify('Choose a supported static font first; variable import cannot preserve this Text', true);
+      return;
+    }
+    if (current().locked || target?.locked || target?.bypassed) {
+      notify('Composition or Text is locked or disabled', true);
       return;
     }
     fontRequest = {
@@ -8117,24 +8059,8 @@ app.addEventListener('click', async (e) => {
     render();
     return;
   }
-  if (d.clearOsText) {
-    if (osTextDrafts.has(d.clearOsText)) {
-      notify('Apply or cancel the Text edit first', true);
-      return;
-    }
-    commandChange('clear-os-font-text', { nodeId: d.clearOsText }, 'Font replaced: DejaVu Sans');
-    return;
-  }
   if (d.refreshOsFonts !== undefined) {
     void refreshOsFontCatalog();
-    return;
-  }
-  if (d.osTextFont) {
-    void openOsOutlinePicker(d.osTextFont, 'edit');
-    return;
-  }
-  if (d.osTextOutline) {
-    void openOsOutlinePicker(d.osTextOutline);
     return;
   }
   if (d.bakeTextOutline) {
@@ -8213,37 +8139,34 @@ app.addEventListener('click', async (e) => {
   if (d.clearEdits)
     commandChange('edit-remap', { nodeId: d.clearEdits, action: 'clear' }, 'Vertex edits cleared');
 });
-function commitFont(bytes, name, request) {
-  if (variableNode(request.node))
-    throw Error(
-      'Switch to a static font in Default font before loading a static font. Use Load variable TTF for variable fonts.',
-    );
+async function commitFont(bytes, name, request) {
   if (fontRequest?.id !== request.id) return;
   if (readDocument() !== request.before || activeLayer !== request.layer)
     throw Error('Document changed while reading; load the font again');
-  if (
-    request.characters &&
-    (characterEdit?.node !== request.node ||
-      request.characters.join(',') !== [...(characterEdit?.selected || [])].join(','))
-  )
+  if (request.characters && (characterEdit?.node !== request.node ||
+      request.characters.join(',') !== [...(characterEdit?.selected || [])].join(',')))
     throw Error('Character selection changed while reading; load the font again');
-  const result = session.dispatch({
-    ...request.commandState,
-    type: 'adopt-font',
-    payload: {
-      layerId: request.layer,
-      nodeId: request.node,
-      bytes,
-      fileName: name,
-      ...(request.characters ? { characterIds: request.characters } : {}),
-    },
-  });
-  notify(`Loaded ${result.fontName} · saved JSON will include this font`);
+  const source = current().nodes.find((n) => n.id === request.node);
+  const payload = { layerId: request.layer, nodeId: request.node, bytes, fileName: name,
+    ...(request.characters ? { characterIds: request.characters } : {}) };
+  let result;
+  if (source?.variation) {
+    if (request.characters) throw Error('Variable fonts require whole Text');
+    const asset = makeFontAsset(bytes, name, history.doc.fontAssets);
+    result = await preparedChange('set-variable-font', {
+      layerId: request.layer, nodeId: request.node, fontId: asset.id, axes: null, asset,
+    }, 'Static font imported', request.commandState);
+    if (!result) return;
+  } else {
+    result = session.dispatch({ ...request.commandState,
+      type: source?.osFont ? 'replace-os-text-font' : 'adopt-font', payload });
+  }
+  notify(`Loaded ${result.fontName || name} · saved JSON will include this font`);
   render();
 }
-let osOutlinePending = null;
 async function refreshOsFontCatalog() {
-  if (!desktop || osFontCatalogPending || typeof listOsOutlineFonts !== 'function') return;
+  if (!desktop || osFontCatalogPending ||
+      (typeof listOsOutlineFonts !== 'function' && typeof listDesktopFontFaces !== 'function')) return;
   await readCurrentOsFontCatalog();
 }
 async function readCurrentOsFontCatalog() {
@@ -8251,7 +8174,7 @@ async function readCurrentOsFontCatalog() {
   osFontCatalogPending = true;
   render();
   const catalog = await readOsFontCatalog({
-    listFamilies: listOsOutlineFonts,
+    listFamilies: typeof listOsOutlineFonts === 'function' ? listOsOutlineFonts : undefined,
     listFaces: typeof listDesktopFontFaces === 'function' ? listDesktopFontFaces : undefined,
   });
   if (request === osFontCatalogRequest) {
@@ -8470,169 +8393,6 @@ app.addEventListener('keydown', (event) => {
     void commitOsText(id, event.target.value);
   }
 });
-async function openOsOutlinePicker(nodeId, mode = 'bake') {
-  if (!desktop || editorPicker || osOutlinePending || current().locked || deletionBusy()) return;
-  if (osTextDrafts.has(nodeId)) {
-    notify('Apply or cancel the Text edit first', true);
-    return;
-  }
-  if (!flushArrangementText(nodeId)) return;
-  const source = current().nodes.find((n) => n.id === nodeId);
-  try {
-    if (source?.type !== 'Text' || source.locked || source.bypassed)
-      throw Error('Select an unlocked enabled Text');
-    // The selected backend validates the complete source after a face is chosen.
-  } catch (error) {
-    notify(error.message, true);
-    return;
-  }
-  const owner = session,
-    envelope = session.state,
-    layerId = current().id;
-  const request = { preparing: false };
-  osOutlinePending = request;
-  const valid = () =>
-    session === owner &&
-    current().id === layerId &&
-    selected === nodeId &&
-    session.state.expectedRevision === envelope.expectedRevision;
-  let picker;
-  try {
-    notify('Finding active OS fonts…');
-    const catalog = await readCurrentOsFontCatalog();
-    const families = catalog.families || [],
-      faces = catalog.faces || [];
-    if (osOutlinePending !== request || !valid())
-      throw Error('Selection changed; reopen OS font outlines');
-    const labels = ['Regular', 'Bold', 'Italic', 'Bold Italic'];
-    const items = families
-      .filter((f) => !faces.some((face) => face.family === f.family))
-      .flatMap(({ family, styles }) =>
-        styles.map((style) => ({
-          id: `${family}:${style}`,
-          family,
-          style,
-          label: `${family} · OS ${labels[style]}`,
-          metadata: { family },
-        })),
-      );
-    items.unshift(
-      ...faces
-        .filter((face) => !face.color)
-        .map((face) => ({
-          id: `dw:${face.family}:${face.name}:${face.weight}:${face.style}:${face.stretch}`,
-          family: face.family,
-          face,
-          label: `${face.family} · ${face.name} · ${face.weight}`,
-          metadata: {
-            family: face.family,
-            subfamily: face.name,
-            weightClass: face.weight,
-            italic: face.style !== 0,
-          },
-        })),
-    );
-    if (!items.length)
-      throw Error(
-        catalog.familiesError || catalog.facesError
-          ? 'Font check failed; refresh fonts'
-          : 'No OS outline fonts are active',
-      );
-    picker = editorPicker = openSearchPanel({
-      title: 'OS font outlines',
-      items,
-      action: mode === 'edit' ? 'Use font for Text' : 'Convert to paths',
-      fallbackFocus: () => document.querySelector('.canvas-stage')?.focus(),
-      onCancel: () => {
-        if (osOutlinePending === request) osOutlinePending = null;
-        if (editorPicker === picker) editorPicker = null;
-      },
-      onCommit: async (item) => {
-        if (request.preparing || picker.closed) return;
-        request.preparing = true;
-        picker.status('Preparing outlines; Escape cancels…', false);
-        try {
-          if (!valid()) throw Error('Document or selection changed; reopen OS font outlines');
-          const outline = item.face
-            ? await prepareDesktopText(source, item.face)
-            : await outlineOsText({
-                family: item.family,
-                style: item.style,
-                ...osTextIntent(source, { allowEmpty: mode === 'edit' }),
-              });
-          if (picker.closed || osOutlinePending !== request) return;
-          if (picker.activeId !== item.id) throw Error('Font choice changed; convert again');
-          if (
-            item.face
-              ? JSON.stringify(outline.face) !== JSON.stringify(item.face)
-              : outline.family !== item.family || outline.style !== item.style
-          )
-            throw Error('Unmatched OS font response; no outlines were applied');
-          if (!valid()) throw Error('Document or selection changed; OS outlines were not applied');
-          const result = commandChange(
-            mode === 'edit' ? 'set-os-font-text' : 'bake-os-text-outline',
-            { nodeId, outline },
-            mode === 'edit'
-              ? `${item.label} selected`
-              : `${item.label} converted to paths; no font data saved`,
-            false,
-            envelope,
-          );
-          if (result) {
-            characterEdit = null;
-            pointSelection = { nodeId: null, ids: new Set() };
-            picker.close();
-            editorPicker = null;
-            osOutlinePending = null;
-            render();
-          } else
-            picker.status('Conversion refused; document preserved. Close and repair the source.');
-        } catch (error) {
-          picker.status(error.message || String(error));
-        } finally {
-          request.preparing = false;
-        }
-      },
-    });
-  } catch (error) {
-    if (osOutlinePending === request) osOutlinePending = null;
-    notify(error.message || String(error), true);
-  }
-}
-async function loadInstalledFont(id, nodeId, characters) {
-  if (!id) return;
-  if (current().locked) {
-    notify('Composition is locked', true);
-    return;
-  }
-  const entry = systemFonts.find(([key]) => key === id);
-  if (!entry || entry[2]) {
-    notify('Installed font unavailable', true);
-    return;
-  }
-  const request = (fontRequest = {
-    id: ++fontRequestId,
-    layer: current().id,
-    node: nodeId,
-    ...(characters ? { characters } : {}),
-    before: readDocument(),
-    commandState: session.state,
-  });
-  notify(`Loading ${entry[1]}…`);
-  render();
-  try {
-    const bytes = await readSystemFont(id);
-    commitFont(bytes, entry[1], request);
-  } catch (err) {
-    if (fontRequest?.id === request.id)
-      notify(`Font rejected; current document preserved: ${err.message || err}`, true);
-  } finally {
-    if (fontRequest?.id === request.id) {
-      fontRequest = null;
-      render();
-    }
-  }
-}
 app.addEventListener(
   'cancel',
   (e) => {
@@ -9436,7 +9196,7 @@ app.addEventListener('change', async (e) => {
     )
       return;
     if (property === 'font' && el.value.startsWith('system-')) {
-      await loadInstalledFont(el.value, context.n.id, [...characterEdit.selected]);
+      notify(FONT_FILE_IMPORT_REQUIRED, true);
       return;
     }
     let value =
@@ -9578,7 +9338,7 @@ app.addEventListener('change', async (e) => {
     return;
   }
   if (d.font && el.value.startsWith('system-')) {
-    await loadInstalledFont(el.value, d.font);
+    notify(FONT_FILE_IMPORT_REQUIRED, true);
     return;
   }
   if (el.id === 'font-file') {
@@ -9609,7 +9369,7 @@ app.addEventListener('change', async (e) => {
           'Variable font loaded · embedded once in saved JSON',
           request.commandState,
         );
-      } else commitFont(bytes, file.name, request);
+      } else await commitFont(bytes, file.name, request);
     } catch (err) {
       notify(`Font rejected; current document preserved: ${err.message}`, true);
     }
@@ -14137,7 +13897,8 @@ registerClose(async () => {
   }
 }).catch((error) => notify(`Close protection unavailable: ${error.message}`, true));
 new window.MutationObserver(updateDocumentStatus).observe(app, { childList: true });
-if (desktop && typeof listOsOutlineFonts === 'function') void refreshOsFontCatalog();
+if (desktop && (typeof listOsOutlineFonts === 'function' || typeof listDesktopFontFaces === 'function'))
+  void refreshOsFontCatalog();
 updateDocumentStatus();
 if (desktop)
   showRecoveryCopies(true).catch((error) => {
@@ -14147,11 +13908,11 @@ if (desktop)
   listSystemFonts()
     .then((items) => {
       systemFonts = items;
-      systemFontStatus = items.length ? '' : 'No Windows fonts found. Use Load TTF / OTF.';
+      systemFontStatus = items.length ? '' : 'No installed file candidates found. Use Advanced to import a file you may embed.';
       render();
     })
     .catch(() => {
-      systemFontStatus = 'Windows font discovery unavailable. Use Load TTF / OTF.';
+      systemFontStatus = 'Installed font discovery unavailable. Use Advanced for explicit file import.';
       render();
     });
 fetch('/fonts/DejaVuSans.ttf')

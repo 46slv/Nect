@@ -43,6 +43,13 @@ try {
     await field(key).press('Tab');
   };
   const choose = (ids) => page.locator('[data-character-selection]').selectOption(ids);
+  const openRangeImport = async () => {
+    const advanced = page.locator('.text-character-font-advanced');
+    assert.equal(await advanced.count(), 1);
+    if (!(await advanced.evaluate((el) => el.open))) await advanced.locator('summary').click();
+    assert.equal(await page.locator('[data-load-character-font]').evaluate((el) =>
+      el.closest('details').classList.contains('text-character-font-advanced')), true);
+  };
   const initial = await saved();
   await range(1, 2);
   assert.equal(await saved(), initial);
@@ -55,6 +62,7 @@ try {
   assert.equal(await saved(), enlarged);
   await range(1, 2);
   const fileChooser = page.waitForEvent('filechooser');
+  await openRangeImport();
   await page.locator('[data-load-character-font]').click();
   await (await fileChooser).setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
   await page.waitForFunction(() => Object.keys(window.nect.document.fontAssets || {}).length === 1);
@@ -217,6 +225,7 @@ try {
   await edit('size', 96);
   assert.equal((await read()).characterPositions.styles.c4.size, 96);
   const cancelChooser = page.waitForEvent('filechooser');
+  await openRangeImport();
   await page.locator('[data-load-character-font]').click();
   await (await cancelChooser).setFiles([]);
   await choose(['c1']);
@@ -241,6 +250,7 @@ try {
   await range(1, 2);
   assert.equal(await field('font').isEnabled(), true);
   const chooser = page.waitForEvent('filechooser');
+  await openRangeImport();
   await page.locator('[data-load-character-font]').click();
   await (await chooser).setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
   await page.waitForFunction(() => window.nect.evaluate().error === null);

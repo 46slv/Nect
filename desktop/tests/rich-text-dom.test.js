@@ -218,6 +218,9 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   // Cancel must release the chooser request and allow a different range to retry.
   range(1, 2);
   const beforeCancel = saved();
+  const rangeImport = document.querySelector('[data-load-character-font]');
+  assert.equal(rangeImport.closest('details').classList.contains('text-character-font-advanced'), true);
+  assert.equal(rangeImport.closest('details').querySelector('summary').textContent, 'Advanced font import');
   document.querySelector('[data-load-character-font]').click();
   document.querySelector('#font-file').dispatchEvent(new win.Event('cancel', { bubbles: false }));
   choose('c4');

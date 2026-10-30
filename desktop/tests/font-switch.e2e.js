@@ -88,11 +88,13 @@ try {
     svg: window.nect.export(),
     revision: window.nect.commandState.expectedRevision,
   }));
-  await page
-    .locator('.inspector-body')
-    .getByRole('button', { name: 'Use DejaVu Sans', exact: true })
-    .click();
-  assert.match(await page.locator('.status').innerText(), /OS font retained:.*Missing glyphs/);
+  await page.locator('.inspector-body [data-change-font]').click();
+  const chooser = page.getByRole('dialog', { name: 'Font', exact: true });
+  await chooser.locator('input[type="search"]').fill('DejaVu Sans');
+  await chooser.locator('.picker-option').filter({ hasText: 'DejaVu Sans' }).click();
+  await chooser.locator('.picker-apply').click();
+  await page.waitForFunction(() => document.querySelector('.picker-status')?.textContent.includes('Missing glyphs'));
+  assert.match(await chooser.locator('.picker-status').innerText(), /Missing glyphs/);
   assert.deepEqual(
     await page.evaluate(() => ({
       doc: JSON.stringify(window.nect.document),
@@ -101,16 +103,18 @@ try {
     })),
     before,
   );
+  await chooser.locator('.picker-cancel').click();
   const latin = fixture('ABC');
   await inspect(latin);
   const old = await page.evaluate(() => ({
     doc: JSON.stringify(window.nect.document),
     svg: window.nect.export(),
   }));
-  await page
-    .locator('.inspector-body')
-    .getByRole('button', { name: 'Use DejaVu Sans', exact: true })
-    .click();
+  await page.locator('.inspector-body [data-change-font]').click();
+  await chooser.locator('input[type="search"]').fill('DejaVu Sans');
+  await chooser.locator('.picker-option').filter({ hasText: 'DejaVu Sans' }).click();
+  await chooser.locator('.picker-apply').click();
+  await chooser.waitFor({ state: 'hidden' });
   assert.equal(
     await page.evaluate(
       (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont,
@@ -118,7 +122,7 @@ try {
     ),
     undefined,
   );
-  assert.match(await page.locator('.status').innerText(), /Font replaced: DejaVu Sans/);
+  assert.match(await page.locator('.status').innerText(), /Font updated/);
   const next = await page.evaluate(() => ({
     doc: JSON.stringify(window.nect.document),
     svg: window.nect.export(),

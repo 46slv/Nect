@@ -30,10 +30,32 @@ const doc = document(),
 text.text = raw.text;
 text.params.size.value = raw.size;
 text.params.lineSpacing.value = raw.lineSpacing;
+text.params.letterSpacing.value = raw.tracking;
+text.kerning = raw.kerning;
+text.alignment = ['start', 'center', 'end'][raw.alignment];
 text.params.position.value = [480, 160];
 fill.params.path.source = text.id;
 layer.nodes.push(text, fill);
 layer.nodes.find((n) => n.id === layer.output).params.path.source = fill.id;
+// Captured native fixtures may intentionally have ligatures enabled. A normal
+// static Font choice now preserves its effective legacy liga-off setting, so a
+// liga-on capture must start as saved native Text with that existing intent.
+// Never relabel the fixture or alter its geometry/settings to make it match.
+const withCapturedNativeIntent = (contents, outline) => {
+  if (outline.ligatures !== true) return contents;
+  const session = new CommandSession(contents);
+  session.dispatch({
+    ...session.state,
+    type: 'set-os-font-text',
+    payload: {
+      layerId: layer.id,
+      nodeId: text.id,
+      outline,
+      settings: { ligatures: true },
+    },
+  });
+  return session.snapshot();
+};
 const root = resolve('dist'),
   config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
 const server = createServer(async (req, res) => {
@@ -70,10 +92,48 @@ try {
   const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } }),
     errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
+  const openDetails = async (selector) => {
+    const details = page.locator(`.inspector-body ${selector}`);
+    if (!(await details.evaluate((el) => el.open)))
+      await details.locator(':scope > summary').click();
+  };
+  const bakeCurrentAppearance = async () => {
+    await openDetails('.text-actions');
+    await page.locator('.inspector-body .text-actions [data-bake-text-outline]').click();
+  };
+  const nativeOption = (picker, face) => {
+    const id = JSON.stringify(['windows', JSON.stringify(
+      ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'].map((key) => face[key]),
+    )]);
+    return picker.locator(`.picker-option[data-id=${JSON.stringify(id)}]`);
+  };
+  const openNativePicker = async (face) => {
+    // Discovery is cached independently of document loads. Restoring availability
+    // after the missing-font cases requires the actual Advanced refresh action.
+    const reads = await page.evaluate(
+      () => window.fontCalls.filter((command) => command === 'list_desktop_font_faces').length,
+    );
+    await openDetails('.text-font-advanced');
+    await page.locator('.inspector-body .text-font-advanced [data-refresh-os-fonts]').click();
+    await page.waitForFunction(
+      (count) => window.fontCalls.filter((command) => command === 'list_desktop_font_faces').length > count,
+      reads,
+    );
+    await page.waitForFunction(
+      () => document.querySelector('.inspector-body .text-font-choice output')?.textContent !== 'Checking font…',
+    );
+    await page.locator('.inspector-body [data-change-font]').click();
+    const picker = page.getByRole('dialog', { name: 'Font', exact: true });
+    await picker.getByRole('combobox').fill(`${face.family} ${face.name}`);
+    assert.equal(await nativeOption(picker, face).count(), 1, 'one exact native face identity');
+    return picker;
+  };
+
   await page.addInitScript(
     ({ variants, din, axisRows, verticalRows, wrapRows, jpRows }) => {
       window.isTauri = true;
       window.fontCalls = [];
+      window.fontRequests = [];
       window.fontSaves = [];
       window.fontAvailable = true;
       window.__TAURI_INTERNALS__ = {
@@ -82,19 +142,21 @@ try {
         invoke: async (command, args) => {
           window.fontCalls.push(command);
           if (command === 'list_system_fonts' || command === 'list_os_outline_fonts') return [];
-          if (command === 'list_desktop_font_faces')
+          if (command === 'list_desktop_font_faces') {
+            const faces = [
+              ...variants, ...(din ? [din] : []), ...axisRows,
+              ...verticalRows, ...wrapRows, ...jpRows,
+            ].map((row) => row.face);
             return window.fontAvailable
-              ? [
-                  variants[0].face,
-                  ...(din ? [din.face] : []),
-                  ...(axisRows.length ? [axisRows[0].face] : []),
-                ]
+              ? [...new Map(faces.map((face) => [JSON.stringify(face), face])).values()]
               : [];
+          }
           if (command === 'list_desktop_font_axes')
             return axisRows.length && JSON.stringify(args.face) === JSON.stringify(axisRows[0].face)
               ? axisRows[0].axes
               : [];
           if (command === 'shape_desktop_text') {
+            window.fontRequests.push(structuredClone(args.request));
             if (!window.fontAvailable) throw Error('Font unavailable; saved outlines retained');
             const ranges = axisRows.find(
               (r) => JSON.stringify(r.face) === JSON.stringify(args.request.face),
@@ -168,19 +230,23 @@ try {
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
-  await page.evaluate((contents) => window.nect.load(contents), serialize(doc));
+  await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(doc, raw)));
   await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
-  await page.locator('.inspector-body [data-os-text-font]').click();
-  const dialog = page.getByRole('dialog', { name: 'OS font outlines' });
-  await dialog.getByRole('combobox').fill('Meiryo');
-  await dialog.getByRole('option').click();
-  await dialog.getByRole('button', { name: 'Use font for Text', exact: true }).click();
+  assert.equal(await page.locator('.inspector-body [data-change-font]').count(), 1);
+  assert.equal(await page.locator('[data-os-text-font], [data-os-text-outline]').count(), 0);
+  const dialog = await openNativePicker(raw.face);
+  await nativeOption(dialog, raw.face).click();
+  await dialog.getByRole('button', { name: 'Apply font', exact: true }).click();
   await page.waitForFunction(
     (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont?.version === 2,
     text.id,
   );
   const live = () =>
     page.evaluate((id) => window.nect.document.layers[0].nodes.find((n) => n.id === id), text.id);
+  await page.waitForFunction(() => !document.querySelector('dialog[aria-label="Font"]'));
+  assert.deepEqual((await live()).osFont.face, raw.face);
+  assert.equal((await live()).osFont.outline.ligatures, raw.ligatures);
+  assert.equal(await page.evaluate(() => window.fontRequests.at(-1).ligatures), raw.ligatures);
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));
   const calls = await page.evaluate(
     () => window.fontCalls.filter((c) => c === 'shape_desktop_text').length,
@@ -246,7 +312,8 @@ try {
     [137, 80, 78, 71, 13, 10, 26, 10],
   );
   await page.evaluate(() => (window.fontAvailable = false));
-  await page.locator('.inspector-body [data-refresh-os-fonts]').click();
+  await openDetails('.text-font-advanced');
+  await page.locator('.inspector-body .text-font-advanced [data-refresh-os-fonts]').click();
   await page.waitForFunction(() =>
     document.querySelector('.text-controls output').textContent.includes('Font unavailable'),
   );
@@ -260,7 +327,7 @@ try {
   );
   assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), saved);
   await page.locator('.inspector-body [data-cancel-os-text]').click();
-  await page.locator('.inspector-body [data-bake-text-outline]').click();
+  await bakeCurrentAppearance();
   await page.waitForFunction(
     (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).type === 'Multi Path',
     text.id,
@@ -272,31 +339,34 @@ try {
     target.text = din.text;
     target.params.size.value = din.size;
     target.params.lineSpacing.value = din.lineSpacing;
+    target.params.letterSpacing.value = din.tracking;
+    target.kerning = din.kerning;
+    target.alignment = ['start', 'center', 'end'][din.alignment];
     await page.evaluate(() => (window.fontAvailable = true));
-    await page.evaluate((contents) => window.nect.load(contents), serialize(dinDoc));
+    await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(dinDoc, din)));
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
-    await page.locator('.inspector-body [data-os-text-font]').click();
-    const picker = page.getByRole('dialog', { name: 'OS font outlines' });
-    await picker.getByRole('combobox').fill('DIN Alternate');
+    const picker = await openNativePicker(din.face);
     assert.match(
-      await picker.getByRole('option').textContent(),
+      await nativeOption(picker, din.face).textContent(),
       new RegExp(`${din.face.name}.*${din.face.weight}`),
     );
-    await picker.getByRole('option').click();
-    await picker.getByRole('button', { name: 'Use font for Text', exact: true }).click();
+    await nativeOption(picker, din.face).click();
+    await picker.getByRole('button', { name: 'Apply font', exact: true }).click();
     await page.waitForFunction(
       (id) =>
         window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont?.family ===
         'DIN Alternate',
       text.id,
     );
+    await page.waitForFunction(() => !document.querySelector('dialog[aria-label="Font"]'));
+    assert.deepEqual((await live()).osFont.face, din.face);
     const portable = await page.evaluate(() => JSON.stringify(window.nect.document)),
       dinSvg = await page.evaluate(() => window.nect.export());
     await page.evaluate(() => (window.fontAvailable = false));
     await page.evaluate((contents) => window.nect.load(contents), portable);
     assert.equal(await page.evaluate(() => window.nect.export()), dinSvg);
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
-    await page.locator('.inspector-body [data-bake-text-outline]').click();
+    await bakeCurrentAppearance();
     await page.waitForFunction(
       (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).type === 'Multi Path',
       text.id,
@@ -315,20 +385,16 @@ try {
     n.params.position.value = position;
     return result;
   };
-  const choose = async (contents, family) => {
+  const choose = async (contents, outline) => {
     await page.evaluate(() => (window.fontAvailable = true));
-    await page.evaluate((contents) => window.nect.load(contents), serialize(contents));
+    await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(contents, outline)));
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
-    await page.locator('.inspector-body [data-os-text-font]').click();
-    const picker = page.getByRole('dialog', { name: 'OS font outlines' });
-    await picker.getByRole('combobox').fill(family);
-    await picker.getByRole('option').click();
-    await picker.getByRole('button', { name: 'Use font for Text', exact: true }).click();
-    await page.waitForFunction(
-      ({ id, family }) =>
-        window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont?.family === family,
-      { id: text.id, family },
-    );
+    const picker = await openNativePicker(outline.face);
+    await nativeOption(picker, outline.face).click();
+    await picker.getByRole('button', { name: 'Apply font', exact: true }).click();
+    await page.waitForFunction(() => !document.querySelector('dialog[aria-label="Font"]'));
+    assert.deepEqual((await live()).osFont.face, outline.face);
+    assert.equal((await live()).osFont.outline.ligatures, outline.ligatures);
   };
   const waitOutline = (raw) =>
     page.waitForFunction(
@@ -361,7 +427,7 @@ try {
     await page.evaluate((contents) => window.nect.load(contents), saved);
     assert.equal(await page.evaluate(() => window.nect.export()), svg);
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
-    await page.locator('.inspector-body [data-bake-text-outline]').click();
+    await bakeCurrentAppearance();
     await page.waitForFunction(
       (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).type === 'Multi Path',
       text.id,
@@ -388,7 +454,7 @@ try {
     const base = axisRows[0],
       low = axisRows[1],
       high = axisRows[2];
-    await choose(exampleDoc(base, [60, 160]), base.face.family);
+    await choose(exampleDoc(base, [60, 160]), base);
     await waitOutline(base);
     const input = () => page.locator('.inspector-body [data-os-axis="wght"]');
     await input().fill(String(low.axes.find((a) => a.tag === 'wght').value));
@@ -445,7 +511,7 @@ try {
           r.tracking === 4 &&
           r.lineSpacing === 2,
       );
-    await choose(exampleDoc(horizontal, [720, 40]), horizontal.face.family);
+    await choose(exampleDoc(horizontal, [720, 40]), horizontal);
     await waitOutline(horizontal);
     const mode = () => page.locator('.inspector-body [data-os-setting="writingMode"]');
     await mode().selectOption('vertical-rl');
@@ -470,7 +536,7 @@ try {
     const [unwrapped, wide, narrow, centered, ended, spaced, tracked] = wrapRows,
       initial = wrapRows.find((r) => r.wrapWidth === 320),
       off = wrapRows.find((r) => r.engine === 'directwrite-v2');
-    await choose(exampleDoc(unwrapped, [160, 32]), unwrapped.face.family);
+    await choose(exampleDoc(unwrapped, [160, 32]), unwrapped);
     await waitOutline(unwrapped);
     await page.locator('.inspector-body [data-os-wrap]').selectOption('width');
     await waitOutline(initial);

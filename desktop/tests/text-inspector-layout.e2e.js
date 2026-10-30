@@ -26,6 +26,7 @@ try {
     window.nect.load(JSON.stringify(d));
   });
   await page.locator('.inspector-body [data-text]').waitFor({ state: 'visible' });
+  await page.locator('.inspector-body .text-font-advanced > summary').click();
   const chooser = page.waitForEvent('filechooser');
   await page.locator('.inspector-body [data-load-font]').click();
   await (await chooser).setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
