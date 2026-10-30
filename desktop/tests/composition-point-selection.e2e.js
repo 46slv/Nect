@@ -89,6 +89,16 @@ try {
     assert.deepEqual(await selected(id), fixture.points.slice(0, 2));
     assert.equal(await focus(id), fixture.points[1]);
     assert.deepEqual(await checkpoint(), before);
+    await tab('composition-a').focus();
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => window.nect.activeCompositionId === 'composition-b');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('Space');
+    await page.waitForFunction(() => window.nect.activeCompositionId === 'composition-a');
+    assert.deepEqual(await selected(id), fixture.points.slice(0, 2));
+    assert.equal(await focus(id), fixture.points[1]);
+    assert.deepEqual(await checkpoint(), before);
     if (kind === 'Remap') {
       await page.locator('.canvas-stage').focus();
       await page.keyboard.press('ArrowRight');
@@ -107,16 +117,6 @@ try {
       assert.deepEqual((await checkpoint()).project, before.project);
       result.remapUndoRedoSelection = true;
     }
-    await tab('composition-a').focus();
-    await page.keyboard.press('ArrowRight');
-    await page.keyboard.press('Enter');
-    await page.waitForFunction(() => window.nect.activeCompositionId === 'composition-b');
-    await page.keyboard.press('ArrowLeft');
-    await page.keyboard.press('Space');
-    await page.waitForFunction(() => window.nect.activeCompositionId === 'composition-a');
-    assert.deepEqual(await selected(id), fixture.points.slice(0, 2));
-    assert.equal(await focus(id), fixture.points[1]);
-    assert.deepEqual(await checkpoint(), before);
     result.cases.push({
       kind,
       pointIds: await selected(id),
