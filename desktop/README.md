@@ -74,6 +74,9 @@ For a practical editable exercise, open `examples/vr-converters.json`; it retain
 
 See the consolidated [product specification](docs/product-spec.md), [architecture and public API](docs/architecture.md), [interaction contract](docs/interaction.md) and [verification / remaining work](docs/verification.md).
 
+For fixed Nect SVG → PNG batch export with installed Chrome and no editor UI, see
+[the developer CLI](docs/svg-to-png-cli.md). It reuses the production raster/PPI rules and refuses existing outputs.
+
 ## Verification
 
 `npm test` runs geometry, type/graph, persistence, safety and synthetic DOM integration tests. `npm run test:csp` builds the production bundle and checks startup in Chromium with the unchanged native Tauri CSP, including a control that confirms JavaScript evaluation remains blocked. `npm run test:e2e` runs that production CSP check followed by real Chromium flows against a running dev server; set `CHROMIUM_PATH` for your system executable. Synthetic DOM tests are not screenshot or real browser rendering proof.
