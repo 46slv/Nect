@@ -153,41 +153,70 @@ test('shipped Shared Colors sends closed harmony payloads through the app comman
     },
   );
 
-  await t.test(
-    'Chroma override passes through the shipped dispatcher as one schema57 palette Apply',
-    async () => {
-      const s = await boot(main, 'chroma-override');
-      try {
-        s.click('[data-harmony-create]');
-        const before = s.snapshot(),
-          past = s.ui().past;
-        const id = before.colorDesign.palette[0].id;
-        s.change('[data-wheel-chroma-mode]', 'override');
-        s.change('[data-wheel-chroma]', '0.03');
-        s.click('[data-chroma-preview]');
-        s.click('[data-chroma-cancel]');
-        assert.deepEqual(s.snapshot(), before);
-        assert.equal(s.ui().past, past);
-        s.click('[data-chroma-preview]');
-        s.click('[data-chroma-apply]');
-        const after = s.snapshot();
-        assert.equal(after.schemaVersion, 57);
-        assert.equal(after.colorDesign.palette.find((entry) => entry.id === id).overrideC, 0.03);
-        assert.equal(s.ui().past, past + 1);
-        assert.equal(s.ui().error, false);
-        s.click('[data-action="undo"]');
-        assert.deepEqual(s.snapshot(), before);
-        s.click('[data-action="redo"]');
-        assert.deepEqual(s.snapshot(), after);
-        s.win.nect.load(JSON.stringify(after));
-        assert.deepEqual(s.snapshot(), after);
-        assert.equal(s.query('[data-wheel-chroma-mode]').value, 'override');
-        assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.03);
-      } finally {
-        await s.win.happyDOM.abort();
-      }
-    },
-  );
+  await t.test('live Chroma previews input and creates one history step', async () => {
+    const s = await boot(main, 'live-chroma');
+    try {
+      s.click('[data-harmony-create]');
+      assert.equal(s.query('[data-chroma-preview]'), null);
+      s.change('[data-wheel-chroma-mode]', 'override');
+      const before = s.snapshot(),
+        past = s.ui().past;
+      const id = before.colorDesign.palette[0].id;
+      let input = s.query('[data-wheel-chroma]');
+      const inspector = s.query('.inspector');
+      input.focus();
+      input.value = '0.03';
+      input.dispatchEvent(new s.win.Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      assert.deepEqual(s.snapshot(), before);
+      assert.equal(s.ui().past, past);
+      assert.equal(s.query('[data-wheel-chroma]'), input);
+      assert.equal(s.query('.inspector'), inspector);
+      const projected = s.win.nect.colorPreviewSnapshot();
+      assert.equal(projected.colorDesign.palette.find((entry) => entry.id === id).overrideC, 0.03);
+      input.dispatchEvent(
+        new s.win.KeyboardEvent('keydown', {
+          key: 'Escape',
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      assert.equal(s.win.nect.colorPreviewSnapshot(), null);
+      assert.deepEqual(s.snapshot(), before);
+      assert.equal(s.ui().past, past);
+      assert.ok(s.query('.shared-colors-panel'));
+      input = s.query('[data-wheel-chroma]');
+      const originalValue = input.defaultValue;
+      input.value = '0.03';
+      input.dispatchEvent(new s.win.Event('input', { bubbles: true }));
+      input.value = originalValue;
+      input.dispatchEvent(new s.win.Event('input', { bubbles: true }));
+      input.blur();
+      await new Promise((resolve) => queueMicrotask(resolve));
+      assert.equal(s.win.nect.colorPreviewSnapshot(), null);
+      assert.deepEqual(s.snapshot(), before);
+      assert.equal(s.ui().past, past);
+      input = s.query('[data-wheel-chroma]');
+      input.value = '0.03';
+      input.dispatchEvent(new s.win.Event('input', { bubbles: true }));
+      input.dispatchEvent(new s.win.Event('change', { bubbles: true }));
+      const after = s.snapshot();
+      assert.equal(after.schemaVersion, 57);
+      assert.equal(after.colorDesign.palette.find((entry) => entry.id === id).overrideC, 0.03);
+      assert.equal(s.ui().past, past + 1);
+      assert.equal(s.ui().error, false);
+      s.click('[data-action="undo"]');
+      assert.deepEqual(s.snapshot(), before);
+      s.click('[data-action="redo"]');
+      assert.deepEqual(s.snapshot(), after);
+      s.win.nect.load(JSON.stringify(after));
+      assert.deepEqual(s.snapshot(), after);
+      assert.equal(s.query('[data-wheel-chroma-mode]').value, 'override');
+      assert.equal(Number(s.query('[data-wheel-chroma]').value), 0.03);
+    } finally {
+      await s.win.happyDOM.abort();
+    }
+  });
 
   await t.test(
     'negative control: original layerId injection rejects Create and Add atomically',

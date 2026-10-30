@@ -1,0 +1,12 @@
+# Live color panel
+
+Shared Colors updates the harmony wheel and artwork while a valid numeric value is typed or dragged. No Enter, Preview or Apply step is required. A completed drag, typed-field edit or discrete setting change creates one Undo entry. Returning a gesture to its original value creates none.
+
+- Drag horizontally inside a number. The first four screen pixels preserve normal clicking; the right-hand native spinner remains available. Click to type or use the keyboard arrows.
+- Valid intermediate values are detached Session previews, not saved project mutations. Blur/Tab or pointer release commits the latest value once. Escape, pointer cancellation, lost capture or a window blur during a drag restores the exact baseline. Blank/incomplete numbers and IME composition are never published as colors.
+- The wheel, selected palette swatches, sampled saved-area percentages and Neutral lane stay above a separately scrolling parameter region. Native sliders retain exact numeric entry. Chroma Spread is saved as an optional [0,1] value; old documents without it retain exactly the existing 0.62 behavior. Advanced holds per-color overrides, saved literal editing, legacy Keep locks and reports. Existing locks are not cleared merely by opening this simpler view. Percentages describe saved artwork; unavailable measurements show an em dash and the coverage status rather than a fabricated zero. Existing sampling/unsupported-form limits are unchanged.
+- Collapse Layers with its heading's minus button. Focus Layers reopens it. Focus Layers and Focus Inspector reveal their content, allocate space and mark the active heading. These are workspace preferences only; they never hide artwork or change document history.
+
+Preview work is coalesced by animation frame, with the latest pending value flushed before commit. Only the wheel/color controls and artwork projection update during a continuous edit; the Inspector and active input keep their DOM identity. `window.nect.colorPreviewMetrics()` reports bounded observed timings, not a frame-rate guarantee.
+
+The existing role/profile/gamut/area-aware Auto Chroma and legacy Keep behavior remain. The recovered v1.1 mock’s intrinsic C1 area exemption and automatic black/white Text choice are not substituted for these existing semantics. This repair does **not** add a one/two-seed dependency model, expand coverage rendering, implement proposed histogram/compressor controls, or close the original color-system requirement. Browser CI evidence is separate from native Windows/WebView2 acceptance.

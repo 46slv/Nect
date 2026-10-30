@@ -24,11 +24,17 @@ export function createWorkspacePanels({
     observer,
     view,
     preferredHeight = 160,
+    layersVisible = true,
+    layersResized = false,
+    focusedPanel = null,
     resizing = null;
   try {
     const saved = JSON.parse(storage?.getItem(WORKSPACE_PREFERENCES_KEY) || '{}');
-    if (Number.isFinite(saved.layersHeight))
+    layersVisible = saved.layersVisible !== false;
+    if (Number.isFinite(saved.layersHeight)) {
       preferredHeight = Math.max(96, Math.min(1200, saved.layersHeight));
+      layersResized = true;
+    }
   } catch {
     /* Unavailable or stale preferences must not prevent editing. */
   }
@@ -37,7 +43,10 @@ export function createWorkspacePanels({
     try {
       storage?.setItem(
         WORKSPACE_PREFERENCES_KEY,
-        JSON.stringify({ layersHeight: preferredHeight }),
+        JSON.stringify({
+          layersHeight: preferredHeight,
+          ...(!layersVisible ? { layersVisible: false } : {}),
+        }),
       );
     } catch {
       /* Workspace preferences are optional, unlike document saves. */
@@ -55,28 +64,60 @@ export function createWorkspacePanels({
     const panel = getAssetPanel();
     workspace.classList.toggle('has-workspace-assets', !!panel);
     slot.hidden = !panel;
+    layers.hidden = !layersVisible;
+    separator.hidden = !layersVisible;
+    workspace.dataset.focusedPanel = focusedPanel || '';
     const available = right.clientHeight || 500;
+    const inspectorReserve =
+      focusedPanel === 'inspector' ? Math.max(128, Math.min(300, available * 0.45)) : 128;
+    right.querySelector('.inspector').style.minHeight = `${inspectorReserve}px`;
+    const layersReserve = layersVisible
+      ? focusedPanel === 'layers'
+        ? Math.min(240, available * 0.4)
+        : layersResized
+          ? preferredHeight
+          : 96
+      : 0;
     const toolHeight = panel ? Math.min(280, Math.max(144, available * 0.36)) : 0;
     slot.style.height = `${toolHeight}px`;
     const colors = right.querySelector('.shared-colors-panel');
     const alignmentHeight =
       right.querySelector('.alignment-panel')?.getBoundingClientRect().height || 0;
     if (colors) {
-      // A wheel needs more than the compact swatch list's 24% allocation.
-      // Preserve at least 96px for Layers and 134px for Inspector/separators.
-      const limit = colors.querySelector('.harmony-wheel')
-        ? available - toolHeight - alignmentHeight - 230
+      const wheel = colors.querySelector('.harmony-wheel');
+      const limit = wheel
+        ? available -
+          toolHeight -
+          alignmentHeight -
+          layersReserve -
+          (layersVisible ? 6 : 0) -
+          inspectorReserve
         : Math.min(240, available * 0.24);
-      colors.style.maxHeight = `${Math.max(88, limit)}px`;
+      const allocation = Math.max(88, Math.min(560, limit));
+      colors.style.maxHeight = `${allocation}px`;
+      colors.style.height = wheel ? `${allocation}px` : '';
+      // Reserve header/actions, swatches and a usable parameters viewport.
+      colors.style.setProperty(
+        '--harmony-wheel-size',
+        `${Math.max(64, Math.min(210, allocation - 290))}px`,
+      );
     }
     const colorHeight = colors?.getBoundingClientRect().height || 0;
+    const occupied = toolHeight + alignmentHeight + colorHeight + inspectorReserve - 128;
     const height = clampLayerHeight(
-      preferredHeight,
+      focusedPanel === 'layers' ? Math.max(preferredHeight, layersReserve) : preferredHeight,
       available,
-      toolHeight + alignmentHeight + colorHeight,
+      occupied,
     );
     layers.style.height = `${height}px`;
-    const limits = layerHeightBounds(available, toolHeight + alignmentHeight + colorHeight);
+    for (const button of root.querySelectorAll(
+      '[data-workspace-panel="layers"],[data-workspace-panel="inspector"]',
+    ))
+      button.setAttribute('aria-current', String(button.dataset.workspacePanel === focusedPanel));
+    root
+      .querySelector('[data-workspace-panel="layers"]')
+      ?.setAttribute('aria-expanded', String(layersVisible));
+    const limits = layerHeightBounds(available, occupied);
     separator.setAttribute('aria-valuemin', String(Math.round(limits.minimum)));
     separator.setAttribute('aria-valuemax', String(Math.round(limits.maximum)));
     separator.setAttribute('aria-valuenow', String(Math.round(height)));
@@ -112,6 +153,8 @@ export function createWorkspacePanels({
     view?.removeEventListener('resize', refresh);
     if (resizing) {
       preferredHeight = resizing.previous;
+      layersResized = resizing.previousResized;
+      focusedPanel = resizing.previousFocus;
       resizing = null;
     }
     root = nextRoot;
@@ -125,6 +168,25 @@ export function createWorkspacePanels({
     const inspector = right?.querySelector('.inspector');
     if (!workspace || !right || !layers || !inspector) return;
     workspace.classList.add('has-workspace-panels');
+    const heading = layers.querySelector('.panel-head');
+    if (heading && !heading.querySelector('[data-collapse-layers]')) {
+      const collapse = root.ownerDocument.createElement('button');
+      collapse.type = 'button';
+      collapse.className = 'mini';
+      collapse.dataset.collapseLayers = '';
+      collapse.textContent = '−';
+      collapse.title = 'Collapse Layers panel';
+      collapse.setAttribute('aria-label', 'Collapse Layers panel');
+      collapse.addEventListener('click', (event) => {
+        event.stopPropagation();
+        layersVisible = false;
+        focusedPanel = null;
+        refresh();
+        save();
+        root.querySelector('[data-workspace-panel="layers"]')?.focus({ preventScroll: true });
+      });
+      heading.append(collapse);
+    }
     let slot = right.querySelector('[data-workspace-asset-slot]');
     if (!slot) {
       slot = root.ownerDocument.createElement('div');
@@ -147,11 +209,17 @@ export function createWorkspacePanels({
         if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
+        const previousFocus = focusedPanel,
+          previousResized = layersResized;
+        focusedPanel = null;
+        layersResized = true;
         resizing = {
           id: event.pointerId,
           y: event.clientY,
           height: layers.getBoundingClientRect().height,
           previous: preferredHeight,
+          previousFocus,
+          previousResized,
         };
         separator.setPointerCapture?.(event.pointerId);
       });
@@ -163,17 +231,27 @@ export function createWorkspacePanels({
       });
       const finish = (event) => {
         if (!resizing || resizing.id !== event.pointerId) return;
-        if (event.type === 'pointercancel') preferredHeight = resizing.previous;
-        else preferredHeight = Number(separator.getAttribute('aria-valuenow'));
+        if (event.type !== 'pointerup') {
+          preferredHeight = resizing.previous;
+          layersResized = resizing.previousResized;
+          focusedPanel = resizing.previousFocus;
+        } else preferredHeight = Number(separator.getAttribute('aria-valuenow'));
         resizing = null;
         if (separator.hasPointerCapture?.(event.pointerId))
           separator.releasePointerCapture(event.pointerId);
         refresh();
-        if (event.type !== 'pointercancel') save();
+        if (event.type === 'pointerup') save();
       };
       separator.addEventListener('pointerup', finish);
       separator.addEventListener('pointercancel', finish);
+      separator.addEventListener('lostpointercapture', finish);
       separator.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && resizing) {
+          event.preventDefault();
+          event.stopPropagation();
+          finish({ type: 'pointercancel', pointerId: resizing.id });
+          return;
+        }
         const current = Number(separator.getAttribute('aria-valuenow'));
         const next = {
           ArrowUp: current - 16,
@@ -184,6 +262,8 @@ export function createWorkspacePanels({
         if (!Number.isFinite(next) || event.altKey || event.ctrlKey || event.metaKey) return;
         event.preventDefault();
         event.stopPropagation();
+        focusedPanel = null;
+        layersResized = true;
         preferredHeight = next;
         refresh();
         preferredHeight = Number(separator.getAttribute('aria-valuenow'));
@@ -199,7 +279,7 @@ export function createWorkspacePanels({
         ['layers', 'Focus Layers', '▤', () => focus('.layers')],
         ['assets', 'Toggle Assets panel', '▧', onAssets],
         ['align', 'Toggle Alignment panel', '↔', onAlign],
-        ...(onColors ? [['colors', 'Toggle Shared Colors panel', '●', onColors]] : []),
+        ...(onColors ? [['colors', 'Toggle Shared Colors panel', '●', toggleColors]] : []),
         ['inspector', 'Focus Inspector', '≡', () => focus('.inspector')],
       ]) {
         const button = root.ownerDocument.createElement('button');
@@ -228,9 +308,26 @@ export function createWorkspacePanels({
     }
   }
 
+  function toggleColors() {
+    const reveal = focusedPanel && root.querySelector('.shared-colors-panel');
+    focusedPanel = null;
+    if (!reveal) onColors();
+    else focus('.shared-colors-panel');
+  }
+
   function focus(selector) {
     const element = root?.querySelector(selector);
     if (!element) return;
+    if (selector === '.layers') {
+      layersVisible = true;
+      save();
+    }
+    focusedPanel =
+      selector === '.layers' ? 'layers' : selector === '.inspector' ? 'inspector' : null;
+    refresh();
+    element.scrollTop = 0;
+    if (selector === '.layers')
+      element.querySelector('.layer.selected')?.scrollIntoView?.({ block: 'nearest' });
     element.tabIndex = -1;
     element.focus({ preventScroll: true });
   }

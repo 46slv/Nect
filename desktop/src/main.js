@@ -699,6 +699,8 @@ let alignmentPreferences = readAlignmentPreferences();
 let dockedAlignment = false;
 const sharedColors = createSharedColorsPanel({
   app,
+  live: true,
+  onPreview: () => updateCanvas(true),
   getCoverageSnapshot: () => coverageView.snapshot(),
   getSession: () => session,
   getDocument: () => history.doc,
@@ -1248,6 +1250,7 @@ let textPreview = null,
   pendingCanvasTextClick = null,
   lastCanvasTextClick = null;
 const displayDocument = () =>
+  sharedColors.previewDocument ||
   fontPreview ||
   drag?.preview ||
   (textPreviewRevision === session.state.expectedRevision && textPreview) ||
@@ -1546,6 +1549,7 @@ function settleNumericControl(input, result) {
   else input.defaultValue = input.value;
 }
 function resetTransient() {
+  sharedColors.cancelEdit();
   keyerInputPicker?.close();
   pointAlignmentActions.clear();
   osTextDrafts.clear();
@@ -4048,7 +4052,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     updateGraphBounds();
     drawWires();
   });
-  if (fontPreview || textPreview) updateCanvas(true);
+  if (sharedColors.previewDocument || fontPreview || textPreview) updateCanvas(true);
   coverageView.refresh();
 }
 function editGuides(type, payload) {
@@ -14174,6 +14178,9 @@ window.nect = {
   get gestureState() {
     return session.gestureState;
   },
+  colorPreviewSnapshot: () =>
+    sharedColors.previewDocument ? structuredClone(sharedColors.previewDocument) : null,
+  colorPreviewMetrics: () => sharedColors.metrics(),
   previewSnapshot: (gestureId) => session.previewSnapshot(gestureId),
   get commandState() {
     return session.state;

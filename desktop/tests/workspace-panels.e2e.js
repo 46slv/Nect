@@ -124,6 +124,41 @@ try {
   await page.getByRole('button', { name: 'Toggle Alignment panel', exact: true }).click();
   assert.equal(await page.locator('.alignment-panel').count(), 0);
   assert.equal(await snapshot(), afterPlacement);
+  // Workspace focus/collapse changes visibility and scroll only, never artwork.
+  const beforeVisibility = await snapshot();
+  const layers = page.locator('.layers'),
+    inspector = page.locator('.inspector');
+  await page.getByRole('button', { name: 'Collapse Layers panel', exact: true }).click();
+  assert.equal(await layers.isVisible(), false);
+  assert.equal(await separator.isVisible(), false);
+  assert.equal(await snapshot(), beforeVisibility);
+  await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
+  assert.equal(await layers.isVisible(), true);
+  assert.equal(await separator.isVisible(), true);
+  assert.equal(await layers.evaluate((el) => el === document.activeElement), true);
+  await inspector.evaluate((el) => {
+    el.scrollTop = 500;
+  });
+  await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
+  assert.equal(await inspector.evaluate((el) => el.scrollTop), 0);
+  assert.equal(await inspector.evaluate((el) => el === document.activeElement), true);
+  assert.equal(
+    await page
+      .getByRole('button', { name: 'Focus Inspector', exact: true })
+      .getAttribute('aria-current'),
+    'true',
+  );
+  assert.equal(await snapshot(), beforeVisibility);
+  await page.screenshot({ path: resolve('test-results/workflow-color-workspace-focus.png') });
+  await writeFile(
+    resolve('test-results/workflow-color-workspace-focus.json'),
+    JSON.stringify({
+      ok: true,
+      collapseReopen: true,
+      focusInspectorReveals: true,
+      documentUnchanged: true,
+    }),
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     out + '/result.json',
