@@ -132,7 +132,7 @@ test('modern multiline vertical layout and stable character identities survive r
   assert.equal(exportSVG(deserialize(serialize(f.s.snapshot()))), exportSVG(f.s.snapshot()));
 });
 
-test('missing coverage, malformed bytes and restricted embedding retain the complete OS snapshot', () => {
+test('coverage, byte and embedding failures retain the complete OS snapshot', () => {
   const f = fixture('世界の麺'); // The licensed fixture intentionally has no の glyph.
   unchanged(
     f,
@@ -140,7 +140,11 @@ test('missing coverage, malformed bytes and restricted embedding retain the comp
     /Missing glyphs/,
   );
   unchanged(f, () => f.send('replace-os-text-font', { bytes: new ArrayBuffer(20) }), /TTF|font/i);
-  unchanged(f, () => f.send('replace-os-text-font', { fontId: 'font-absent' }), /Missing replacement/);
+  unchanged(
+    f,
+    () => f.send('replace-os-text-font', { fontId: 'font-absent' }),
+    /Missing replacement/,
+  );
   unchanged(f, () => f.send('replace-os-text-font', { fontId: 'default' }), /OS font retained/);
   const restricted = bytes(),
     view = new DataView(restricted);
@@ -177,7 +181,7 @@ test('existing static asset selection reuses exact identity, without embedding a
   assert.equal(Object.keys(s.snapshot().fontAssets).length, 1);
 });
 
-test('font choice payloads, locks, stale revisions and active drafts cannot partially replace Text', () => {
+test('invalid payloads, locks, stale revisions and drafts cannot partially replace Text', () => {
   const f = fixture();
   for (const payload of [
     {},
@@ -202,9 +206,6 @@ test('font choice payloads, locks, stale revisions and active drafts cannot part
     (d) => {
       d.layers[0].nodes[0].locked = true;
     },
-    (d) => {
-      d.layers[0].nodes[0].bypassed = true;
-    },
   ]) {
     const doc = f.s.snapshot();
     mutate(doc);
@@ -219,11 +220,16 @@ test('font choice payloads, locks, stale revisions and active drafts cannot part
     );
     assert.equal(serialize(s.snapshot()), before);
   }
+  // Text is not a bypassable effect: an invalid saved state is rejected before
+  // a Session can exist, rather than being a reachable replacement target.
+  const invalid = f.s.snapshot();
+  invalid.layers[0].nodes[0].bypassed = true;
+  unchanged(f, () => new CommandSession(invalid), /Cannot bypass Text/);
   f.send('begin-text-draft');
   unchanged(f, () => f.send('replace-os-text-font', { bytes: bytes() }), /draft/i);
 });
 
-test('saved Windows ligature-off retains the static default; unsupported ligature-on refuses', () => {
+test('Windows liga-off retains the static default; unsupported liga-on refuses', () => {
   const f = fixture('ABC', { ligatures: false });
   f.send('replace-os-text-font', { bytes: bytes(), fileName: 'fixture.otf' });
   assert.equal(f.live().fontFeatures, undefined);
@@ -242,7 +248,7 @@ test('saved Windows ligature-off retains the static default; unsupported ligatur
   );
 });
 
-test('Windows ligatures-on becomes explicit static intent, not the differing legacy default', () => {
+test('Windows liga-on becomes explicit intent, not the differing static default', () => {
   const font = parseFont(defaultBytes()),
     options = { position: [0, 0], size: 100 },
     normal = layoutText(font, 'office ffi', options),
