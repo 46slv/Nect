@@ -1124,7 +1124,7 @@ let selection = new Set();
 let nodeContextMenu = null;
 let contextMenuScroll = new Map();
 const detailsState = new Map();
-const compositionViewStates = createCompositionViewStateStore();
+const compositionViewStates = createCompositionViewStateStore({ resolvePointIds: pointPanelIds });
 const selectionHistory = new WeakMap();
 let focusedCompositionTabId = null,
   tabRenderSession = null,
@@ -1197,17 +1197,7 @@ function stepHistory(redo = false) {
     if (state.restoreEditSelection) {
       selectedGuide = state.selectedGuide;
       const owner = current().nodes.find((n) => n.id === state.pointSelection?.nodeId);
-      let ids = new Set(owner?.points?.map((p) => p.id) || []);
-      if (owner?.type === 'Path Remap')
-        try {
-          ids = new Set(
-            evaluate(current(), resolveFonts(history.doc, activeFonts()), history.doc.imageAssets)
-              .run(owner.id)
-              .contours.flatMap((c) => c.points.map((p) => p.id)),
-          );
-        } catch {
-          ids.clear();
-        }
+      const ids = new Set(pointPanelIds(owner, current(), history.doc) || []);
       pointSelection = {
         nodeId: owner?.id || null,
         ids: new Set([...(state.pointSelection?.ids || [])].filter((id) => ids.has(id))),
@@ -2761,14 +2751,20 @@ function applyPointDelta(nodeId) {
     draft.envelope,
   );
 }
-function pointPanelSource(n, input) {
+function pointPanelIds(n, layer, doc) {
+  if (!n) return null;
+  try {
+    return pointPanelSource(n, undefined, layer, doc).points?.map((point) => point.id);
+  } catch {
+    return null;
+  }
+}
+function pointPanelSource(n, input, layer = current(), doc = history.doc) {
   if (n.type === 'Path Remap' && !input && n.params.path.source) {
     try {
-      input = evaluate(
-        current(),
-        resolveFonts(history.doc, activeFonts()),
-        history.doc.imageAssets,
-      ).run(n.params.path.source);
+      input = evaluate(layer, resolveFonts(doc, activeFonts()), doc.imageAssets).run(
+        n.params.path.source,
+      );
     } catch {}
   }
   return {
