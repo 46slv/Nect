@@ -77,7 +77,10 @@ import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
 import { MAX_MASK_FEATHER } from './appearance-mask.js';
-import { arrangeTextInspector } from './text-inspector-layout.js';
+import {
+  arrangeTextInspector,
+  retainTextFontDisclosures,
+} from './text-inspector-layout.js';
 const graphemeEditingAvailable = typeof Intl.Segmenter === 'function';
 // Shared keyboard picker. Document changes stay in the caller's typed Session.
 function openSearchPanel({
@@ -3403,18 +3406,18 @@ function desktopAxisControls(n) {
 function desktopTypographyControls(n) {
   if (![2, 3, 4, 5].includes(n.osFont?.version)) return '';
   const disabled = !desktop || current().locked || n.locked || osTextDrafts.has(n.id);
-  return `<fieldset ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
+  return `<fieldset class="native-text-typography" ${disabled ? 'disabled' : ''}><legend>Typography</legend>${[
     ['size', 'Size', n.params.size.value],
     ['tracking', 'Tracking', n.params.letterSpacing.value],
     ['lineSpacing', 'Line spacing', n.params.lineSpacing.value],
   ]
     .map(
       ([key, label, value]) =>
-        `<label>${label}<input type="number" step="any" value="${value}" data-os-setting="${key}" data-os-node="${n.id}" aria-label="Windows Text ${label}"></label>`,
+        `<label><span>${label}</span><input type="number" step="any" value="${value}" data-os-setting="${key}" data-os-node="${n.id}" aria-label="Windows Text ${label}"></label>`,
     )
     .join(
       '',
-    )}<label><input type="checkbox" data-os-setting="kerning" data-os-node="${n.id}" ${n.kerning !== false ? 'checked' : ''}>Kerning</label><label><input type="checkbox" data-os-setting="ligatures" data-os-node="${n.id}" ${n.osFont.outline.ligatures ? 'checked' : ''}>Standard ligatures</label><label>Alignment<select data-os-setting="alignment" data-os-node="${n.id}">${['start', 'center', 'end'].map((a) => `<option ${n.alignment === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label><label>Writing mode<select data-os-setting="writingMode" data-os-node="${n.id}">${[
+    )}<label class="native-text-toggle"><input type="checkbox" data-os-setting="kerning" data-os-node="${n.id}" ${n.kerning !== false ? 'checked' : ''}><span>Kerning</span></label><label class="native-text-toggle"><input type="checkbox" data-os-setting="ligatures" data-os-node="${n.id}" ${n.osFont.outline.ligatures ? 'checked' : ''}><span>Standard ligatures</span></label><label><span>Alignment</span><select data-os-setting="alignment" data-os-node="${n.id}">${['start', 'center', 'end'].map((a) => `<option ${n.alignment === a ? 'selected' : ''}>${a}</option>`).join('')}</select></label><label><span>Writing mode</span><select data-os-setting="writingMode" data-os-node="${n.id}">${[
     ['horizontal-tb', 'Horizontal'],
     ['vertical-rl', 'Vertical'],
   ]
@@ -3424,7 +3427,7 @@ function desktopTypographyControls(n) {
     )
     .join(
       '',
-    )}</select></label>${desktopAxisControls(n)}<label>Line composition<select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px<input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
+    )}</select></label>${desktopAxisControls(n)}<label><span>Line composition</span><select data-os-wrap="${n.id}" aria-label="Windows Text wrap mode">${wrapModeOptions(n)}</select></label>${n.textWrap ? `<label><span>Wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'} px</span><input type="number" step="any" min="0.01" max="100000" data-os-wrap-width="${n.id}" aria-label="Windows Text wrap ${n.writingMode === 'vertical-rl' ? 'height' : 'width'}" value="${wrapExtent(n.textWrap)}"></label>` : ''}<p class="font-note">Long unbreakable groups may overflow.</p>${n.osFont.outline.wrapOverflow ? '<p role="status">Wrap overflow · all artwork retained</p>' : ''}</fieldset>`;
 }
 function textControls(n) {
   if (n.type !== 'Text') return '';
@@ -4029,6 +4032,7 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     .join(
       '',
     )}${penDraft ? '</div>' : ''}</div></section></aside></div><footer class="status ${error ? 'error' : ''}"><span class="message">${esc(message)}</span><span class="spacer"></span><span>Local document · ${l.nodes.length} nodes</span></footer><input id="image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" hidden><input id="font-file" type="file" accept=".ttf,.otf,font/ttf,font/otf" hidden><input id="open-file" type="file" accept=".json,application/json" hidden><input id="import-svg-file" type="file" accept=".svg,image/svg+xml" hidden><input id="svg-part-file" type="file" accept=".svg,image/svg+xml" hidden>`;
+  retainTextFontDisclosures(app);
   renderCompositionTablist();
   // A deferred view/font refresh must not detach an active browser chooser.
   // Document replacement clears svgPartPick and retains its existing stale guard.

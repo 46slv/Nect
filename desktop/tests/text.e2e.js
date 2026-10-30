@@ -150,9 +150,8 @@ try {
   await page.locator('.inspector-body [data-change-font]').click();
   const picker = page.getByRole('dialog', { name: 'Font', exact: true });
   await picker.locator('input[type="search"]').fill('Nect JP Fixture');
-  await picker
-    .locator(`.picker-option[data-id=${JSON.stringify(JSON.stringify(['embedded', fontId]))}]`)
-    .click();
+  const rowKey = JSON.stringify(['embedded', fontId]);
+  await picker.locator(`.picker-option[data-id=${JSON.stringify(rowKey)}]`).click();
   await picker.locator('.picker-apply').click();
   await picker.waitFor({ state: 'hidden' });
   await commit('[data-text]', '日本語');
@@ -246,4 +245,3 @@ try {
 } finally {
   await browser.close();
 }
-

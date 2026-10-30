@@ -38,6 +38,13 @@ try {
   await chooser.setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
   await page.waitForFunction(() => Object.keys(window.nect.document.fontAssets || {}).length === 1);
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));
+  assert.equal(await advanced.getAttribute('open'), '');
+  await advanced.locator(':scope > summary').focus();
+  await advanced.locator(':scope > summary').press('Space');
+  assert.equal(await advanced.getAttribute('open'), null);
+  await advanced.locator(':scope > summary').press('Enter');
+  assert.equal(await advanced.getAttribute('open'), '');
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), before);
   await page.screenshot({ path: 'test-results/text-inspector-after.png' });
   await page.locator('[data-text-inspector-section="typography"] > summary').click();
   assert.equal(

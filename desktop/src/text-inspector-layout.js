@@ -18,10 +18,47 @@ function disclosure(document, key, title) {
   details.addEventListener('toggle', () => sections.set(key, details.open));
   return details;
 }
+// Save view-only Font/action disclosure state before a global click can rerender.
+// Native details toggling otherwise happens after the clicked summary is detached.
+const fontSections = new Map();
+const boundFontDisclosures = new WeakSet();
+export function retainTextFontDisclosures(root) {
+  for (const details of root.querySelectorAll('.text-font-advanced, .text-actions')) {
+    if (boundFontDisclosures.has(details)) continue;
+    const summary = details.querySelector(':scope > summary');
+    if (!summary) continue;
+    const control = details.querySelector(
+      '[data-load-font], [data-load-character-font], [data-bake-text-outline]',
+    );
+    const nodeId =
+      control?.dataset.loadFont ||
+      control?.dataset.loadCharacterFont ||
+      control?.dataset.bakeTextOutline ||
+      '';
+    const place = details.closest('.graph') ? 'graph' : 'inspector';
+    const kind = details.classList.contains('text-actions')
+      ? 'actions'
+      : details.classList.contains('text-character-font-advanced')
+        ? 'character-import'
+        : 'font-import';
+    const key = JSON.stringify([place, nodeId, kind]);
+    details.open = fontSections.get(key) || false;
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      details.open = !details.open;
+      fontSections.set(key, details.open);
+    });
+    details.addEventListener('toggle', () => {
+      if (details.isConnected) fontSections.set(key, details.open);
+    });
+    boundFontDisclosures.add(details);
+  }
+}
 export function arrangeTextInspector(root, editingCharacters = false) {
   const controls = root.querySelector('.text-controls');
   if (!controls?.querySelector('[data-text], [data-os-text]')) return;
   root.classList.add('text-inspector');
+  retainTextFontDisclosures(root);
   const doc = root.ownerDocument;
   const field = (selector) => controls.querySelector(selector)?.closest('.field');
   const primary = [

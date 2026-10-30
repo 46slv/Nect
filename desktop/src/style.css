@@ -456,6 +456,43 @@ header {
 .text-inspector .text-controls textarea {
   min-height: 64px;
 }
+.native-text-typography {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.native-text-typography > label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+}
+.native-text-typography > label > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.native-text-typography > label > input,
+.native-text-typography > label > select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.native-text-typography > .native-text-toggle {
+  grid-template-columns: 18px minmax(0, 1fr);
+}
+.native-text-typography > .native-text-toggle > input {
+  width: auto;
+  justify-self: start;
+}
+.native-text-typography .font-note {
+  margin: 0;
+}
 .wires {
   position: absolute;
   left: 0;

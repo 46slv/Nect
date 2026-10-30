@@ -41,6 +41,7 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
+let narrowTypography;
 page.on('pageerror', (error) => errors.push(error.message));
 await page.route('**/src/storage.js', (route) =>
   route.fulfill({
@@ -151,6 +152,8 @@ try {
   assert.equal(await family().getAttribute('aria-expanded'), 'false');
   await family().press('ArrowRight');
   assert.equal(await family().getAttribute('aria-expanded'), 'true');
+  await fs.mkdir('test-results', { recursive: true });
+  await page.screenshot({ path: 'test-results/workflow-unified-font-family-picker.png' });
   await family().press('ArrowLeft');
   assert.equal(await family().getAttribute('aria-expanded'), 'false');
   assert.deepEqual(await state(), before);
@@ -180,6 +183,45 @@ try {
   assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/workflow-unified-font-native-text.png' });
+  await page.setViewportSize({ width: 1024, height: 900 });
+  narrowTypography = await page.evaluate(() => {
+    const panel = document.querySelector('.inspector-body');
+    const typography = panel.querySelector('.native-text-typography');
+    const bounds = (element) => {
+      const r = element.getBoundingClientRect();
+      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+    };
+    return {
+      panel: bounds(panel),
+      fieldset: bounds(typography),
+      clientWidth: typography.clientWidth,
+      scrollWidth: typography.scrollWidth,
+      rows: [...typography.querySelectorAll(':scope > label')].map((label) => ({
+        label: label.querySelector('span').textContent.trim(),
+        row: bounds(label),
+        text: bounds(label.querySelector('span')),
+        control: bounds(label.querySelector('input, select')),
+      })),
+    };
+  });
+  assert.ok(narrowTypography.panel.width <= 275 && narrowTypography.panel.width >= 220);
+  assert.ok(narrowTypography.scrollWidth <= narrowTypography.clientWidth + 1);
+  assert.ok(narrowTypography.fieldset.right <= narrowTypography.panel.right + 1);
+  assert.equal(narrowTypography.rows.length, 8);
+  for (const [index, row] of narrowTypography.rows.entries()) {
+    assert.ok(row.label);
+    assert.ok(row.control.left >= row.row.left - 1);
+    assert.ok(row.control.right <= row.row.right + 1);
+    const overlap =
+      Math.min(row.text.right, row.control.right) - Math.max(row.text.left, row.control.left);
+    assert.ok(overlap <= 1, `${row.label} text overlaps its control`);
+    if (index) assert.ok(narrowTypography.rows[index - 1].row.bottom <= row.row.top + 1);
+  }
+  await page.locator('.inspector').screenshot({
+    path: 'test-results/workflow-unified-font-native-inspector-narrow.png',
+  });
+  assert.deepEqual(await state(), native);
+  await page.setViewportSize({ width: 1600, height: 1000 });
   await page.locator('[data-action="undo"]').click();
   assert.equal((await state()).document, before.document);
   await page.locator('[data-action="redo"]').click();
@@ -308,6 +350,7 @@ try {
         actualBrowserUi: true,
         mockNativeGeometryAdapter: true,
         actualNativeFonts: false,
+        narrowTypography,
         installedByteReads: 0,
         oneNormalFontEntry: true,
         familyDisclosuresKeyboardAria: true,
