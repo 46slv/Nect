@@ -45,7 +45,20 @@ function viewerState(value, document, fallback) {
   };
 }
 
-export function sanitizeCompositionViewState(value, document, defaults) {
+function currentPointIds(node, layer, document, resolvePointIds) {
+  if (!node) return null;
+  try {
+    // Resolve only current IDs. Derived geometry never belongs to the snapshot.
+    const resolved = resolvePointIds
+      ? resolvePointIds(node, layer, document)
+      : node.points?.map((point) => point.id);
+    return Array.isArray(resolved) || resolved instanceof Set ? new Set(ids(resolved)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function sanitizeCompositionViewState(value, document, defaults, resolvePointIds) {
   const base = structuredClone(defaults);
   if (!value || !Array.isArray(document?.layers)) return base;
   const layers = document.layers,
@@ -60,8 +73,8 @@ export function sanitizeCompositionViewState(value, document, defaults) {
       ? value.artworkTarget
       : artworkSelection.at(-1) || null,
     pointNode = active?.nodes.find((node) => node.id === value.pointSelection?.nodeId),
-    pointIds = new Set(pointNode?.points?.map((point) => point.id) || []),
-    validPointNode = Array.isArray(pointNode?.points),
+    pointIds = currentPointIds(pointNode, active, document, resolvePointIds),
+    validPointNode = pointIds !== null,
     pointSelection = validPointNode
       ? {
           nodeId: pointNode.id,
@@ -96,7 +109,7 @@ export function sanitizeCompositionViewState(value, document, defaults) {
   };
 }
 
-export function createCompositionViewStateStore() {
+export function createCompositionViewStateStore({ resolvePointIds } = {}) {
   const states = new Map();
   return {
     save(compositionId, state) {
@@ -105,7 +118,12 @@ export function createCompositionViewStateStore() {
       states.set(compositionId, structuredClone(state));
     },
     restore(compositionId, document, defaults) {
-      return sanitizeCompositionViewState(states.get(compositionId), document, defaults);
+      return sanitizeCompositionViewState(
+        states.get(compositionId),
+        document,
+        defaults,
+        resolvePointIds,
+      );
     },
     prune(compositions) {
       const ids = new Set(compositions.map((composition) => composition.id));
