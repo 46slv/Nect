@@ -51,9 +51,9 @@ try {
           contentType: 'text/html',
           headers: {
             'Content-Security-Policy':
-              "default-src 'none'; script-src 'self'; img-src data: blob:; connect-src 'none'; font-src 'none'",
+              "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'",
           },
-          body: '<!doctype html><title>Nect PNG adapter</title>',
+          body: '<!doctype html><title>Nect PNG adapter</title><link rel="icon" href="data:,">',
         });
       if (request.method() === 'GET' && sources.has(url))
         return route.fulfill({ contentType: 'text/javascript', body: sources.get(url) });

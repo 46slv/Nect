@@ -10,6 +10,7 @@ import { crc32 } from '../src/images.js';
 
 const chrome = process.env.CHROMIUM_PATH;
 assert.ok(chrome, 'Existing CI must select installed Chrome explicitly');
+await fs.mkdir('test-results', { recursive: true });
 const cli = fileURLToPath(new URL('../cli/svg-to-png.js', import.meta.url)),
   directory = await fs.mkdtemp(resolve('test-results/svg-png-cli-')),
   receiptPath = resolve('test-results/workflow-svg-to-png.json'),
@@ -47,6 +48,7 @@ await fs.writeFile(input, fixed);
 await fs.writeFile(physicalInput, physical);
 await fs.writeFile(jsonPath, json);
 await fs.writeFile('test-results/workflow-svg-to-png-source.svg', physical);
+await fs.writeFile('test-results/workflow-svg-to-png-project.json', json);
 Object.assign(receipt, {
   svgSha256: hash(fixed),
   physicalSvgSha256: hash(physical),
@@ -130,7 +132,10 @@ try {
   await context.route('**/*', async (route) => {
     const url = route.request().url();
     if (url === origin + '/')
-      return route.fulfill({ contentType: 'text/html', body: '<!doctype html>' });
+      return route.fulfill({
+        contentType: 'text/html',
+        body: '<!doctype html><link rel="icon" href="data:,">',
+      });
     const path = modules.find((path) => url === origin + path);
     if (path)
       return route.fulfill({
@@ -169,10 +174,7 @@ try {
     ['stylesheet', '<?xml-stylesheet href="https://example.invalid/x"?>' + root('')],
     ['responsive', root('', 'width="100%" height="100%" viewBox="0 0 32 16"')],
     ['no-viewBox', root('', 'width="32" height="16"')],
-    [
-      'root-transform',
-      root('', 'width="32" height="16" viewBox="0 0 32 16" transform="scale(2)"'),
-    ],
+    ['root-transform', root('', 'width="32" height="16" viewBox="0 0 32 16" transform="scale(2)"')],
     ['malformed', '<svg'],
   ]) {
     await assert.rejects(prepare(svg), undefined, name);
@@ -206,7 +208,8 @@ try {
       ppi: 300,
     },
   ]) {
-    const output = resolve(`test-results/workflow-svg-to-png-${item.name}.png`);
+    const artifact = resolve(`test-results/workflow-svg-to-png-${item.name}.png`),
+      output = join(directory, `${item.name}.png`);
     const result = await run([item.input, output, ...item.args, '--chromium-path', chrome]);
     assert.equal(result.code, 0, JSON.stringify(result));
     const bytes = await fs.readFile(output),
@@ -242,7 +245,7 @@ try {
         );
       }
     receipt.outputs.push({
-      file: basename(output),
+      file: basename(artifact),
       ...info,
       ppi: item.ppi,
       pngSha256: hash(bytes),
@@ -253,14 +256,21 @@ try {
     assert.equal(refused.code, 1);
     assert.match(refused.stderr, /already exists/);
     assert.equal(hash(await fs.readFile(output)), hash(bytes));
+    await fs.writeFile(artifact, bytes);
   }
-  const invalid = join(directory, 'invalid.svg'),
-    output = join(directory, 'invalid.png');
-  await fs.writeFile(invalid, root('<image href="https://example.invalid/x.png"/>'));
-  const rejected = await run([invalid, output]);
-  assert.equal(rejected.code, 1);
-  assert.match(rejected.stderr, /external URLs/);
-  await assert.rejects(fs.lstat(output), { code: 'ENOENT' });
+  for (const [name, svg, message] of [
+    ['external', root('<image href="https://example.invalid/x.png"/>'), /external URLs/],
+    ['responsive', root('', 'width="100%" height="100%" viewBox="0 0 32 16"'), /fixed dimensions/],
+    ['oversized', root('', 'width="8193" height="1" viewBox="0 0 8193 1"'), /8192 px/],
+  ]) {
+    const invalid = join(directory, `invalid-${name}.svg`),
+      output = join(directory, `invalid-${name}.png`);
+    await fs.writeFile(invalid, svg);
+    const rejected = await run([invalid, output]);
+    assert.equal(rejected.code, 1);
+    assert.match(rejected.stderr, message);
+    await assert.rejects(fs.lstat(output), { code: 'ENOENT' });
+  }
   assert.ok(!(await fs.readdir(directory)).some((name) => name.endsWith('.tmp')));
   assert.equal(hash(await fs.readFile(input)), receipt.svgSha256);
   assert.equal(hash(await fs.readFile(physicalInput)), receipt.physicalSvgSha256);
