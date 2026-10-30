@@ -129,3 +129,18 @@ test('native route refuses authored overrides and explicit liga without mutating
     /Color/,
   );
 });
+
+test('replacement preflight explains known saved ligature-on layout limits before Apply', () => {
+  const choice = { source: 'embedded' };
+  for (const patch of [{}, { writingMode: 'vertical-rl' }, { textWrap: { width: 400 } }]) {
+    const n = text({ ...patch, osFont: { outline: { ligatures: true } } }),
+      before = structuredClone(n);
+    assert.equal(fontChoiceCapability(n, choice).route, null);
+    assert.match(fontChoiceCapability(n, choice).reason, /ligatures require/i);
+    assert.deepEqual(n, before);
+  }
+  const latin = text({ text: 'office ffi', osFont: { outline: { ligatures: true } } }),
+    vertical = text({ writingMode: 'vertical-rl', osFont: { outline: { ligatures: false } } });
+  assert.equal(fontChoiceCapability(latin, choice).route, 'replace-os-text-font');
+  assert.equal(fontChoiceCapability(vertical, choice).route, 'replace-os-text-font');
+});

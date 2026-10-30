@@ -234,6 +234,12 @@ test('saved Windows ligature-off retains the static default; unsupported ligatur
     () => unsupported.send('replace-os-text-font', { bytes: bytes() }),
     /ligatures|static/i,
   );
+  const unsupportedFace = fixture('ABC', { shaped: true, ligatures: true });
+  unchanged(
+    unsupportedFace,
+    () => unsupportedFace.send('replace-os-text-font', { bytes: bytes() }),
+    /no supported Latin.*liga/i,
+  );
 });
 
 test('Windows ligatures-on becomes explicit static intent, not the differing legacy default', () => {

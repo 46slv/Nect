@@ -1,4 +1,5 @@
 import { desktopTextIntent } from './desktop-font-text.js';
+import { textFeatureReason } from './opentype-features.js';
 
 // Adapter-owned IDs, not labels, select a face. Even identical display names
 // remain separate choices; no cross-catalog face equivalence is inferred here.
@@ -39,6 +40,10 @@ export function fontChoiceCapability(n, choice, { characterIds } = {}) {
   if (n.osFont) {
     if (characterIds !== undefined) return blocked('OS font replacement requires whole Text');
     if (choice.variable) return blocked('OS font replacement requires a static font');
+    if (n.osFont.outline?.ligatures === true) {
+      const reason = textFeatureReason({ ...n, osFont: undefined });
+      if (reason) return blocked(reason);
+    }
     return { route: 'replace-os-text-font', reason: null };
   }
   if (choice.variable || n.variation) {
