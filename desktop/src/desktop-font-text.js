@@ -211,7 +211,11 @@ export function validateDesktopText(n, schemaVersion = 35) {
     n.type !== 'Text' ||
     n.font !== 'default' ||
     !exact(ref, [
-      'version', 'family', 'style', 'face', 'outline',
+      'version',
+      'family',
+      'style',
+      'face',
+      'outline',
       ...(extended ? ['axes'] : []),
       ...(ref?.source !== undefined ? ['source'] : []),
     ]) ||

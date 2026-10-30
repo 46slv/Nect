@@ -121,10 +121,14 @@ export function createFontChoiceController({
         else if (route === 'set-os-font-text') {
           onStatus('Preparing font; Escape cancels…', false);
           const settings = { ligatures: original.osFont?.outline?.ligatures ?? false };
-          const prepared = choice.source === 'file-native'
-            ? await preparePrivate(original, choice, { signal: abort.signal, settings })
-            : await prepareWindows(original, choice.face, { signal: abort.signal, settings });
-          if (choice.source === 'file-native' && !samePrivateFontSource(prepared?.source, choice.sourceRef))
+          const prepared =
+            choice.source === 'file-native'
+              ? await preparePrivate(original, choice, { signal: abort.signal, settings })
+              : await prepareWindows(original, choice.face, { signal: abort.signal, settings });
+          if (
+            choice.source === 'file-native' &&
+            !samePrivateFontSource(prepared?.source, choice.sourceRef)
+          )
             throw Error('Font response did not match the selected file; no change applied');
           const outline = choice.source === 'file-native' ? prepared?.outline : prepared;
           if (closed || request !== serial) return false;

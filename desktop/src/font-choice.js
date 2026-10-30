@@ -3,17 +3,23 @@ import { textFeatureReason } from './opentype-features.js';
 
 // Adapter-owned IDs, not labels, select a face. Even identical display names
 // remain separate choices; no cross-catalog face equivalence is inferred here.
-export function fontChoiceCatalog({ embedded = [], installed = [], windows = [], fileNative = [] } = {}) {
+export function fontChoiceCatalog({
+  embedded = [],
+  installed = [],
+  windows = [],
+  fileNative = [],
+} = {}) {
   const keys = new Set();
-  return Object.entries({ embedded, installed, windows, 'file-native': fileNative }).flatMap(([source, rows]) =>
-    rows.map((row) => {
-      if (typeof row.id !== 'string' || !row.id || typeof row.label !== 'string')
-        throw Error('Font choices require an opaque ID and display label');
-      const key = JSON.stringify([source, row.id]);
-      if (keys.has(key)) throw Error('Duplicate font choice identity');
-      keys.add(key);
-      return { ...row, source, key };
-    }),
+  return Object.entries({ embedded, installed, windows, 'file-native': fileNative }).flatMap(
+    ([source, rows]) =>
+      rows.map((row) => {
+        if (typeof row.id !== 'string' || !row.id || typeof row.label !== 'string')
+          throw Error('Font choices require an opaque ID and display label');
+        const key = JSON.stringify([source, row.id]);
+        if (keys.has(key)) throw Error('Duplicate font choice identity');
+        keys.add(key);
+        return { ...row, source, key };
+      }),
   );
 }
 

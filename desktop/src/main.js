@@ -271,7 +271,7 @@ function openSearchPanel({
     else if (top + bounds.height > list.scrollTop + list.clientHeight)
       list.scrollTop = top + bounds.height - list.clientHeight;
   }
-  function highlight(scroll = !categories) {
+  function highlight(scroll = !categories, forceNotify = false) {
     for (const row of optionElements)
       row.setAttribute('aria-selected', String(row.dataset.id === activeId));
     const index = rows.findIndex((item) => item.id === activeId);
@@ -280,7 +280,7 @@ function openSearchPanel({
       if (scroll) reveal(optionElements[index]);
     } else input.removeAttribute('aria-activedescendant');
     apply.disabled = !active();
-    if (lastNotified !== activeId) {
+    if (forceNotify || lastNotified !== activeId) {
       lastNotified = activeId;
       status.textContent = '';
       onSelect?.(active());
@@ -488,7 +488,9 @@ function openSearchPanel({
       row.onclick = () => {
         if (closed || item.disabled) return;
         activeId = item.id;
-        highlight();
+        // Explicitly choosing the same row must re-arm a failed preparation.
+        // Passive refreshes still deduplicate selection notifications.
+        highlight(!categories, true);
         input.focus({ preventScroll: true });
       };
       row.ondblclick = () => {
@@ -580,7 +582,8 @@ function openSearchPanel({
       activeId =
         enabled[(index + (event.key === 'ArrowDown' ? 1 : -1) + enabled.length) % enabled.length]
           .id;
-      highlight(true);
+      // A single visible row can also be reselected from the keyboard.
+      highlight(true, true);
     } else if (event.key === 'Enter') {
       // Buttons retain their normal action (favorites/cancel), search commits.
       if (event.target !== input) return;
@@ -3437,11 +3440,16 @@ function textControls(n) {
   if (n.type !== 'Text') return '';
   if (n.osFont) {
     const draft = osTextDrafts.get(n.id),
-      availability = n.osFont.source ? (privateFontChoice(n.osFont.source) && sameFontFace(privateFontChoice(n.osFont.source).face, n.osFont.face) ? 'Font file attached for this session' : 'Font file missing; reattach the same file to edit text or font settings. Saved appearance is retained.') : osFontAvailability(n.osFont, {
-        ...osFontCatalog,
-        desktop,
-        pending: osFontCatalogPending,
-      });
+      availability = n.osFont.source
+        ? privateFontChoice(n.osFont.source) &&
+          sameFontFace(privateFontChoice(n.osFont.source).face, n.osFont.face)
+          ? 'Font file attached for this session'
+          : 'Font file missing; reattach the same file to edit text or font settings. Saved appearance is retained.'
+        : osFontAvailability(n.osFont, {
+            ...osFontCatalog,
+            desktop,
+            pending: osFontCatalogPending,
+          });
     return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-os-text="${n.id}" aria-label="Text content" ${current().locked || n.locked ? 'disabled' : ''}>${esc(draft?.value ?? n.text)}</textarea></div><button class="mini" data-apply-os-text="${n.id}" ${draft?.pending ? 'disabled' : ''}>Apply text</button><button class="mini" data-cancel-os-text="${n.id}">Cancel text edit</button>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, status: availability, desktop })}${desktopTypographyControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}</div>`;
   }
   return `<div class="text-controls"><div class="field"><label>Text</label><textarea rows="3" data-text="${n.id}" aria-label="Text content">${esc(n.text)}</textarea></div><button class="mini" data-style-text-range="${n.id}" ${current().locked ? 'disabled' : ''}>Style selected text</button><button class="mini" data-kern-text-cursor="${n.id}" ${maintainedAxis(n) !== null || current().locked ? 'disabled' : ''}>Kerning at cursor</button><p class="font-note">Highlight text above, then Style selected text. Or use Character position to select on the canvas. Font and size below are defaults; selected-character overrides stay in place.</p>${fontChoiceControls(n, { assets: history.doc.fontAssets, locked: current().locked, desktop })}${variableControls(n)}${openTypeControls(n)}${fontImportControls(n, { locked: current().locked, desktop })}${textOutlineActions(n, { locked: current().locked })}${arrangementControls(n)}${textPathControls(n)}${wrapControls(n)}${leadingControls(n)}<div class="field"><label>Writing</label><select data-writing-mode="${n.id}" aria-label="Writing direction"><option value="horizontal-tb" ${n.writingMode !== 'vertical-rl' ? 'selected' : ''}>Horizontal →</option><option value="vertical-rl" ${n.writingMode === 'vertical-rl' ? 'selected' : ''}>Vertical ↓ / columns ←</option></select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'Y' : 'X'}</label><select data-text-alignment="${n.id}" aria-label="Text alignment">${['start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.alignment || 'start') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['Top', 'Center', 'Bottom'] : ['Left', 'Center', 'Right'])[i]}</option>`).join('')}</select></div><div class="field"><label>Reference bounds</label><select data-reference-bounds="${n.id}" aria-label="Text reference bounds">${['visible', 'advance'].map((v) => `<option value="${v}" ${(n.referenceBounds || 'advance') === v ? 'selected' : ''}>${v === 'visible' ? 'Visible outline' : 'Advance (legacy)'}</option>`).join('')}</select></div><div class="field"><label>Position reference ${n.writingMode === 'vertical-rl' ? 'X' : 'Y'}</label><select data-cross-alignment="${n.id}" aria-label="Text cross-axis reference">${['origin', 'start', 'center', 'end'].map((v, i) => `<option value="${v}" ${(n.crossAlignment || 'origin') === v ? 'selected' : ''}>${(n.writingMode === 'vertical-rl' ? ['First column center', 'Left', 'Center', 'Right'] : ['First baseline', 'Top', 'Center', 'Bottom'])[i]}</option>`).join('')}</select></div><div class="field"><label>Automatic font kerning (horizontal)</label><input type="checkbox" data-text-kerning="${n.id}" aria-label="Text kerning" ${maintainedAxis(n) !== null ? 'disabled' : ''} ${n.kerning !== false ? 'checked' : ''}></div><p class="font-note">Position reference holds each line/column’s chosen visible edge, or legacy advance including spaces. Cross-axis edges use the whole visible block. letterSpacing: inherited tracking in px. lineSpacing: auto-leading factor; ignored by manual leading. Enter starts a hard line or column. Wrap width adds derived horizontal lines without changing the source text. Changing a reference keeps Position fixed and moves the outline; font and size changes keep the chosen reference fixed.</p><p class="font-note">Position OUT is the evaluated Vector2 at this reference, before downstream Transform. Connect it to another Position, or Separate X/Y and Combine to keep one axis independent. Add Vector Math for an offset. Move or snap the source Text; connected followers do not edit it.</p></div>`;
@@ -7814,8 +7822,15 @@ app.addEventListener('click', async (e) => {
   if (d.openPrivateFont) {
     const nodeId = d.openPrivateFont;
     if (privateFontOpenPending) return;
-    if (osTextDrafts.has(nodeId)) { notify('Apply or cancel the Text edit first', true); return; }
-    const owner = session, envelope = owner.state, layerId = current().id, selectedAtOpen = selected, generation = documents.generation;
+    if (osTextDrafts.has(nodeId)) {
+      notify('Apply or cancel the Text edit first', true);
+      return;
+    }
+    const owner = session,
+      envelope = owner.state,
+      layerId = current().id,
+      selectedAtOpen = selected,
+      generation = documents.generation;
     privateFontOpenPending = true;
     try {
       const file = await openPrivateFontFile();
@@ -7825,18 +7840,29 @@ app.addEventListener('click', async (e) => {
         return;
       }
       // Opening grants a process capability only; it never commits a document change.
-      privateFontFiles = privateFontFiles.filter((entry) => entry.sha256 !== file.sha256).concat(file);
-      if (session !== owner || current().id !== layerId || selected !== selectedAtOpen ||
-          owner.state.expectedRevision !== envelope.expectedRevision) {
+      privateFontFiles = privateFontFiles
+        .filter((entry) => entry.sha256 !== file.sha256)
+        .concat(file);
+      if (
+        session !== owner ||
+        current().id !== layerId ||
+        selected !== selectedAtOpen ||
+        owner.state.expectedRevision !== envelope.expectedRevision
+      ) {
         notify('Font file opened; reopen Font to choose a face');
         render();
         return;
       }
       render();
-      const control = [...document.querySelectorAll('[data-change-font]')].find((el) => el.dataset.changeFont === nodeId);
+      const control = [...document.querySelectorAll('[data-change-font]')].find(
+        (el) => el.dataset.changeFont === nodeId,
+      );
       if (control) openFontPicker(control);
-    } catch (error) { notify(error.message || String(error), true); }
-    finally { privateFontOpenPending = false; }
+    } catch (error) {
+      notify(error.message || String(error), true);
+    } finally {
+      privateFontOpenPending = false;
+    }
     return;
   }
   if (d.changeFont) {
@@ -8328,35 +8354,50 @@ function stageOsText(el, composing = false) {
 function privateFontChoice(sourceRef) {
   if (!sourceRef) return null;
   for (const file of privateFontFiles) {
-    const member = file.faces.find(({ faceIndex }) => samePrivateFontSource(sourceRef, {
-      kind: 'file-native-v1', sha256: file.sha256, faceIndex,
-    }));
+    const member = file.faces.find(({ faceIndex }) =>
+      samePrivateFontSource(sourceRef, {
+        kind: 'file-native-v1',
+        sha256: file.sha256,
+        faceIndex,
+      }),
+    );
     if (member) return { token: file.token, sourceRef, face: member.face };
   }
   return null;
 }
 async function preparePrivateText(source, choice, patch = {}) {
-  const same = source.osFont?.source && samePrivateFontSource(source.osFont.source, choice.sourceRef)
-    && sameFontFace(source.osFont.face, choice.face);
+  const same =
+    source.osFont?.source &&
+    samePrivateFontSource(source.osFont.source, choice.sourceRef) &&
+    sameFontFace(source.osFont.face, choice.face);
   const intentSource = same ? source : { ...source, osFont: undefined };
   if (!same && patch.axes === undefined) {
     const axes = await listPrivateFontAxes(choice.token, choice.sourceRef.faceIndex);
-    if (axes.length) patch = { ...patch, axes: Object.fromEntries(axes.map((a) => [a.tag, a.baseValue])) };
+    if (axes.length)
+      patch = { ...patch, axes: Object.fromEntries(axes.map((a) => [a.tag, a.baseValue])) };
   }
-  const result = await shapePrivateFontText(choice.token, choice.sourceRef.faceIndex,
-    desktopTextIntent(intentSource, choice.face, patch, choice.sourceRef));
-  if (!samePrivateFontSource(result?.source, choice.sourceRef) || !sameFontFace(result?.outline?.face, choice.face))
+  const result = await shapePrivateFontText(
+    choice.token,
+    choice.sourceRef.faceIndex,
+    desktopTextIntent(intentSource, choice.face, patch, choice.sourceRef),
+  );
+  if (
+    !samePrivateFontSource(result?.source, choice.sourceRef) ||
+    !sameFontFace(result?.outline?.face, choice.face)
+  )
     throw Error('Font file response did not match the attached face');
   return result;
 }
 async function prepareDesktopText(source, face, patch = {}, forceInstalled = false) {
   if (source.osFont?.source && !forceInstalled) {
     const choice = privateFontChoice(source.osFont.source);
-    if (!choice || !sameFontFace(choice.face, face)) throw Error('Font file missing; reattach the same file');
+    if (!choice || !sameFontFace(choice.face, face))
+      throw Error('Font file missing; reattach the same file');
     return (await preparePrivateText(source, choice, patch)).outline;
   }
   // Switching to an installed face must not inherit a file-native source or axes.
-  const intentSource = forceInstalled && source.osFont?.source ? { ...source, osFont: undefined } : source;
+  const intentSource =
+    forceInstalled && source.osFont?.source ? { ...source, osFont: undefined } : source;
   const same = intentSource.osFont?.version >= 3 && sameFontFace(intentSource.osFont.face, face);
   if (!same && patch.axes === undefined && typeof listDesktopFontAxes === 'function') {
     const axes = await listDesktopFontAxes(face);
@@ -8382,7 +8423,9 @@ async function loadOsAxes(nodeId) {
     const choice = n.osFont.source && privateFontChoice(n.osFont.source);
     if (n.osFont.source && (!choice || !sameFontFace(choice.face, n.osFont.face)))
       throw Error('Font file missing; reattach the same file');
-    const axes = choice ? await listPrivateFontAxes(choice.token, choice.sourceRef.faceIndex) : await listDesktopFontAxes(n.osFont.face);
+    const axes = choice
+      ? await listPrivateFontAxes(choice.token, choice.sourceRef.faceIndex)
+      : await listDesktopFontAxes(n.osFont.face);
     if (
       session !== owner ||
       current().id !== layerId ||
@@ -8452,7 +8495,13 @@ async function commitOsText(nodeId, value, settings = {}) {
       throw Error('Unmatched OS font response');
     const result = commandChange(
       'set-os-font-text',
-      { nodeId, text: intent.text, outline, settings, ...(n.osFont.source ? { source: n.osFont.source } : {}) },
+      {
+        nodeId,
+        text: intent.text,
+        outline,
+        settings,
+        ...(n.osFont.source ? { source: n.osFont.source } : {}),
+      },
       'OS Text updated',
       false,
       envelope,

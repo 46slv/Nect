@@ -57,6 +57,15 @@ fn absolute_windows_path(value: &str) -> Result<PathBuf, String> {
     Ok(PathBuf::from(value))
 }
 
+#[cfg(any(windows, test))]
+fn ordinary_final_windows_path(value: &str) -> Result<PathBuf, String> {
+    // GetFinalPathNameByHandleW(VOLUME_NAME_DOS) returns \\?\C:\...;
+    // document_path uses ordinary C:\... spelling. Remove only that prefix,
+    // then enforce the same local-drive/ambiguity restrictions. Do not fold
+    // case or accept UNC, volume-GUID, device, traversal, or stream paths.
+    absolute_windows_path(value.strip_prefix(r"\\?\").unwrap_or(value))
+}
+
 fn is_reparse(metadata: &fs::Metadata) -> bool {
     #[cfg(windows)]
     {
@@ -219,14 +228,19 @@ impl RunStorage {
             .map_err(|_| "Selected private font is outside the permitted storage boundary or is not a regular file")?;
         let mut options = fs::OpenOptions::new();
         options.read(true);
-        #[cfg(windows)] {
+        #[cfg(windows)]
+        {
             use std::os::windows::fs::OpenOptionsExt;
             // Open a final reparse point itself, never follow it between check
             // and open. The handle metadata check below rejects that point.
             options.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
         }
-        let file = options.open(&path).map_err(|_| "Cannot open the selected private font file")?;
-        let metadata = file.metadata().map_err(|_| "Cannot inspect the selected private font file")?;
+        let file = options
+            .open(&path)
+            .map_err(|_| "Cannot open the selected private font file")?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| "Cannot inspect the selected private font file")?;
         if !metadata.is_file() || is_reparse(&metadata) || !(12..=LIMIT).contains(&metadata.len()) {
             return Err("Private font must be a regular file between 12 bytes and 128 MiB".into());
         }
@@ -234,7 +248,9 @@ impl RunStorage {
             .map_err(|_| "Private font storage boundary changed before reading")?;
         self.verify_private_font_handle(&file, &path)?;
         let mut bytes = Vec::new();
-        (&file).take(LIMIT + 1).read_to_end(&mut bytes)
+        (&file)
+            .take(LIMIT + 1)
+            .read_to_end(&mut bytes)
             .map_err(|_| "Cannot read the selected private font file")?;
         if !(12..=LIMIT as usize).contains(&bytes.len()) {
             return Err("Private font must be between 12 bytes and 128 MiB".into());
@@ -273,7 +289,13 @@ impl RunStorage {
             if length == 0 || length >= buffer.len() {
                 return Err("Cannot verify private font storage boundary".into());
             }
-            let actual = PathBuf::from(OsString::from_wide(&buffer[..length]));
+            let actual = OsString::from_wide(&buffer[..length]);
+            let actual = ordinary_final_windows_path(
+                actual
+                    .to_str()
+                    .ok_or("Cannot verify private font storage boundary")?,
+            )
+            .map_err(|_| "Cannot verify private font storage boundary")?;
             if !same_path(&actual, expected) {
                 return Err("Opened private font is outside its permitted storage boundary".into());
             }
@@ -392,7 +414,10 @@ mod tests {
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
         let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
         file.set_len(128 * 1024 * 1024 + 1).unwrap();
-        assert!(storage.read_private_font(&path).unwrap_err().contains("128 MiB"));
+        assert!(storage
+            .read_private_font(&path)
+            .unwrap_err()
+            .contains("128 MiB"));
         file.set_len(0).unwrap();
         assert!(storage.read_private_font(&path).is_err());
         assert!(storage.read_private_font(dir.path()).is_err());
@@ -470,6 +495,39 @@ mod tests {
     }
 
     #[test]
+    fn final_handle_spelling_normalizes_only_the_extended_local_drive_prefix() {
+        let expected = Path::new(r"C:\test space\日本語\documents\allowed.otf");
+        for value in [
+            r"C:\test space\日本語\documents\allowed.otf",
+            r"\\?\C:\test space\日本語\documents\allowed.otf",
+        ] {
+            assert!(same_path(
+                &ordinary_final_windows_path(value).unwrap(),
+                expected
+            ));
+        }
+        let differently_cased =
+            ordinary_final_windows_path(r"\\?\C:\test space\日本語\Documents\allowed.otf").unwrap();
+        assert!(!same_path(&differently_cased, expected));
+        for value in [
+            r"\\?\UNC\server\share\allowed.otf",
+            r"\\?\Volume{00000000-0000-0000-0000-000000000000}\allowed.otf",
+            r"\\.\C:\documents\allowed.otf",
+            r"\Device\HarddiskVolume1\documents\allowed.otf",
+            r"\\?\C:allowed.otf",
+            r"\\?\C:\documents\..\allowed.otf",
+            r"\\?\C:\documents\allowed.otf:stream",
+            r"\\?\C:\documents\allowed.otf.",
+            r"\\?\C:\documents\allowed.otf ",
+        ] {
+            assert!(
+                ordinary_final_windows_path(value).is_err(),
+                "accepted {value:?}"
+            );
+        }
+    }
+
+    #[test]
     fn absent_option_does_not_resolve_or_create_any_directory() {
         let storage =
             RunStorage::prepare(None, || panic!("normal mode resolved an EXE path")).unwrap();
@@ -522,9 +580,13 @@ mod tests {
         fs::write(&outside, b"OTTOabcdefgh").unwrap();
         let allowed = storage.document_path(&allowed, true).unwrap();
         let safe_handle = fs::File::open(&allowed).unwrap();
-        assert!(storage.verify_private_font_handle(&safe_handle, &allowed).is_ok());
+        assert!(storage
+            .verify_private_font_handle(&safe_handle, &allowed)
+            .is_ok());
         let outside_handle = fs::File::open(&outside).unwrap();
-        assert!(storage.verify_private_font_handle(&outside_handle, &allowed).is_err());
+        assert!(storage
+            .verify_private_font_handle(&outside_handle, &allowed)
+            .is_err());
         assert_eq!(fs::read(&outside).unwrap(), b"OTTOabcdefgh");
     }
 
@@ -622,7 +684,9 @@ mod tests {
         assert!(storage
             .read_project(&paths.documents.join("preserve.json"))
             .is_err());
-        assert!(storage.read_private_font(&paths.documents.join("preserve.json")).is_err());
+        assert!(storage
+            .read_private_font(&paths.documents.join("preserve.json"))
+            .is_err());
         assert_eq!(fs::read(sentinel).unwrap(), b"unchanged");
         fs::remove_dir(&paths.documents).unwrap();
     }
@@ -637,4 +701,3 @@ mod tests {
         assert_eq!(fs::read_dir(fixture.path()).unwrap().count(), 1);
     }
 }
-

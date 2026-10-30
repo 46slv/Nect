@@ -52,14 +52,24 @@ export function fontPickerCatalogs({
       disabledReason,
       metadata,
     })),
-    fileNative: fileNative.flatMap(({ token, sha256, faces }) => faces.map(({ faceIndex, face }) => {
-      const sourceRef = { kind: 'file-native-v1', sha256, faceIndex };
-      return {
-        id: privateFontChoiceId(sourceRef), token, sourceRef, face,
-        label: `${face.family} · ${face.name}`,
-        metadata: { family: face.family, subfamily: face.name, weightClass: face.weight, italic: face.style !== 0 },
-      };
-    })),
+    fileNative: fileNative.flatMap(({ token, sha256, faces }) =>
+      faces.map(({ faceIndex, face }) => {
+        const sourceRef = { kind: 'file-native-v1', sha256, faceIndex };
+        return {
+          id: privateFontChoiceId(sourceRef),
+          token,
+          sourceRef,
+          face,
+          label: `${face.family} · ${face.name}`,
+          metadata: {
+            family: face.family,
+            subfamily: face.name,
+            weightClass: face.weight,
+            italic: face.style !== 0,
+          },
+        };
+      }),
+    ),
     windows: windows.map((face) => ({
       id: windowsFontChoiceId(face),
       label: `${face.family} · ${face.name}`,
@@ -84,7 +94,11 @@ export function fontPickerItems(catalogs, node, options = {}) {
       metadata.family || 'Unknown family',
       metadata.subfamily || 'Unknown style',
       metadata.weightClass == null ? 'weight unknown' : `weight ${metadata.weightClass}`,
-      choice.source === 'embedded' ? 'In document' : choice.source === 'file-native' ? 'Open font file (not embedded)' : 'On this computer',
+      choice.source === 'embedded'
+        ? 'In document'
+        : choice.source === 'file-native'
+          ? 'Open font file (not embedded)'
+          : 'On this computer',
       capability.reason,
     ].filter(Boolean);
     return {
@@ -139,7 +153,8 @@ export function selectedFontPickerId(node, rows) {
   return rows.find(({ choice }) =>
     node.osFont
       ? node.osFont.source
-        ? choice.source === 'file-native' && samePrivateFontSource(choice.sourceRef, node.osFont.source)
+        ? choice.source === 'file-native' &&
+          samePrivateFontSource(choice.sourceRef, node.osFont.source)
         : choice.source === 'windows' && sameFontFace(choice.face, node.osFont.face)
       : choice.source === 'embedded' && choice.id === node.font,
   )?.id;

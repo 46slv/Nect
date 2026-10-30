@@ -216,7 +216,17 @@ mod native {
         fn nect_list_private_font_faces(
             bytes: *const u8,
             length: u32,
-            callback: extern "C" fn(u32, *const u16, *const u16, i32, i32, i32, i32, i32, *mut c_void),
+            callback: extern "C" fn(
+                u32,
+                *const u16,
+                *const u16,
+                i32,
+                i32,
+                i32,
+                i32,
+                i32,
+                *mut c_void,
+            ),
             data: *mut c_void,
         ) -> i32;
         fn nect_list_private_font_axes(
@@ -303,15 +313,32 @@ mod native {
         });
     }
     extern "C" fn private_face(
-        face_index: u32, family: *const u16, name: *const u16,
-        weight: i32, style: i32, stretch: i32, format: i32, color: i32,
+        face_index: u32,
+        family: *const u16,
+        name: *const u16,
+        weight: i32,
+        style: i32,
+        stretch: i32,
+        format: i32,
+        color: i32,
         data: *mut c_void,
     ) {
         let mut parsed: Vec<DesktopFace> = Vec::new();
-        face(family, name, weight, style, stretch, format, color,
-            &mut parsed as *mut _ as *mut c_void);
+        face(
+            family,
+            name,
+            weight,
+            style,
+            stretch,
+            format,
+            color,
+            &mut parsed as *mut _ as *mut c_void,
+        );
         if let Some(face) = parsed.pop() {
-            if (1..=999).contains(&face.weight) && face.style <= 2 && (1..=9).contains(&face.stretch) {
+            if (1..=999).contains(&face.weight)
+                && face.style <= 2
+                && (1..=9).contains(&face.stretch)
+            {
                 unsafe { &mut *(data as *mut Vec<crate::private_fonts::PrivateFace>) }
                     .push(crate::private_fonts::PrivateFace { face_index, face });
             }
@@ -319,22 +346,44 @@ mod native {
     }
     pub fn private_faces(bytes: &[u8]) -> Result<Vec<crate::private_fonts::PrivateFace>, String> {
         let mut result: Vec<crate::private_fonts::PrivateFace> = Vec::new();
-        let count = unsafe { nect_list_private_font_faces(bytes.as_ptr(), bytes.len() as u32,
-            private_face, &mut result as *mut _ as *mut c_void) };
+        let count = unsafe {
+            nect_list_private_font_faces(
+                bytes.as_ptr(),
+                bytes.len() as u32,
+                private_face,
+                &mut result as *mut _ as *mut c_void,
+            )
+        };
         if count == -2147467263 {
             return Err("Private font loading is unavailable: this Windows DirectWrite runtime does not support in-memory font files".into());
         }
-        if !(1..=256).contains(&count) || result.len() != count as usize
-            || result.iter().enumerate().any(|(i, item)| item.face_index != i as u32) {
-            return Err(format!("Private font discovery failed ({count}); no file was retained"));
+        if !(1..=256).contains(&count)
+            || result.len() != count as usize
+            || result
+                .iter()
+                .enumerate()
+                .any(|(i, item)| item.face_index != i as u32)
+        {
+            return Err(format!(
+                "Private font discovery failed ({count}); no file was retained"
+            ));
         }
         Ok(result)
     }
     pub fn private_axes(bytes: &[u8], face_index: u32) -> Result<Vec<DesktopAxis>, String> {
         let mut result: Vec<DesktopAxis> = Vec::new();
-        let status = unsafe { nect_list_private_font_axes(bytes.as_ptr(), bytes.len() as u32,
-            face_index, axis, &mut result as *mut _ as *mut c_void) };
-        if status != 0 { return Err(format!("Private font-axis discovery failed ({status})")); }
+        let status = unsafe {
+            nect_list_private_font_axes(
+                bytes.as_ptr(),
+                bytes.len() as u32,
+                face_index,
+                axis,
+                &mut result as *mut _ as *mut c_void,
+            )
+        };
+        if status != 0 {
+            return Err(format!("Private font-axis discovery failed ({status})"));
+        }
         result.sort_by(|a: &DesktopAxis, b: &DesktopAxis| a.tag.cmp(&b.tag));
         Ok(result)
     }
@@ -514,10 +563,17 @@ mod native {
     pub fn shape(request: DesktopTextRequest) -> Result<DesktopOutline, String> {
         shape_source(request, None)
     }
-    pub fn private_shape(request: DesktopTextRequest, bytes: &[u8], face_index: u32) -> Result<DesktopOutline, String> {
+    pub fn private_shape(
+        request: DesktopTextRequest,
+        bytes: &[u8],
+        face_index: u32,
+    ) -> Result<DesktopOutline, String> {
         shape_source(request, Some((bytes, face_index)))
     }
-    fn shape_source(request: DesktopTextRequest, private: Option<(&[u8], u32)>) -> Result<DesktopOutline, String> {
+    fn shape_source(
+        request: DesktopTextRequest,
+        private: Option<(&[u8], u32)>,
+    ) -> Result<DesktopOutline, String> {
         let face = &request.face;
         if face.family.is_empty()
             || face.name.is_empty()
@@ -746,16 +802,41 @@ mod native {
 }
 // Private entrypoints deliberately accept snapshots only, never paths or family lookup.
 pub fn private_faces(bytes: &[u8]) -> Result<Vec<crate::private_fonts::PrivateFace>, String> {
-    #[cfg(windows)] { native::private_faces(bytes) }
-    #[cfg(not(windows))] { let _ = bytes; Err("Private font loading requires Windows DirectWrite".into()) }
+    #[cfg(windows)]
+    {
+        native::private_faces(bytes)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = bytes;
+        Err("Private font loading requires Windows DirectWrite".into())
+    }
 }
 pub fn private_axes(bytes: &[u8], face_index: u32) -> Result<Vec<DesktopAxis>, String> {
-    #[cfg(windows)] { native::private_axes(bytes, face_index) }
-    #[cfg(not(windows))] { let _ = (bytes, face_index); Err("Private font axes require Windows DirectWrite".into()) }
+    #[cfg(windows)]
+    {
+        native::private_axes(bytes, face_index)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (bytes, face_index);
+        Err("Private font axes require Windows DirectWrite".into())
+    }
 }
-pub fn prepare_private(request: DesktopTextRequest, bytes: &[u8], face_index: u32) -> Result<DesktopOutline, String> {
-    #[cfg(windows)] { native::private_shape(request, bytes, face_index) }
-    #[cfg(not(windows))] { let _ = (request, bytes, face_index); Err("Private font shaping requires Windows DirectWrite".into()) }
+pub fn prepare_private(
+    request: DesktopTextRequest,
+    bytes: &[u8],
+    face_index: u32,
+) -> Result<DesktopOutline, String> {
+    #[cfg(windows)]
+    {
+        native::private_shape(request, bytes, face_index)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (request, bytes, face_index);
+        Err("Private font shaping requires Windows DirectWrite".into())
+    }
 }
 pub fn installed() -> Result<Vec<DesktopFace>, String> {
     #[cfg(windows)]
@@ -1468,4 +1549,3 @@ mod tests {
         );
     }
 }
-

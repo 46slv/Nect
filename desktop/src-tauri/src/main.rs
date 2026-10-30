@@ -12,9 +12,9 @@ mod build_identity_config;
 #[path = "../build_identity_sources.rs"]
 mod build_identity_sources;
 mod desktop_font_layout;
-mod private_fonts;
 mod document_storage;
 mod os_font_outlines;
+mod private_fonts;
 #[cfg(feature = "recovery-acceptance-test")]
 mod recovery_acceptance_gate;
 use desktop_font_layout::{list_desktop_font_axes, list_desktop_font_faces, shape_desktop_text};
@@ -280,4 +280,3 @@ mod startup_tests {
         assert!(acceptance_window(&mut config, true).is_err());
     }
 }
-

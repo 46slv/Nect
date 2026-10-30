@@ -19,13 +19,23 @@ const source = (patch = {}) => ({
   ...patch,
 });
 const face = {
-  family: 'Fixture family', name: 'Regular', weight: 400,
-  style: 0, stretch: 5, format: 1, color: false,
+  family: 'Fixture family',
+  name: 'Regular',
+  weight: 400,
+  style: 0,
+  stretch: 5,
+  format: 1,
+  color: false,
 };
 const node = () => ({
-  id: 'text-fixture', type: 'Text', text: 'ABC', font: 'default',
+  id: 'text-fixture',
+  type: 'Text',
+  text: 'ABC',
+  font: 'default',
   params: {
-    size: { value: 100 }, letterSpacing: { value: 0 }, lineSpacing: { value: 1.2 },
+    size: { value: 100 },
+    letterSpacing: { value: 0 },
+    lineSpacing: { value: 1.2 },
   },
 });
 function shaped() {
@@ -33,8 +43,17 @@ function shaped() {
   return {
     engine: 'directwrite-v1',
     ...desktopTextIntent(n, face, { ligatures: false }),
-    points: [[0, 0], [20, 0], [20, 10], [0, 10]], types: [0, 1, 1, 129],
-    ascent: 80, advanceWidth: 20, lineCount: 1, glyphCount: 3,
+    points: [
+      [0, 0],
+      [20, 0],
+      [20, 10],
+      [0, 10],
+    ],
+    types: [0, 1, 1, 129],
+    ascent: 80,
+    advanceWidth: 20,
+    lineCount: 1,
+    glyphCount: 3,
   };
 }
 
@@ -48,15 +67,25 @@ test('private source identity is exact content plus collection index, never name
   assert.ok(samePrivateFontSource(undefined, undefined));
   assert.notEqual(privateFontChoiceId(source()), privateFontChoiceId(source({ faceIndex: 2 })));
   for (const invalid of [
-    null, {}, source({ kind: 'installed' }), source({ sha256: 'A'.repeat(64) }),
-    source({ sha256: '../file' }), source({ faceIndex: -1 }), source({ faceIndex: 256 }),
-    source({ faceIndex: 1.5 }), source({ token: 'secret' }), source({ path: 'C:/font.otf' }),
+    null,
+    {},
+    source({ kind: 'installed' }),
+    source({ sha256: 'A'.repeat(64) }),
+    source({ sha256: '../file' }),
+    source({ faceIndex: -1 }),
+    source({ faceIndex: 256 }),
+    source({ faceIndex: 1.5 }),
+    source({ token: 'secret' }),
+    source({ path: 'C:/font.otf' }),
     source({ bytes: [] }),
-  ]) assert.throws(() => validatePrivateFontSource(invalid), /Invalid private font source/);
+  ])
+    assert.throws(() => validatePrivateFontSource(invalid), /Invalid private font source/);
 });
 
 test('private source snapshot is schema-gated, cloned and free of paths, bytes and runtime tokens', () => {
-  const identity = source(), n = node(), raw = shaped();
+  const identity = source(),
+    n = node(),
+    raw = shaped();
   n.osFont = desktopOsReference(raw, identity);
   validateDesktopText(n, 35);
   assert.throws(() => validateDesktopText(n, 34), /schema 35/);
@@ -65,7 +94,8 @@ test('private source snapshot is schema-gated, cloned and free of paths, bytes a
   const saved = JSON.parse(JSON.stringify(n));
   validateDesktopText(saved, 35);
   assert.deepEqual(saved.osFont.source, source());
-  for (const key of ['token', 'path', 'bytes']) assert.ok(!JSON.stringify(saved).includes(`"${key}"`));
+  for (const key of ['token', 'path', 'bytes'])
+    assert.ok(!JSON.stringify(saved).includes(`"${key}"`));
   for (const key of ['token', 'path', 'bytes']) {
     const invalid = structuredClone(saved);
     invalid.osFont.source[key] = key === 'bytes' ? [] : 'not allowed';
@@ -80,9 +110,22 @@ test('private source snapshot is schema-gated, cloned and free of paths, bytes a
 test('axis retention cannot cross private files, collection members or installed route', () => {
   const n = node();
   n.osFont = {
-    version: 3, face, source: source(), outline: { ligatures: false },
-    axes: [{ tag: 'wght', name: 'Weight', min: 100, max: 900, defaultValue: 400,
-      baseValue: 400, value: 600, hidden: false }],
+    version: 3,
+    face,
+    source: source(),
+    outline: { ligatures: false },
+    axes: [
+      {
+        tag: 'wght',
+        name: 'Weight',
+        min: 100,
+        max: 900,
+        defaultValue: 400,
+        baseValue: 400,
+        value: 600,
+        hidden: false,
+      },
+    ],
   };
   assert.deepEqual(desktopTextIntent(n, face, {}, source()).axes, { wght: 600 });
   assert.equal(desktopTextIntent(n, face).axes, undefined);

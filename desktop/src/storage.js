@@ -171,7 +171,6 @@ export async function shapeDesktopText(request) {
   return invoke('shape_desktop_text', { request }).catch(nativeError);
 }
 
-
 // Opaque tokens remain in memory only. JavaScript never provides native paths.
 export async function openPrivateFontFile() {
   if (!desktop) throw Error('Font files require the Windows desktop app');
