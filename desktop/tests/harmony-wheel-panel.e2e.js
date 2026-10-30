@@ -676,7 +676,11 @@ try {
     swatchBaseline,
     'focused parameter scrollport cannot delete selected Fill',
   );
-  assert.ok((await snapshot()).layers[0].nodes.some((item) => item.id === fill.id));
+  const preservedLayer = (await snapshot()).compositions
+    .flatMap((composition) => composition.layers)
+    .find((item) => item.id === layer.id);
+  assert.ok(preservedLayer, 'the original layer survives color-panel keyboard navigation');
+  assert.ok(preservedLayer.nodes.some((item) => item.id === fill.id));
   await page.locator(`[data-wheel-select="${primary}"]`).click();
   await openAdvanced();
   await page.locator('[data-wheel-chroma-mode]').selectOption('override');
