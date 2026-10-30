@@ -66,6 +66,7 @@ export async function verifyCompositionReferenceAuthoring(page, addByEnter, page
     receipt.stage = 'reopen';
     await page.evaluate((saved) => window.nect.load(JSON.stringify(saved)), cleared);
     await checkProject(cleared);
+    await page.locator(`[data-select-layer="${ids.targetId}"]`).click();
     await page.locator(`.graph .node[data-id="${nodeId}"] .node-head strong`).click();
     assert.equal(await selector().inputValue(), '');
     await selector().selectOption(ids.sourceId);
