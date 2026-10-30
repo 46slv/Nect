@@ -6,15 +6,32 @@ import { fontPickerCapability, sameFontFace } from './font-choice-ui.js';
  * Native/variable rows retain their existing prepare-on-Apply behavior.
  */
 export function createFontChoiceController({
-  owner, envelope, layerId, nodeId, source, characterIds,
-  isCurrent, prepareWindows, prepareVariable,
-  onPreview = () => {}, onStatus = () => {}, onApplied = () => {},
+  owner,
+  envelope,
+  layerId,
+  nodeId,
+  source,
+  characterIds,
+  isCurrent,
+  prepareWindows,
+  prepareVariable,
+  onPreview = () => {},
+  onStatus = () => {},
+  onApplied = () => {},
 }) {
   const original = structuredClone(source);
   const ids = characterIds === undefined ? undefined : [...characterIds];
-  let serial = 0, closed = false, committing = false, activeKey;
-  let ready = null, gesture = null, pending = Promise.resolve(), abort;
-  const fresh = () => !closed && isCurrent() &&
+  let serial = 0,
+    closed = false,
+    committing = false,
+    activeKey;
+  let ready = null,
+    gesture = null,
+    pending = Promise.resolve(),
+    abort;
+  const fresh = () =>
+    !closed &&
+    isCurrent() &&
     owner.state.sessionId === envelope.sessionId &&
     owner.state.expectedRevision === envelope.expectedRevision;
   const target = { layerId, nodeId, ...(ids === undefined ? {} : { characterIds: ids }) };
@@ -56,12 +73,21 @@ export function createFontChoiceController({
           onStatus('Ready', true);
           return;
         }
-        gesture = owner.dispatch({ ...envelope, type: 'begin-gesture', payload: {
-          target: { kind: 'text-font', ...target },
-        } });
-        gesture = owner.dispatch({ ...envelope, type: 'update-gesture', payload: {
-          ...gesture, update: { font: choice.id },
-        } });
+        gesture = owner.dispatch({
+          ...envelope,
+          type: 'begin-gesture',
+          payload: {
+            target: { kind: 'text-font', ...target },
+          },
+        });
+        gesture = owner.dispatch({
+          ...envelope,
+          type: 'update-gesture',
+          payload: {
+            ...gesture,
+            update: { font: choice.id },
+          },
+        });
         onPreview(owner.previewSnapshot(gesture.gestureId).document);
         ready = { key: row.key, choice, route, gesture: true };
         onStatus('', true);
@@ -89,13 +115,14 @@ export function createFontChoiceController({
         gesture = null;
       } else {
         let payload = { ...target };
-        if (route === 'replace-os-text-font')
-          payload.fontId = choice.id;
+        if (route === 'replace-os-text-font') payload.fontId = choice.id;
         else if (route === 'set-os-font-text') {
           onStatus('Preparing font; Escape cancels…', false);
           const settings = { ligatures: original.osFont?.outline?.ligatures ?? false };
-          const outline = await prepareWindows(original, choice.face,
-            { signal: abort.signal, settings });
+          const outline = await prepareWindows(original, choice.face, {
+            signal: abort.signal,
+            settings,
+          });
           if (closed || request !== serial) return false;
           if (!sameFontFace(outline?.face, choice.face))
             throw Error('Font response did not match the selected face; no change applied');
@@ -105,16 +132,33 @@ export function createFontChoiceController({
           payload.settings = settings;
         } else if (route === 'set-variable-font') {
           onStatus('Preparing font; Escape cancels…', false);
-          variable = await prepareVariable({ ...envelope, type: route, payload: {
-            ...payload, fontId: choice.id, axes: choice.variable ? {} : null,
-          } }, { signal: abort.signal, choice });
-          if (!variable || typeof variable.commit !== 'function' || typeof variable.cancel !== 'function')
+          variable = await prepareVariable(
+            {
+              ...envelope,
+              type: route,
+              payload: {
+                ...payload,
+                fontId: choice.id,
+                axes: choice.variable ? {} : null,
+              },
+            },
+            { signal: abort.signal, choice },
+          );
+          if (
+            !variable ||
+            typeof variable.commit !== 'function' ||
+            typeof variable.cancel !== 'function'
+          )
             throw Error('Font preparation did not finish; no change applied');
-          if (closed || request !== serial) { variable?.cancel(); return false; }
+          if (closed || request !== serial) {
+            variable?.cancel();
+            return false;
+          }
         }
         if (closed || request !== serial) return false;
         assertFresh();
-        result = variable ? variable.commit()
+        result = variable
+          ? variable.commit()
           : owner.dispatch({ ...envelope, type: route, payload });
       }
       closed = true;
@@ -130,10 +174,13 @@ export function createFontChoiceController({
         onStatus(error.message || String(error), false);
       }
       return false;
-    } finally { committing = false; }
+    } finally {
+      committing = false;
+    }
   }
   return {
-    select, apply,
+    select,
+    apply,
     cancel() {
       if (closed) return;
       closed = true;
@@ -142,6 +189,8 @@ export function createFontChoiceController({
       ready = null;
       cancelGesture();
     },
-    get closed() { return closed; },
+    get closed() {
+      return closed;
+    },
   };
 }

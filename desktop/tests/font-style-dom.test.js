@@ -128,12 +128,17 @@ test('static family/style picker uses actual faces with atomic whole/range histo
     await tick();
     assert.ok(q('dialog[open]'));
     for (const group of [...document.querySelectorAll('.picker-family')]) {
-      const current = [...document.querySelectorAll('.picker-family')].find((g) => g.dataset.fontFamily === group.dataset.fontFamily);
-      if (current?.getAttribute('aria-expanded') === 'false') current.querySelector('.picker-family-heading').click();
+      const current = [...document.querySelectorAll('.picker-family')].find(
+        (g) => g.dataset.fontFamily === group.dataset.fontFamily,
+      );
+      if (current?.getAttribute('aria-expanded') === 'false')
+        current.querySelector('.picker-family-heading').click();
     }
   };
-  const row = (id, source = 'embedded') => [...document.querySelectorAll('.picker-option')]
-    .find((entry) => entry.dataset.id === JSON.stringify([source, id])) || null;
+  const row = (id, source = 'embedded') =>
+    [...document.querySelectorAll('.picker-option')].find(
+      (entry) => entry.dataset.id === JSON.stringify([source, id]),
+    ) || null;
   const ready = () => until(() => q('.picker-apply') && !q('.picker-apply').disabled);
   const cancel = () => q('.picker-cancel').click();
   const apply = async () => {
@@ -154,7 +159,10 @@ test('static family/style picker uses actual faces with atomic whole/range histo
   assert.match(row('system-bold', 'installed').textContent, /face system-bold/);
   assert.equal(row('system-disabled', 'installed').getAttribute('aria-disabled'), 'true');
   assert.equal(row('system-bold', 'installed').getAttribute('aria-disabled'), 'true');
-  assert.match(row('system-bold', 'installed').textContent, /Font file import is required; use Advanced/);
+  assert.match(
+    row('system-bold', 'installed').textContent,
+    /Font file import is required; use Advanced/,
+  );
   row(boldAsset.id).querySelector('.picker-star').click();
   assert.equal(
     row(obliqueAsset.id).querySelector('.picker-star').getAttribute('aria-pressed'),

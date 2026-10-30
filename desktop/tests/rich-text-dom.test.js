@@ -34,8 +34,11 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
     ok: true,
     arrayBuffer: () => buffer('../public/fonts/DejaVuSans.ttf'),
   });
-  let reader = () => buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
-  globalThis.readRichFont = () => reader();
+  let installedFontReads = 0;
+  globalThis.readRichFont = () => {
+    installedFontReads++;
+    throw Error('Installed font bytes must not be requested');
+  };
   let source = await fs.readFile(new URL('../src/main.js', import.meta.url), 'utf8');
   source = source
     .replace("import './style.css';", '')
@@ -72,6 +75,18 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   const get = () => win.nect.document.layers[0].nodes[0],
     saved = () => JSON.stringify(win.nect.document);
   const field = (key) => document.querySelector(`[data-character-style="${key}"]`);
+  const fontBytes = await buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
+  const licensedFont = {
+    name: 'licensed-fixture.otf',
+    size: fontBytes.byteLength,
+    arrayBuffer: async () => fontBytes,
+  };
+  const importFont = (file = licensedFont) => {
+    document.querySelector('[data-load-character-font]').click();
+    const input = document.querySelector('#font-file');
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    input.dispatchEvent(new win.Event('change', { bubbles: true }));
+  };
   const edit = async (key, value) => {
     const el = field(key);
     el.value = String(value);
@@ -104,8 +119,9 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   redo();
   assert.equal(saved(), enlarged);
   range(1, 2);
-  await edit('font', 'system-0');
+  importFont();
   await until(() => Object.keys(win.nect.document.fontAssets || {}).length === 1);
+  assert.equal(installedFontReads, 0);
   assert.equal(get().font, 'default');
   const font = get().characterPositions.styles.c2.font;
   assert.ok(font.startsWith('font-'));
@@ -136,20 +152,23 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   undo();
   range(1, 2);
   assert.equal(get().characterPositions.styles.c2.size, 80);
-  // A delayed installed-font request must not follow a changed range, even when JSON is unchanged.
+  // A delayed explicit font import must not follow a changed range, even when JSON is unchanged.
   let release;
-  reader = () =>
-    new Promise((resolve) => {
-      release = resolve;
-    });
+  const latin = await buffer('../public/fonts/DejaVuSans.ttf');
   const beforeStale = saved();
-  const picker = field('font');
-  picker.value = 'system-0';
-  picker.dispatchEvent(new win.Event('change', { bubbles: true }));
+  importFont({
+    name: 'licensed-latin.ttf',
+    size: latin.byteLength,
+    arrayBuffer: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  });
   await until(() => !!release);
   choose('c1');
-  release(await buffer('../public/fonts/DejaVuSans.ttf'));
+  release(latin);
   await until(() => /selection changed/.test(document.querySelector('.message').textContent));
+  assert.equal(installedFontReads, 0);
   assert.equal(saved(), beforeStale);
   // Typography reset leaves existing unrelated selection styles intact, and is one undo action.
   choose('c2');
@@ -219,8 +238,14 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   range(1, 2);
   const beforeCancel = saved();
   const rangeImport = document.querySelector('[data-load-character-font]');
-  assert.equal(rangeImport.closest('details').classList.contains('text-character-font-advanced'), true);
-  assert.equal(rangeImport.closest('details').querySelector('summary').textContent, 'Advanced font import');
+  assert.equal(
+    rangeImport.closest('details').classList.contains('text-character-font-advanced'),
+    true,
+  );
+  assert.equal(
+    rangeImport.closest('details').querySelector('summary').textContent,
+    'Advanced font import',
+  );
   document.querySelector('[data-load-character-font]').click();
   document.querySelector('#font-file').dispatchEvent(new win.Event('cancel', { bubbles: false }));
   choose('c4');
@@ -237,9 +262,9 @@ test('selected typography UI: range capture, atomic font/size/width, mixed/inher
   assert.match(win.nect.evaluate().error, /Missing glyphs/);
   range(1, 2);
   assert.equal(field('font').disabled, false);
-  reader = () => buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
-  await edit('font', 'system-0');
+  importFont();
   await until(() => win.nect.evaluate().error === null);
+  assert.equal(installedFontReads, 0);
   assert.equal(get().font, 'default');
   assert.equal(get().characterPositions.styles.c1, undefined);
   assert.ok(get().characterPositions.styles.c2.font.startsWith('font-'));

@@ -26,10 +26,18 @@ async function commit(selector, value) {
   await input.dispatchEvent('change');
   await page.waitForTimeout(40);
 }
+async function fontFileChooser() {
+  const advanced = page.locator('.inspector-body .text-font-advanced');
+  if (!(await advanced.evaluate((details) => details.open)))
+    await advanced.locator(':scope > summary').click();
+  assert.equal(await advanced.getAttribute('open'), '');
+  const importFont = advanced.locator('[data-load-font]');
+  await importFont.waitFor({ state: 'visible' });
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), importFont.click()]);
+  return chooser;
+}
 async function chooseFont(file) {
-  const choosing = page.waitForEvent('filechooser');
-  await page.locator('.inspector-body [data-load-font]').click();
-  const chooser = await choosing;
+  const chooser = await fontFileChooser();
   await chooser.setFiles(file);
   await page.waitForTimeout(80);
 }
@@ -139,7 +147,14 @@ try {
     .filter({ has: page.locator('[data-text]') })
     .locator('.node-head strong')
     .click();
-  await page.locator('.inspector-body [data-font]').selectOption(fontId);
+  await page.locator('.inspector-body [data-change-font]').click();
+  const picker = page.getByRole('dialog', { name: 'Font', exact: true });
+  await picker.locator('input[type="search"]').fill('Nect JP Fixture');
+  await picker
+    .locator(`.picker-option[data-id=${JSON.stringify(JSON.stringify(['embedded', fontId]))}]`)
+    .click();
+  await picker.locator('.picker-apply').click();
+  await picker.waitFor({ state: 'hidden' });
   await commit('[data-text]', '日本語');
   assert.equal(await page.locator('.warning').count(), 0);
   // A pending read may not replace edits made after choosing the file.
@@ -155,9 +170,8 @@ try {
       );
     };
   });
-  const choosing = page.waitForEvent('filechooser');
-  await page.locator('.inspector-body [data-load-font]').click();
-  await (await choosing).setFiles('tests/fixtures/fonts/NectJPFixture-Regular.ttf');
+  const choosing = await fontFileChooser();
+  await choosing.setFiles('tests/fixtures/fonts/NectJPFixture-Regular.ttf');
   await page.waitForFunction(() => typeof window.finishFontRead === 'function');
   await commit('[data-text]', '日本語世界');
   const whileReading = await snapshot();
@@ -232,3 +246,4 @@ try {
 } finally {
   await browser.close();
 }
+

@@ -82,12 +82,16 @@ test('installed discovery never copies bytes; explicit file import remains atomi
     new win.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }),
   );
   await until(() => q('dialog[open] .picker-option'));
-    for (const group of [...document.querySelectorAll('.picker-family')]) {
-      const current = [...document.querySelectorAll('.picker-family')].find((g) => g.dataset.fontFamily === group.dataset.fontFamily);
-      if (current?.getAttribute('aria-expanded') === 'false') current.querySelector('.picker-family-heading').click();
-    }
+  for (const group of [...document.querySelectorAll('.picker-family')]) {
+    const current = [...document.querySelectorAll('.picker-family')].find(
+      (g) => g.dataset.fontFamily === group.dataset.fontFamily,
+    );
+    if (current?.getAttribute('aria-expanded') === 'false')
+      current.querySelector('.picker-family-heading').click();
+  }
   const rows = () => [...document.querySelectorAll('.picker-option')];
-  const row = (id) => rows().find((entry) => entry.dataset.id === JSON.stringify(['installed', id]));
+  const row = (id) =>
+    rows().find((entry) => entry.dataset.id === JSON.stringify(['installed', id]));
   assert.equal(document.querySelectorAll('.inspector-body [data-change-font]').length, 1);
   assert.equal(document.querySelectorAll('[data-system-font]').length, 0);
   for (const id of ['system-0', 'system-1', 'system-2']) {
@@ -108,13 +112,18 @@ test('installed discovery never copies bytes; explicit file import remains atomi
     input.dispatchEvent(new win.Event('change', { bubbles: true }));
   };
   const bytes = await buffer('./fixtures/fonts/NectJPFixture-Regular.otf');
-  const file = { name: 'licensed-fixture.otf', size: bytes.byteLength, arrayBuffer: async () => bytes };
+  const file = {
+    name: 'licensed-fixture.otf',
+    size: bytes.byteLength,
+    arrayBuffer: async () => bytes,
+  };
   start(file);
   await until(() => /Loaded /.test(q('.message').textContent));
   assert.equal(calls, 0, 'explicit import does not use the installed catalog reader');
   assert.equal(win.nect.evaluate().error, null);
   assert.equal(Object.keys(win.nect.document.fontAssets).length, 1);
-  const saved = snapshot(), svg = win.nect.export();
+  const saved = snapshot(),
+    svg = win.nect.export();
   q('.message').textContent = '';
   start(file);
   await until(() => /Loaded /.test(q('.message').textContent));
@@ -132,7 +141,8 @@ test('installed discovery never copies bytes; explicit file import remains atomi
   q('.message').textContent = '';
   start({ name: 'licensed-latin.ttf', size: latin.byteLength, arrayBuffer: async () => latin });
   await until(() => /Loaded DejaVu/.test(q('.message').textContent));
-  const second = snapshot(), secondSvg = win.nect.export();
+  const second = snapshot(),
+    secondSvg = win.nect.export();
   assert.notEqual(JSON.stringify(win.nect.evaluate().path), firstPath);
   assert.notEqual(secondSvg, svg);
   assert.match(q('.inspector-body .text-font-choice').textContent, /DejaVu/);
@@ -145,7 +155,13 @@ test('installed discovery never copies bytes; explicit file import remains atomi
 
   // A delayed explicit file read cannot overwrite a later authored Text edit.
   let finish;
-  start({ ...file, arrayBuffer: () => new Promise((resolve) => { finish = resolve; }) });
+  start({
+    ...file,
+    arrayBuffer: () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  });
   const textarea = q('.inspector-body [data-text]');
   textarea.value = 'Changed';
   textarea.dispatchEvent(new win.Event('change', { bubbles: true }));
@@ -155,7 +171,12 @@ test('installed discovery never copies bytes; explicit file import remains atomi
   assert.equal(snapshot(), changed);
   assert.match(q('.message').textContent, /Document changed/);
   q('.message').textContent = '';
-  start({ ...file, arrayBuffer: async () => { throw Error('Font file was removed'); } });
+  start({
+    ...file,
+    arrayBuffer: async () => {
+      throw Error('Font file was removed');
+    },
+  });
   await until(() => /Font file was removed/.test(q('.message').textContent));
   assert.equal(snapshot(), changed);
   assert.equal(q('.inspector-body [data-change-font]').disabled, false);

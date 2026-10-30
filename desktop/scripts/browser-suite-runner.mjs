@@ -20,7 +20,6 @@ export const browserTestFiles = Object.freeze([
   'tests/text-trial-feedback.e2e.js',
   'tests/canvas-in-place.e2e.js',
   'tests/system-font.e2e.js',
-  'tests/unified-font-picker.e2e.js',
   'tests/guides.e2e.js',
   'tests/layout-guides.e2e.js',
   'tests/images.e2e.js',
@@ -79,6 +78,7 @@ export const browserTestFiles = Object.freeze([
   'tests/raster-direct-png.e2e.js',
   'tests/composition-point-selection.e2e.js',
   'tests/svg-to-png.e2e.js',
+  'tests/unified-font-picker.e2e.js',
 ]);
 
 const signalExitCodes = { SIGHUP: 129, SIGINT: 130, SIGTERM: 143 };

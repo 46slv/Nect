@@ -69,9 +69,9 @@ test('localized installed-font aliases survive IPC normalization with bounded va
   assert.equal(row[1], 'Meiryo');
 });
 
-
 test('native Text uses the same primary Font entry with separate import and destructive actions', () => {
-  const w = new Window(), root = w.document.createElement('div');
+  const w = new Window(),
+    root = w.document.createElement('div');
   root.innerHTML = `<div class="text-controls"><div class="field"><textarea data-os-text>日本語</textarea></div>
     <button data-apply-os-text>Apply text</button><button data-cancel-os-text>Cancel text edit</button>
     <section class="text-font-choice"><button data-change-font>Change font</button></section>
@@ -79,14 +79,18 @@ test('native Text uses the same primary Font entry with separate import and dest
     <details class="text-font-advanced"><summary>Advanced font import</summary><button data-load-font>Import</button></details>
     <details class="text-actions"><summary>Text actions</summary><button data-bake-text-outline>Convert</button></details>
     <div class="advanced-control">Other typography</div></div>`;
-  const textarea = root.querySelector('textarea'), font = root.querySelector('.text-font-choice');
+  const textarea = root.querySelector('textarea'),
+    font = root.querySelector('.text-font-choice');
   arrangeTextInspector(root);
   assert.equal(root.querySelector('textarea'), textarea);
   assert.equal(root.querySelector('.text-font-choice'), font);
   assert.equal(font.closest('details'), null);
   assert.equal(root.querySelector('[data-apply-os-text]').closest('details'), null);
   assert.equal(root.querySelector('[data-os-setting]').closest('details'), null);
-  assert.equal(root.querySelector('[data-load-font]').closest('details').className, 'text-font-advanced');
+  assert.equal(
+    root.querySelector('[data-load-font]').closest('details').className,
+    'text-font-advanced',
+  );
   assert.equal(root.querySelector('.text-font-advanced').parentElement.className, 'text-controls');
   assert.equal(root.querySelector('.text-actions').parentElement.className, 'text-controls');
   w.happyDOM.abort();

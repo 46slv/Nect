@@ -7,7 +7,8 @@ import { document as makeDoc, node, serialize } from '../src/core.js';
 test('unified Font keeps native Text editable and explicit outlines reject cancel, pending duplicates and stale document/selection', async (t) => {
   const win = new Window({ url: 'http://localhost:5173' });
   win.document.body.innerHTML = '<div id="app"></div>';
-  for (const key of ['window', 'document', 'HTMLElement', 'Event', 'localStorage']) globalThis[key] = win[key];
+  for (const key of ['window', 'document', 'HTMLElement', 'Event', 'localStorage'])
+    globalThis[key] = win[key];
   globalThis.MutationObserver = win.MutationObserver;
   globalThis.requestAnimationFrame = () => 0;
   const matrix = {
@@ -40,8 +41,13 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
     },
   });
   const face = {
-    family: 'DIN Alternate', name: 'Regular', weight: 400, style: 0,
-    stretch: 5, format: 1, color: false,
+    family: 'DIN Alternate',
+    name: 'Regular',
+    weight: 400,
+    style: 0,
+    stretch: 5,
+    format: 1,
+    color: false,
   };
   const boldFace = { ...face, name: 'Bold', weight: 700 };
   // Exact-face synthetic DirectWrite snapshots prove routing, not real font fidelity.
@@ -111,6 +117,7 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
       fill = node('Fill');
     n.text = legacyOutline?.text ?? 'DIN';
     if (legacyOutline) {
+      d.schemaVersion = Math.max(d.schemaVersion, 28);
       n.params.size.value = legacyOutline.size;
       n.osFont = {
         version: 1,
@@ -172,7 +179,9 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   assert.deepEqual(win.nect.document.layers[0].nodes.find((x) => x.id === n.id).osFont.face, face);
   assert.equal(win.osTestState().past, 1);
   assert.equal(Object.keys(win.nect.document.fontAssets || {}).length, 0);
-  const native = saved(), nativeSvg = win.nect.export(), nativeCalls = calls;
+  const native = saved(),
+    nativeSvg = win.nect.export(),
+    nativeCalls = calls;
   const actions = $('.inspector-body .text-actions');
   assert.ok(actions, 'outline conversion is an explicit Text action');
   actions.open = true;
@@ -229,7 +238,10 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(saved(), before, 'an older completion cannot commit after the exact choice changes');
   assert.equal(win.osTestState().past, 0);
-  assert.match(picker.querySelector('.picker-option[aria-selected="true"]').textContent, /Bold.*700/);
+  assert.match(
+    picker.querySelector('.picker-option[aria-selected="true"]').textContent,
+    /Bold.*700/,
+  );
   assert.equal(picker.querySelector('.picker-apply').disabled, false);
   picker.querySelector('.picker-cancel').click();
 
@@ -246,11 +258,14 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   n = setup();
   before = saved();
   globalThis.nativeOsTest = async (intent) => ({
-    ...raw(intent), face: { ...intent.face, family: 'Unmatched family' },
+    ...raw(intent),
+    face: { ...intent.face, family: 'Unmatched family' },
   });
   picker = await open();
   picker.querySelector('.picker-apply').click();
-  await until(() => /did not match the selected face/.test(picker.querySelector('output').textContent));
+  await until(() =>
+    /did not match the selected face/.test(picker.querySelector('output').textContent),
+  );
   assert.equal(saved(), before);
   picker.querySelector('.picker-cancel').click();
   // Retained OS font Text edits use native preparation without replacing Text.
@@ -302,7 +317,9 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   picker = await open();
   await search(picker, 'DejaVu Sans');
   picker.querySelector('.picker-apply').click();
-  await until(() => /OS font retained:.*Missing glyphs/s.test(picker.querySelector('output').textContent));
+  await until(() =>
+    /OS font retained:.*Missing glyphs/s.test(picker.querySelector('output').textContent),
+  );
   assert.equal(live().osFont.family, 'DIN Alternate');
   assert.equal(serialize(win.nect.document), good);
   assert.match(picker.querySelector('output').textContent, /OS font retained:.*Missing glyphs/s);
@@ -320,12 +337,19 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   const legacyRaw = (intent) => ({
     ...intent,
     ascent: 80,
-    points: [[0, 0], [10, 0], [10, 10], [0, 10]],
+    points: [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
     types: [0, 1, 1, 161],
   });
   n = setup(legacyRaw({ family: 'Saved legacy GDI fixture', style: 0, text: 'DIN', size: 100 }));
-  const legacyBefore = saved(), modernCalls = calls;
-  let legacyCalls = 0, legacyPrepare = async (intent) => legacyRaw(intent);
+  const legacyBefore = saved(),
+    modernCalls = calls;
+  let legacyCalls = 0,
+    legacyPrepare = async (intent) => legacyRaw(intent);
   globalThis.legacyOsTest = (intent) => {
     legacyCalls++;
     return legacyPrepare(intent);
@@ -339,7 +363,9 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(legacyCalls, 0, 'legacy preparation waits for IME composition to finish');
   assert.equal(live().text, 'DIN');
-  editor.dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true, data: '日本語' }));
+  editor.dispatchEvent(
+    new win.CompositionEvent('compositionend', { bubbles: true, data: '日本語' }),
+  );
   editor.dispatchEvent(new win.Event('change', { bubbles: true }));
   await until(() => live().text === '日本語');
   assert.equal(legacyCalls, 1);
@@ -351,7 +377,9 @@ test('unified Font keeps native Text editable and explicit outlines reject cance
   assert.equal(saved(), legacyBefore);
   key('z', { ctrlKey: true, shiftKey: true });
   assert.equal(saved(), legacyEdited);
-  legacyPrepare = async () => { throw Error('Saved legacy font is no longer active'); };
+  legacyPrepare = async () => {
+    throw Error('Saved legacy font is no longer active');
+  };
   editor = $('.inspector-body [data-os-text]');
   editor.value = '漢字';
   editor.dispatchEvent(new win.InputEvent('input', { bubbles: true }));

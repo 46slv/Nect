@@ -90,7 +90,11 @@ try {
         unregisterCallback: () => {},
         invoke: async (command, args) => {
           window.osNativeCalls.push(command);
-          if (['list_system_fonts', 'list_desktop_font_faces', 'list_os_outline_fonts'].includes(command))
+          if (
+            ['list_system_fonts', 'list_desktop_font_faces', 'list_os_outline_fonts'].includes(
+              command,
+            )
+          )
             return [];
           if (command === 'outline_os_text' || command === 'shape_desktop_text')
             throw Error('Current-appearance conversion must use the saved native snapshot');
@@ -112,7 +116,10 @@ try {
   const before = await page.evaluate(() => JSON.stringify(window.nect.document)),
     beforeSvg = await page.evaluate(() => window.nect.export());
   assert.deepEqual(
-    await page.evaluate((id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont.outline, text.id),
+    await page.evaluate(
+      (id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).osFont.outline,
+      text.id,
+    ),
     raw,
   );
   await page.locator('.inspector-body .text-actions > summary').click();

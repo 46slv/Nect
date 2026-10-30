@@ -26,10 +26,16 @@ try {
     window.nect.load(JSON.stringify(d));
   });
   await page.locator('.inspector-body [data-text]').waitFor({ state: 'visible' });
-  await page.locator('.inspector-body .text-font-advanced > summary').click();
-  const chooser = page.waitForEvent('filechooser');
-  await page.locator('.inspector-body [data-load-font]').click();
-  await (await chooser).setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
+  const beforeDisclosure = await page.evaluate(() => JSON.stringify(window.nect.document));
+  const advanced = page.locator('.inspector-body .text-font-advanced');
+  if (!(await advanced.evaluate((details) => details.open)))
+    await advanced.locator(':scope > summary').click();
+  assert.equal(await advanced.getAttribute('open'), '');
+  assert.equal(await page.evaluate(() => JSON.stringify(window.nect.document)), beforeDisclosure);
+  const importFont = advanced.locator('[data-load-font]');
+  await importFont.waitFor({ state: 'visible' });
+  const [chooser] = await Promise.all([page.waitForEvent('filechooser'), importFont.click()]);
+  await chooser.setFiles('tests/fixtures/fonts/NectJPFixture-Regular.otf');
   await page.waitForFunction(() => Object.keys(window.nect.document.fontAssets || {}).length === 1);
   const before = await page.evaluate(() => JSON.stringify(window.nect.document));
   await page.screenshot({ path: 'test-results/text-inspector-after.png' });

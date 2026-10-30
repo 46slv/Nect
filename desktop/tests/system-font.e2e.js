@@ -69,24 +69,37 @@ try {
   assert.match(await result.innerText(), /Japanese fixture/);
   assert.equal(await result.getAttribute('aria-disabled'), 'true');
   assert.match(await result.innerText(), /Font file import is required; use Advanced/);
-  await result.click();
+  // A real pointer on an aria-disabled result must not activate or mutate it.
+  const disabledBounds = await result.boundingBox();
+  assert.ok(disabledBounds);
+  await page.mouse.click(
+    disabledBounds.x + disabledBounds.width / 2,
+    disabledBounds.y + disabledBounds.height / 2,
+  );
   assert.equal((await state()).document, beforeSearch);
   await page.locator('.search-panel input[type="search"]').fill('MS テスト');
   await page.waitForFunction(
     () => document.querySelectorAll('.search-panel .picker-option').length === 1,
   );
-  assert.equal(await page.locator('.search-panel .picker-option').getAttribute('aria-disabled'), 'true');
+  assert.equal(
+    await page.locator('.search-panel .picker-option').getAttribute('aria-disabled'),
+    'true',
+  );
   await page.locator('.search-panel .picker-cancel').click();
   assert.equal((await state()).document, beforeSearch);
   assert.equal(await page.evaluate(() => window.installedFontReads || 0), 0);
 
   const importFont = async (file) => {
-    await page.locator('.inspector-body .text-font-advanced').evaluate((el) => { el.open = true; });
+    await page.locator('.inspector-body .text-font-advanced').evaluate((el) => {
+      el.open = true;
+    });
     const chooser = page.waitForEvent('filechooser');
     await page.locator('.inspector-body [data-load-font]').click();
     await (await chooser).setFiles(file);
   };
-  await importFont(fileURLToPath(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url)));
+  await importFont(
+    fileURLToPath(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url)),
+  );
   await page.waitForFunction(() =>
     document.querySelector('.message').textContent.includes('Loaded Nect'),
   );
@@ -110,7 +123,10 @@ try {
   // Reload opens the preserved first layer; explicitly select the Text layer/node.
   const textLayer = await page.evaluate(() => window.nect.document.layers.at(-1).id);
   await page.locator(`[data-select-layer="${textLayer}"]`).click();
-  await page.locator('.node-head strong').filter({ hasText: /^Text$/ }).click();
+  await page
+    .locator('.node-head strong')
+    .filter({ hasText: /^Text$/ })
+    .click();
   assert.match(await page.locator('.inspector-body .text-font-choice').innerText(), /DejaVu/);
   await importFont({ name: 'broken.otf', mimeType: 'font/otf', buffer: Buffer.alloc(12) });
   await page.waitForFunction(() =>

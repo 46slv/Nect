@@ -1,10 +1,15 @@
-const escape = (value) => String(value ?? '').replace(/[&<>"']/g,
-  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const escape = (value) =>
+  String(value ?? '').replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+  );
 
 export function textFontLabel(node, assets = {}) {
   return node.osFont
     ? [node.osFont.family, node.osFont.face?.name].filter(Boolean).join(' · ')
-    : node.font === 'default' ? 'DejaVu Sans (Latin)' : assets[node.font]?.name || 'Unavailable font';
+    : node.font === 'default'
+      ? 'DejaVu Sans (Latin)'
+      : assets[node.font]?.name || 'Unavailable font';
 }
 
 /** The normal inspector never asks the user to choose a font implementation. */

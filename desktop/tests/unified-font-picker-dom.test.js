@@ -64,7 +64,17 @@ test('one real app Font picker preserves editable Text, native intent and atomic
       return this;
     }
   };
-  const matrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, inverse() { return this; } };
+  const matrix = {
+    a: 1,
+    b: 0,
+    c: 0,
+    d: 1,
+    e: 0,
+    f: 0,
+    inverse() {
+      return this;
+    },
+  };
   win.SVGElement.prototype.getScreenCTM = () => matrix;
   globalThis.fetch = async () => ({
     ok: true,
@@ -102,7 +112,8 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   outlineOsText = async () => { throw Error('Legacy name-based native fallback must not run'); };`,
   );
   source = resolveMainRelativeImports(source);
-  source += '\nwindow.unifiedFontDebug = () => ({ past: history.past.length, bundled: !!bundledFont });';
+  source +=
+    '\nwindow.unifiedFontDebug = () => ({ past: history.past.length, bundled: !!bundledFont });';
   await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 
   const q = (selector) => document.querySelector(selector);
@@ -116,17 +127,26 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   };
   await until(() => win.nect && win.unifiedFontDebug().bundled, 'bundled font initialization');
   await tick();
-  const asset = makeFontAsset(await fileBytes('./fixtures/fonts/NectJPFixture-Regular.otf'), 'fixture.otf');
+  const asset = makeFontAsset(
+    await fileBytes('./fixtures/fonts/NectJPFixture-Regular.otf'),
+    'fixture.otf',
+  );
   const snapshot = () => JSON.stringify(win.nect.document);
   const past = () => win.unifiedFontDebug().past;
   const selectText = (id) => {
     const head = q(`.graph .node[data-id="${id}"] .node-head`);
     assert.ok(head, 'real graph Text node exists');
-    head.dispatchEvent(new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 1, button: 0 }));
-    document.dispatchEvent(new win.PointerEvent('pointerup', { bubbles: true, pointerId: 1, button: 0 }));
+    head.dispatchEvent(
+      new win.PointerEvent('pointerdown', { bubbles: true, pointerId: 1, button: 0 }),
+    );
+    document.dispatchEvent(
+      new win.PointerEvent('pointerup', { bubbles: true, pointerId: 1, button: 0 }),
+    );
   };
   const setup = (patch = {}, includeAsset = false) => {
-    const doc = newDocument(), text = node('Text'), output = node('Output');
+    const doc = newDocument(),
+      text = node('Text'),
+      output = node('Output');
     Object.assign(text, { text: 'ABC', ...patch });
     output.params.path.source = text.id;
     doc.layers[0].nodes = [text, output];
@@ -135,7 +155,11 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     if (text.fontFeatures) doc.schemaVersion = Math.max(doc.schemaVersion, 38);
     win.nect.load(serialize(doc));
     selectText(text.id);
-    return { text, doc, live: () => win.nect.document.layers[0].nodes.find((n) => n.id === text.id) };
+    return {
+      text,
+      doc,
+      live: () => win.nect.document.layers[0].nodes.find((n) => n.id === text.id),
+    };
   };
   const open = async () => {
     const control = q('.inspector-body [data-change-font]');
@@ -161,28 +185,52 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   };
   const apply = (picker) => picker.querySelector('.picker-apply').click();
   const cancel = (picker) => picker.querySelector('.picker-cancel').click();
-  const escape = (picker) => picker.dispatchEvent(new win.KeyboardEvent('keydown', {
-    key: 'Escape', bubbles: true, cancelable: true,
-  }));
+  const escape = (picker) =>
+    picker.dispatchEvent(
+      new win.KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
 
-  let f = setup(), before = snapshot();
+  let f = setup(),
+    before = snapshot();
   assert.equal(document.querySelectorAll('.inspector-body [data-change-font]').length, 1);
-  assert.equal(document.querySelectorAll(`.graph .node[data-id="${f.text.id}"] [data-change-font]`).length, 1);
+  assert.equal(
+    document.querySelectorAll(`.graph .node[data-id="${f.text.id}"] [data-change-font]`).length,
+    1,
+  );
   assert.equal(document.querySelectorAll('[data-os-text-font], [data-os-text-outline]').length, 0);
-  assert.doesNotMatch(q('.inspector-body .text-controls').textContent, /Adobe Fonts|Choose OS font/);
+  assert.doesNotMatch(
+    q('.inspector-body .text-controls').textContent,
+    /Adobe Fonts|Choose OS font/,
+  );
   assert.ok(q('.inspector-body [data-load-font]').closest('.text-font-advanced'));
   assert.ok(q('.inspector-body [data-load-variable-font]').closest('.text-font-advanced'));
   assert.ok(q('.inspector-body [data-bake-text-outline]').closest('.text-actions'));
 
   let picker = await open();
-  const family = () => [...picker.querySelectorAll('.picker-family')].find((g) =>
-    g.getAttribute('aria-label') === exactFace.family);
+  const family = () =>
+    [...picker.querySelectorAll('.picker-family')].find(
+      (g) => g.getAttribute('aria-label') === exactFace.family,
+    );
   assert.equal(picker.querySelector('.picker-list').getAttribute('role'), 'tree');
   assert.equal(family().getAttribute('aria-expanded'), 'false');
-  assert.ok(picker.querySelector('.picker-family[aria-expanded="true"]'), 'selected family starts open');
-  for (const [key, expanded] of [['Enter', 'true'], [' ', 'false'], ['ArrowRight', 'true'], ['ArrowLeft', 'false']]) {
+  assert.ok(
+    picker.querySelector('.picker-family[aria-expanded="true"]'),
+    'selected family starts open',
+  );
+  for (const [key, expanded] of [
+    ['Enter', 'true'],
+    [' ', 'false'],
+    ['ArrowRight', 'true'],
+    ['ArrowLeft', 'false'],
+  ]) {
     family().focus();
-    family().dispatchEvent(new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+    family().dispatchEvent(
+      new win.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+    );
     assert.equal(family().getAttribute('aria-expanded'), expanded);
   }
   assert.equal(snapshot(), before);
@@ -190,7 +238,10 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   let rows = await search(picker, '合成ディスカバリー');
   assert.equal(rows.length, 1, 'actual supplied localized alias remains searchable');
   assert.equal(rows[0].getAttribute('aria-disabled'), 'true');
-  assert.match(rows[0].textContent, /Font file import is required; use Advanced for a file you may embed/);
+  assert.match(
+    rows[0].textContent,
+    /Font file import is required; use Advanced for a file you may embed/,
+  );
   rows[0].click();
   assert.equal(picker.querySelector('.picker-apply').disabled, true);
   assert.equal(byteReads, 0);
@@ -204,12 +255,17 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   await until(() => !q('dialog[aria-label="Font"]'), 'native adoption');
   assert.equal(f.live().type, 'Text');
   assert.deepEqual(f.live().osFont.face, exactFace);
-  assert.equal(f.live().osFont.outline.ligatures, false, 'Legacy static effective liga-off is preserved');
+  assert.equal(
+    f.live().osFont.outline.ligatures,
+    false,
+    'Legacy static effective liga-off is preserved',
+  );
   assert.equal(calls.at(-1).ligatures, false);
   assert.equal(past(), 1);
   assert.equal(byteReads, 0);
   assert.equal(Object.keys(win.nect.document.fontAssets || {}).length, 0);
-  const native = snapshot(), nativeSVG = win.nect.export();
+  const native = snapshot(),
+    nativeSVG = win.nect.export();
   q('[data-action="undo"]').click();
   assert.equal(snapshot(), before, 'one Undo exactly restores editable static Text');
   q('[data-action="redo"]').click();
@@ -231,27 +287,43 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   q('[data-action="redo"]').click();
   assert.equal(snapshot(), embedded);
 
-  f = setup(); before = snapshot();
-  let wait = deferred(), pendingRequest;
-  shape = (request) => { pendingRequest = request; return wait.promise; };
-  picker = await open(); await choose(picker, exactFace.family); apply(picker);
+  f = setup();
+  before = snapshot();
+  let wait = deferred(),
+    pendingRequest;
+  shape = (request) => {
+    pendingRequest = request;
+    return wait.promise;
+  };
+  picker = await open();
+  await choose(picker, exactFace.family);
+  apply(picker);
   await until(() => !!pendingRequest, 'pending native request');
   const callCount = calls.length;
   apply(picker);
   assert.equal(calls.length, callCount, 'repeated Apply does not duplicate preparation');
   escape(picker);
   await until(() => !q('dialog[aria-label="Font"]'), 'Escape dismissal');
-  wait.resolve(preparedOutline(pendingRequest)); await tick();
+  wait.resolve(preparedOutline(pendingRequest));
+  await tick();
   assert.equal(snapshot(), before);
   assert.equal(past(), 0);
 
-  f = setup({}, true); before = snapshot();
-  wait = deferred(); pendingRequest = null;
-  shape = (request) => { pendingRequest = request; return wait.promise; };
-  picker = await open(); await choose(picker, exactFace.family); apply(picker);
+  f = setup({}, true);
+  before = snapshot();
+  wait = deferred();
+  pendingRequest = null;
+  shape = (request) => {
+    pendingRequest = request;
+    return wait.promise;
+  };
+  picker = await open();
+  await choose(picker, exactFace.family);
+  apply(picker);
   await until(() => !!pendingRequest, 'older native preparation');
   await choose(picker, asset.asset.name);
-  wait.resolve(preparedOutline(pendingRequest)); await tick();
+  wait.resolve(preparedOutline(pendingRequest));
+  await tick();
   assert.equal(snapshot(), before, 'older native completion never commits a newer selection');
   apply(picker);
   await until(() => !q('dialog[aria-label="Font"]'), 'newer embedded choice');
@@ -259,24 +331,40 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   assert.equal(f.live().osFont, undefined);
   assert.equal(past(), 1);
 
-  f = setup(); wait = deferred(); pendingRequest = null;
-  shape = (request) => { pendingRequest = request; return wait.promise; };
-  picker = await open(); await choose(picker, exactFace.family); apply(picker);
+  f = setup();
+  wait = deferred();
+  pendingRequest = null;
+  shape = (request) => {
+    pendingRequest = request;
+    return wait.promise;
+  };
+  picker = await open();
+  await choose(picker, exactFace.family);
+  apply(picker);
   await until(() => !!pendingRequest, 'stale revision preparation');
-  win.nect.dispatch({ ...win.nect.commandState, type: 'set-text-content', payload: {
-    layerId: f.doc.layers[0].id, nodeId: f.text.id, text: 'Newer edit',
-  } });
+  win.nect.dispatch({
+    ...win.nect.commandState,
+    type: 'set-text-content',
+    payload: {
+      layerId: f.doc.layers[0].id,
+      nodeId: f.text.id,
+      text: 'Newer edit',
+    },
+  });
   const newer = snapshot();
-  wait.resolve(preparedOutline(pendingRequest)); await tick();
+  wait.resolve(preparedOutline(pendingRequest));
+  await tick();
   assert.equal(snapshot(), newer, 'late native response cannot overwrite a newer authored edit');
   assert.equal(f.live().osFont, undefined);
   assert.equal(past(), 1);
   if (q('dialog[aria-label="Font"]')) cancel(q('dialog[aria-label="Font"]'));
 
-  f = setup({ fontFeatures: { liga: false } }); before = snapshot();
+  f = setup({ fontFeatures: { liga: false } });
+  before = snapshot();
   shape = async (request) => preparedOutline(request);
   const callsBeforeUnsupported = calls.length;
-  picker = await open(); rows = await search(picker, exactFace.family);
+  picker = await open();
+  rows = await search(picker, exactFace.family);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].getAttribute('aria-disabled'), 'true');
   assert.match(rows[0].textContent, /cannot preserve explicit OpenType settings/);
@@ -287,7 +375,9 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
   f = setup({ text: '日本語\n世界', writingMode: 'vertical-rl', font: asset.id }, true);
   before = snapshot();
   const original = structuredClone(f.live());
-  picker = await open(); await choose(picker, exactFace.family); apply(picker);
+  picker = await open();
+  await choose(picker, exactFace.family);
+  apply(picker);
   await until(() => !q('dialog[aria-label="Font"]'), 'multiline vertical native choice');
   assert.equal(f.live().type, 'Text');
   assert.equal(f.live().text, original.text);

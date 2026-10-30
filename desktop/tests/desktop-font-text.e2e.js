@@ -102,9 +102,12 @@ try {
     await page.locator('.inspector-body .text-actions [data-bake-text-outline]').click();
   };
   const nativeOption = (picker, face) => {
-    const id = JSON.stringify(['windows', JSON.stringify(
-      ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'].map((key) => face[key]),
-    )]);
+    const id = JSON.stringify([
+      'windows',
+      JSON.stringify(
+        ['family', 'name', 'weight', 'style', 'stretch', 'format', 'color'].map((key) => face[key]),
+      ),
+    ]);
     return picker.locator(`.picker-option[data-id=${JSON.stringify(id)}]`);
   };
   const openNativePicker = async (face) => {
@@ -116,11 +119,14 @@ try {
     await openDetails('.text-font-advanced');
     await page.locator('.inspector-body .text-font-advanced [data-refresh-os-fonts]').click();
     await page.waitForFunction(
-      (count) => window.fontCalls.filter((command) => command === 'list_desktop_font_faces').length > count,
+      (count) =>
+        window.fontCalls.filter((command) => command === 'list_desktop_font_faces').length > count,
       reads,
     );
     await page.waitForFunction(
-      () => document.querySelector('.inspector-body .text-font-choice output')?.textContent !== 'Checking font…',
+      () =>
+        document.querySelector('.inspector-body .text-font-choice output')?.textContent !==
+        'Checking font…',
     );
     await page.locator('.inspector-body [data-change-font]').click();
     const picker = page.getByRole('dialog', { name: 'Font', exact: true });
@@ -144,8 +150,12 @@ try {
           if (command === 'list_system_fonts' || command === 'list_os_outline_fonts') return [];
           if (command === 'list_desktop_font_faces') {
             const faces = [
-              ...variants, ...(din ? [din] : []), ...axisRows,
-              ...verticalRows, ...wrapRows, ...jpRows,
+              ...variants,
+              ...(din ? [din] : []),
+              ...axisRows,
+              ...verticalRows,
+              ...wrapRows,
+              ...jpRows,
             ].map((row) => row.face);
             return window.fontAvailable
               ? [...new Map(faces.map((face) => [JSON.stringify(face), face])).values()]
@@ -230,7 +240,10 @@ try {
   );
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.nect);
-  await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(doc, raw)));
+  await page.evaluate(
+    (contents) => window.nect.load(contents),
+    serialize(withCapturedNativeIntent(doc, raw)),
+  );
   await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
   assert.equal(await page.locator('.inspector-body [data-change-font]').count(), 1);
   assert.equal(await page.locator('[data-os-text-font], [data-os-text-outline]').count(), 0);
@@ -343,7 +356,10 @@ try {
     target.kerning = din.kerning;
     target.alignment = ['start', 'center', 'end'][din.alignment];
     await page.evaluate(() => (window.fontAvailable = true));
-    await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(dinDoc, din)));
+    await page.evaluate(
+      (contents) => window.nect.load(contents),
+      serialize(withCapturedNativeIntent(dinDoc, din)),
+    );
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
     const picker = await openNativePicker(din.face);
     assert.match(
@@ -387,7 +403,10 @@ try {
   };
   const choose = async (contents, outline) => {
     await page.evaluate(() => (window.fontAvailable = true));
-    await page.evaluate((contents) => window.nect.load(contents), serialize(withCapturedNativeIntent(contents, outline)));
+    await page.evaluate(
+      (contents) => window.nect.load(contents),
+      serialize(withCapturedNativeIntent(contents, outline)),
+    );
     await page.locator(`.graph .node[data-id="${text.id}"] .node-head .type-tag`).click();
     const picker = await openNativePicker(outline.face);
     await nativeOption(picker, outline.face).click();

@@ -275,11 +275,21 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   const beforeStaticRevision = win.nect.commandState.expectedRevision;
   document.querySelector('.inspector-body [data-load-font]').click();
   const wholeStaticInput = document.querySelector('#font-file');
-  Object.defineProperty(wholeStaticInput, 'files', { configurable: true, value: [{
-    name: 'static-from-variable.ttf', size: staticBytes.byteLength, arrayBuffer: async () => staticBytes,
-  }] });
+  Object.defineProperty(wholeStaticInput, 'files', {
+    configurable: true,
+    value: [
+      {
+        name: 'static-from-variable.ttf',
+        size: staticBytes.byteLength,
+        arrayBuffer: async () => staticBytes,
+      },
+    ],
+  });
   wholeStaticInput.dispatchEvent(new win.Event('change', { bubbles: true }));
-  await wait(() => !current().variation && current().font !== variableBeforeStatic.font, 'variable to static explicit import');
+  await wait(
+    () => !current().variation && current().font !== variableBeforeStatic.font,
+    'variable to static explicit import',
+  );
   const actualStaticId = current().font;
   assert.equal(beforeStaticAssets.has(actualStaticId), false);
   assert.equal(Object.keys(win.nect.document.fontAssets).length, beforeStaticAssets.size + 1);
@@ -288,7 +298,10 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   assert.equal(win.nect.evaluate().error, null);
   assert.deepEqual(current().params, variableBeforeStatic.params);
   assert.equal(current().text, variableBeforeStatic.text);
-  assert.deepEqual(Buffer.from(win.nect.document.fontAssets[actualStaticId].data, 'base64'), Buffer.from(staticBytes));
+  assert.deepEqual(
+    Buffer.from(win.nect.document.fontAssets[actualStaticId].data, 'base64'),
+    Buffer.from(staticBytes),
+  );
   const importedWholeStatic = snapshot();
   document.querySelector('[data-action="undo"]').click();
   await wait(() => snapshot() === final, 'variable to static one Undo restores exact source');
@@ -312,12 +325,18 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
     );
     await wait(() => !!q('dialog[open]'), 'mixed picker open');
     for (const group of [...document.querySelectorAll('.picker-family')]) {
-      const current = [...document.querySelectorAll('.picker-family')].find((g) => g.dataset.fontFamily === group.dataset.fontFamily);
-      if (current?.getAttribute('aria-expanded') === 'false') current.querySelector('.picker-family-heading').click();
+      const current = [...document.querySelectorAll('.picker-family')].find(
+        (g) => g.dataset.fontFamily === group.dataset.fontFamily,
+      );
+      if (current?.getAttribute('aria-expanded') === 'false')
+        current.querySelector('.picker-family-heading').click();
     }
   };
-  const row = (id) => [...document.querySelectorAll('.picker-option')].find((el) =>
-    el.dataset.id === JSON.stringify([id.startsWith('system-') ? 'installed' : 'embedded', id]));
+  const row = (id) =>
+    [...document.querySelectorAll('.picker-option')].find(
+      (el) =>
+        el.dataset.id === JSON.stringify([id.startsWith('system-') ? 'installed' : 'embedded', id]),
+    );
   const apply = async () => {
     await wait(() => q('.picker-apply') && !q('.picker-apply').disabled, 'mixed picker ready');
     q('.picker-apply').click();
@@ -358,7 +377,10 @@ test('opt-in variable UI: lazy worker, real axes preview/cancel/commit, history,
   const mixedRange = snapshot();
   // A byte-only discovery never starts a normal picker read, even in a mixed document.
   let installedReads = 0;
-  readInstalled = async () => { installedReads++; return staticBytes; };
+  readInstalled = async () => {
+    installedReads++;
+    return staticBytes;
+  };
   await openPicker();
   assert.equal(row('system-static').getAttribute('aria-disabled'), 'true');
   row('system-static').click();

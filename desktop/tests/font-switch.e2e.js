@@ -93,7 +93,9 @@ try {
   await chooser.locator('input[type="search"]').fill('DejaVu Sans');
   await chooser.locator('.picker-option').filter({ hasText: 'DejaVu Sans' }).click();
   await chooser.locator('.picker-apply').click();
-  await page.waitForFunction(() => document.querySelector('.picker-status')?.textContent.includes('Missing glyphs'));
+  await page.waitForFunction(() =>
+    document.querySelector('.picker-status')?.textContent.includes('Missing glyphs'),
+  );
   assert.match(await chooser.locator('.picker-status').innerText(), /Missing glyphs/);
   assert.deepEqual(
     await page.evaluate(() => ({

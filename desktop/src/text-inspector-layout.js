@@ -41,7 +41,9 @@ export function arrangeTextInspector(root, editingCharacters = false) {
     controls.querySelector('.text-wrap-controls'),
     controls.querySelector('.text-leading-controls'),
   ].filter(Boolean);
-  const separate = [...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions')];
+  const separate = [
+    ...controls.querySelectorAll(':scope > .text-font-advanced, :scope > .text-actions'),
+  ];
   const advanced = disclosure(doc, 'typography', 'More typography');
   for (const child of [...controls.children]) {
     if (!primary.includes(child) && !separate.includes(child)) advanced.append(child);

@@ -7,14 +7,25 @@ import { makeFontAsset } from '../src/fonts.js';
 // Browser/UI evidence with a deterministic native geometry adapter, not real
 // font discovery, Adobe/Morisawa installation, licensing or native-font fidelity.
 const face = {
-  family: 'Synthetic native fixture', name: 'Regular', weight: 400,
-  style: 0, stretch: 5, format: 1, color: false,
+  family: 'Synthetic native fixture',
+  name: 'Regular',
+  weight: 400,
+  style: 0,
+  stretch: 5,
+  format: 1,
+  color: false,
 };
-const fontBytes = await fs.readFile(new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url));
-const asset = makeFontAsset(fontBytes.buffer.slice(fontBytes.byteOffset,
-  fontBytes.byteOffset + fontBytes.byteLength), 'fixture.otf');
+const fontBytes = await fs.readFile(
+  new URL('./fixtures/fonts/NectJPFixture-Regular.otf', import.meta.url),
+);
+const asset = makeFontAsset(
+  fontBytes.buffer.slice(fontBytes.byteOffset, fontBytes.byteOffset + fontBytes.byteLength),
+  'fixture.otf',
+);
 function fixture(patch = {}, includeAsset = false) {
-  const doc = newDocument(), text = node('Text', 40, 60), output = node('Output', 450, 60);
+  const doc = newDocument(),
+    text = node('Text', 40, 60),
+    output = node('Output', 450, 60);
   Object.assign(text, { text: 'ABC', ...patch });
   output.params.path.source = text.id;
   doc.layers[0].nodes = [text, output];
@@ -31,9 +42,10 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
-await page.route('**/src/storage.js', (route) => route.fulfill({
-  contentType: 'text/javascript',
-  body: `export * from '/src/storage.js?unified-font-original';
+await page.route('**/src/storage.js', (route) =>
+  route.fulfill({
+    contentType: 'text/javascript',
+    body: `export * from '/src/storage.js?unified-font-original';
 export const desktop = true;
 export const beginRecovery = async () => 'unified-font-browser-test';
 export const writeRecovery = async () => Date.now(), listRecovery = async () => [];
@@ -60,14 +72,28 @@ export async function shapeDesktopText(request) {
   return prepared(request);
 }
 export const outlineOsText = async () => { throw Error('No legacy font-name fallback'); };`,
-}));
+  }),
+);
+// Test-only read access to the project history. Active CommandSession revisions
+// restart when project Undo/Redo restores a composition; they are not a global edit count.
+await page.route('**/src/main.js', async (route) => {
+  const response = await route.fetch();
+  const source = await response.text();
+  await route.fulfill({
+    response,
+    body:
+      source +
+      '\nwindow.unifiedFontHistory = () => ({ revision: session.projectRevision, past: history.past.length, future: history.future.length });',
+  });
+});
 const picker = () => page.getByRole('dialog', { name: 'Font', exact: true });
-const state = () => page.evaluate(() => ({
-  document: JSON.stringify(window.nect.document),
-  revision: window.nect.commandState.expectedRevision,
-}));
-const live = (id) => page.evaluate((nodeId) =>
-  window.nect.document.layers[0].nodes.find((n) => n.id === nodeId), id);
+const state = () =>
+  page.evaluate(() => ({
+    document: JSON.stringify(window.nect.document),
+    revision: window.unifiedFontHistory().revision,
+  }));
+const live = (id) =>
+  page.evaluate((nodeId) => window.nect.document.layers[0].nodes.find((n) => n.id === nodeId), id);
 const inspect = async (f) => {
   await page.evaluate((contents) => window.nect.load(contents), serialize(f.doc));
   await page.locator(`.graph .node[data-id="${f.text.id}"] .node-head strong`).click();
@@ -78,8 +104,11 @@ const open = async () => {
 };
 const choose = async (label) => {
   await picker().locator('input[type="search"]').fill(label);
-  await picker().locator('.picker-option[aria-disabled="false"]')
-    .filter({ hasText: label }).first().click();
+  await picker()
+    .locator('.picker-option[aria-disabled="false"]')
+    .filter({ hasText: label })
+    .first()
+    .click();
 };
 const apply = async () => {
   await picker().locator('.picker-apply').click();
@@ -92,18 +121,31 @@ try {
   await inspect(f);
   await page.waitForFunction(() => window.nect.evaluate().error === null);
   assert.equal(await page.locator('.inspector-body [data-change-font]').count(), 1);
-  assert.equal(await page.locator(`.graph .node[data-id="${f.text.id}"] [data-change-font]`).count(), 1);
+  assert.equal(
+    await page.locator(`.graph .node[data-id="${f.text.id}"] [data-change-font]`).count(),
+    1,
+  );
   assert.equal(await page.locator('[data-os-text-font], [data-os-text-outline]').count(), 0);
-  assert.equal(await page.locator('.inspector-body .text-font-advanced [data-load-font]').count(), 1);
-  assert.equal(await page.locator('.inspector-body .text-actions [data-bake-text-outline]').count(), 1);
-  assert.doesNotMatch(await page.locator('.inspector-body .text-controls').innerText(), /Adobe Fonts|Choose OS font/);
+  assert.equal(
+    await page.locator('.inspector-body .text-font-advanced [data-load-font]').count(),
+    1,
+  );
+  assert.equal(
+    await page.locator('.inspector-body .text-actions [data-bake-text-outline]').count(),
+    1,
+  );
+  assert.doesNotMatch(
+    await page.locator('.inspector-body .text-controls').innerText(),
+    /Adobe Fonts|Choose OS font/,
+  );
   const before = await state();
   await open();
   const family = () => picker().getByRole('treeitem', { name: face.family, exact: true });
   assert.equal(await picker().locator('.picker-list').getAttribute('role'), 'tree');
   assert.equal(await family().getAttribute('aria-expanded'), 'false');
   assert.ok(await picker().locator('.picker-family[aria-expanded="true"]').count());
-  await family().focus(); await family().press('Enter');
+  await family().focus();
+  await family().press('Enter');
   assert.equal(await family().getAttribute('aria-expanded'), 'true');
   await family().press('Space');
   assert.equal(await family().getAttribute('aria-expanded'), 'false');
@@ -119,12 +161,17 @@ try {
   const disabled = picker().locator('.picker-option');
   assert.equal(await disabled.count(), 1);
   assert.equal(await disabled.getAttribute('aria-disabled'), 'true');
-  assert.match(await disabled.innerText(), /Font file import is required; use Advanced for a file you may embed/);
+  assert.match(
+    await disabled.innerText(),
+    /Font file import is required; use Advanced for a file you may embed/,
+  );
   assert.equal(await picker().locator('.picker-apply').isDisabled(), true);
   await picker().locator('.picker-cancel').click();
   assert.deepEqual(await state(), before);
 
-  await open(); await choose(face.family); await apply();
+  await open();
+  await choose(face.family);
+  await apply();
   assert.equal((await live(f.text.id)).type, 'Text');
   assert.deepEqual((await live(f.text.id)).osFont.face, face);
   assert.equal((await live(f.text.id)).osFont.outline.ligatures, false);
@@ -137,7 +184,9 @@ try {
   assert.equal((await state()).document, before.document);
   await page.locator('[data-action="redo"]').click();
   assert.equal((await state()).document, native.document);
-  await open(); await choose('DejaVu Sans'); await apply();
+  await open();
+  await choose('DejaVu Sans');
+  await apply();
   assert.equal((await live(f.text.id)).osFont, undefined);
   assert.equal((await live(f.text.id)).font, 'default');
   const embedded = await state();
@@ -147,28 +196,44 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal((await state()).document, embedded.document);
 
-  f = fixture(); await inspect(f);
+  f = fixture();
+  await inspect(f);
   const cancelBefore = await state();
-  await page.evaluate(() => { window.unifiedDelay = true; window.unifiedFinish = null; });
-  await open(); await choose(face.family);
+  await page.evaluate(() => {
+    window.unifiedDelay = true;
+    window.unifiedFinish = null;
+  });
+  await open();
+  await choose(face.family);
   await picker().locator('.picker-apply').click();
   await page.waitForFunction(() => typeof window.unifiedFinish === 'function');
   const pendingCalls = await page.evaluate(() => window.unifiedRequests.length);
   await page.keyboard.press('Escape');
   await picker().waitFor({ state: 'hidden' });
-  await page.evaluate(() => { window.unifiedFinish(); window.unifiedDelay = false; });
+  await page.evaluate(() => {
+    window.unifiedFinish();
+    window.unifiedDelay = false;
+  });
   await page.waitForTimeout(50);
   assert.deepEqual(await state(), cancelBefore);
   assert.equal(await page.evaluate(() => window.unifiedRequests.length), pendingCalls);
 
-  f = fixture({}, true); await inspect(f);
+  f = fixture({}, true);
+  await inspect(f);
   const rapidBefore = await state();
-  await page.evaluate(() => { window.unifiedDelay = true; window.unifiedFinish = null; });
-  await open(); await choose(face.family);
+  await page.evaluate(() => {
+    window.unifiedDelay = true;
+    window.unifiedFinish = null;
+  });
+  await open();
+  await choose(face.family);
   await picker().locator('.picker-apply').click();
   await page.waitForFunction(() => typeof window.unifiedFinish === 'function');
   await choose(asset.asset.name);
-  await page.evaluate(() => { window.unifiedFinish(); window.unifiedDelay = false; });
+  await page.evaluate(() => {
+    window.unifiedFinish();
+    window.unifiedDelay = false;
+  });
   await page.waitForTimeout(50);
   assert.deepEqual(await state(), rapidBefore);
   await apply();
@@ -176,33 +241,55 @@ try {
   assert.equal((await live(f.text.id)).osFont, undefined);
   assert.equal((await state()).revision, rapidBefore.revision + 1);
 
-  f = fixture(); await inspect(f);
-  await page.evaluate(() => { window.unifiedDelay = true; window.unifiedFinish = null; });
-  await open(); await choose(face.family);
+  f = fixture();
+  await inspect(f);
+  await page.evaluate(() => {
+    window.unifiedDelay = true;
+    window.unifiedFinish = null;
+  });
+  await open();
+  await choose(face.family);
   await picker().locator('.picker-apply').click();
   await page.waitForFunction(() => typeof window.unifiedFinish === 'function');
-  await page.evaluate(({ layerId, nodeId }) => window.nect.dispatch({
-    ...window.nect.commandState, type: 'set-text-content', payload: { layerId, nodeId, text: 'Newer edit' },
-  }), { layerId: f.doc.layers[0].id, nodeId: f.text.id });
+  await page.evaluate(
+    ({ layerId, nodeId }) =>
+      window.nect.dispatch({
+        ...window.nect.commandState,
+        type: 'set-text-content',
+        payload: { layerId, nodeId, text: 'Newer edit' },
+      }),
+    { layerId: f.doc.layers[0].id, nodeId: f.text.id },
+  );
   const newer = await state();
-  await page.evaluate(() => { window.unifiedFinish(); window.unifiedDelay = false; });
+  await page.evaluate(() => {
+    window.unifiedFinish();
+    window.unifiedDelay = false;
+  });
   await page.waitForTimeout(50);
   assert.deepEqual(await state(), newer);
   assert.equal((await live(f.text.id)).osFont, undefined);
   if (await picker().count()) await picker().locator('.picker-cancel').click();
 
-  f = fixture({ fontFeatures: { liga: false } }); await inspect(f);
+  f = fixture({ fontFeatures: { liga: false } });
+  await inspect(f);
   const explicit = await state();
-  await open(); await picker().locator('input[type="search"]').fill(face.family);
+  await open();
+  await picker().locator('input[type="search"]').fill(face.family);
   assert.equal(await picker().locator('.picker-option').getAttribute('aria-disabled'), 'true');
-  assert.match(await picker().locator('.picker-option').innerText(), /cannot preserve explicit OpenType settings/);
+  assert.match(
+    await picker().locator('.picker-option').innerText(),
+    /cannot preserve explicit OpenType settings/,
+  );
   await picker().locator('.picker-cancel').click();
   assert.deepEqual(await state(), explicit);
 
   f = fixture({ text: '日本語\n世界', writingMode: 'vertical-rl', font: asset.id }, true);
   await inspect(f);
-  const verticalBefore = await state(), original = await live(f.text.id);
-  await open(); await choose(face.family); await apply();
+  const verticalBefore = await state(),
+    original = await live(f.text.id);
+  await open();
+  await choose(face.family);
+  await apply();
   const vertical = await live(f.text.id);
   assert.equal(vertical.type, 'Text');
   assert.equal(vertical.text, original.text);
@@ -214,13 +301,30 @@ try {
   assert.equal((await state()).document, verticalBefore.document);
   assert.equal(await page.evaluate(() => window.unifiedByteReads || 0), 0);
   assert.deepEqual(errors, []);
-  await fs.writeFile('test-results/workflow-unified-font-picker.json', JSON.stringify({
-    actualBrowserUi: true, mockNativeGeometryAdapter: true, actualNativeFonts: false,
-    installedByteReads: 0, oneNormalFontEntry: true, familyDisclosuresKeyboardAria: true, oneUndoRedoAtomic: true,
-    legacyLigaturesOffPreserved: true, verticalJapaneseIntentPreserved: true,
-    canceledAndStaleResponsesIgnored: true, explicitOpenTypePreserved: true, pageErrors: errors,
-  }, null, 2));
-  console.log('Unified Font browser UI: exact native/document routes, no byte copy, atomic Undo and interrupted flows PASS');
+  await fs.writeFile(
+    'test-results/workflow-unified-font-picker.json',
+    JSON.stringify(
+      {
+        actualBrowserUi: true,
+        mockNativeGeometryAdapter: true,
+        actualNativeFonts: false,
+        installedByteReads: 0,
+        oneNormalFontEntry: true,
+        familyDisclosuresKeyboardAria: true,
+        oneUndoRedoAtomic: true,
+        legacyLigaturesOffPreserved: true,
+        verticalJapaneseIntentPreserved: true,
+        canceledAndStaleResponsesIgnored: true,
+        explicitOpenTypePreserved: true,
+        pageErrors: errors,
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(
+    'Unified Font browser UI: exact native/document routes, no byte copy, atomic Undo and interrupted flows PASS',
+  );
 } finally {
   await browser.close();
 }

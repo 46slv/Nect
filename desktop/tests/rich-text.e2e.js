@@ -47,8 +47,12 @@ try {
     const advanced = page.locator('.text-character-font-advanced');
     assert.equal(await advanced.count(), 1);
     if (!(await advanced.evaluate((el) => el.open))) await advanced.locator('summary').click();
-    assert.equal(await page.locator('[data-load-character-font]').evaluate((el) =>
-      el.closest('details').classList.contains('text-character-font-advanced')), true);
+    assert.equal(
+      await page
+        .locator('[data-load-character-font]')
+        .evaluate((el) => el.closest('details').classList.contains('text-character-font-advanced')),
+      true,
+    );
   };
   const initial = await saved();
   await range(1, 2);

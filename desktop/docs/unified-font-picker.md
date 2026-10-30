@@ -99,9 +99,9 @@ names by guessing, or match native and byte choices by similar names.
    replacing assertions that exercised it. Explicit conversion uses only the
    existing bake-current-appearance command in Text actions.
 10. `arrangeTextInspector` currently returns unless `.text-controls [data-text]`
-   exists. It must also handle saved/native Text's `[data-os-text]`, keep the
-   unified Font entry primary, keep Advanced import/Text actions separate, and
-   preserve character mode plus normal/Graph ownership.
+    exists. It must also handle saved/native Text's `[data-os-text]`, keep the
+    unified Font entry primary, keep Advanced import/Text actions separate, and
+    preserve character mode plus normal/Graph ownership.
 
 ## Verification after shared-file handoff
 
@@ -120,7 +120,6 @@ Full formatting/unit/build plus Windows Chrome/native CI must be checked at the
 exact final integration head. No local Chromium/socket retry or package install
 is authorized in this checkpoint. Do not publish these unwired modules as a
 completed UI or merge/release them.
-
 
 ## Bounded follow-on: app-private file fonts (not implemented)
 
