@@ -13,7 +13,6 @@ page.on('pageerror', (error) => result.pageErrors.push(error.message));
 const checkpoint = () =>
   page.evaluate(() => ({
     project: window.nect.projectSnapshot(),
-    command: window.nect.commandState,
     file: window.nect.fileState,
     undo: document.querySelector('[data-action="undo"]').disabled,
     redo: document.querySelector('[data-action="redo"]').disabled,
@@ -80,7 +79,8 @@ try {
       .click({ modifiers: ['Shift'] });
     assert.deepEqual(await selected(id), fixture.points.slice(0, 2));
     assert.equal(await focus(id), fixture.points[1]);
-    const before = await checkpoint();
+    const before = await checkpoint(),
+      beforeEnvelope = await page.evaluate(() => window.nect.commandState);
     // Repeat pointer and keyboard activation. Tab focus is distinct from active point focus.
     await tab('composition-b').click();
     await page.waitForFunction(() => window.nect.activeCompositionId === 'composition-b');
@@ -89,6 +89,12 @@ try {
     assert.deepEqual(await selected(id), fixture.points.slice(0, 2));
     assert.equal(await focus(id), fixture.points[1]);
     assert.deepEqual(await checkpoint(), before);
+    // Activation deliberately creates a fresh CommandSession envelope. Project
+    // History and file revision, not that transient identity, must stay unchanged.
+    assert.notEqual(
+      (await page.evaluate(() => window.nect.commandState)).sessionId,
+      beforeEnvelope.sessionId,
+    );
     await tab('composition-a').focus();
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Enter');
@@ -100,10 +106,14 @@ try {
     assert.equal(await focus(id), fixture.points[1]);
     assert.deepEqual(await checkpoint(), before);
     if (kind === 'Remap') {
+      const beforeMove = await page.evaluate(() => window.nect.commandState);
       await page.locator('.canvas-stage').focus();
       await page.keyboard.press('ArrowRight');
       const moved = await checkpoint();
-      assert.equal(moved.command.expectedRevision, before.command.expectedRevision + 1);
+      assert.equal(
+        (await page.evaluate(() => window.nect.commandState)).expectedRevision,
+        beforeMove.expectedRevision + 1,
+      );
       assert.notDeepEqual(moved.project, before.project);
       await page.locator('[data-action="undo"]').click();
       assert.deepEqual((await checkpoint()).project, before.project);
