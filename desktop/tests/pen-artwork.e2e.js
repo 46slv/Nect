@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -106,7 +107,9 @@ try {
   });
   const oldSVG = await page.evaluate(() => window.nect.export()),
     oldPixels = await pixels(oldSVG);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${initial.image}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await begin();
   // Space/middle pan in Pen remains view-only, even over a locked hidden active layer.
   let center = await xy([320, 300]);
@@ -279,6 +282,7 @@ try {
   await begin();
   await point([300, 350]);
   await point([420, 400]);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${closed.layers.at(-1).id}"]`).press('F2');
   assert.equal(await page.locator('[data-pen-draft]').count(), 0);
   const beforeRename = await snapshot();
@@ -332,6 +336,7 @@ try {
   // Explicit source Curve editing retains its layer and Output; blank canvas cannot move it.
   const curveLayer = closed.layers.at(-1),
     source = curveLayer.nodes[0];
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${curveLayer.id}"]`).click();
   await page.locator(`.node[data-id="${source.id}"] .node-head strong`).click();
   await point([850, 450]);
@@ -450,6 +455,7 @@ try {
   };
   for (const isClosed of [false, true]) {
     await load(initial.json);
+    await ensureWorkspacePanel(page, 'inspector');
     await begin();
     await point([330, 120], [350, 90]);
     await point([500, 170], [530, 200]);
@@ -534,6 +540,7 @@ try {
       'out-and-back',
     ]) {
       await load(beforeJSON);
+      await ensureWorkspacePanel(page, 'layers');
       await page.locator(`[data-select-layer="${id}"]`).click();
       await page.evaluate(() =>
         document.addEventListener(
@@ -575,6 +582,7 @@ try {
       assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
     }
     await load(beforeJSON);
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${id}"]`).click();
     await page.keyboard.down('Alt');
     await hitCurve(id);
@@ -590,6 +598,7 @@ try {
     );
     assert.notEqual(await snapshot(), beforeJSON, 'the owned gesture still commits');
     await load(movedJSON);
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${id}"]`).click();
     await page.screenshot({ path: `test-results/pen-placement-${label}.png`, fullPage: true });
   }
@@ -618,7 +627,10 @@ try {
       },
       { base: initial.json, count },
     );
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${id}"]`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+    assert.equal(await page.locator('.artwork-move-status').isVisible(), true);
     const beforeJSON = await snapshot(),
       beforeProject = await projectSnapshot(),
       before = JSON.parse(beforeJSON);
@@ -649,6 +661,7 @@ try {
       assert.equal(await snapshot(), beforeJSON);
       assert.equal(await projectSnapshot(), beforeProject);
       const nodeId = before.layers.at(-1).nodes[0].id;
+      await ensureWorkspacePanel(page, 'layers');
       await page.locator(`[data-select-layer="${id}"]`).click();
       await page.locator(`.node[data-id="${nodeId}"] .node-head strong`).click();
       await page.locator('[data-action="actual-size"]').click();

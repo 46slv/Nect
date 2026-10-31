@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import { openArtworkPanel } from './helpers/artwork-panels.js';
 import assert from 'node:assert/strict';
@@ -100,10 +101,12 @@ try {
   assert.equal(await saved(), before);
   assert.equal(await page.locator('[data-snap-kind]').count(), 0);
   // Locked references continue to snap; hidden references immediately stop.
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-visible="layer-snap-reference"]').click();
   await drag([398, 180]);
   assert.ok(Math.abs((await pos())[0] - 398) < 0.001);
   await undo();
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator('[data-visible="layer-snap-reference"]').click();
   await drag([398, 180]);
   assert.equal((await pos())[0], 400);
@@ -120,6 +123,7 @@ try {
   near(await pos(), [400, 160]);
   await undo();
   // Numeric entry remains literal with artwork snapping enabled.
+  await ensureWorkspacePanel(page, 'inspector');
   const input = page.locator('.inspector-body [data-key="position"] [data-axis="0"]');
   await input.fill('399');
   await input.press('Tab');

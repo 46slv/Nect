@@ -59,9 +59,16 @@ function previewImage(svg) {
     : 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
-export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () => {} }) {
+export function mountAssetLibrary({
+  capture,
+  insert,
+  resolveDrop,
+  onClose = () => {},
+  onDragState = () => {},
+  focus = true,
+}) {
   if (mounted) {
-    mounted.querySelector('[data-asset-search]').focus();
+    if (focus) mounted.querySelector('[data-asset-search]').focus();
     return;
   }
   const panel = element('aside', undefined, {
@@ -111,6 +118,8 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
   const name = element('strong', '');
   const image = element('img', undefined, { alt: '', class: 'asset-library-preview' });
   const location = element('span', '', { class: 'asset-library-location' });
+  const metadata = element('details', undefined, { class: 'asset-library-metadata' });
+  metadata.append(element('summary', 'Asset details'));
   const fields = {};
   detail.append(image, name, location);
   for (const label of ['Author', 'Source', 'License']) {
@@ -121,7 +130,7 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
       placeholder: label === 'License' ? 'Unspecified' : '',
     });
     row.append(input);
-    detail.append(row);
+    metadata.append(row);
     fields[label.toLowerCase()] = input;
   }
   const joinLabel = element('label', undefined, { class: 'asset-library-join' });
@@ -131,7 +140,7 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
   const graph = element('button', 'Add to this graph', { 'data-asset-place-graph': '' });
   const actions = element('div', undefined, { class: 'asset-library-actions' });
   actions.append(place, graph, joinLabel);
-  detail.append(actions);
+  detail.append(actions, metadata);
   detail.hidden = true;
   const picker = element('input', undefined, {
     type: 'file',
@@ -170,10 +179,13 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
     document.removeEventListener('dragover', dragover);
     document.removeEventListener('drop', drop);
     dragTicket = null;
+    onDragState(false);
     onClose();
   }
   closeMounted = closePanel;
   function keydown(e) {
+    // Native Escape cancels an in-flight drag; it must not destroy the source panel.
+    if (e.key === 'Escape' && dragTicket) return;
     if (
       e.key === 'Escape' &&
       !e.defaultPrevented &&
@@ -312,9 +324,14 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
             };
             event.dataTransfer.setData(dragType, dragTicket.id);
             event.dataTransfer.effectAllowed = 'copy';
+            // Defer until native dragstart has returned; keep the source node alive.
+            requestAnimationFrame(() => {
+              if (alive && dragTicket) onDragState(true);
+            });
           };
           button.ondragend = () => {
             dragTicket = null;
+            onDragState(false);
           };
         }
       }
@@ -587,6 +604,6 @@ export function mountAssetLibrary({ capture, insert, resolveDrop, onClose = () =
     }
   })();
   buttons();
-  search.focus();
+  if (focus) search.focus();
   return panel;
 }

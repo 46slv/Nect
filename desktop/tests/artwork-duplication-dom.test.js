@@ -112,7 +112,15 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
       );
       flush();
     },
-    select = (id) => click(`[data-select-layer="${id}"]`),
+    showPanel = (id) => {
+      const button = $(`[data-workspace-panel="${id}"]`);
+      if (button.getAttribute('aria-expanded') !== 'true') click(`[data-workspace-panel="${id}"]`);
+    },
+    select = (id) => {
+      showPanel('layers');
+      click(`[data-select-layer="${id}"]`);
+      showPanel('inspector');
+    },
     selectNode = (id, extra = {}) => {
       fire($(`.node[data-id="${id}"] .node-head`), 'pointerdown', extra);
       fire(document, 'pointerup');
@@ -331,14 +339,18 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
       select(f.layer.id);
       let before = saved(),
         prior = ui();
+      showPanel('layers');
       win.testBeginName(f.layer.id);
       flush();
+      assert.equal($('.layers').hidden, false);
+      assert.equal($('[data-rename-name]'), document.activeElement);
       assert.equal(duplicate().disabled, true);
       const edit = structuredClone(ui().nameEdit);
       force(f.layer.id);
       assert.equal(saved(), before);
       assert.deepEqual(ui().nameEdit, edit);
       key($('[data-rename-name]'), 'Escape');
+      showPanel('inspector');
       assert.equal(duplicate().disabled, false);
       stage().dispatchEvent(new win.CompositionEvent('compositionstart', { bubbles: true }));
       assert.equal(duplicate().disabled, true);
@@ -369,10 +381,12 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
       const f = multiDuplicationDocument();
       load(f.doc);
       const add = (id) => {
+        showPanel('layers');
         $(`[data-select-layer="${id}"]`).dispatchEvent(
           new win.MouseEvent('click', { bubbles: true, shiftKey: true }),
         );
         flush();
+        showPanel('inspector');
       };
       const selectedLayers = () =>
         [...document.querySelectorAll('.layer.selected')].map((l) => l.dataset.layer).sort();
@@ -438,10 +452,12 @@ test('Duplicate in place is independent, undoable, selection-scoped and interrup
       const f = multiDuplicationDocument();
       const choose = () => {
         select(f.ids[0]);
+        showPanel('layers');
         $(`[data-select-layer="${f.ids[3]}"]`).dispatchEvent(
           new win.MouseEvent('click', { bubbles: true, shiftKey: true }),
         );
         flush();
+        showPanel('inspector');
       };
       const forceBatch = () => {
         duplicate().dispatchEvent(new win.MouseEvent('click', { bubbles: true }));

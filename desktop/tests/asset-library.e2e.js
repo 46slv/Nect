@@ -98,6 +98,7 @@ try {
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).waitFor();
   await page.getByRole('button', { name: 'marks/mark.svg', exact: true }).click();
   await page.locator('[data-asset-place-layer]:enabled').waitFor();
+  await page.getByText('Asset details', { exact: true }).click();
   await page.getByLabel('Asset license', { exact: true }).fill('Self-authored fixture');
   await page.screenshot({ path: out + '/browse.png' });
   await page.screenshot({ path: 'test-results/asset-layout-details.png' });

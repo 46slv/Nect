@@ -91,8 +91,6 @@ export function fontPickerItems(catalogs, node, options = {}) {
     const capability = fontPickerCapability(node, choice, options);
     const metadata = choice.metadata || {};
     const details = [
-      metadata.family || 'Unknown family',
-      metadata.subfamily || 'Unknown style',
       metadata.weightClass == null ? 'weight unknown' : `weight ${metadata.weightClass}`,
       choice.source === 'embedded'
         ? 'In document'
@@ -108,6 +106,7 @@ export function fontPickerItems(catalogs, node, options = {}) {
       label: choice.label,
       metadata,
       detail: details.join(' · '),
+      technicalIdentity: choice.id,
       disabled: !capability.route,
       disabledReason: capability.reason,
     };
@@ -126,12 +125,12 @@ export function fontPickerItems(catalogs, node, options = {}) {
     }
     return 0;
   });
-  const duplicates = new Set(
-    rows
-      .filter((row, i) => rows.some((other, j) => j < i && row.label === other.label))
-      .map((row) => row.label),
-  );
-  for (const row of rows) if (duplicates.has(row.label)) row.detail += ` · face ${row.choice.id}`;
+  // Opaque IDs are authoritative but are not useful row labels. Number same-name
+  // variants for display while keeping the exact ID available as optional detail.
+  for (const row of rows) {
+    const same = rows.filter((other) => other.label === row.label);
+    if (same.length > 1) row.detail += ` · Variant ${same.indexOf(row) + 1} of ${same.length}`;
+  }
   if (options.characterIds !== undefined && !node.osFont && !node.variation) {
     const choice = { source: 'embedded', id: '', label: 'Inherit default font' };
     const capability = fontChoiceCapability(node, choice, options);

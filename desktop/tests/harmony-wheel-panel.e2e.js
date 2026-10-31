@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -77,6 +78,11 @@ const pressNumber = async (locator) => {
   const box = await locator.boundingBox();
   assert.ok(box && box.width > 24 && box.height > 0);
   const point = { x: box.x + Math.min(14, box.width / 3), y: box.y + box.height / 2 };
+  assert.equal(
+    await locator.evaluate((el, p) => document.elementFromPoint(p.x, p.y) === el, point),
+    true,
+    `numeric control is reachable at its drag start: ${JSON.stringify({ box, point })}`,
+  );
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();
   return point;
@@ -164,12 +170,12 @@ const pinnedLayout = async (label) => {
     `${label}: status does not cover wheel`,
   );
   assert.ok(
-    result.swatches.bounds.top >= result.wheel.bounds.bottom - 0.5,
-    `${label}: colors follow wheel`,
+    result.swatches.bounds.left >= result.wheel.bounds.right - 0.5,
+    `${label}: vertical colors sit to the right of the wheel`,
   );
   assert.ok(
-    result.neutral.bounds.top >= result.swatches.bounds.bottom - 0.5,
-    `${label}: neutral track follows palette chips`,
+    result.neutral.bounds.top >= result.wheel.bounds.bottom - 0.5,
+    `${label}: neutral track follows wheel`,
   );
   assert.ok(
     result.parameters.top >= result.neutral.bounds.bottom - 0.5,
@@ -323,8 +329,10 @@ try {
   const primary = created.colorDesign.palette[0].id,
     secondary = created.colorDesign.palette[1].id;
   const baseRotation = created.colorDesign.wheel.hueRotation;
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${layer.id}"]`).click();
   await page.locator(`.graph .node[data-id="${fill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await page
     .locator(`.inspector-body [data-shared-color-binding][data-shared-color-node="${fill.id}"]`)
     .selectOption(primary);
@@ -381,6 +389,14 @@ try {
   await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
   const strength = page.locator('[data-chroma-strength]');
   const secondPoint = await pressNumber(strength);
+  const visibleWheel = await page.locator('.shared-colors-panel').evaluate((panel) => {
+    const wheel = panel.querySelector('.harmony-wheel').getBoundingClientRect();
+    const port = panel.getBoundingClientRect();
+    return (
+      wheel.width > 0 && wheel.height > 0 && wheel.top >= port.top && wheel.bottom <= port.bottom
+    );
+  });
+  assert.equal(visibleWheel, true, 'wheel remains visible while adjusting Colorfulness');
   const rotationOnly = await encoded();
   assert.equal((await snapshot()).colorDesign.wheel.hueRotation, 75);
   assert.equal((await snapshot()).colorDesign.colorfulness, created.colorDesign.colorfulness);

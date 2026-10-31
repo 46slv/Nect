@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { openArtworkPanel } from './helpers/artwork-panels.js';
 import { chromium } from 'playwright-core';
@@ -21,6 +22,8 @@ const edit = async (label, value) => {
   await input.press('Tab');
 };
 const click = async (selector) => {
+  if (/^\[data-(?:layer-guide|layer-lock|visible)/.test(selector))
+    await ensureWorkspacePanel(page, 'layers');
   if (selector.startsWith('[data-layout-')) await openArtworkPanel(page, 'layout-panel');
   if (/^\[data-(?:lock|select|add)-guide/.test(selector))
     await openArtworkPanel(page, 'guides-panel');

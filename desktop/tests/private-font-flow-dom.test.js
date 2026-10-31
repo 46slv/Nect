@@ -213,11 +213,34 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     /Font file missing/,
     'equal face names on a different file do not reattach the saved source',
   );
+  assert.match(q('.status .message').textContent, /Font file missing/);
+  await attach();
+  cancel();
+  assert.match(q('.inspector-body .text-font-choice').textContent, /attached for this session/);
+  assert.match(q('.status .message').textContent, /attached for this session/);
+  assert.equal(q('.status').classList.contains('error'), false);
+  assert.equal(snapshot(), saved, 'reattachment is view capability, not document history');
   win.nect.load(serialize(win.nect.document));
   select();
   await attach();
   cancel();
   assert.match(q('.inspector-body .text-font-choice').textContent, /attached for this session/);
+
+  // A newer unrelated status is not cleared by a matching reattachment.
+  win.nect.load(serialize(win.nect.document));
+  select();
+  const missingAgain = q('.inspector-body [data-os-text]');
+  missingAgain.value = 'Pending';
+  missingAgain.dispatchEvent(new win.Event('input', { bubbles: true }));
+  q('.inspector-body [data-apply-os-text]').click();
+  await tick();
+  q('.inspector-body [data-cancel-os-text]').click();
+  q('[data-action="snap"]').click();
+  const unrelated = q('.status .message').textContent;
+  assert.doesNotMatch(unrelated, /Font file missing/);
+  await attach();
+  cancel();
+  assert.equal(q('.status .message').textContent, unrelated);
 
   // A wrapper from another collection member cannot be committed, even if the
   // face descriptor is identical. Cancellation of the picker restores the UI.

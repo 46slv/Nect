@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
@@ -41,6 +42,7 @@ const view = () =>
     return [m.a, m.b, m.c, m.d, m.e, m.f];
   });
 const select = async (chosen = ids) => {
+  await ensureWorkspacePanel(page, 'layers');
   for (let i = 0; i < chosen.length; i++)
     await page
       .locator(`[data-select-layer="${chosen[i]}"]`)
@@ -196,6 +198,7 @@ try {
     // Open starts a new document Session. Repeating equal gaps must leave its
     // fresh History empty; the next authored nudge owns its own Undo/Redo.
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${ids[2]}"]`).click();
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');

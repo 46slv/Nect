@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -122,7 +123,9 @@ try {
   assert.equal((await state()).svg, second.svg);
   // Reload opens the preserved first layer; explicitly select the Text layer/node.
   const textLayer = await page.evaluate(() => window.nect.document.layers.at(-1).id);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${textLayer}"]`).click();
+  await ensureWorkspacePanel(page, 'inspector');
   await page
     .locator('.node-head strong')
     .filter({ hasText: /^Text$/ })

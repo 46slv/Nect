@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import {
   loadArtworkProject,
@@ -21,7 +22,11 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const snapshot = () => artworkDocumentSnapshot(page),
   load = (doc) => loadArtworkProject(page, doc),
-  select = (id) => page.locator(`[data-select-layer="${id}"]`).click(),
+  select = async (id) => {
+    await ensureWorkspacePanel(page, 'layers');
+    await page.locator(`[data-select-layer="${id}"]`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+  },
   click = (action) => activateCommand(page, action),
   duplicate = () => page.locator('[data-duplicate-artwork]'),
   stage = () => page.locator('.canvas-stage'),
@@ -309,6 +314,7 @@ try {
   assert.equal(await snapshot(), before);
   await stage().dispatchEvent('compositionend');
   assert.equal(await duplicate().isEnabled(), true);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${f.layer.id}"]`).press('F2');
   assert.equal(await duplicate().isDisabled(), true);
   await force();

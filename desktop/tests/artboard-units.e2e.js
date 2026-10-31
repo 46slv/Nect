@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { join } from 'node:path';
@@ -152,6 +153,7 @@ const page = await pageContext.newPage();
 await pageContext.addInitScript(captureBrowserDownloads);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await ensureWorkspacePanel(page, 'layers');
   await page.waitForSelector('[data-artboard-unit]');
   const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
   const original = await saved();
@@ -261,6 +263,7 @@ try {
   try {
     const dpr2Page = await dpr2Context.newPage();
     await dpr2Page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+    await ensureWorkspacePanel(dpr2Page, 'layers');
     await dpr2Page.waitForSelector('[data-artboard-unit]');
     await dpr2Page.evaluate((doc) => window.nect.load(doc), exportDocument);
     const dpr2 = await exportPngAndInspect(dpr2Page, 2);

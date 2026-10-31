@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
@@ -129,9 +130,11 @@ try {
   assert.notDeepEqual(await center(), before);
   await page.locator('[data-action="undo"]').click();
   assert.deepEqual(await center(), before);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-lock="${ids.l}"]`).click();
   await drag();
   assert.deepEqual(await center(), before);
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-layer-lock="${ids.l}"]`).click();
   for (const [action, ext] of [
     ['save', 'json'],

@@ -113,6 +113,16 @@ try {
   await openFile(file);
   await picker().waitFor();
   await chooseIndex(1);
+  const displayRows = picker().locator(`.picker-option[data-id*="${hash}"]`);
+  assert.equal(await displayRows.count(), 2);
+  for (const row of await displayRows.all()) {
+    assert.equal(await row.locator(':scope > span').innerText(), 'Regular');
+    assert.doesNotMatch(await row.innerText(), new RegExp(hash));
+    assert.equal(await row.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
+  }
+  const technical = picker().locator('.font-technical-details');
+  assert.equal(await technical.getAttribute('open'), null);
+  assert.match(await technical.locator('code').textContent(), new RegExp(hash));
   await fs.mkdir('test-results', { recursive: true });
   await page.screenshot({ path: 'test-results/workflow-private-font-picker.png' });
   await page.evaluate(() => {
@@ -180,6 +190,11 @@ try {
     .getByRole('status')
     .filter({ hasText: /attached/i })
     .waitFor();
+  assert.match(await page.locator('.status .message').innerText(), /attached for this session/i);
+  assert.equal(
+    await page.locator('.status').evaluate((el) => el.classList.contains('error')),
+    false,
+  );
   await page.screenshot({ path: 'test-results/workflow-private-font-reattached.png' });
   assert.equal(await snapshot(), applied);
 

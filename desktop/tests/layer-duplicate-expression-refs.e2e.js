@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -37,6 +38,7 @@ try {
     });
     const before = await saved();
     const row = page.locator('.layer[data-layer="expression-layer"]');
+    await ensureWorkspacePanel(page, 'layers');
     await row.focus();
     for (const key of keys) await page.keyboard.press(key);
     await page.waitForFunction(() => window.nect.document.layers.length === 2);

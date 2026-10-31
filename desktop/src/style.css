@@ -1,9 +1,25 @@
+@font-face {
+  font-family: 'IBM Plex Sans JP';
+  src: url('/fonts/ibm-plex-sans-jp/IBMPlexSansJP-Light.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Sans JP';
+  src: url('/fonts/ibm-plex-sans-jp/IBMPlexSansJP-Regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
 :root {
-  font-family:
-    Inter,
-    Segoe UI,
-    system-ui,
-    sans-serif;
+  /* UI typography is a replaceable interface role, never artwork font data. */
+  --ui-font-family: 'IBM Plex Sans JP', 'Segoe UI', system-ui, sans-serif;
+  --ui-font-weight-base: 300;
+  --ui-font-weight-medium: 400;
+  --ui-font-weight-strong: 400;
+  font-family: var(--ui-font-family);
+  font-weight: var(--ui-font-weight-base);
   color: #20252b;
   background: #f7f8f9;
   font-size: 12px;
@@ -30,6 +46,26 @@ select,
 textarea {
   font: inherit;
   color: inherit;
+}
+strong,
+b,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: var(--ui-font-weight-medium);
+}
+h1,
+h2 {
+  font-weight: var(--ui-font-weight-base);
+}
+/* Small functional labels keep a readable real Regular face. */
+small,
+.muted,
+.font-note,
+.field label,
+.panel-head strong {
+  font-weight: var(--ui-font-weight-medium);
 }
 button,
 select,
@@ -222,7 +258,7 @@ header {
   padding: 6px 10px;
 }
 .text-tool-menu [aria-checked='true'] {
-  font-weight: bold;
+  font-weight: var(--ui-font-weight-strong);
   box-shadow: inset 3px 0 currentColor;
 }
 .middle {
@@ -762,6 +798,9 @@ header {
   touch-action: none;
   user-select: none;
   text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .layer button {
   font-size: 10px;
@@ -789,7 +828,7 @@ header {
   gap: 6px;
 }
 .alignment-heading strong {
-  font-weight: 600;
+  font-weight: var(--ui-font-weight-medium);
 }
 .alignment-heading output {
   flex: 1;
@@ -2087,7 +2126,10 @@ input[data-scrub-step].scrubbing {
   gap: 1px;
   background: #aab5c1;
 }
-.canvas-wrap[data-viewer-mode='viewers'] > :not(.viewer-tabs):not(.node-viewers) {
+.canvas-wrap[data-viewer-mode='viewers']
+  > :not(.viewer-tabs):not(.node-viewers):not(.tools):not(.workspace-drawer):not(
+    .workspace-panel-bar
+  ) {
   display: none;
 }
 .canvas-wrap[data-viewer-mode='viewers'] > .node-viewers {
@@ -2683,6 +2725,17 @@ input[data-scrub-step].scrubbing {
   display: flex;
   gap: 4px;
 }
+.asset-library-metadata {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 4px;
+}
+.asset-library-metadata summary {
+  cursor: pointer;
+}
+.asset-library-metadata label {
+  margin-top: 6px;
+}
 .asset-library input:focus-visible,
 .asset-library button:focus-visible,
 .asset-library select:focus-visible {
@@ -2945,7 +2998,7 @@ input[data-scrub-step].scrubbing {
 [data-wheel-marker] text {
   fill: #182434;
   font-size: 7px;
-  font-weight: 700;
+  font-weight: var(--ui-font-weight-strong);
   pointer-events: none;
 }
 .harmony-wheel-settings label,
@@ -3140,7 +3193,7 @@ input[data-color-scrub-step] {
 }
 .color-advanced > summary {
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--ui-font-weight-medium);
 }
 
 .chroma-draft-bar.chroma-live-status {
@@ -3157,4 +3210,387 @@ input[data-color-scrub-step] {
 .harmony-coverage-status {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+/* Workspace drawers overlay only the Artboard viewport; graph and stage never reflow. */
+.workspace,
+.workspace.has-workspace-panels,
+.workspace.has-workspace-assets {
+  grid-template-columns: 48px minmax(0, 1fr);
+}
+.workspace-drawer {
+  position: absolute;
+  z-index: 12;
+  right: 46px;
+  width: min(340px, calc((100% - 112px) / 2));
+  min-width: 0;
+  overflow: auto;
+  background: #f8fafb;
+  border: 1px solid #b8c4cc;
+  box-shadow: 0 4px 16px #24394724;
+}
+.workspace-drawer-left {
+  left: 46px;
+  right: auto;
+}
+.workspace-drawer[hidden],
+.workspace-drawer [hidden],
+.asset-library[hidden] {
+  display: none !important;
+}
+.workspace-drawer > .layers,
+.workspace-drawer > .inspector,
+.workspace-drawer > .alignment-panel,
+.workspace-drawer > .shared-colors-panel {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
+  border: 0;
+}
+.workspace-drawer > .shared-colors-panel:has(.harmony-wheel) {
+  overflow: hidden;
+}
+.workspace-asset-slot {
+  height: 100%;
+}
+.workspace-panel-bar {
+  position: absolute;
+  z-index: 13;
+  width: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+}
+.workspace-panel-bar-left {
+  left: 0;
+}
+.workspace-panel-bar-right {
+  right: 0;
+}
+.workspace-panel-bar svg {
+  position: absolute;
+  width: 100%;
+  height: min(228px, 100%);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  fill: #e2e9ed;
+  stroke: #b2c0ca;
+  stroke-width: 0.8;
+}
+.workspace-panel-bar-right svg {
+  transform: translateY(-50%) scaleX(-1);
+}
+.workspace-panel-bar button {
+  z-index: 1;
+  position: relative;
+  flex: 0 0 40px;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: #344c5b;
+  background: transparent;
+  font-size: 17px;
+}
+.workspace-panel-bar-left button {
+  align-self: flex-start;
+}
+.workspace-panel-bar-right button {
+  align-self: flex-end;
+}
+.workspace-panel-bar button:hover,
+.workspace-panel-bar button:focus-visible,
+.workspace-panel-bar button[aria-pressed='true'] {
+  background: #c5d5de;
+}
+.asset-library.asset-library-docked {
+  z-index: 14;
+}
+@media (max-width: 1000px) {
+  .workspace,
+  .workspace.has-workspace-panels,
+  .workspace.has-workspace-assets {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workspace-panel-bar button {
+    transition: none;
+  }
+}
+
+/* Keep the signature contour and every visible control within its center bulge. */
+.workspace-panel-bar {
+  width: 58px;
+}
+.workspace-panel-bar button {
+  flex-basis: 30px;
+  width: 30px;
+  min-height: 30px;
+  font-size: 14px;
+}
+.workspace-panel-bar-left button {
+  margin-left: 3px;
+}
+.workspace-panel-bar-right button {
+  margin-right: 3px;
+}
+.workspace-drawer {
+  right: 42px;
+}
+.workspace-drawer-left {
+  left: 42px;
+  right: auto;
+}
+.artboard-settings {
+  padding: 12px 10px;
+  border-top: 1px solid var(--line);
+}
+.artboard-settings h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+}
+.artboard-settings p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 92px);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: 5px 8px;
+}
+.workspace-drawer-left .harmony-wheel-panel {
+  display: contents;
+}
+.workspace-drawer-left .chroma-draft-bar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+.workspace-drawer-left .harmony-wheel {
+  grid-column: 1;
+  grid-row: 2;
+  width: min(100%, 190px);
+  height: auto;
+}
+.workspace-drawer-left .harmony-palette-swatches {
+  grid-column: 2;
+  grid-row: 2 / 6;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  align-self: stretch;
+}
+.workspace-drawer-left .harmony-palette-swatches button {
+  flex: 0 0 auto;
+  width: 100%;
+}
+.workspace-drawer-left .harmony-neutral-lane {
+  grid-column: 1;
+  grid-row: 3;
+}
+.workspace-drawer-left .harmony-coverage-status {
+  grid-column: 1;
+  grid-row: 4;
+}
+.workspace-drawer-left .chroma-settings-scroll {
+  grid-column: 1;
+  grid-row: 5;
+}
+/* Preserve a usable settings viewport at short splits. The wheel scales with
+   available stage height; if even that cannot fit, the panel itself scrolls. */
+.workspace-drawer > .shared-colors-panel:has(.harmony-wheel) {
+  overflow: auto;
+}
+.workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) > header {
+  min-height: 28px;
+  padding: 0;
+}
+.workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
+  --workspace-wheel-size: min(190px, max(72px, calc(var(--drawer-height, 500px) * 0.28)));
+  flex: 1 1 0;
+  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(60px, 1fr);
+  gap: 3px 8px;
+}
+.workspace-drawer-left .harmony-wheel {
+  width: min(100%, var(--workspace-wheel-size));
+}
+.workspace-drawer-left .harmony-neutral-lane {
+  margin-top: 0;
+}
+/* The creation rail belongs to the upper surface, not the full-width graph. */
+.workspace,
+.workspace.has-workspace-panels,
+.workspace.has-workspace-assets {
+  display: block;
+}
+.workspace > .middle {
+  height: 100%;
+}
+.canvas-wrap {
+  padding-left: 48px;
+}
+.canvas-wrap > .tools {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  z-index: 3;
+}
+.canvas-wrap > .canvas-toolbar {
+  left: 60px;
+}
+.workspace-panel-bar {
+  overflow: hidden;
+}
+.workspace-panel-bar svg {
+  height: 228px;
+}
+.workspace-panel-bar-left {
+  left: var(--stage-left, 48px);
+}
+.workspace-panel-bar-right {
+  right: var(--stage-right, 0px);
+}
+.workspace-drawer {
+  right: calc(var(--stage-right, 0px) + 58px);
+  width: min(340px, calc((var(--stage-width, 100%) - 132px) / 2));
+}
+.workspace-drawer-left {
+  left: calc(var(--stage-left, 48px) + 58px);
+  right: auto;
+}
+@media (max-width: 1000px) {
+  .canvas-wrap {
+    padding-left: 44px;
+  }
+  .canvas-wrap > .tools {
+    width: 44px;
+  }
+  .canvas-wrap > .canvas-toolbar {
+    left: 56px;
+  }
+}
+.workspace-drawer[data-active-panel='inspector'] {
+  width: min(480px, calc((var(--stage-width, 100%) - 132px) / 2));
+}
+.workspace-panel-bar button:focus-visible {
+  outline-offset: -2px;
+}
+/* Font family headings carry the family; child rows show real style labels. */
+.search-panel[aria-label='Font'] .picker-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 2px 8px;
+  align-items: start;
+}
+.search-panel[aria-label='Font'] .picker-option > span,
+.search-panel[aria-label='Font'] .picker-option > small {
+  grid-column: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.search-panel[aria-label='Font'] .picker-option > small {
+  grid-row: 2;
+}
+.search-panel[aria-label='Font'] .picker-star {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.font-technical-details {
+  padding: 4px 12px;
+  color: var(--muted);
+}
+.font-technical-details code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+/* Keep intrinsic graph content from widening the top-level viewport. */
+#app {
+  grid-template-columns: minmax(0, 1fr);
+}
+.workspace {
+  min-width: 0;
+  width: 100%;
+}
+.workspace > .middle {
+  width: 100%;
+  min-width: 0;
+}
+.graph-panel,
+.graph-body,
+.graph-scroll {
+  min-width: 0;
+}
+
+/* Empty rail geometry is not an invisible hit surface. */
+.workspace-panel-bar {
+  pointer-events: none;
+}
+.workspace-panel-bar button {
+  pointer-events: auto;
+}
+/* A single quiet viewport grid remains uniform beyond the node-space extent. */
+.graph-scroll {
+  background-color: #edf1f4;
+  background-image: radial-gradient(#bdcbd5 0.7px, transparent 0.7px);
+  background-size: 16px 16px;
+}
+.graph {
+  background-image: none;
+}
+/* Canvas view popovers start inside the working area, beyond the edge trigger. */
+.canvas-wrap > .guides-panel {
+  left: calc(var(--stage-left, 48px) + 58px);
+  top: var(--drawer-top, 80px);
+  max-height: calc(100% - var(--drawer-top, 80px) - 8px);
+}
+/* When the split is very short, all creation tools remain reachable. */
+.canvas-wrap > .tools {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Drawer surfaces meet their edge controls rather than floating as cards. */
+.workspace-drawer {
+  box-sizing: border-box;
+  right: var(--stage-right, 0px);
+  width: min(398px, calc((var(--stage-width, 100%) - 16px) / 2));
+  padding-right: 58px;
+  border: 0;
+  box-shadow: none;
+}
+.workspace-drawer-left {
+  left: var(--stage-left, 48px);
+  right: auto;
+  padding-right: 0;
+  padding-left: 58px;
+}
+.workspace-drawer[data-active-panel='inspector'] {
+  width: min(538px, calc((var(--stage-width, 100%) - 16px) / 2));
+}
+.graph-scroll {
+  background-image: radial-gradient(#9eafbb 1px, transparent 1px);
+}
+#app > header {
+  gap: 4px;
+  padding-inline: 10px;
+}
+
+/* A short split retains the full, usable edge controls and a graph below. */
+.canvas-wrap {
+  min-height: 320px;
+}
+.workspace-panel-bar[hidden] {
+  display: none !important;
 }

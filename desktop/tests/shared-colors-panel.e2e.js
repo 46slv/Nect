@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -51,8 +52,10 @@ const openAdvanced = async () => {
 };
 const documentSnapshot = () => page.evaluate(() => window.nect.document);
 const inspectTarget = async () => {
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${target.layer.id}"]`).click();
   await page.locator(`.graph .node[data-id="${target.fill.id}"] .node-head strong`).click();
+  await ensureWorkspacePanel(page, 'inspector');
 };
 const field = () =>
   page.locator(`.inspector-body .field[data-node="${target.fill.id}"][data-key="color"]`);
@@ -146,10 +149,13 @@ const assertAssetRetained = async () => {
     true,
     'color edits and rendering retain the mounted Assets panel',
   );
+  const panel = page.locator('[data-asset-library]');
   assert.equal(
-    await page.getByRole('searchbox', { name: 'Search assets', exact: true }).inputValue(),
-    'retained-search',
+    await panel.isVisible(),
+    false,
+    'Assets is suspended while Colors owns the left drawer',
   );
+  assert.equal(await panel.locator('[data-asset-search]').inputValue(), 'retained-search');
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
@@ -284,20 +290,26 @@ try {
     const geometry = await page.evaluate(() => {
       const rect = (selector) => {
         const r = document.querySelector(selector).getBoundingClientRect();
-        return { x: r.x, right: r.right, width: r.width, height: r.height };
+        return { x: r.x, y: r.y, right: r.right, width: r.width, height: r.height };
       };
       return {
         colors: rect('.shared-colors-panel'),
         canvas: rect('.canvas-stage'),
         inspector: rect('.inspector'),
+        graph: rect('.graph-scroll'),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
     assert.equal(geometry.overflow, false, `no document overflow at ${width}`);
     assert.ok(geometry.colors.width > 0 && geometry.colors.height >= 76);
     assert.ok(
-      geometry.colors.x >= geometry.canvas.right - 1,
-      `colors do not cover artwork at ${width}`,
+      geometry.colors.x >= geometry.canvas.x - 1 &&
+        geometry.colors.right <= geometry.canvas.right + 1,
+      `colors remain within the artboard surface at ${width}`,
+    );
+    assert.ok(
+      geometry.colors.y + geometry.colors.height <= geometry.graph.y + 1,
+      `colors do not cover the graph at ${width}`,
     );
     assert.ok(geometry.canvas.width > 0 && geometry.inspector.height >= 120);
     assert.equal(await launcher.isVisible(), true);
@@ -414,7 +426,7 @@ try {
     fullPage: false,
   });
   await page.getByRole('button', { name: 'Close Shared colors', exact: true }).click();
-  assert.equal(await page.locator('.shared-colors-panel').count(), 0);
+  assert.equal(await page.locator('.shared-colors-panel').isVisible(), false);
   assert.equal(await launcher.getAttribute('aria-pressed'), 'false');
   assert.equal(await launcher.evaluate((el) => el === document.activeElement), true);
   assert.equal(await saved(), afterChroma, 'closing an idle live panel does not author state');

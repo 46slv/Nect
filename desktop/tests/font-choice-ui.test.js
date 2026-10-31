@@ -55,7 +55,9 @@ test('one list preserves all exact identities and sorts family/real style determ
     fontPickerItems({ ...catalogs, embedded: [...catalogs.embedded].reverse() }, text()),
     rows,
   );
-  assert.match(rows[0].detail, /face a/);
+  assert.match(rows[0].detail, /Variant/);
+  assert.equal(rows[0].technicalIdentity, rows[0].choice.id);
+  assert.doesNotMatch(rows[0].detail, /face a/);
   assert.deepEqual(catalogs, before);
 });
 
@@ -199,4 +201,32 @@ test('family disclosures keep exact source identity, real child styles and unkno
   assert.equal(groups.filter((g) => !g.known).length, 2);
   assert.equal(new Set(groups.flatMap((g) => g.itemIds)).size, rows.length);
   assert.deepEqual(groups.flatMap((g) => g.itemIds).sort(), rows.map((r) => r.id).sort());
+});
+
+test('same-name file members remain exact choices without opaque identity in ordinary rows', () => {
+  const files = [
+    {
+      token: 'process-only',
+      sha256: 'a'.repeat(64),
+      faces: [
+        { faceIndex: 0, face },
+        { faceIndex: 1, face },
+      ],
+    },
+  ];
+  const rows = fontPickerItems(fontPickerCatalogs({ fileNative: files }), text()).filter(
+    (row) => row.choice.source === 'file-native',
+  );
+  assert.equal(rows.length, 2);
+  assert.notEqual(rows[0].id, rows[1].id);
+  assert.deepEqual(
+    rows.map((row) => row.metadata.subfamily),
+    [face.name, face.name],
+  );
+  assert.match(rows[0].detail, /Variant 1 of 2/);
+  assert.match(rows[1].detail, /Variant 2 of 2/);
+  for (const row of rows) {
+    assert.doesNotMatch(row.detail, /a{64}|process-only/);
+    assert.match(row.technicalIdentity, /a{64}/);
+  }
 });

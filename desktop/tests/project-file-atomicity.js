@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { blankDocument, node, serialize } from '../src/core.js';
@@ -92,8 +93,10 @@ export async function verifyProjectFileAtomicity(page) {
     const future = await project();
     await activateCommand(page, 'undo');
     assert.deepEqual(await project(), before);
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${f.layer.id}"]`).click();
     await page.locator(`.node[data-id="${f.path.id}"] .node-head strong`).click();
+    await ensureWorkspacePanel(page, 'inspector');
     await page.locator('[data-tool="direct"]').click();
     await page
       .locator(`.inspector [data-point-panel="${f.path.id}"] [data-point-scope-action="all"]`)

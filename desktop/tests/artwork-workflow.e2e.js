@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
@@ -160,6 +161,7 @@ try {
       before = await saved(),
       origin = await position(first);
     const point = kind === 'transform' ? [250, 250] : [200, 200];
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
     await page.locator(`.node[data-id="${first.nodeId}"] .node-head strong`).click();
     const hitPoint = await screen(point);
@@ -198,6 +200,7 @@ try {
       );
     await page.locator('[data-action="undo"]').click();
     assert.equal(await saved(), before);
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
     await page.locator('.canvas-stage').focus();
     await page.keyboard.press('ArrowRight');
@@ -226,6 +229,7 @@ try {
   }
   // Capture ordinary final-artwork selection separately from the intentional handle-overlap fixture.
   const practical = await loadFixture();
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${practical.first.layerId}"]`).click();
   await page.locator('.canvas-stage').focus();
   await page.keyboard.press('ArrowRight');
@@ -244,7 +248,10 @@ try {
   for (const kind of ['repeater', 'gradient', 'locked', 'driven']) {
     const { first } = await loadFixture(kind),
       before = await saved();
+    await ensureWorkspacePanel(page, 'layers');
     await page.locator(`[data-select-layer="${first.layerId}"]`).click();
+    await ensureWorkspacePanel(page, 'inspector');
+    assert.equal(await page.locator('.artwork-move-status').isVisible(), true);
     assert.match(
       await page.locator('.artwork-move-status').innerText(),
       {
@@ -262,6 +269,7 @@ try {
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
   }
   const { first } = await loadFixture('transform');
+  await ensureWorkspacePanel(page, 'layers');
   await page.locator(`[data-select-layer="${first.layerId}"]`).click();
   await page.locator(`.node[data-id="${first.nodeId}"] .node-head strong`).click();
   assert.match(await page.locator('.hint').innerText(), /Node · Rectangle/);
