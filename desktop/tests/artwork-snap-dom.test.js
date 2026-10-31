@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -208,6 +209,7 @@ const app =`,
   up();
   assert.equal(saved(), before, 'pan owns marker gestures');
   // Changing a target's visibility refreshes the cached target snapshot immediately.
+  openDOMPanel(document, 'layers');
   document.querySelector('[data-visible="layer-snap-reference"]').click();
   flush();
   start();

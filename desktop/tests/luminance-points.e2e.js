@@ -47,9 +47,9 @@ try {
     if (!/^(http:\/\/127\.0\.0\.1:|data:|blob:)/.test(r.url())) external.push(r.url());
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
 
   const points = doc.layers[0].nodes.find((n) => n.type === 'Luminance to Points');

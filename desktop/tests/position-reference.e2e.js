@@ -15,9 +15,9 @@ const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } }),
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   const example = await fs.readFile('examples/right-aligned-typography-group.json', 'utf8');
   await page.evaluate((s) => window.nect.load(s), example);
   const id = await page.evaluate(() => window.nect.document.layers[0].nodes[0].id);

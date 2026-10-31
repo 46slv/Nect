@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -350,6 +351,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     },
   );
   await t.test('+Blank appends from locked hidden artwork and preserves selection history', () => {
+    openDOMPanel(document, 'layers');
     const d = seed();
     d.layers[0].locked = true;
     d.layers[0].visible = false;
@@ -403,6 +405,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
   await t.test(
     '+Blank cancels live source/graph/wire gestures before switching layer scope',
     () => {
+      openDOMPanel(document, 'layers');
       for (const kind of ['source', 'node', 'wire', 'pan']) {
         load(seed());
         const before = saved(),
@@ -449,6 +452,7 @@ test('New and explicit blank compositions are safe empty artwork entry points', 
     },
   );
   await t.test('+Blank capacity failure is atomic in document, history and UI selection', () => {
+    openDOMPanel(document, 'layers');
     const d = seed();
     while (d.layers.length < 100) appendBlankComposition(d);
     load(d);

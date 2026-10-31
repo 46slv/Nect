@@ -45,8 +45,8 @@ try {
   } else {
     page = await browser.newPage({ viewport: { width: 1469, height: 827 } });
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`);
-  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
-  await ensureWorkspacePanel(page, 'inspector');
+    // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+    await ensureWorkspacePanel(page, 'inspector');
   }
   page.on('pageerror', (e) => errors.push(e.message));
   await page.waitForFunction(

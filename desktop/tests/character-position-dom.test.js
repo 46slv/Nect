@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -85,7 +86,10 @@ test('Character position UI: transformed selection/drag, mixed fields, cancel, l
     el.dispatchEvent(
       new win.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key, ...extra }),
     );
-  const mode = () => document.querySelector('[data-character-mode]').click();
+  const mode = () => {
+    openDOMPanel(document, 'inspector');
+    document.querySelector('[data-character-mode]').click();
+  };
   const stage = () => document.querySelector('.canvas-stage');
   const pos = (index) => {
     const result = win.nect.evaluate(),

@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import { translateArtworkTargets } from '../src/artwork-multi-move.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -166,6 +167,7 @@ test('Curve movement budget and fresh synchronous resolution stay explicit', asy
       const before = committedCurve(),
         id = before.layers.at(-1).id;
       let calls = win.curveResolveCalls;
+      openDOMPanel(document, 'layers');
       click(`[data-select-layer="${id}"]`);
       assert.equal(win.curveResolveCalls - calls, 1);
       calls = win.curveResolveCalls;
@@ -202,6 +204,7 @@ test('Curve movement budget and fresh synchronous resolution stay explicit', asy
         n.collapsed = true;
       });
       load(d);
+      openDOMPanel(document, 'layers');
       click(`[data-select-layer="${l.id}"]`);
       assert.match($('.artwork-move-status').textContent, /128 anchors.*graph Curve.*Save\/export/);
       const before = saved(),

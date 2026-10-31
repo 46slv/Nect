@@ -100,9 +100,9 @@ const chooseIndex = async (index) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   await page.evaluate((contents) => window.nect.load(contents), serialize(doc));
   await selectText();
   const before = await snapshot();

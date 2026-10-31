@@ -1,3 +1,4 @@
+import { openDOMPanel, revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -46,9 +47,10 @@ test('placed node group controls share Session history and stable graph identiti
     fire(document, 'pointerup');
   };
   const open = () => {
+    revealDOMBoundary(document, 'graph');
     const d = $('[data-node-groups]');
-    d.open = true;
-    d.dispatchEvent(new win.Event('toggle'));
+    if (!d.open) d.querySelector('summary').click();
+    assert.equal(d.open, true, 'Groups disclosure opens');
   };
   const change = (el, value) => {
     el.value = value;
@@ -245,6 +247,7 @@ test('placed node group controls share Session history and stable graph identiti
       name('A');
       act('create');
       const switched = action('ungroup').cloneNode(true);
+      openDOMPanel(document, 'layers');
       $(`[data-select-layer="${other.id}"]`).click();
       assert.equal($('[data-node-group-select]').options.length, 1);
       const next = checkpoint();

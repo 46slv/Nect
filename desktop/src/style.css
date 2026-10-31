@@ -4200,12 +4200,12 @@ input[data-color-scrub-step] {
 @supports (transition-behavior: allow-discrete) {
   .workspace-drawer[data-motion-enabled='true'][hidden]::before,
   .workspace-drawer-left[data-motion-enabled='true'][hidden]::before {
-    transform: scaleX(.96);
+    transform: scaleX(0.96);
   }
   @starting-style {
     .workspace-drawer[data-motion-enabled='true']::before,
     .workspace-drawer-left[data-motion-enabled='true']::before {
-      transform: scaleX(.96);
+      transform: scaleX(0.96);
     }
   }
 }
@@ -4282,6 +4282,8 @@ input[data-color-scrub-step] {
   border-radius: 6px;
   background: var(--surface-popover);
   box-shadow: 0 5px 16px #26374722;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .boundary-group-content .node-group-fields,
 .boundary-group-content .node-group-actions {

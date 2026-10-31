@@ -20,9 +20,9 @@ const field = (id, key) =>
 const saved = () => page.evaluate(() => JSON.stringify(window.nect.document));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await loadDemoFixture(page);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await loadDemoFixture(page);
   await page.waitForSelector('.shape');
   await page.locator('#add-node').selectOption('Closed Path Offset');
   const added = await page.evaluate(

@@ -123,11 +123,11 @@ test('Error Diffusion Dither picker, luminance fields and guidance are available
   query('[data-action="undo"]').click();
   await tick();
   assert.deepEqual(savedNode().params.gridOrigin.value, [8, 0]);
-  const bypass = query(`[data-bypass="${screen.id}"]`);
+  const bypass = query(`.graph [data-bypass="${screen.id}"]`);
   assert.equal(bypass.disabled, false);
   bypass.click();
   assert.equal(savedNode().bypassed, true);
-  query(`[data-bypass="${screen.id}"]`).click();
+  query(`.graph [data-bypass="${screen.id}"]`).click();
   assert.equal(savedNode().bypassed, undefined);
   win.happyDOM.abort();
 });

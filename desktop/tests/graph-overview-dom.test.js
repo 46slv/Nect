@@ -1,3 +1,4 @@
+import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -118,9 +119,10 @@ test('graph overview navigation is view-only, measured, guarded and cancellable'
   win.nect.load(serialize(doc));
   // Outside Graph clicks dismiss Canvas popovers and replace their layout.
   // Close the unrelated Align panel before installing per-element geometry mocks.
-  if ($('.alignment-panel')) click('align-panel');
+  if ($('[data-workspace-panel=align]')?.getAttribute('aria-expanded') === 'true') $('[data-workspace-panel=align]').click();
   setup();
   assert.equal($('.graph-overview').hidden, true);
+  revealDOMBoundary(document, 'graph');
   click('graph-overview');
   assert.equal($('.graph-overview').hidden, false);
   assert.equal($('[data-action="graph-overview"]').getAttribute('aria-expanded'), 'true');

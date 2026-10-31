@@ -15,9 +15,9 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   await fs.mkdir('test-results', { recursive: true });
   // Regression for a render crash after committing an unconnected Mask.
   // Use real keyboard and pointer events, not a direct create-node command.

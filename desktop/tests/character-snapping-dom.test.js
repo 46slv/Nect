@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -150,6 +151,7 @@ test('same-Text ink alignment and paired equal gaps: transformed offsets, zoom, 
     ),
   );
   const mode = () => {
+    openDOMPanel(document, 'inspector');
     document.querySelector('[data-character-mode]').click();
     flush();
   };

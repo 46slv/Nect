@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -96,6 +97,7 @@ test('Text outline conversion, contained units and Alt handles through DOM', asy
     doc.layers[0].locked = locked;
     win.nect.load(serialize(doc));
     clickNode(a.id);
+    openDOMPanel(document, 'inspector');
   };
   const live = () => win.nect.document.layers[0].nodes.find((n) => n.id === a.id);
   const snapshot = () => serialize(win.nect.document);
@@ -137,9 +139,10 @@ test('Text outline conversion, contained units and Alt handles through DOM', asy
     reset('Curve');
     const [p, q] = live().points;
     pick(p);
+    openDOMPanel(document, 'inspector');
     const input = panel().querySelector(`[data-key="${p.id}.position"] input[data-axis="0"]`);
     input.focus();
-    assert.equal(document.activeElement, input);
+    assert.equal(document.activeElement === input, true, 'point input receives focus');
     const before = snapshot();
     fire(anchor(q), 'pointerdown', ...q.position.value);
     assert.ok(document.activeElement.classList.contains('canvas-stage'));

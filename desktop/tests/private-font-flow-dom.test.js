@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -145,6 +146,7 @@ const desktop = true, releaseProject = async () => {}, writeProject = async () =
     );
   };
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   select();
   const snapshot = () => JSON.stringify(win.nect.document);
   const live = () => win.nect.document.layers[0].nodes.find((n) => n.id === text.id);

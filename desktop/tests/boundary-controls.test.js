@@ -37,7 +37,9 @@ test('boundary disclosures retain real controls and keep hidden content inert', 
   assert.equal(graphExtras.hidden && graphExtras.inert, true);
   assert.equal(window.document.activeElement, view);
   assert.equal(view.getAttribute('aria-expanded'), 'true');
-  view.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  view.dispatchEvent(
+    new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  );
   assert.equal(view.getAttribute('aria-expanded'), 'false');
   assert.equal(window.document.activeElement, view);
   app.querySelector('.canvas-wrap').dataset.viewerMode = 'viewers';

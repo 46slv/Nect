@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -393,6 +394,7 @@ test('node header context actions through real DOM handlers', async (t) => {
         third = blankLayer('Third');
       doc.layers.push(second, third);
       win.nect.load(serialize(doc));
+      openDOMPanel(document, 'layers');
       const selectLayer = (id, shiftKey = false) =>
         fire($(`[data-select-layer="${id}"]`), 'click', 0, 0, { shiftKey });
       const openLayer = (id) =>

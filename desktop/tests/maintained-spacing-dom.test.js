@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -85,6 +86,7 @@ test('maintained ink gap inspector applies, preserves typography editability, sc
     field.dispatchEvent(new win.Event('change', { bubbles: true }));
   };
   const mode = (ids = ['c1']) => {
+    openDOMPanel(document, 'inspector');
     document.querySelector('[data-character-mode]').click();
     select(ids);
   };

@@ -7,34 +7,49 @@ export function ensureBoundaryControls(app, document) {
   if (!scope) {
     scope = { graphOpen: false, viewOpen: false, presetOpen: false };
     scopes.set(app, scope);
-    document.addEventListener('keydown', (event) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.target.closest?.('dialog[open], input, textarea, select, [contenteditable="true"]') || document.querySelector('.guides-panel')) return;
-      const toolbar = event.target.closest?.('.graph-toolbar, .canvas-toolbar');
-      if (!toolbar || !scope.graphToggle || !scope.viewToggle) return;
-      const groups = scope.graphToolbar.querySelector('[data-node-groups]');
-      if (toolbar === scope.graphToolbar && groups?.open) {
-        groups.open = false;
-        groups.querySelector('summary')?.focus({ preventScroll: true });
-      } else if (toolbar === scope.graphToolbar && scope.preset?.open) {
-        scope.preset.open = false;
-        scope.presetSummary.focus({ preventScroll: true });
-      } else if (toolbar === scope.graphToolbar && scope.graphOpen) {
-        scope.graphOpen = false;
-        scope.sync();
-        scope.graphToggle.focus({ preventScroll: true });
-      } else if (toolbar === scope.canvasToolbar && scope.viewOpen) {
-        scope.viewOpen = false;
-        scope.sync();
-        scope.viewToggle.focus({ preventScroll: true });
-      } else return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
+    document.defaultView.addEventListener('resize', () => scope.reposition?.());
+    document.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          event.key !== 'Escape' ||
+          event.defaultPrevented ||
+          event.isComposing ||
+          event.target.closest?.(
+            'dialog[open], input, textarea, select, [contenteditable="true"]',
+          ) ||
+          document.querySelector('.guides-panel')
+        )
+          return;
+        const toolbar = event.target.closest?.('.graph-toolbar, .canvas-toolbar');
+        if (!toolbar || !scope.graphToggle || !scope.viewToggle) return;
+        const groups = scope.graphToolbar.querySelector('[data-node-groups]');
+        if (toolbar === scope.graphToolbar && groups?.open) {
+          groups.open = false;
+          groups.querySelector('summary')?.focus({ preventScroll: true });
+        } else if (toolbar === scope.graphToolbar && scope.preset?.open) {
+          scope.preset.open = false;
+          scope.presetSummary.focus({ preventScroll: true });
+        } else if (toolbar === scope.graphToolbar && scope.graphOpen) {
+          scope.graphOpen = false;
+          scope.sync();
+          scope.graphToggle.focus({ preventScroll: true });
+        } else if (toolbar === scope.canvasToolbar && scope.viewOpen) {
+          scope.viewOpen = false;
+          scope.sync();
+          scope.viewToggle.focus({ preventScroll: true });
+        } else return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true,
+    );
   }
   const graph = app.querySelector('.graph-toolbar');
   const canvas = app.querySelector('.canvas-toolbar');
   const panel = app.querySelector('.graph-panel');
   if (!graph || !canvas || !panel || scope.graphToolbar === graph) return;
+  scope.observer?.disconnect();
   const add = graph.querySelector('#add-node');
   const graphExtras = document.createElement('div');
   graphExtras.className = 'boundary-graph-extras';
@@ -57,18 +72,26 @@ export function ensureBoundaryControls(app, document) {
   const presetControls = panel.querySelector('.node-preset-controls');
   if (presetControls) preset.append(presetSummary, presetControls);
   const placePopup = (details, popup) => {
-    if (!details.open || !popup) return;
+    if (!details.open || !popup || !details.isConnected) return;
     const rect = details.querySelector('summary').getBoundingClientRect();
-    const width = Math.min(420, document.defaultView.innerWidth - 16);
-    popup.style.left = `${Math.max(8, Math.min(rect.left, document.defaultView.innerWidth - width - 8))}px`;
-    popup.style.top = `${rect.bottom + 4}px`;
+    const view = document.defaultView;
+    const width = Math.min(420, Math.max(0, view.innerWidth - 16));
+    popup.style.maxHeight = `${Math.max(0, view.innerHeight - 16)}px`;
+    popup.style.left = `${Math.max(8, Math.min(rect.left, view.innerWidth - width - 8))}px`;
+    const height = Math.min(popup.getBoundingClientRect().height, Math.max(0, view.innerHeight - 16));
+    const below = view.innerHeight - rect.bottom - 8;
+    const above = rect.top - 8;
+    const preferred = below >= height || below >= above ? rect.bottom + 4 : rect.top - height - 4;
+    popup.style.top = `${Math.max(8, Math.min(preferred, view.innerHeight - height - 8))}px`;
   };
   preset.addEventListener('toggle', () => {
     scope.presetOpen = preset.open;
     placePopup(preset, presetControls);
   });
   presetSummary.addEventListener('click', () => {
-    queueMicrotask(() => { scope.presetOpen = preset.open; });
+    queueMicrotask(() => {
+      scope.presetOpen = preset.open;
+    });
   });
   const groups = panel.querySelector('.node-group-controls');
   if (groups) {
@@ -98,7 +121,14 @@ export function ensureBoundaryControls(app, document) {
   viewToggle.setAttribute('aria-controls', 'boundary-canvas-extras');
   canvas.prepend(output, viewToggle, canvasExtras);
   panel.append(canvas);
-  Object.assign(scope, { graphToolbar: graph, canvasToolbar: canvas, graphToggle, viewToggle, preset, presetSummary });
+  Object.assign(scope, {
+    graphToolbar: graph,
+    canvasToolbar: canvas,
+    graphToggle,
+    viewToggle,
+    preset,
+    presetSummary,
+  });
   scope.sync = () => {
     graphExtras.hidden = !scope.graphOpen;
     graphExtras.inert = !scope.graphOpen;
@@ -107,31 +137,44 @@ export function ensureBoundaryControls(app, document) {
     graphToggle.setAttribute('aria-expanded', String(scope.graphOpen));
     graphToggle.textContent = scope.graphOpen ? '‹' : '›';
     viewToggle.setAttribute('aria-expanded', String(scope.viewOpen));
+    scope.reposition?.();
   };
-  graphToggle.addEventListener('click', () => {
+  graphToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
     const opening = !scope.graphOpen;
-    if ((!opening && graphExtras.contains(document.activeElement)) || (opening && canvasExtras.contains(document.activeElement)))
+    if (
+      (!opening && graphExtras.contains(document.activeElement)) ||
+      (opening && canvasExtras.contains(document.activeElement))
+    )
       graphToggle.focus({ preventScroll: true });
     scope.graphOpen = opening;
     if (opening) scope.viewOpen = false;
     scope.sync();
   });
-  viewToggle.addEventListener('click', () => {
+  viewToggle.addEventListener('click', (event) => {
+    event.stopPropagation();
     const opening = !scope.viewOpen;
-    if ((!opening && canvasExtras.contains(document.activeElement)) || (opening && graphExtras.contains(document.activeElement)))
+    if (
+      (!opening && canvasExtras.contains(document.activeElement)) ||
+      (opening && graphExtras.contains(document.activeElement))
+    )
       viewToggle.focus({ preventScroll: true });
     scope.viewOpen = opening;
     if (opening) scope.graphOpen = false;
     scope.sync();
   });
-  graphExtras.addEventListener('scroll', () => {
+  scope.reposition = () => {
     placePopup(preset, presetControls);
     if (groups) placePopup(groups, groups.querySelector('.boundary-group-content'));
-  });
+  };
+  graphExtras.addEventListener('scroll', scope.reposition);
+  if (document.defaultView.ResizeObserver) {
+    scope.observer = new document.defaultView.ResizeObserver(scope.reposition);
+    scope.observer.observe(panel);
+  }
   scope.sync();
   syncBoundaryViewerMode(app);
-  placePopup(preset, presetControls);
-  if (groups) placePopup(groups, groups.querySelector('.boundary-group-content'));
+  scope.reposition();
 }
 
 export function syncBoundaryViewerMode(app) {

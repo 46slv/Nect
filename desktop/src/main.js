@@ -3917,7 +3917,8 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
   const previousOutputSettings = app.querySelector('[data-output-settings]');
   const outputSettingsOpen = previousOutputSettings?.open ?? false;
-  const outputMenuOpen = outputSettingsOpen && !!previousOutputSettings?.closest('.command-menu')?.open;
+  const outputMenuOpen =
+    outputSettingsOpen && !!previousOutputSettings?.closest('.command-menu')?.open;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)

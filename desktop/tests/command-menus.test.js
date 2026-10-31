@@ -84,8 +84,6 @@ test('toolbar grouping keeps labeled output and history controls reachable once'
   }
   assert.ok(output.querySelector('#export-presets'));
   assert.ok(app.querySelector('[aria-label="History"] [data-action="undo"]'));
-  assert.ok(
-    app.querySelector('.command-menu [data-action="asset-library"]'),
-  );
+  assert.ok(app.querySelector('.command-menu [data-action="asset-library"]'));
   window.happyDOM.abort();
 });

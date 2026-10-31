@@ -412,7 +412,10 @@ test('cross-side selection evacuates portal focus and keeps one active side', ()
   f.controller.select('layers', { focus: false });
   assert.equal(panel.hidden, true);
   assert.equal(panel.inert, true);
-  assert.equal(f.window.document.activeElement, f.root.querySelector('[data-workspace-panel="layers"]'));
+  assert.equal(
+    f.window.document.activeElement,
+    f.root.querySelector('[data-workspace-panel="layers"]'),
+  );
   assert.deepEqual(f.controller.active, { left: null, right: 'layers' });
   f.controller.select('assets');
   assert.equal(f.panel, panel, 'rail switch retains the live Assets owner');
@@ -427,12 +430,17 @@ test('saved last side wins an old both-open preference without losing either own
   const root = w.document.createElement('div');
   root.innerHTML = markup;
   w.document.body.append(root);
-  const values = new Map([[DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers', lastSide: 'left' })]]);
+  const values = new Map([
+    [DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers', lastSide: 'left' })],
+  ]);
   let panel;
   const controller = createWorkspacePanels({
     storage: { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) },
     getAssetPanel: () => panel,
-    onAssets: () => { panel = w.document.createElement('aside'); w.document.body.append(panel); },
+    onAssets: () => {
+      panel = w.document.createElement('aside');
+      w.document.body.append(panel);
+    },
     onAlign: () => {},
     onColors: () => {},
   });

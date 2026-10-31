@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -350,6 +351,7 @@ test('Shift artwork movement: shared axes, snap, modifiers, source coordinates, 
     connect(l, n.id, tr.id, 'path');
     connect(l, tr.id, out.id, 'path');
     load(d);
+    openDOMPanel(document, 'inspector');
     document.querySelector('[data-character-mode]').click();
     flush();
     const pos = (i) => {

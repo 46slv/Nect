@@ -62,9 +62,9 @@ try {
   const page = await browser.newPage({ viewport: { width: 1800, height: 1100 } });
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   const settled = () =>
     page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
   const snapshot = () => page.evaluate(() => JSON.stringify(window.nect.document));

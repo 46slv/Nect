@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -259,6 +260,7 @@ test('Closed Path Offset controls, failure rollback, scrubbing, typed inputs, lo
   win.nect.load(JSON.stringify(textDoc));
   assert.equal(win.nect.evaluate().error, null);
   const fontBefore = saved();
+  openDOMPanel(document, 'inspector');
   document.querySelector('.inspector-body [data-load-font]').click();
   const fontInput = document.querySelector('#font-file'),
     bytes = await fs.readFile(new URL('../public/fonts/DejaVuSans.ttf', import.meta.url));

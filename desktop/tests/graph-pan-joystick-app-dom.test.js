@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -218,6 +219,7 @@ test('shipped joystick preserves exact document/history and isolates editing thr
   invariant();
   // A real input draft stays focused, byte-exact, and uncommitted. Window
   // capture rejects before existing document capture and native focus defaults.
+  openDOMPanel(document, 'inspector');
   const input = parameter();
   input.focus();
   input.value = '321.456';
@@ -243,7 +245,7 @@ test('shipped joystick preserves exact document/history and isolates editing thr
     [...document.querySelectorAll('header .command-menu > summary')].map(
       (summary) => summary.textContent,
     ),
-    ['Project', 'Import', 'Export', 'Output settings', 'Build'],
+    ['Project', 'Import', 'Export', 'Build'],
   );
   menu.open = true;
   fire(element, 'pointerdown', 620, 240);

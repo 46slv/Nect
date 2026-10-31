@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -138,7 +139,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   assert.equal(saved(), renamed);
   input().dispatchEvent(new win.CompositionEvent('compositionend', { bubbles: true }));
   type('変換完了');
-  query('[data-action="fit"]').focus();
+  query('#add-node').focus();
   await tick();
   assert.equal(get(effect.id).name, '変換完了');
   undo();
@@ -152,6 +153,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   key(input(), 'Escape');
   assert.equal(get(effect.id).name, '変換完了');
   // Unselected layer selection rerenders; the second completed click still opens its name.
+  openDOMPanel(document, 'layers');
   const other = doc.layers[1].id;
   query(`[data-select-layer="${other}"]`).click();
   query(`[data-select-layer="${other}"]`).click();
@@ -177,14 +179,14 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   query(`[data-select-layer="${l.id}"]`).click();
   const beforeBypass = saved(),
     beforeSVG = win.nect.export();
-  query('[data-bypass="name-effect"]').click();
+  query('.graph [data-bypass="name-effect"]').click();
   assert.equal(get(effect.id).bypassed, true);
   assert.equal(win.nect.document.schemaVersion, Math.max(doc.schemaVersion, 10));
   assert.deepEqual(get(effect.id).params, effect.params);
   assert.notEqual(win.nect.export(), beforeSVG);
-  assert.equal(query('[data-bypass="name-effect"]').getAttribute('aria-pressed'), 'true');
-  assert.equal(query('[data-bypass="name-source"]').disabled, true);
-  assert.match(query('[data-bypass="name-source"]').title, /identity input/);
+  assert.equal(query('.graph [data-bypass="name-effect"]').getAttribute('aria-pressed'), 'true');
+  assert.equal(query('.graph [data-bypass="name-source"]').disabled, true);
+  assert.match(query('.graph [data-bypass="name-source"]').title, /identity input/);
   const bypassed = saved();
   undo();
   assert.equal(saved(), beforeBypass);
@@ -192,7 +194,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   assert.equal(saved(), bypassed);
   titleClick(effect.id, 180);
   assert.equal(query('[data-transform-handle]'), null);
-  query('[data-bypass="name-effect"]').click();
+  query('.graph [data-bypass="name-effect"]').click();
   assert.equal(get(effect.id).bypassed, undefined);
   assert.equal(win.nect.export(), beforeSVG);
   win.nect.load(bypassed);
@@ -202,7 +204,7 @@ test('inline stable-ID names, visibility and reversible typed bypass survive sel
   locked.layers[0].locked = true;
   win.nect.load(JSON.stringify(locked));
   await tick();
-  assert.equal(query('[data-bypass="name-effect"]').disabled, true);
+  assert.equal(query('.graph [data-bypass="name-effect"]').disabled, true);
   key(query('[data-rename-node="name-effect"]'), 'F2');
   assert.equal(input(), null);
   // Reload clears a name draft; no stale blur may rename the replacement document.

@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
 import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
-import { revealBoundary, activateBoundaryCommand } from './helpers/boundary-controls.js';
+import { revealBoundary, activateBoundaryCommand, revealNodePresets, revealNodeGroups } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 const out = resolve('test-results/workspace-panels');
@@ -70,7 +70,10 @@ try {
     'initial fit reflects settled UI font metrics',
   );
   const graphToggle = page.getByRole('button', { name: 'Toggle node graph controls', exact: true });
-  const viewToggle = page.getByRole('button', { name: 'Toggle artboard view controls', exact: true });
+  const viewToggle = page.getByRole('button', {
+    name: 'Toggle artboard view controls',
+    exact: true,
+  });
   assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await viewToggle.getAttribute('aria-expanded'), 'false');
   assert.equal(await page.locator('#add-node').isVisible(), true);
@@ -148,7 +151,10 @@ try {
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
   await inspectorTrigger.click();
-  assert.ok((await rightBar.boundingBox()).x < rightBounds.x, 'right handle moves inward only on explicit open');
+  assert.ok(
+    (await rightBar.boundingBox()).x < rightBounds.x,
+    'right handle moves inward only on explicit open',
+  );
   await page.screenshot({ path: out + '/peek-right-open.png', animations: 'disabled' });
   await inspectorTrigger.click();
   same(await state(), initial, 'testing right idle keeps document and canvas geometry');
@@ -266,7 +272,10 @@ try {
   );
   // First-ever Assets mount starts at its docked location before revealing.
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
-  assert.ok((await leftBar.boundingBox()).x > leftBounds.x, 'left handle moves inward only on explicit open');
+  assert.ok(
+    (await leftBar.boundingBox()).x > leftBounds.x,
+    'left handle moves inward only on explicit open',
+  );
   if (supportsDiscrete)
     await page.waitForFunction(
       () =>
@@ -350,13 +359,36 @@ try {
   const portalBeforeSwitch = await page.locator('[data-asset-library]').elementHandle();
   await page.getByRole('searchbox', { name: 'Search assets', exact: true }).focus();
   await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
-  assert.equal(await page.locator('[data-asset-library]').evaluate((el) => el.hidden && el.inert), true);
-  assert.equal(await page.locator('[data-drawer-side="left"]').evaluate((el) => el.hidden && el.inert), true);
-  assert.equal(await page.getByRole('button', { name: 'Focus Layers', exact: true }).getAttribute('aria-expanded'), 'true');
-  assert.equal(await page.evaluate(() => document.activeElement?.closest('[inert]') === null), true);
+  assert.equal(
+    await page.locator('[data-asset-library]').evaluate((el) => el.hidden && el.inert),
+    true,
+  );
+  assert.equal(
+    await page.locator('[data-drawer-side="left"]').evaluate((el) => el.hidden && el.inert),
+    true,
+  );
+  assert.equal(
+    await page
+      .getByRole('button', { name: 'Focus Layers', exact: true })
+      .getAttribute('aria-expanded'),
+    'true',
+  );
+  assert.equal(
+    await page.evaluate(() => document.activeElement?.closest('[inert]') === null),
+    true,
+  );
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
-  assert.equal(await page.evaluate((node) => node === document.querySelector('[data-asset-library]'), portalBeforeSwitch), true);
-  assert.equal(await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert), true);
+  assert.equal(
+    await page.evaluate(
+      (node) => node === document.querySelector('[data-asset-library]'),
+      portalBeforeSwitch,
+    ),
+    true,
+  );
+  assert.equal(
+    await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert),
+    true,
+  );
   same(await state(), initial, 'exclusive cross-side switching keeps both cameras and history');
   // Give exit a settled frame before testing entrance: rapid reversals may be
   // legitimately coalesced before a browser has painted the first state.
@@ -481,7 +513,10 @@ try {
   const panel = page.locator('[data-asset-library]');
   await panel.waitFor({ state: 'visible' });
   const identity = await panel.elementHandle();
-  assert.equal(await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert), true);
+  assert.equal(
+    await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert),
+    true,
+  );
   same(await state(), initial, 'opening the opposite side is view-only');
   const chooser = page.waitForEvent('filechooser');
   await panel.getByRole('button', { name: 'Add folder', exact: true }).click();
@@ -549,7 +584,11 @@ try {
   );
   same(await state(), beforeViewer, 'viewer round trip keeps viewport and document');
   await ensureWorkspacePanel(page, 'align');
-  assert.equal(await panel.evaluate((el) => el.hidden && el.inert), true, 'opening opposite side hides the portal');
+  assert.equal(
+    await panel.evaluate((el) => el.hidden && el.inert),
+    true,
+    'opening opposite side hides the portal',
+  );
   const boundaries = await page.evaluate(() => {
     const rect = (s) => {
       const r = document.querySelector(s).getBoundingClientRect();
@@ -573,6 +612,17 @@ try {
       `${side} drawer never covers graph`,
     );
   }
+  for (const id of ['assets', 'colors']) {
+    await ensureWorkspacePanel(page, id);
+    const left = await page.locator('[data-drawer-side="left"]').boundingBox();
+    const canvasBounds = await page.locator('.canvas-stage').boundingBox();
+    const graphBounds = await page.locator('.graph-panel').boundingBox();
+    assert.ok(left && canvasBounds && graphBounds && left.y >= canvasBounds.y - 1 && left.y + left.height <= canvasBounds.y + canvasBounds.height + 1, `${id} left drawer remains within Artboard`);
+    assert.ok(left.y + left.height <= graphBounds.y + 1, `${id} left drawer never covers Graph`);
+    assert.equal(await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert), true);
+    same(await state(), initial, `${id} containment check preserves cameras and history`);
+  }
+  await ensureWorkspacePanel(page, 'assets');
   await page.evaluate(() => {
     const dialog = document.createElement('dialog');
     dialog.id = 'workspace-modal-probe';
@@ -587,7 +637,6 @@ try {
     false,
   );
   await page.evaluate(() => document.querySelector('#workspace-modal-probe').remove());
-  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search assets', exact: true }).focus();
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'detached' });
@@ -688,9 +737,20 @@ try {
     assert.equal(depth.iconOpacity, '1');
     const sizing = page.getByRole('combobox', { name: 'SVG output sizing', exact: true });
     await sizing.selectOption('responsive');
-    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open && el.closest('.command-menu').open), true, 'nested output settings survive a render');
+    assert.equal(
+      await page
+        .locator('[data-output-settings]')
+        .evaluate((el) => el.open && el.closest('.command-menu').open),
+      true,
+      'nested output settings survive a render',
+    );
     await sizing.selectOption('fixed');
-    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open && el.closest('.command-menu').open), true);
+    assert.equal(
+      await page
+        .locator('[data-output-settings]')
+        .evaluate((el) => el.open && el.closest('.command-menu').open),
+      true,
+    );
     const outputBox = await page.locator('.output-settings-items').boundingBox();
     assert.ok(outputBox.x >= 0 && outputBox.x + outputBox.width <= width);
     if (width === 900 || width === 1366 || width === 1600)
@@ -700,8 +760,20 @@ try {
       });
     await outputSummary.focus();
     await page.keyboard.press('Escape');
-    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.closest('.command-menu').open), false);
-    assert.equal(await page.locator('header .command-menu').filter({ has: page.locator('summary', { hasText: /^Export$/ }) }).locator(':scope > summary').evaluate((el) => el === document.activeElement), true);
+    assert.equal(
+      await page
+        .locator('[data-output-settings]')
+        .evaluate((el) => el.closest('.command-menu').open),
+      false,
+    );
+    assert.equal(
+      await page
+        .locator('header .command-menu')
+        .filter({ has: page.locator('summary', { hasText: /^Export$/ }) })
+        .locator(':scope > summary')
+        .evaluate((el) => el === document.activeElement),
+      true,
+    );
     if (width === 900 || width === 1366 || width === 1600) {
       assert.equal(await page.locator('[data-action="undo"]').isDisabled(), initial.undo);
       await page.screenshot({ path: out + `/toolbar-${width}.png`, animations: 'disabled' });
@@ -714,7 +786,10 @@ try {
     }
     await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
-    assert.equal(await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert), true);
+    assert.equal(
+      await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert),
+      true,
+    );
     same(await state(), before, `exclusive side switch preserves geometry at ${width}`);
     if (width === 900 || width === 1366 || width === 1600)
       await page.screenshot({
@@ -855,6 +930,36 @@ try {
   assert.equal(await contourFits(leftBar), true, 'short-split left face and focus ring fit');
   assert.equal(await contourFits(rightBar), true, 'short-split right face and focus ring fit');
 
+  // Floating Presets and Groups follow the boundary after a short split and
+  // resize, stay inside the viewport and retain native dismissal/focus.
+  await page.setViewportSize({ width: 1366, height: 960 });
+  await splitter.focus();
+  for (let i = 0; i < 20; i++) await splitter.press('ArrowDown');
+  await revealNodePresets(page);
+  await page.setViewportSize({ width: 900, height: 600 });
+  const popupInside = (selector) => page.waitForFunction((s) => {
+    const el = document.querySelector(s);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+  }, selector);
+  await popupInside('.boundary-popover[open] > .node-preset-controls');
+  const popupState = await state();
+  const presetSummary = page.locator('.boundary-popover > summary').filter({ hasText: /^Presets$/ });
+  await presetSummary.focus();
+  await presetSummary.press('Escape');
+  assert.equal(await presetSummary.evaluate((el) => el === document.activeElement), true);
+  same(await state(), popupState, 'closing Presets changes no camera or history');
+  await revealNodeGroups(page);
+  await popupInside('.boundary-popover[open] > .boundary-group-content');
+  await page.locator('[data-node-group-name]').focus();
+  assert.equal(await page.locator('[data-node-group-name]').evaluate((el) => el === document.activeElement), true);
+  const groupsSummary = page.locator('[data-node-groups] > summary');
+  await groupsSummary.focus();
+  await groupsSummary.press('Escape');
+  assert.equal(await groupsSummary.evaluate((el) => el === document.activeElement), true);
+  same(await state(), popupState, 'closing Groups changes no camera or history');
+  await page.screenshot({ path: out + '/boundary-short-split.png', animations: 'disabled' });
   // The visible Artboard controls address the active Composition, not its selected layer.
   await activateCommand(page, 'add-composition');
   await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();

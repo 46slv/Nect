@@ -1,3 +1,4 @@
+import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -110,7 +111,7 @@ test('Artboard pan owns its pointer and leaves artwork and history unchanged', a
     );
   const stage = () => document.querySelector('.canvas-stage');
   const view = () => document.querySelector('.artboard').style.transform;
-  const fit = () => document.querySelector('[data-action="fit"]').click();
+  const fit = () => { revealDOMBoundary(document, 'canvas'); document.querySelector('[data-action="fit"]').click(); };
   const saved = JSON.stringify(win.nect.document);
   const selected = () => [...document.querySelectorAll('.node.selected')].map((n) => n.dataset.id);
   const selection = selected();

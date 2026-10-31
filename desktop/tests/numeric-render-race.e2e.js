@@ -13,9 +13,9 @@ const errors = [];
 page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   await page.evaluate(async () => {
     const { blankDocument, node, connect } = await import('/src/core.js');
     const doc = blankDocument(),

@@ -25,9 +25,9 @@ const sample = await fs.readFile('examples/vector-reference-reuse.json', 'utf8')
   read = (id) => page.evaluate((id) => window.nect.evaluate().run(id), id);
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  await page.waitForFunction(() => window.nect);
   // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.waitForFunction(() => window.nect);
   await load();
   assert.deepEqual(await read('reference-position'), [170, 200]);
   assert.deepEqual(await read('reference-offset'), await read('reference-wired'));

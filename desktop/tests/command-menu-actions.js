@@ -27,9 +27,35 @@ export async function revealCommandMenu(page, label, { keyboard = false } = {}) 
 }
 
 export async function activateCommand(page, action, { keyboard = false } = {}) {
-  if (['find-node', 'graph-zoom-out', 'graph-zoom-in', 'graph-fit', 'graph-fit-selection', 'graph-reset', 'graph-overview'].includes(action)) await revealBoundary(page, 'graph');
-  if (['zoom-out', 'zoom-in', 'fit', 'actual-size', 'snap', 'align-panel', 'grid-panel', 'layout-panel', 'guides-panel'].includes(action)) await revealBoundary(page, 'canvas');
-  const label = ['new', 'open', 'save', 'save-as', 'add-composition', 'asset-library'].includes(action)
+  if (
+    [
+      'find-node',
+      'graph-zoom-out',
+      'graph-zoom-in',
+      'graph-fit',
+      'graph-fit-selection',
+      'graph-reset',
+      'graph-overview',
+    ].includes(action)
+  )
+    await revealBoundary(page, 'graph');
+  if (
+    [
+      'zoom-out',
+      'zoom-in',
+      'fit',
+      'actual-size',
+      'snap',
+      'align-panel',
+      'grid-panel',
+      'layout-panel',
+      'guides-panel',
+    ].includes(action)
+  )
+    await revealBoundary(page, 'canvas');
+  const label = ['new', 'open', 'save', 'save-as', 'add-composition', 'asset-library'].includes(
+    action,
+  )
     ? 'Project'
     : ['export', 'export-png'].includes(action)
       ? 'Export'

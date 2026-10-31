@@ -71,11 +71,7 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
       console: win.happyDOM.virtualConsolePrinter.readAsString(),
     });
     assert.equal(win.penKeyboardFontLoaded(), true, diagnostics);
-    assert.deepEqual(
-      summaries,
-      ['Project', 'Import', 'Export', 'Build'],
-      diagnostics,
-    );
+    assert.deepEqual(summaries, ['Project', 'Import', 'Export', 'Build'], diagnostics);
   };
   await settleMenus('startup');
   const saved = () => serialize(win.nect.document);
@@ -253,13 +249,22 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
           assert.deepEqual(state(), before, action);
           assert.deepEqual(win.nect.projectSnapshot(), projectBefore, action);
           assert.equal(saved(), documentBefore, action);
-          if (pressed) assert.equal($('[data-zoom="graph"]').textContent, zoomBefore, 'held Pen owns its coordinates');
+          if (pressed)
+            assert.equal(
+              $('[data-zoom="graph"]').textContent,
+              zoomBefore,
+              'held Pen owns its coordinates',
+            );
         }
         toggle.focus();
         assert.equal(key(toggle, 'Escape').defaultPrevented, true);
         assert.equal(toggle.getAttribute('aria-expanded'), 'false');
         assert.equal(document.activeElement, toggle);
-        assert.deepEqual(state(), before, 'Escape closes boundary controls rather than finishing the Pen draft');
+        assert.deepEqual(
+          state(),
+          before,
+          'Escape closes boundary controls rather than finishing the Pen draft',
+        );
         assert.deepEqual(win.nect.projectSnapshot(), projectBefore);
         $('[data-pen-cancel]').click();
       },

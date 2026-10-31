@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -63,7 +64,10 @@ test('character shape UI: mixed absolute edits, separate resets, history, draft 
   const load = (d = doc) => win.nect.load(JSON.stringify(d)),
     get = () => win.nect.document.layers[0].nodes.find((n) => n.id === t.id);
   const saved = () => JSON.stringify(win.nect.document),
-    mode = () => document.querySelector('[data-character-mode]').click();
+    mode = () => {
+      openDOMPanel(document, 'inspector');
+      document.querySelector('[data-character-mode]').click();
+    };
   const undo = () => document.querySelector('[data-action="undo"]').click(),
     redo = () => document.querySelector('[data-action="redo"]').click();
   const select = (...ids) => {

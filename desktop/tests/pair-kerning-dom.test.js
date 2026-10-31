@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -74,6 +75,7 @@ test('pair kerning controls: caret/range identity, sparse history, scrub/cancel,
     const doc = structuredClone(fixture);
     setup(doc.layers[0].nodes[0], doc);
     win.nect.load(JSON.stringify(doc));
+    openDOMPanel(document, 'inspector');
     for (let i = 0; i < 300 && win.nect.evaluate().error; i++) await tick();
   };
   const range = (start, end = start, panel = '.inspector-body') => {

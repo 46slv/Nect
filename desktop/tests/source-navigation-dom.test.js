@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -79,6 +80,7 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
     win.nect.load(serialize(doc));
     document.activeElement?.blur();
     api.select(fill.id);
+    openDOMPanel(document, 'inspector');
   };
   const enter = (id) => {
     click('[data-source-nav="open"]');
@@ -104,7 +106,7 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
       assert.equal(api.read().selected, curve.id);
       assert.ok(q('.inspector [data-point-panel]'));
       assert.equal(q('.inspector [data-point-panel] input'), null, 'no implicit point selection');
-      assert.equal(document.activeElement, q('[data-source-heading]'));
+      assert.equal(document.activeElement === q('[data-source-heading]'), true, 'source heading receives focus');
       click('[data-source-nav="back"]');
       assert.equal(api.read().selected, fill.id);
       assert.equal(api.read().ticket, false);
@@ -280,7 +282,9 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
       click('[data-source-nav="back"]');
       assert.equal(api.read().selected, fill.id);
       enter(curve.id);
+      openDOMPanel(document, 'layers');
       click(`[data-delete-layer="${layer.id}"]`);
+      openDOMPanel(document, 'inspector');
       const before = serialize(win.nect.document),
         past = api.read().past;
       click('[data-source-nav="back"]');
@@ -301,7 +305,7 @@ test('Source Inspector round trips, guards, stale lists and document epochs', as
     );
     assert.equal(api.read().picker, false);
     assert.equal(api.read().selected, fill.id);
-    assert.equal(document.activeElement, q('[data-source-nav="open"]'));
+    assert.equal(document.activeElement === q('[data-source-nav="open"]'), true, 'source control receives focus');
   });
   win.happyDOM.abort();
 });

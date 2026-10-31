@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -64,6 +65,7 @@ test('Type on Path controls attach/edit/detach atomically with schema, locks, so
   doc.layers[0].nodes = [t, c, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   await until(() => win.nect.evaluate().error === null);
   const saved = () => JSON.stringify(win.nect.document),
     text = () => win.nect.document.layers[0].nodes[0],

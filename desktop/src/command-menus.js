@@ -22,7 +22,14 @@ export function ensureCommandMenus(app, document) {
     return menu;
   };
   const brand = header.querySelector('.brand');
-  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as', 'add-composition', 'asset-library']);
+  const project = makeMenu('Project', [
+    'new',
+    'open',
+    'save',
+    'save-as',
+    'add-composition',
+    'asset-library',
+  ]);
   const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
   const composition = document.createElement('button');
   composition.type = 'button';

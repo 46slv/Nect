@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import { resolveMainRelativeImports } from './helpers/main-data-url.js';
 import assert from 'node:assert/strict';
@@ -55,6 +56,7 @@ test('synthetic font UI preserves cancellation/errors/stale edits and commits re
   doc.layers[0].nodes = [text, out];
   doc.layers[0].output = out.id;
   win.nect.load(serialize(doc));
+  openDOMPanel(document, 'inspector');
   const snapshot = () => JSON.stringify(win.nect.document);
   function start(files) {
     document.querySelector('.inspector-body [data-load-font]').click();

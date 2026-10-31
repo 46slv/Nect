@@ -1,3 +1,4 @@
+import { revealDOMBoundary } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -53,6 +54,7 @@ test('Grid angle control owns typed/scrub history, preview/cancel, JSON and boun
       settle();
     };
   const open = () => {
+    revealDOMBoundary(document, 'canvas');
     if (!$('[data-guide-setting="gridAngle"]')) click('[data-action="grid-panel"]');
   };
   const edit = (value) => {

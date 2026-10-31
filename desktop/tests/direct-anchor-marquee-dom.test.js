@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -234,6 +235,7 @@ test('Direct anchor marquee is a single-source, identity-guarded transient selec
         const f = directMarqueeFixture(options);
         if (options.lockedRoute) f.layer.locked = true;
         win.nect.load(serialize(f.doc));
+        openDOMPanel(document, 'layers');
         $(`[data-select-layer="${f.layer.id}"]`).click();
         $('[data-tool="direct"]').click();
         const before = snapshot();

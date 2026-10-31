@@ -1,3 +1,4 @@
+import { openDOMPanel } from './helpers/dom-workspace-controls.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -85,6 +86,7 @@ test('node parameter feedback: split XY, searchable connections and expressions,
   await tick();
   const field = (key) =>
     document.querySelector(`.inspector-body [data-node="${text.id}"][data-key="${key}"]`);
+  openDOMPanel(document, 'inspector');
   field('position').querySelector('[data-connect-menu]').click();
   await tick();
   let dialog = document.querySelector('dialog'),
