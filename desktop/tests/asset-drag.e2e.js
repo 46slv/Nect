@@ -428,13 +428,16 @@ try {
         replacement.name = 'Newer document must survive';
         await page.evaluate((text) => window.nect.load(text), serialize(replacement));
       } else if (reason === 'stale-selection') {
+        await ensureWorkspacePanel(page, 'layers');
         await page.locator(`[data-select-layer="${fixture.layers[1].id}"]`).click();
-        assert.equal(await page.locator('.graph-layer-name').textContent(), 'Other destination');
+        assert.equal(await page.locator(`.graph .node[data-id="${fixture.layers[1].nodes[0].id}"]`).count(), 1);
         assert.equal(
           await saved(),
           JSON.stringify(fixture),
           'layer selection is not an authored edit',
         );
+        // Keep the opposite owner focused while the original Assets read completes.
+        await page.locator('[data-workspace-panel="layers"]').focus();
       } else await panel.getByRole('button', { name: 'Close assets', exact: true }).click();
       const protectedState = await state();
       await releaseRead();
@@ -447,6 +450,14 @@ try {
           document.querySelector('[data-asset-status]')?.textContent.includes('Document changed'),
         );
         assert.equal(await status.getAttribute('data-error'), 'true');
+        if (reason === 'stale-selection') {
+          const layers = page.locator('[data-workspace-panel="layers"]');
+          assert.equal(await layers.getAttribute('aria-expanded'), 'true');
+          assert.equal(await page.locator('[data-workspace-panel="assets"]').getAttribute('aria-expanded'), 'false');
+          assert.equal(await panel.evaluate((el) => !!el.closest('[inert]')), true);
+          assert.equal(await layers.evaluate((el) => el === document.activeElement), true,
+            'a late Assets read does not steal focus or reactivate its drawer');
+        }
       }
       assert.deepEqual(await state(), protectedState, `${reason} rejects the entire pending drop`);
       results.guards.push(reason);

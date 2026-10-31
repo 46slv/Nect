@@ -129,7 +129,12 @@ test('keyboard New opens Project and invokes New without a pointer click', async
   const { page, calls } = fixture();
   await activateCommand(page, 'new', { keyboard: true });
   await activateCommand(page, 'new', { keyboard: true });
-  assert.deepEqual(calls, ['press:Space:Project', 'press:Enter:new', 'press:Space:Project', 'press:Enter:new']);
+  assert.deepEqual(calls, [
+    'press:Space:Project',
+    'press:Enter:new',
+    'press:Space:Project',
+    'press:Enter:new',
+  ]);
 });
 
 test('non-menu actions retain normal activation and rerenders get fresh locators', async () => {
@@ -161,7 +166,7 @@ test('revealing Export for PNG options does not activate any command or close it
   await revealCommandMenu(page, 'Export');
   await revealCommandMenu(page, 'Export');
   assert.deepEqual(calls, ['click:Export']);
-  assert.equal(menu('Export').open, false);
+  assert.equal(menu('Export').open, true);
   await activateCommand(page, 'export-png');
   assert.deepEqual(calls, ['click:Export', 'click:export-png']);
 });

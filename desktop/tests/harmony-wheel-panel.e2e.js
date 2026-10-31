@@ -835,8 +835,10 @@ try {
     );
     await capture(`parameters-${viewport.width}x${viewport.height}`);
     await ensureWorkspacePanel(page, 'inspector');
-    assert.ok((await page.locator('.inspector').boundingBox()).height >= 100,
-      'Inspector remains accessible after switching from Colors');
+    assert.ok(
+      (await page.locator('.inspector').boundingBox()).height >= 100,
+      'Inspector remains accessible after switching from Colors',
+    );
     await ensureWorkspacePanel(page, 'colors');
   }
   await page.setViewportSize({ width: 900, height: 720 });

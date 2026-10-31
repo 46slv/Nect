@@ -271,13 +271,22 @@ try {
     await truthful();
     const ends = await page.evaluate(() => {
       const left = document.querySelector('.graph-panel > .graph-toolbar').getBoundingClientRect();
-      const right = document.querySelector('.graph-panel > .canvas-toolbar').getBoundingClientRect();
-      return { left: left.right, right: right.left, overflow: document.documentElement.scrollWidth > innerWidth };
+      const right = document
+        .querySelector('.graph-panel > .canvas-toolbar')
+        .getBoundingClientRect();
+      return {
+        left: left.right,
+        right: right.left,
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
     });
     assert.equal(ends.overflow, false);
     assert.ok(ends.left <= ends.right + 1, 'boundary ends do not overlap');
     assert.equal(await page.locator('#add-node').isVisible(), true);
-    assert.equal(await page.getByRole('button', { name: 'Toggle artboard view controls' }).isVisible(), true);
+    assert.equal(
+      await page.getByRole('button', { name: 'Toggle artboard view controls' }).isVisible(),
+      true,
+    );
     await page.screenshot({ path: `test-results/view-navigation-${width}x${height}.png` });
   }
   // Tall Inspector retains actual sidebar scroll and typed drafts on view updates/rerender.
