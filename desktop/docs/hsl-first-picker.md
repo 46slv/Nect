@@ -5,6 +5,7 @@ Decision: user request, 2026-10-31. All standard editable Color parameters and s
 The document model remains validated sRGB `#RRGGBB` plus alpha; editing HSL converts back to the existing hex value through a UI-only adapter. This avoids migration, changing Color expression semantics, altering SVG interchange, or confusing HSL with the OKLCH/Auto Chroma harmony system. HSL is an input representation, not a new palette-generation algorithm.
 
 Requirements:
+
 - Visible H, S and L controls on local and bound Base Color parameters as well as saved shared literals. Bound controls preserve the current disable/base rules.
 - Changing one coordinate preserves the other converted coordinates to practical 8-bit sRGB precision, retains existing alpha, and uses the same typed Session command/Undo path.
 - Invalid or incomplete values never dispatch authored color. Existing HEX/native swatch remains available for precise entry. Keep stable Shared Color IDs and revision envelopes.

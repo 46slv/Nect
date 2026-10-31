@@ -42,7 +42,10 @@ try {
   await page.evaluate(() => document.fonts.ready);
   const id = await page.evaluate(async () => {
     const { document, node } = await import('/src/core.js');
-    const d = document(), rect = node('Rectangle', 40, 40), fill = node('Fill', 360, 40), out = node('Output', 680, 40);
+    const d = document(),
+      rect = node('Rectangle', 40, 40),
+      fill = node('Fill', 360, 40),
+      out = node('Output', 680, 40);
     d.width = 320;
     d.height = 240;
     rect.params.center.value = [160, 120];
@@ -71,7 +74,23 @@ try {
   assert.equal(await documentText(), original, 'out-of-range HSL cannot commit');
   await channel('h').fill('120');
   await channel('h').press('Tab');
-  await page.waitForFunction((id) => window.nect.document.layers[0].nodes.find((n) => n.id === id).params.color.value.hex === '#00ff00', id);
+  await page.waitForFunction(
+    (id) =>
+      window.nect.document.layers[0].nodes.find((n) => n.id === id).params.color.value.hex ===
+      '#00ff00',
+    id,
+  );
+  // The existing command owner defers a full render to the next task so a
+  // numeric Tab transition keeps its focus and draft selection intact.
+  await page.waitForFunction(
+    (id) => {
+      const field = document.querySelector(
+        `.inspector-body .field[data-node="${id}"][data-key="color"]`,
+      );
+      return field?.querySelector('[data-color="hex"]')?.value === '#00ff00';
+    },
+    id,
+  );
   const edited = await documentText();
   assert.equal(await field.locator('[data-color="hex"]').inputValue(), '#00ff00');
   assert.equal(await field.locator('[data-color="alpha"]').inputValue(), '0.5');
@@ -91,14 +110,23 @@ try {
   const base = field.locator('.base-component[role="group"]');
   assert.match(await base.getAttribute('aria-label'), /base/i);
   for (const name of ['h', 's', 'l']) {
-    assert.equal(await base.locator(`[data-color="hsl-${name}"]`).getAttribute('data-color-base'), '');
+    assert.equal(
+      await base.locator(`[data-color="hsl-${name}"]`).getAttribute('data-color-base'),
+      '',
+    );
   }
   const baseH = base.locator('[data-color="hsl-h"]');
   await baseH.focus();
   await page.keyboard.press('Tab');
-  assert.equal(await base.locator('[data-color="hsl-s"]').evaluate((el) => document.activeElement === el), true);
+  assert.equal(
+    await base.locator('[data-color="hsl-s"]').evaluate((el) => document.activeElement === el),
+    true,
+  );
   await page.keyboard.press('Tab');
-  assert.equal(await base.locator('[data-color="hsl-l"]').evaluate((el) => document.activeElement === el), true);
+  assert.equal(
+    await base.locator('[data-color="hsl-l"]').evaluate((el) => document.activeElement === el),
+    true,
+  );
   await page.screenshot({ path: 'test-results/workflow-hsl-inspector-driven-1600.png' });
 
   await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
@@ -109,7 +137,10 @@ try {
   const shared = (name) => row().locator(`[data-shared-color-edit="hsl-${name}"]`);
   await shared('s').fill('100');
   await shared('s').press('Tab');
-  await page.waitForFunction((id) => window.nect.document.colorSlots.find((slot) => slot.id === id).value.hex !== '#808080', slotId);
+  await page.waitForFunction(
+    (id) => window.nect.document.colorSlots.find((slot) => slot.id === id).value.hex !== '#808080',
+    slotId,
+  );
   const sharedBefore = await documentText();
   await shared('h').fill('120');
   await page.waitForFunction(() => window.nect.colorPreviewSnapshot() !== null);
@@ -118,9 +149,15 @@ try {
   await page.waitForFunction(() => window.nect.colorPreviewSnapshot() === null);
   const sharedAfter = await documentText();
   assert.notEqual(sharedAfter, sharedBefore);
-  const value = await page.evaluate((id) => window.nect.document.colorSlots.find((slot) => slot.id === id).value, slotId);
+  const value = await page.evaluate(
+    (id) => window.nect.document.colorSlots.find((slot) => slot.id === id).value,
+    slotId,
+  );
   assert.equal(value.alpha, 1, 'shared HSL retains alpha');
-  assert.ok(parseInt(value.hex.slice(3, 5), 16) > parseInt(value.hex.slice(1, 3), 16), 'hue edit produces green');
+  assert.ok(
+    parseInt(value.hex.slice(3, 5), 16) > parseInt(value.hex.slice(1, 3), 16),
+    'hue edit produces green',
+  );
   await activateCommand(page, 'undo');
   assert.equal(await documentText(), sharedBefore, 'one Undo restores shared HSL gesture');
   await activateCommand(page, 'redo');
@@ -132,16 +169,37 @@ try {
   await page.keyboard.press('Tab');
   assert.equal(await shared('l').evaluate((el) => document.activeElement === el), true);
   await page.keyboard.press('Tab');
-  assert.equal(await row().locator('[data-shared-color-edit="hex"]').evaluate((el) => document.activeElement === el), true);
+  assert.equal(
+    await row()
+      .locator('[data-shared-color-edit="hex"]')
+      .evaluate((el) => document.activeElement === el),
+    true,
+  );
   for (const width of [1600, 900]) {
     await page.setViewportSize({ width, height: width === 900 ? 720 : 1000 });
     for (const name of ['h', 's', 'l']) await canHit(shared(name), `shared ${name} at ${width}`);
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
     await page.screenshot({ path: `test-results/workflow-hsl-workspace-${width}.png` });
   }
   assert.deepEqual(errors, []);
-  await writeFile('test-results/workflow-hsl-workspace.json', JSON.stringify({ ok: true, viewportWidths: [1600, 900], limits: ['Headless Chrome; native color dialog and OS IME are not tested.'] }, null, 2));
-  console.log('HSL workspace: inspector and shared live/Undo, invalid input, narrow hit testing PASS');
+  await writeFile(
+    'test-results/workflow-hsl-workspace.json',
+    JSON.stringify(
+      {
+        ok: true,
+        viewportWidths: [1600, 900],
+        limits: ['Headless Chrome; native color dialog and OS IME are not tested.'],
+      },
+      null,
+      2,
+    ),
+  );
+  console.log(
+    'HSL workspace: inspector and shared live/Undo, invalid input, narrow hit testing PASS',
+  );
 } finally {
   await browser.close();
 }

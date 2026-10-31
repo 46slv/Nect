@@ -18,22 +18,14 @@ export function hexToHsl(hex) {
     if (hi === r) h = ((g - b) / delta) % 6;
     else if (hi === g) h = (b - r) / delta + 2;
     else h = (r - g) / delta + 4;
-    h = ((h * 60) % 360 + 360) % 360;
+    h = (((h * 60) % 360) + 360) % 360;
   }
   const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
   return { h, s: s * 100, l: l * 100 };
 }
 
 export function hslToHex(h, s, l) {
-  if (
-    ![h, s, l].every(Number.isFinite) ||
-    h < 0 ||
-    h > 360 ||
-    s < 0 ||
-    s > 100 ||
-    l < 0 ||
-    l > 100
-  )
+  if (![h, s, l].every(Number.isFinite) || h < 0 || h > 360 || s < 0 || s > 100 || l < 0 || l > 100)
     throw Error('HSL must be H 0–360, S 0–100, L 0–100');
   const hue = h % 360,
     saturation = s / 100,
