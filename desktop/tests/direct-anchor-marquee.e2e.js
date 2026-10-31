@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Native Tauri/WebView2 via CDP synthetic input, not OS input.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -82,8 +83,8 @@ try {
     f.doc.name = `NECT_DIRECT_ANCHOR_${c.zoom}`;
     await page.evaluate((s) => window.nect.load(s), serialize(f.doc));
     await $('[data-tool="direct"]').click();
-    await $('[data-action="actual-size"]').click();
-    if (c.zoom === 120) await $('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    if (c.zoom === 120) await activateBoundaryCommand(page, 'zoom-in');
     assert.equal((await $('[data-zoom="canvas"]').innerText()).trim(), `${c.zoom}%`);
     const box = await $('.canvas-stage').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

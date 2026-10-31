@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 const browser = await chromium.launch({
@@ -11,6 +12,8 @@ const clickUndo = () => page.locator('[data-action="undo"]').click();
 page.on('pageerror', (e) => errors.push(e.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5184');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForSelector('.shape');
   await page.locator('#add-node').selectOption('Math');
   const setup = await page.evaluate(async () => {
@@ -82,7 +85,10 @@ try {
   await page.evaluate(() => window.nect.dispatch({ ...window.nect.commandState, type: 'redo' }));
   const expressionButton = field().locator('[data-fx]');
   assert.equal(await expressionButton.locator('svg[data-icon="expression"]').count(), 1);
-  assert.match(await expressionButton.getAttribute('aria-label'), /Expression and parameter references/);
+  assert.match(
+    await expressionButton.getAttribute('aria-label'),
+    /Expression and parameter references/,
+  );
   page.once('dialog', (dialog) => dialog.accept('20 * 9'));
   await field().locator('[data-fx]').click();
   assert.equal(await field().locator('[data-expression]').inputValue(), '20 * 9');

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
-import { activateCommand } from './command-menu-actions.js';
+import { activateCommand, revealCommandMenu } from './command-menu-actions.js';
+import { revealBoundary, activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 
 const out = resolve('test-results/workspace-panels');
@@ -68,6 +69,35 @@ try {
     Math.abs(initialFit.actual - initialFit.expected) < 0.001,
     'initial fit reflects settled UI font metrics',
   );
+  const graphToggle = page.getByRole('button', { name: 'Toggle node graph controls', exact: true });
+  const viewToggle = page.getByRole('button', { name: 'Toggle artboard view controls', exact: true });
+  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await viewToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await page.locator('#add-node').isVisible(), true);
+  assert.equal(await page.locator('[data-action="graph-fit"]').isVisible(), false);
+  assert.equal(await page.locator('[data-zoom="canvas"]').isVisible(), true);
+  assert.equal(await page.locator('[data-action="fit"]').isVisible(), false);
+  await page.screenshot({ path: out + '/boundary-closed.png', animations: 'disabled' });
+  for (let i = 0; i < 2; i++) {
+    await graphToggle.press('Enter');
+    assert.equal(await page.locator('[data-action="graph-fit"]').isVisible(), true);
+    same(await state(), initial, 'graph boundary open preserves canvas and graph');
+    await graphToggle.press('Escape');
+    assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(await graphToggle.evaluate((el) => el === document.activeElement), true);
+    same(await state(), initial, 'graph boundary close preserves canvas and graph');
+  }
+  await graphToggle.press('Enter');
+  await page.screenshot({ path: out + '/boundary-graph-open.png', animations: 'disabled' });
+  await viewToggle.press('Enter');
+  assert.equal(await graphToggle.getAttribute('aria-expanded'), 'false');
+  assert.equal(await viewToggle.getAttribute('aria-expanded'), 'true');
+  assert.equal(await page.locator('[data-action="fit"]').isVisible(), true);
+  same(await state(), initial, 'switching boundary ends does not move either camera');
+  await page.screenshot({ path: out + '/boundary-view-open.png', animations: 'disabled' });
+  await viewToggle.press('Escape');
+  assert.equal(await viewToggle.evaluate((el) => el === document.activeElement), true);
+  same(await state(), initial, 'closing view controls is view-only');
   // A circle's visible face plus focus ring must remain inside the rounded surface;
   // its transparent 30px rectangular hit target is checked separately.
   const contourFits = (locator) =>
@@ -88,15 +118,18 @@ try {
         });
       });
     });
-  for (const [action, icon] of [['asset-library', 'assets'], ['undo', 'undo'], ['redo', 'redo']]) {
+  for (const [action, icon] of [
+    ['asset-library', 'assets'],
+    ['undo', 'undo'],
+    ['redo', 'redo'],
+  ]) {
     const button = page.locator(`[data-action="${action}"]`);
     assert.equal(await button.locator(`svg[data-icon="${icon}"]`).count(), 1);
     assert.ok((await button.textContent()).trim(), `${action} retains its visible text label`);
   }
   const rightBar = page.locator('.workspace-panel-bar-right');
   const inspectorTrigger = page.getByRole('button', { name: 'Focus Inspector', exact: true });
-  assert.equal(await inspectorTrigger.getAttribute('aria-expanded'), 'true');
-  await inspectorTrigger.click();
+  assert.equal(await inspectorTrigger.getAttribute('aria-expanded'), 'false');
   await page.locator('.canvas-stage').focus();
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
@@ -114,6 +147,9 @@ try {
   await page.screenshot({ path: out + '/peek-right-near.png', animations: 'disabled' });
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
+  await inspectorTrigger.click();
+  assert.ok((await rightBar.boundingBox()).x < rightBounds.x, 'right handle moves inward only on explicit open');
+  await page.screenshot({ path: out + '/peek-right-open.png', animations: 'disabled' });
   await inspectorTrigger.click();
   same(await state(), initial, 'testing right idle keeps document and canvas geometry');
   const railIcons = await page.evaluate(() =>
@@ -230,6 +266,7 @@ try {
   );
   // First-ever Assets mount starts at its docked location before revealing.
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  assert.ok((await leftBar.boundingBox()).x > leftBounds.x, 'left handle moves inward only on explicit open');
   if (supportsDiscrete)
     await page.waitForFunction(
       () =>
@@ -310,6 +347,17 @@ try {
     inert: false,
     expanded: 'true',
   });
+  const portalBeforeSwitch = await page.locator('[data-asset-library]').elementHandle();
+  await page.getByRole('searchbox', { name: 'Search assets', exact: true }).focus();
+  await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
+  assert.equal(await page.locator('[data-asset-library]').evaluate((el) => el.hidden && el.inert), true);
+  assert.equal(await page.locator('[data-drawer-side="left"]').evaluate((el) => el.hidden && el.inert), true);
+  assert.equal(await page.getByRole('button', { name: 'Focus Layers', exact: true }).getAttribute('aria-expanded'), 'true');
+  assert.equal(await page.evaluate(() => document.activeElement?.closest('[inert]') === null), true);
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
+  assert.equal(await page.evaluate((node) => node === document.querySelector('[data-asset-library]'), portalBeforeSwitch), true);
+  assert.equal(await page.locator('[data-drawer-side="right"]').evaluate((el) => el.hidden && el.inert), true);
+  same(await state(), initial, 'exclusive cross-side switching keeps both cameras and history');
   // Give exit a settled frame before testing entrance: rapid reversals may be
   // legitimately coalesced before a browser has painted the first state.
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
@@ -433,7 +481,8 @@ try {
   const panel = page.locator('[data-asset-library]');
   await panel.waitFor({ state: 'visible' });
   const identity = await panel.elementHandle();
-  same(await state(), initial, 'opening both sides is view-only');
+  assert.equal(await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert), true);
+  same(await state(), initial, 'opening the opposite side is view-only');
   const chooser = page.waitForEvent('filechooser');
   await panel.getByRole('button', { name: 'Add folder', exact: true }).click();
   await (await chooser).setFiles(out + '/parts');
@@ -500,6 +549,7 @@ try {
   );
   same(await state(), beforeViewer, 'viewer round trip keeps viewport and document');
   await ensureWorkspacePanel(page, 'align');
+  assert.equal(await panel.evaluate((el) => el.hidden && el.inert), true, 'opening opposite side hides the portal');
   const boundaries = await page.evaluate(() => {
     const rect = (s) => {
       const r = document.querySelector(s).getBoundingClientRect();
@@ -512,7 +562,7 @@ try {
       graph: rect('.graph-panel'),
     };
   });
-  for (const side of ['left', 'right']) {
+  for (const side of ['right']) {
     assert.ok(
       boundaries[side].top >= boundaries.stage.top - 1 &&
         boundaries[side].bottom <= boundaries.stage.bottom + 1,
@@ -537,16 +587,16 @@ try {
     false,
   );
   await page.evaluate(() => document.querySelector('#workspace-modal-probe').remove());
+  await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search assets', exact: true }).focus();
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'detached' });
   const assetsTrigger = page.getByRole('button', { name: 'Toggle Assets panel', exact: true });
   assert.equal(await assetsTrigger.getAttribute('aria-expanded'), 'false');
   assert.equal(await assetsTrigger.evaluate((button) => button === document.activeElement), true);
-  await page.getByRole('button', { name: 'Toggle Alignment panel', exact: true }).click();
   same(await state(), initial, 'closing is view-only');
   // Manual zoom and pan must remain stable too, not only fit mode.
-  await page.getByRole('button', { name: 'Artboard zoom in', exact: true }).click();
+  await activateBoundaryCommand(page, 'zoom-in');
   await stage.hover();
   await page.mouse.wheel(40, 25);
   const manual = await state();
@@ -556,7 +606,7 @@ try {
   await page.getByRole('button', { name: 'Toggle Assets panel', exact: true }).click();
   await page.getByRole('button', { name: 'Focus Layers', exact: true }).click();
   same(await state(), manual, 'manual zoom and pan survive close');
-  for (const width of [1366, 1000, 900]) {
+  for (const width of [1600, 1366, 1000, 900]) {
     await page.setViewportSize({ width, height: 960 });
     const before = await state();
     const toolbar = await page.evaluate(() => {
@@ -592,9 +642,10 @@ try {
       'document/help/build wrap together',
     );
 
+    await revealCommandMenu(page, 'Export');
     const outputSummary = page.locator('[data-output-settings] > summary');
     assert.equal(await outputSummary.isVisible(), true);
-    await outputSummary.click();
+    await revealCommandMenu(page, 'Output settings');
     for (const name of [
       'SVG output sizing',
       'SVG export units',
@@ -635,18 +686,23 @@ try {
       'surface depth remains ordered even over a black underlay',
     );
     assert.equal(depth.iconOpacity, '1');
+    const sizing = page.getByRole('combobox', { name: 'SVG output sizing', exact: true });
+    await sizing.selectOption('responsive');
+    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open && el.closest('.command-menu').open), true, 'nested output settings survive a render');
+    await sizing.selectOption('fixed');
+    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open && el.closest('.command-menu').open), true);
     const outputBox = await page.locator('.output-settings-items').boundingBox();
     assert.ok(outputBox.x >= 0 && outputBox.x + outputBox.width <= width);
-    if (width === 900 || width === 1366)
+    if (width === 900 || width === 1366 || width === 1600)
       await page.screenshot({
         path: out + `/output-settings-${width}.png`,
         animations: 'disabled',
       });
     await outputSummary.focus();
     await page.keyboard.press('Escape');
-    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open), false);
-    assert.equal(await outputSummary.evaluate((el) => el === document.activeElement), true);
-    if (width === 900 || width === 1366) {
+    assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.closest('.command-menu').open), false);
+    assert.equal(await page.locator('header .command-menu').filter({ has: page.locator('summary', { hasText: /^Export$/ }) }).locator(':scope > summary').evaluate((el) => el === document.activeElement), true);
+    if (width === 900 || width === 1366 || width === 1600) {
       assert.equal(await page.locator('[data-action="undo"]').isDisabled(), initial.undo);
       await page.screenshot({ path: out + `/toolbar-${width}.png`, animations: 'disabled' });
       await page.locator('[data-workspace-panel="colors"]').hover();
@@ -658,8 +714,9 @@ try {
     }
     await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
-    same(await state(), before, `both drawers preserve geometry at ${width}`);
-    if (width === 900 || width === 1366)
+    assert.equal(await page.locator('[data-drawer-side=right]').evaluate((el) => el.hidden && el.inert), true);
+    same(await state(), before, `exclusive side switch preserves geometry at ${width}`);
+    if (width === 900 || width === 1366 || width === 1600)
       await page.screenshot({
         path: out + `/toolbar-${width}-selected.png`,
         animations: 'disabled',
@@ -668,12 +725,11 @@ try {
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
       false,
     );
-    await page.getByRole('button', { name: 'Focus Inspector', exact: true }).click();
     await page.getByRole('button', { name: 'Toggle Shared Colors panel', exact: true }).click();
   }
   // An editing control owns Escape even with a Grid popover still open.
   await ensureWorkspacePanel(page, 'inspector');
-  await page.getByRole('button', { name: 'Grid', exact: true }).click();
+  await activateBoundaryCommand(page, 'grid-panel');
   const nameDraft = page.locator('.inspector-body [data-layer-name]');
   const oldName = await nameDraft.inputValue();
   await nameDraft.fill('未確定の名前');

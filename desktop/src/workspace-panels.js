@@ -36,7 +36,8 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
   let root,
     view,
     observer,
-    active = { left: null, right: 'inspector' },
+    active = { left: null, right: null },
+    lastSide = null,
     retreated = false;
   let attachVersion = 0,
     restorePending = true,
@@ -59,13 +60,19 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
         )
           active[side] = saved[side];
       }
+      lastSide = saved.lastSide === 'left' || saved.lastSide === 'right' ? saved.lastSide : null;
+      if (active.left && active.right) {
+        const keep = lastSide || 'right';
+        active[keep === 'left' ? 'right' : 'left'] = null;
+        lastSide = keep;
+      }
     }
   } catch {
     /* Bad or obsolete preferences never prevent editing. */
   }
   function save() {
     try {
-      storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify(active));
+      storage?.setItem(DRAWER_PREFERENCES_KEY, JSON.stringify({ ...active, lastSide }));
     } catch {
       /* View preferences are optional. */
     }
@@ -301,7 +308,19 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
     const entry = item(id);
     if (!entry) return;
     if (active[entry.side] === id) return close(id, focus);
+    const other = entry.side === 'left' ? 'right' : 'left';
+    if (active[other]) {
+      const oldHost = root?.querySelector(`[data-drawer-side="${other}"]`);
+      const oldPortal = other === 'left' ? getAssetPanel() : null;
+      const focused = root?.ownerDocument.activeElement;
+      if (oldHost?.contains(focused) || oldPortal?.contains(focused))
+        trigger(id)?.focus({ preventScroll: true });
+      active[other] = null;
+      setMotion(other, true);
+      if (other === 'left') retreated = false;
+    }
     active[entry.side] = id;
+    lastSide = entry.side;
     save();
     if (entry.side === 'left') retreated = false;
     // Callbacks may synchronously attach or refresh a newly mounted portal.

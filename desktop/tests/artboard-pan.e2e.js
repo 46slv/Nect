@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 const browser = await chromium.launch({
@@ -42,9 +43,9 @@ async function reset() {
     };
     window.nect.load(JSON.stringify(d));
   });
-  await page.locator('[data-action="fit"]').click();
-  await page.locator('[data-action="zoom-in"]').click();
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'fit');
+  await activateBoundaryCommand(page, 'zoom-in');
+  await activateBoundaryCommand(page, 'zoom-in');
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
@@ -121,7 +122,7 @@ try {
   assert.equal(await snapshot(), beforePen);
   assert.equal(await page.locator('[data-tool="pen"]').getAttribute('class'), 'active');
   // Escape stops navigation without ending Pen; Fit clears view state.
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await page.mouse.move(...(await point(280, 190)));
   await page.mouse.down({ button: 'middle' });
   await page.mouse.move(p[0] + 15, p[1] + 15);
@@ -131,7 +132,7 @@ try {
   await page.mouse.up({ button: 'middle' });
   assert.equal(await view(), stopped);
   assert.equal(await page.locator('[data-tool="pen"]').getAttribute('class'), 'active');
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   assert.equal(await view(), 'translate(0px,0px)');
   // Normal object movement still uses inverse screen CTM after pan and zoom.
   await page.locator('[data-tool="select"]').click();

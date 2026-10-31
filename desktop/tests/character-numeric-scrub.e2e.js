@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -11,6 +13,8 @@ const page = await browser.newPage({ viewport: { width: 1920, height: 1200 } }),
 page.on('pageerror', (error) => errors.push(error.message));
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   const load = async (mixed = false, ids = ['c1']) => {
     await page.evaluate(async (mixed) => {
@@ -244,7 +248,7 @@ try {
     await empty();
   }
   await load();
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'zoom-in');
   await page.keyboard.down('Shift');
   await page.keyboard.down('Alt');
   await scrub(field('character-axis="0"'));

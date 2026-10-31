@@ -1,11 +1,11 @@
 export function ensureCommandMenus(app, document) {
   const header = app.querySelector('header');
   if (!header || header.querySelector('.command-menu')) return;
-  const makeMenu = (label, actions) => {
+  const makeMenu = (label, actions, exclusive = true) => {
     const menu = document.createElement('details');
-    menu.className = 'command-menu';
+    menu.className = exclusive ? 'command-menu' : 'output-settings-menu';
     menu.addEventListener('toggle', () => {
-      if (!menu.open) return;
+      if (!exclusive || !menu.open) return;
       header.querySelectorAll('.command-menu[open]').forEach((other) => {
         if (other !== menu) other.open = false;
       });
@@ -22,7 +22,7 @@ export function ensureCommandMenus(app, document) {
     return menu;
   };
   const brand = header.querySelector('.brand');
-  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as']);
+  const project = makeMenu('Project', ['new', 'open', 'save', 'save-as', 'add-composition', 'asset-library']);
   const importMenu = makeMenu('Import', ['import-svg', 'import-image', 'add-svg-part']);
   const composition = document.createElement('button');
   composition.type = 'button';
@@ -31,7 +31,7 @@ export function ensureCommandMenus(app, document) {
   composition.title = 'Add a Composition from another project';
   importMenu.querySelector('.command-menu-items').append(composition);
   const exportMenu = makeMenu('Export', ['export', 'export-png']);
-  const outputSettings = makeMenu('Output settings', []);
+  const outputSettings = makeMenu('Output settings', [], false);
   outputSettings.dataset.outputSettings = '';
   const outputItems = outputSettings.querySelector('.command-menu-items');
   outputItems.classList.add('output-settings-items');
@@ -55,7 +55,8 @@ export function ensureCommandMenus(app, document) {
     header.querySelector('#export-presets'),
   ])
     if (element) outputItems.append(element);
-  brand?.after(project, importMenu, exportMenu, outputSettings);
+  exportMenu.querySelector('.command-menu-items').append(outputSettings);
+  brand?.after(project, importMenu, exportMenu);
   header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
     project.querySelector('.command-menu-items').append(button);
   });
@@ -71,7 +72,7 @@ export function ensureCommandMenus(app, document) {
     nodes[0].before(container);
     nodes.forEach((node) => container.append(node));
   };
-  group('File', [project, importMenu, exportMenu, outputSettings]);
+  group('File', [project, importMenu, exportMenu]);
   group('Composition and assets', [
     header.querySelector('[data-active-composition]')?.closest('label'),
     header.querySelector('[data-action="add-composition"]'),

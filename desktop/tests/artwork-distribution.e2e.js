@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
@@ -71,8 +72,8 @@ try {
     ['center-y', 1],
   ]) {
     await load();
-    await page.locator('[data-action="actual-size"]').click();
-    await page.locator('[data-action="zoom-out"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    await activateBoundaryCommand(page, 'zoom-out');
     await page.locator('.canvas-stage').hover();
     await page.mouse.wheel(35, 20);
     const before = await saved(),
@@ -140,10 +141,10 @@ try {
     await button.click();
     assert.equal(await saved(), after);
     assert.equal(await page.locator('[data-action="redo"]').isDisabled(), false);
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await page.screenshot({ path: `test-results/artwork-distribution-${action}-1600.png` });
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await page.locator('.alignment-panel').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `test-results/artwork-distribution-${action}-1280.png` });
     await page.setViewportSize({ width: 1600, height: 1000 });

@@ -27,7 +27,7 @@ test('command menus are idempotent and preserve an open Import menu', () => {
   importMenu.open = true;
   ensureCommandMenus(app, window.document);
 
-  assert.equal(app.querySelectorAll('.command-menu').length, 4);
+  assert.equal(app.querySelectorAll('.command-menu').length, 3);
   assert.equal(importMenu.isConnected, true);
   assert.equal(importMenu.open, true);
   assert.equal(importMenu.querySelector('[data-action="import-svg"]'), svg);
@@ -85,7 +85,7 @@ test('toolbar grouping keeps labeled output and history controls reachable once'
   assert.ok(output.querySelector('#export-presets'));
   assert.ok(app.querySelector('[aria-label="History"] [data-action="undo"]'));
   assert.ok(
-    app.querySelector('[aria-label="Composition and assets"] [data-action="asset-library"]'),
+    app.querySelector('.command-menu [data-action="asset-library"]'),
   );
   window.happyDOM.abort();
 });

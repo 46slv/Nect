@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand, revealBoundary } from './helpers/boundary-controls.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,7 +14,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('dialog', (d) => d.accept());
 const stage = page.locator('.canvas-stage'),
   graph = page.locator('.graph-scroll');
-const click = (action) => page.locator(`[data-action="${action}"]`).click();
+const click = (action) => activateBoundaryCommand(page, action);
 const scale = () => page.locator('.artboard').evaluate((el) => el.getScreenCTM().a);
 const graphScale = () =>
   page.locator('.graph').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
@@ -77,6 +79,8 @@ async function fitVisible(selector = '.node') {
 }
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   await page.waitForTimeout(400);
   await fs.mkdir('test-results', { recursive: true });
@@ -206,6 +210,7 @@ try {
   await fitVisible();
   await page.keyboard.press('Shift+2');
   await fitVisible('.node.selected');
+  await revealBoundary(page, 'canvas');
   const zoomButton = page.locator('[data-action="zoom-in"]');
   await zoomButton.focus();
   const oldScale = await scale(),

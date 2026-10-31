@@ -1,3 +1,4 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -43,6 +44,8 @@ async function setup(context) {
     }),
   );
   await page.goto(base);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForSelector('.shape');
   return page;
 }

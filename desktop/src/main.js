@@ -76,7 +76,7 @@ import { anchorMarqueeIds } from './direct-anchor-marquee.js';
 import { anchorAlignments, pointAlignmentContext } from './point-alignment.js';
 import { anchorDistributions } from './point-distribution.js';
 import { ensureCommandMenus } from './command-menus.js';
-import { ensureGraphToolbarOverflow } from './graph-toolbar-overflow.js';
+import { ensureBoundaryControls, syncBoundaryViewerMode } from './boundary-controls.js';
 import { ensureBuildInfo } from './build-info.js';
 import { keyerInputPickContext, planKeyerInputPick } from './keyer-input-pick.js';
 import { openKeyerInputPicker } from './keyer-input-picker.js';
@@ -3915,7 +3915,9 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   graphPanJoystick?.destroy();
   graphPanJoystick = null;
   const exportPresetsOpen = app.querySelector('#export-presets')?.open ?? false;
-  const outputSettingsOpen = app.querySelector('[data-output-settings]')?.open ?? false;
+  const previousOutputSettings = app.querySelector('[data-output-settings]');
+  const outputSettingsOpen = previousOutputSettings?.open ?? false;
+  const outputMenuOpen = outputSettingsOpen && !!previousOutputSettings?.closest('.command-menu')?.open;
   const pointScroll =
     !resetView && document.activeElement?.closest('.point-panel')
       ? [...app.querySelectorAll('.point-panel-rows')].map((el) => el.scrollTop)
@@ -4065,7 +4067,10 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
     canAssign: selection.size === 1,
     busy: !!(penDraft || drag || wiring || composing || canvasTextEdit),
     evaluations: new Map(results.map(([layer, result]) => [layer.id, result])),
-    onModeChange: () => workspacePanels.refresh(),
+    onModeChange: () => {
+      workspacePanels.refresh();
+      syncBoundaryViewerMode(app);
+    },
   });
   const pngExportButton = app.querySelector('[data-action="export-png"]');
   if (pngExportButton) {
@@ -4134,8 +4139,12 @@ function render(resetView = false, artworkResolution = null, graphScrollOverride
   // observer changes the stage height between the two presses of a double-click.
   ensureCommandMenus(app, document);
   const outputSettings = app.querySelector('[data-output-settings]');
-  if (outputSettings) outputSettings.open = outputSettingsOpen;
-  ensureGraphToolbarOverflow(app, document);
+  if (outputSettings) {
+    outputSettings.open = outputSettingsOpen;
+    if (outputMenuOpen) outputSettings.closest('.command-menu').open = true;
+  }
+  ensureBoundaryControls(app, document);
+  workspacePanels.refresh();
   ensureBuildInfo(app, document);
   fitCanvas();
   compactTextInspector();

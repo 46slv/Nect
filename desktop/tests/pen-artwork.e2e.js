@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -118,7 +119,7 @@ try {
   await page.mouse.move(center[0] + 15, center[1] + 10, { steps: 3 });
   await page.mouse.up({ button: 'middle' });
   assert.equal(await snapshot(), initial.json);
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await point([350, 100]);
   await point([500, 160], [530, 205]);
   await point([420, 270]);
@@ -359,7 +360,7 @@ try {
     { width: 1600, height: 1000 },
   ]) {
     await page.setViewportSize(size);
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'fit');
     await begin();
     await point([350, 330]);
     await point([480, 420], [510, 435]);
@@ -488,8 +489,8 @@ try {
     await page.locator('[data-action="undo"]').click();
     assert.equal(await snapshot(), beforeJSON);
     // Real zoom and middle pan must change only the view; pointer deltas stay artboard-space.
-    await page.locator('[data-action="actual-size"]').click();
-    await page.locator('[data-action="zoom-out"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    await activateBoundaryCommand(page, 'zoom-out');
     const pan = await xy([720, 350]);
     await page.mouse.move(...pan);
     await page.mouse.down({ button: 'middle' });
@@ -664,7 +665,7 @@ try {
       await ensureWorkspacePanel(page, 'layers');
       await page.locator(`[data-select-layer="${id}"]`).click();
       await page.locator(`.node[data-id="${nodeId}"] .node-head strong`).click();
-      await page.locator('[data-action="actual-size"]').click();
+      await activateBoundaryCommand(page, 'actual-size');
       const handle = page.locator('.node-stage-move rect'),
         box = await handle.boundingBox(),
         scale = await page.locator('.artboard').evaluate((el) => el.getScreenCTM().a),

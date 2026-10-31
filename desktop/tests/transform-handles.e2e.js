@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { activateCommand } from './command-menu-actions.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
@@ -51,6 +53,8 @@ const rotate = (g, p, degrees) => {
 };
 try {
   await page.goto(process.env.BASE_URL || 'http://127.0.0.1:5173');
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   await load();
   const original = await saved(),
@@ -135,8 +139,8 @@ try {
   const diameter = await page
     .locator('[data-transform-handle="rotation"] circle')
     .evaluate((el) => el.getBoundingClientRect().width);
-  await page.locator('[data-action="zoom-in"]').click();
-  await page.locator('[data-action="zoom-in"]').click();
+  await activateBoundaryCommand(page, 'zoom-in');
+  await activateBoundaryCommand(page, 'zoom-in');
   near(
     await page
       .locator('[data-transform-handle="rotation"] circle')
@@ -163,7 +167,7 @@ try {
   await page.mouse.up();
   near((await params()).scale.value, 0.9);
   await undo();
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   // Numeric draft commits before the snapshot; a handle drag becomes a second undo step.
   const field = page.locator('.inspector-body .field[data-key="scale"] [data-value]');
   await field.fill('95'); // Inspector display is percent; authored scale remains 0.95.

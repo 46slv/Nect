@@ -36,18 +36,19 @@ function fixture() {
   };
 }
 
-test('separate sides switch one real panel each without changing the graph', () => {
+test('opposite sides switch exclusively without changing the graph', () => {
   const f = fixture();
   const graph = f.root.querySelector('.graph-panel');
   f.controller.select('layers');
+  assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, false);
   f.controller.select('colors');
-  assert.equal(f.root.querySelector('.layers').hidden, false);
-  assert.equal(f.root.querySelector('.shared-colors-panel').hidden, false);
-  assert.equal(f.root.querySelector('.inspector').hidden, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="right"]').hidden, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="right"]').inert, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="left"]').hidden, false);
   f.controller.select('inspector');
-  assert.equal(f.root.querySelector('.layers').hidden, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="left"]').hidden, true);
+  assert.equal(f.root.querySelector('[data-drawer-side="left"]').inert, true);
   assert.equal(f.root.querySelector('.inspector').hidden, false);
-  assert.equal(f.root.querySelector('.shared-colors-panel').hidden, false);
   assert.equal(f.root.querySelector('.graph-panel'), graph);
   assert.equal(graph.closest('[data-drawer-side]'), null);
   f.window.happyDOM.abort();
@@ -159,25 +160,26 @@ test('drawer preferences restore real owners and ignore invalid or legacy data',
   const controller = create();
   controller.attach(root);
   await Promise.resolve();
-  assert.equal(opens, 1);
-  assert.equal(focused, false);
+  assert.equal(opens, 0, 'legacy both-open state chooses the right side deterministically');
   assert.equal(root.querySelector('.layers').hidden, false);
-  assert.equal(panel.hidden, false);
+  assert.equal(root.querySelector('[data-drawer-side=left]').hidden, true);
   controller.select('inspector');
   assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), {
-    left: 'assets',
+    left: null,
     right: 'inspector',
+    lastSide: 'right',
   });
   controller.setRetreat(true);
   assert.deepEqual(JSON.parse(values.get(DRAWER_PREFERENCES_KEY)), {
-    left: 'assets',
+    left: null,
     right: 'inspector',
+    lastSide: 'right',
   });
   values.set(DRAWER_PREFERENCES_KEY, '{broken');
   root.innerHTML = markup;
   const fallback = create();
   fallback.attach(root);
-  assert.equal(root.querySelector('.inspector').hidden, false);
+  assert.equal(root.querySelector('[data-drawer-side=right]').hidden, true);
   w.happyDOM.abort();
 });
 
@@ -194,8 +196,6 @@ test('Viewer mode suspends the Assets portal and restores its live state on retu
   assert.equal(panel.inert, true);
   assert.equal(f.root.querySelector('[data-drawer-side="left"]').dataset.motionEnabled, 'false');
   assert.equal(f.root.querySelector('.workspace-panel-bar-left').hidden, true);
-  f.controller.select('inspector');
-  assert.equal(f.root.querySelector('.inspector').hidden, false);
   wrap.dataset.viewerMode = 'artwork';
   f.controller.refresh();
   assert.equal(panel.hidden, false);
@@ -401,4 +401,49 @@ test('rail geometry scales to two and three controls and short panels', () => {
       assert.match(geometry.fill, /H6 Z$/);
       assert.match(geometry.edge, / L/, 'rounded tab retains the short straight shoulder');
     }
+});
+
+test('cross-side selection evacuates portal focus and keeps one active side', () => {
+  const f = fixture();
+  f.controller.select('assets');
+  const panel = f.panel;
+  const input = panel.querySelector('input');
+  input.focus();
+  f.controller.select('layers', { focus: false });
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.inert, true);
+  assert.equal(f.window.document.activeElement, f.root.querySelector('[data-workspace-panel="layers"]'));
+  assert.deepEqual(f.controller.active, { left: null, right: 'layers' });
+  f.controller.select('assets');
+  assert.equal(f.panel, panel, 'rail switch retains the live Assets owner');
+  assert.deepEqual(f.controller.active, { left: 'assets', right: null });
+  f.controller.select('assets');
+  assert.deepEqual(f.controller.active, { left: null, right: null });
+  f.window.happyDOM.abort();
+});
+
+test('saved last side wins an old both-open preference without losing either owner data', async () => {
+  const w = new Window();
+  const root = w.document.createElement('div');
+  root.innerHTML = markup;
+  w.document.body.append(root);
+  const values = new Map([[DRAWER_PREFERENCES_KEY, JSON.stringify({ left: 'assets', right: 'layers', lastSide: 'left' })]]);
+  let panel;
+  const controller = createWorkspacePanels({
+    storage: { getItem: (key) => values.get(key), setItem: (key, value) => values.set(key, value) },
+    getAssetPanel: () => panel,
+    onAssets: () => { panel = w.document.createElement('aside'); w.document.body.append(panel); },
+    onAlign: () => {},
+    onColors: () => {},
+  });
+  controller.attach(root);
+  await Promise.resolve();
+  assert.deepEqual(controller.active, { left: 'assets', right: null });
+  assert.equal(panel.hidden, false);
+  assert.equal(root.querySelector('[data-drawer-side="right"]').hidden, true);
+  controller.select('layers');
+  assert.deepEqual(controller.active, { left: null, right: 'layers' });
+  assert.equal(panel.isConnected, true);
+  assert.equal(panel.hidden && panel.inert, true);
+  w.happyDOM.abort();
 });

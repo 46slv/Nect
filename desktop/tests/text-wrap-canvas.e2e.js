@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -133,7 +134,7 @@ try {
     await page.evaluate((s) => window.nect.load(s), serialize(fixture.doc));
     if (await $('.alignment-panel').count())
       await $('.canvas-toolbar [data-action="align-panel"]').click();
-    await $('[data-action="graph-reset"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
     await $(`.node[data-id="${fixture.textId}"] .type-tag`).click();
     if (transformed) await $(`[data-select-layer="${fixture.layerId}"]`).click();
     artworkMatrix = transformed
@@ -142,8 +143,8 @@ try {
           fixture.transformId,
         )
       : [1, 0, 0, 1, 0, 0];
-    await $('[data-action="actual-size"]').click();
-    if (zoomIn) await $('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    if (zoomIn) await activateBoundaryCommand(page, 'zoom-in');
     await settle();
     assert.equal(await handle().count(), 1);
     // Pan with the existing Canvas gesture if the handle needs bringing into view.

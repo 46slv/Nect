@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Run against `npm run dev`: BASE_URL=http://127.0.0.1:5173 node tests/asset-drag.e2e.js
 // Fixtures use the browser's real directory picker; placement uses native HTML drag events.
 import assert from 'node:assert/strict';
@@ -120,8 +121,8 @@ try {
     }
     await page.evaluate((text) => window.nect.load(text), serialize(doc));
     await ensurePanel();
-    await page.locator('[data-action="graph-reset"]').click();
-    await page.locator('[data-action="fit"]').click();
+    await activateBoundaryCommand(page, 'graph-reset');
+    await activateBoundaryCommand(page, 'fit');
     assert.equal(await page.locator('[data-action="undo"]').isDisabled(), true);
     return model();
   };
@@ -286,7 +287,7 @@ try {
       await panel.getByLabel('Asset license', { exact: true }).fill('Self-authored drag fixture');
       if (isSVG) await panel.getByLabel('Join before Out', { exact: true }).check();
       if (route === 'graph') {
-        await page.locator('[data-action="graph-zoom-out"]').click();
+        await activateBoundaryCommand(page, 'graph-zoom-out');
         await page.locator('.graph-scroll').evaluate((el) => el.scrollTo(110, 70));
       }
       const originalExport = await page.evaluate(() => window.nect.export());

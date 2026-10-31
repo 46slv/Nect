@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -123,7 +124,7 @@ try {
   const old = await page
     .locator('.artboard')
     .evaluate((e) => ({ a: e.getScreenCTM().a, e: e.getScreenCTM().e, f: e.getScreenCTM().f }));
-  await page.locator('[data-action="zoom-out"]').click();
+  await activateBoundaryCommand(page, 'zoom-out');
   await page.keyboard.down('Space');
   await move([310, 200]);
   await page.mouse.down();

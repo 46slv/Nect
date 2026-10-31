@@ -4127,9 +4127,9 @@ input[data-color-scrub-step] {
   box-sizing: border-box;
   min-height: 30px;
 }
-.header-group > button[data-action="asset-library"],
-.header-group > button[data-action="undo"],
-.header-group > button[data-action="redo"] {
+.header-group > button[data-action='asset-library'],
+.header-group > button[data-action='undo'],
+.header-group > button[data-action='redo'] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -4141,4 +4141,168 @@ input[data-color-scrub-step] {
   height: 14px;
   flex: none;
   pointer-events: none;
+}
+
+/* The same edge controls sit at the artboard edge when closed and at the
+   inner panel edge when explicitly opened. Pointer proximity changes only
+   the painted contour, never the hit target. */
+.canvas-wrap {
+  --drawer-width: min(320px, max(0px, calc(var(--stage-width, 100%) - 156px)));
+}
+.workspace-drawer,
+.workspace-drawer[data-active-panel='inspector'] {
+  width: var(--drawer-width);
+  padding: 0;
+  right: var(--stage-right, 0px);
+}
+.workspace-drawer-left {
+  left: var(--stage-left, 48px);
+  right: auto;
+}
+.workspace-drawer::before {
+  inset: 0 0 0 6px;
+  transform-origin: left center;
+}
+.workspace-drawer-left::before {
+  inset: 0 6px 0 0;
+  transform-origin: right center;
+}
+.workspace-panel-bar-left {
+  left: calc(var(--stage-left, 48px) - 6px);
+  right: auto;
+}
+.workspace-panel-bar-left[data-open='true'] {
+  left: calc(var(--stage-left, 48px) + var(--drawer-width) - 6px);
+}
+.workspace-panel-bar-right {
+  right: calc(var(--stage-right, 0px) - 6px);
+  left: auto;
+}
+.workspace-panel-bar-right[data-open='true'] {
+  right: calc(var(--stage-right, 0px) + var(--drawer-width) - 6px);
+}
+.workspace-panel-bar-left > svg {
+  transform: none;
+}
+.workspace-panel-bar-right > svg {
+  transform: scaleX(-1);
+}
+.workspace-panel-bar-left button {
+  align-self: flex-start;
+  margin-left: 6px;
+  margin-right: 0;
+}
+.workspace-panel-bar-right button {
+  align-self: flex-end;
+  margin-left: 0;
+  margin-right: 6px;
+}
+@supports (transition-behavior: allow-discrete) {
+  .workspace-drawer[data-motion-enabled='true'][hidden]::before,
+  .workspace-drawer-left[data-motion-enabled='true'][hidden]::before {
+    transform: scaleX(.96);
+  }
+  @starting-style {
+    .workspace-drawer[data-motion-enabled='true']::before,
+    .workspace-drawer-left[data-motion-enabled='true']::before {
+      transform: scaleX(.96);
+    }
+  }
+}
+
+/* Boundary controls overlay the graph; opening them does not resize either
+   viewport or move its camera. Shapes join the boundary rather than float. */
+.graph-panel {
+  position: relative;
+}
+.graph-panel > .graph-toolbar,
+.graph-panel > .canvas-toolbar {
+  position: absolute;
+  top: 0;
+  z-index: 25;
+  height: 34px;
+  min-width: 0;
+  max-width: calc(100% - 140px);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-pane-solid);
+  box-shadow: 0 2px 5px #26374720;
+}
+.graph-panel > .graph-toolbar {
+  left: 0;
+  border-radius: 0 0 24px 0;
+}
+.graph-panel > .canvas-toolbar {
+  right: 0;
+  left: auto;
+  border-radius: 0 0 0 24px;
+}
+.boundary-graph-extras,
+.boundary-canvas-extras {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.boundary-graph-extras[hidden],
+.boundary-canvas-extras[hidden] {
+  display: none;
+}
+.boundary-graph-extras > *,
+.boundary-canvas-extras > *,
+.boundary-popover > summary {
+  flex: none;
+  white-space: nowrap;
+}
+.boundary-toggle,
+.boundary-popover > summary {
+  min-width: 30px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.boundary-popover {
+  padding: 0;
+  border: 0;
+}
+.boundary-popover > .node-preset-controls,
+.boundary-popover > .boundary-group-content {
+  position: fixed;
+  z-index: 50;
+  width: min(420px, calc(100vw - 16px));
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-popover);
+  box-shadow: 0 5px 16px #26374722;
+}
+.boundary-group-content .node-group-fields,
+.boundary-group-content .node-group-actions {
+  margin-top: 4px;
+}
+.canvas-toolbar .boundary-canvas-extras > .canvas-toolbar-group {
+  display: flex;
+}
+.graph-panel > .canvas-toolbar[hidden] {
+  display: none;
+}
+.output-settings-menu > summary {
+  cursor: pointer;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 4px 6px;
+}
+.output-settings-menu > .output-settings-items {
+  position: static;
+  min-width: min(340px, calc(100vw - 20px));
+  border: 0;
+  box-shadow: none;
 }

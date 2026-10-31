@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
 import { openArtworkPanel, forceArtworkPanelCommand } from './helpers/artwork-panels.js';
@@ -77,8 +78,8 @@ try {
     ['gap-y', 1],
   ]) {
     await load();
-    await page.locator('[data-action="actual-size"]').click();
-    await page.locator('[data-action="zoom-out"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    await activateBoundaryCommand(page, 'zoom-out');
     await page.locator('.canvas-stage').hover();
     await page.mouse.wheel(35, 20);
     const before = await saved(),
@@ -158,7 +159,7 @@ try {
       [1024, 768],
     ]) {
       await page.setViewportSize({ width, height });
-      await page.locator('[data-action="fit"]').click();
+      await activateBoundaryCommand(page, 'fit');
       await page.locator('.alignment-panel').scrollIntoViewIfNeeded();
       assert.equal(await button.isVisible(), true);
       const rect = await button.boundingBox();

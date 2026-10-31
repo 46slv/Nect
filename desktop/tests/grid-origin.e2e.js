@@ -1,3 +1,4 @@
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 // Dedicated native Tauri/WebView2 instance. CDP input is synthetic, not OS input.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -39,7 +40,7 @@ try {
     );
   const openGrid = async () => {
     if (!(await $('[data-guide-setting="gridAnchor"]').count()))
-      await $('[data-action="grid-panel"]').click();
+      await activateBoundaryCommand(page, 'grid-panel');
   };
   const configs = [
     { anchor: 'bottom-right', factor: [1, 1], zoomIn: false, pan: [24, 18] },
@@ -61,8 +62,8 @@ try {
     doc.editor.guides.push({ id: 'grid-test-guide', axis: 'x', position: 120, locked: false });
     await page.evaluate((s) => window.nect.load(s), serialize(doc));
     if (await $('[data-guide-setting="gridAnchor"]').count()) await page.keyboard.press('Escape');
-    await $('[data-action="actual-size"]').click();
-    if (config.zoomIn) await $('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    if (config.zoomIn) await activateBoundaryCommand(page, 'zoom-in');
     const stage = await $('.canvas-stage').boundingBox();
     await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
     await page.mouse.wheel(...config.pan);
@@ -98,8 +99,8 @@ try {
     assert.deepEqual((await state()).doc, changed.doc);
     assert.equal((await state()).svg, before.svg);
     // Debug JSON load deliberately resets the view to Fit; restore this case's view.
-    await $('[data-action="actual-size"]').click();
-    if (config.zoomIn) await $('[data-action="zoom-in"]').click();
+    await activateBoundaryCommand(page, 'actual-size');
+    if (config.zoomIn) await activateBoundaryCommand(page, 'zoom-in');
     await page.mouse.move(stage.x + stage.width / 2, stage.y + stage.height / 2);
     await page.mouse.wheel(...config.pan);
     await settle();

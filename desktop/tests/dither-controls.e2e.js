@@ -1,3 +1,5 @@
+import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
+import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import assert from 'node:assert/strict';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -43,11 +45,13 @@ try {
     if (!/^(http:\/\/127\.0\.0\.1:|data:|blob:)/.test(r.url())) external.push(r.url());
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  // This scenario exercises Inspector behavior; opening it is explicit in the new default-closed UI.
+  await ensureWorkspacePanel(page, 'inspector');
   await page.waitForFunction(() => window.nect);
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
 
   const effect = doc.layers[0].nodes.find((n) => n.type === 'Halftone');
-  await page.locator('[data-action="graph-fit"]').click();
+  await activateBoundaryCommand(page, 'graph-fit');
   await page.locator('.graph .node[data-id="' + effect.id + '"] .node-head strong').click();
   const field = (key) =>
     page.locator(
@@ -141,7 +145,7 @@ try {
   );
   assert.ok(matching, 'PNG pixels match SVG rasterization');
   await page.evaluate((s) => window.nect.load(s), serialize(doc));
-  await page.locator('[data-action="fit"]').click();
+  await activateBoundaryCommand(page, 'fit');
   await mkdir('test-results/dither-controls', { recursive: true });
   await page.screenshot({ path: 'test-results/dither-controls/editor.png' });
   const art = await browser.newPage({ viewport: { width: 608, height: 576 } });
