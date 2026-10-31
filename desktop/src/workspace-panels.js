@@ -16,18 +16,19 @@ const ITEMS = [
   },
   { id: 'inspector', side: 'right', label: 'Focus Inspector', selector: '.inspector' },
 ];
-// C-reference proportions, scaled to a 26px face and a 6px optical gap.
+// Rounded-tab E reference: concave corner, short tangent, convex corner.
+// Optical proportions keep a 26px face and focus ring inside the surface.
 // The filled strip joins the bar to its panel; the curved edge stays one path.
 export function workspaceRailGeometry(height, count) {
   const h = height > 0 ? height : 228;
   const n = count === 3 ? 3 : 2;
   const first = h / 2 - (n - 1) * 16;
   const last = h / 2 + (n - 1) * 16;
-  const shoulder = Math.min(33.1, Math.max(0, first));
-  const factor = shoulder / 33.1;
+  const shoulder = Math.min(35.56, Math.max(0, first));
+  const factor = shoulder / 35.56;
   const x = (value) => Number((6 + value / 0.82).toFixed(3));
   const y = (value) => Number(value.toFixed(3));
-  const edge = `M6 0 V${y(first - shoulder)} C6 ${y(first - 25.2 * factor)} ${x(6.86)} ${y(first - 20.8 * factor)} ${x(14.7)} ${y(first - 18.9 * factor)} C${x(25)} ${y(first - 16.3 * factor)} ${x(33.6)} ${y(first - 10.3 * factor)} ${x(33.6)} ${y(first)} V${y(last)} C${x(33.6)} ${y(last + 10.3 * factor)} ${x(25)} ${y(last + 16.3 * factor)} ${x(14.7)} ${y(last + 18.9 * factor)} C${x(6.86)} ${y(last + 20.8 * factor)} 6 ${y(last + 25.2 * factor)} 6 ${y(last + shoulder)} V${y(h)}`;
+  const edge = `M6 0 V${y(first - shoulder)} C6 ${y(first - 27.0 * factor)} ${x(3.95)} ${y(first - 23.06 * factor)} ${x(10.87)} ${y(first - 20.1 * factor)} L${x(15.48)} ${y(first - 18.13 * factor)} C${x(24.7)} ${y(first - 14.18 * factor)} ${x(33.6)} ${y(first - 10.3 * factor)} ${x(33.6)} ${y(first)} V${y(last)} C${x(33.6)} ${y(last + 10.3 * factor)} ${x(24.7)} ${y(last + 14.18 * factor)} ${x(15.48)} ${y(last + 18.13 * factor)} L${x(10.87)} ${y(last + 20.1 * factor)} C${x(3.95)} ${y(last + 23.06 * factor)} 6 ${y(last + 27.0 * factor)} 6 ${y(last + shoulder)} V${y(h)}`;
   return { height: h, fill: `${edge} H6 Z`, edge };
 }
 
@@ -387,7 +388,10 @@ export function createWorkspacePanels({ getAssetPanel, onAssets, onAlign, onColo
       const bar = root.ownerDocument.createElement('nav');
       bar.className = `workspace-panel-bar workspace-panel-bar-${side}`;
       bar.setAttribute('aria-label', `${side === 'left' ? 'Assets and colors' : 'Editing'} panels`);
-      const geometry = workspaceRailGeometry(228, ITEMS.filter((entry) => entry.side === side).length);
+      const geometry = workspaceRailGeometry(
+        228,
+        ITEMS.filter((entry) => entry.side === side).length,
+      );
       bar.innerHTML = `<svg viewBox="0 0 78 ${geometry.height}" preserveAspectRatio="none" aria-hidden="true"><rect x="0" y="0" width="6" height="${geometry.height}" stroke="none"></rect><path data-rail-fill d="${geometry.fill}" stroke="none"></path><path data-rail-edge d="${geometry.edge}" fill="none"></path></svg>`;
       for (const entry of ITEMS.filter((entry) => entry.side === side)) {
         const button = root.ownerDocument.createElement('button');

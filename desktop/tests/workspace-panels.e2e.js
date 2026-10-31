@@ -58,23 +58,36 @@ try {
     const stage = document.querySelector('.canvas-stage');
     const svg = document.querySelector('.artboard');
     const doc = window.nect.document;
-    const expected = Math.max(0.05, Math.min(2, (stage.clientWidth - 70) / doc.width, (stage.clientHeight - 70) / doc.height));
+    const expected = Math.max(
+      0.05,
+      Math.min(2, (stage.clientWidth - 70) / doc.width, (stage.clientHeight - 70) / doc.height),
+    );
     return { actual: parseFloat(svg.style.width) / doc.width, expected };
   });
-  assert.ok(Math.abs(initialFit.actual - initialFit.expected) < 0.001, 'initial fit reflects settled UI font metrics');
+  assert.ok(
+    Math.abs(initialFit.actual - initialFit.expected) < 0.001,
+    'initial fit reflects settled UI font metrics',
+  );
   // A circle's visible face plus focus ring must remain inside the C surface;
   // its transparent 30px rectangular hit target is checked separately.
-  const contourFits = (locator) => locator.evaluate((bar) => {
-    const regions = [bar.querySelector('[data-rail-fill]'), bar.querySelector(':scope > svg > rect')];
-    return [...bar.querySelectorAll('button')].every((button) => {
-      const rect = button.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-      return Array.from({ length: 32 }, (_, index) => index * Math.PI / 16).every((angle) => {
-        const point = new DOMPoint(cx + 16 * Math.cos(angle), cy + 16 * Math.sin(angle));
-        return regions.some((region) => region.isPointInFill(point.matrixTransform(region.getScreenCTM().inverse())));
+  const contourFits = (locator) =>
+    locator.evaluate((bar) => {
+      const regions = [
+        bar.querySelector('[data-rail-fill]'),
+        bar.querySelector(':scope > svg > rect'),
+      ];
+      return [...bar.querySelectorAll('button')].every((button) => {
+        const rect = button.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2,
+          cy = rect.top + rect.height / 2;
+        return Array.from({ length: 32 }, (_, index) => (index * Math.PI) / 16).every((angle) => {
+          const point = new DOMPoint(cx + 16 * Math.cos(angle), cy + 16 * Math.sin(angle));
+          return regions.some((region) =>
+            region.isPointInFill(point.matrixTransform(region.getScreenCTM().inverse())),
+          );
+        });
       });
     });
-  });
   const rightBar = page.locator('.workspace-panel-bar-right');
   const inspectorTrigger = page.getByRole('button', { name: 'Focus Inspector', exact: true });
   assert.equal(await inspectorTrigger.getAttribute('aria-expanded'), 'true');
@@ -82,7 +95,11 @@ try {
   await page.locator('.canvas-stage').focus();
   await page.mouse.move(0, 0);
   await page.waitForTimeout(550);
-  assert.equal(await contourFits(rightBar), true, 'right idle contour contains faces and focus rings');
+  assert.equal(
+    await contourFits(rightBar),
+    true,
+    'right idle contour contains faces and focus rings',
+  );
   await page.screenshot({ path: out + '/peek-right-idle.png', animations: 'disabled' });
   const rightBounds = await rightBar.boundingBox();
   await page.mouse.move(rightBounds.x - 10, rightBounds.y + rightBounds.height / 2);
@@ -355,22 +372,45 @@ try {
   same(await state(), initial, 'ordinary rerender preserves viewport and document');
   const svgIdentity = await page.locator('.artboard').elementHandle();
   assert.equal(await contourFits(leftBar), true, 'left face and focus ring remain in the contour');
-  assert.equal(await contourFits(rightBar), true, 'right face and focus ring remain in the contour');
-  const targetGeometry = await page.locator('.workspace-panel-bar').evaluateAll((bars) => bars.map((bar) =>
-    [...bar.querySelectorAll('button')].map((button) => {
-      const r = button.getBoundingClientRect();
-      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
-    }),
-  ));
+  assert.equal(
+    await contourFits(rightBar),
+    true,
+    'right face and focus ring remain in the contour',
+  );
+  const targetGeometry = await page.locator('.workspace-panel-bar').evaluateAll((bars) =>
+    bars.map((bar) =>
+      [...bar.querySelectorAll('button')].map((button) => {
+        const r = button.getBoundingClientRect();
+        return {
+          left: r.left,
+          right: r.right,
+          top: r.top,
+          bottom: r.bottom,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    ),
+  );
   const hitSafety = await page.evaluate(() => {
     const tools = document.querySelector('.tools').getBoundingClientRect();
     return [...document.querySelectorAll('.workspace-panel-bar button')].map((button) => {
       const r = button.getBoundingClientRect();
       const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-      return { clearOfTools: r.right <= tools.left || r.left >= tools.right || r.bottom <= tools.top || r.top >= tools.bottom, receivesCenter: button === top || button.contains(top) };
+      return {
+        clearOfTools:
+          r.right <= tools.left ||
+          r.left >= tools.right ||
+          r.bottom <= tools.top ||
+          r.top >= tools.bottom,
+        receivesCenter: button === top || button.contains(top),
+      };
     });
   });
-  assert.ok(hitSafety.every((target) => target.clearOfTools && target.receivesCenter), 'drawer targets do not cover the creation rail and receive their center');
+  assert.ok(
+    hitSafety.every((target) => target.clearOfTools && target.receivesCenter),
+    'drawer targets do not cover the creation rail and receive their center',
+  );
   for (const targets of targetGeometry) {
     assert.ok(targets.every((target) => target.width >= 30 && target.height >= 30));
     for (let i = 1; i < targets.length; i++)
@@ -533,25 +573,63 @@ try {
     });
     assert.deepEqual(toolbar.names, ['Zoom', 'Editing aids', 'Grid and guides']);
     assert.deepEqual(toolbar.clipped, [], `visible toolbar controls fit at ${width}`);
+    const end = await page.locator('.header-end').boundingBox();
+    const title = await page.locator('[data-document-title]').boundingBox();
+    const help = await page.locator('[data-action="help"]').boundingBox();
+    const build = await page.locator('[data-build-info] > summary').boundingBox();
+    assert.ok(end && title && help && build && end.x >= 0 && end.x + end.width <= width, 'document/help/build group fits the viewport');
+    assert.ok(Math.abs(title.y + title.height / 2 - (help.y + help.height / 2)) < 2 && Math.abs(help.y + help.height / 2 - (build.y + build.height / 2)) < 2, 'document/help/build wrap together');
+
     const outputSummary = page.locator('[data-output-settings] > summary');
     assert.equal(await outputSummary.isVisible(), true);
     await outputSummary.click();
-    for (const name of ['SVG output sizing', 'SVG export units', 'SVG geometry precision', 'PNG size mode'])
+    for (const name of [
+      'SVG output sizing',
+      'SVG export units',
+      'SVG geometry precision',
+      'PNG size mode',
+    ])
       assert.equal(await page.getByRole('combobox', { name, exact: true }).isVisible(), true);
     const depth = await page.evaluate(() => {
       const channels = (value) => value.match(/[\d.]+/g).map(Number);
-      const lum = (rgb) => rgb.slice(0, 3).map((v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
-      const pane = channels(getComputedStyle(document.querySelector('.workspace-drawer'), '::before').backgroundColor);
-      const workspace = channels(getComputedStyle(document.querySelector('.canvas-wrap')).backgroundColor);
-      const popup = channels(getComputedStyle(document.querySelector('.output-settings-items')).backgroundColor);
-      return { workspace: lum(workspace), paneOverBlack: lum(pane.slice(0, 3).map((v) => v * (pane[3] ?? 1))), popup: lum(popup), iconOpacity: getComputedStyle(document.querySelector('.workspace-panel-bar .workspace-icon')).opacity };
+      const lum = (rgb) =>
+        rgb
+          .slice(0, 3)
+          .map((v) => {
+            const x = v / 255;
+            return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+          })
+          .reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+      const pane = channels(
+        getComputedStyle(document.querySelector('.workspace-drawer'), '::before').backgroundColor,
+      );
+      const workspace = channels(
+        getComputedStyle(document.querySelector('.canvas-wrap')).backgroundColor,
+      );
+      const popup = channels(
+        getComputedStyle(document.querySelector('.output-settings-items')).backgroundColor,
+      );
+      return {
+        workspace: lum(workspace),
+        paneOverBlack: lum(pane.slice(0, 3).map((v) => v * (pane[3] ?? 1))),
+        popup: lum(popup),
+        iconOpacity: getComputedStyle(
+          document.querySelector('.workspace-panel-bar .workspace-icon'),
+        ).opacity,
+      };
     });
-    assert.ok(depth.workspace < depth.paneOverBlack && depth.paneOverBlack < depth.popup, 'surface depth remains ordered even over a black underlay');
+    assert.ok(
+      depth.workspace < depth.paneOverBlack && depth.paneOverBlack < depth.popup,
+      'surface depth remains ordered even over a black underlay',
+    );
     assert.equal(depth.iconOpacity, '1');
     const outputBox = await page.locator('.output-settings-items').boundingBox();
     assert.ok(outputBox.x >= 0 && outputBox.x + outputBox.width <= width);
     if (width === 900 || width === 1366)
-      await page.screenshot({ path: out + `/output-settings-${width}.png`, animations: 'disabled' });
+      await page.screenshot({
+        path: out + `/output-settings-${width}.png`,
+        animations: 'disabled',
+      });
     await outputSummary.focus();
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('[data-output-settings]').evaluate((el) => el.open), false);

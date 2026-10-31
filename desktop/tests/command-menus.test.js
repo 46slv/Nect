@@ -38,7 +38,9 @@ test('command menus are idempotent and preserve an open Import menu', () => {
   );
 
   const menus = [...app.querySelectorAll('.command-menu')];
-  const exportMenu = menus.find((entry) => entry.querySelector('summary')?.textContent === 'Export');
+  const exportMenu = menus.find(
+    (entry) => entry.querySelector('summary')?.textContent === 'Export',
+  );
   for (const active of [menus[0], menus[1], exportMenu, menus[0]]) {
     active.open = true;
     active.dispatchEvent(new window.Event('toggle'));

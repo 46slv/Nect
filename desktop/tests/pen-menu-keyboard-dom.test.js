@@ -71,7 +71,7 @@ test('Pen finish shortcuts leave native menu activation intact', async (rawT) =>
       console: win.happyDOM.virtualConsolePrinter.readAsString(),
     });
     assert.equal(win.penKeyboardFontLoaded(), true, diagnostics);
-    assert.deepEqual(summaries, ['Project', 'Import', 'Export', 'Build'], diagnostics);
+    assert.deepEqual(summaries, ['Project', 'Import', 'Export', 'Output settings', 'Build'], diagnostics);
   };
   await settleMenus('startup');
   const saved = () => serialize(win.nect.document);

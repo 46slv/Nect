@@ -96,5 +96,14 @@ export function ensureBuildInfo(app, document) {
       renderDiscovery(updates, validateDiscovery({ identity, provider }), document);
     });
   });
-  header.append(menu);
+  const group = document.createElement('div');
+  group.className = 'header-end';
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Document and application');
+  const title = header.querySelector('[data-document-title]');
+  const help = header.querySelector('[data-action="help"]');
+  if (title) group.append(title);
+  if (help) group.append(help);
+  group.append(menu);
+  header.append(group);
 }

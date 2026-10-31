@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createWorkspacePanels, DRAWER_PREFERENCES_KEY, workspaceRailGeometry } from '../src/workspace-panels.js';
+import {
+  createWorkspacePanels,
+  DRAWER_PREFERENCES_KEY,
+  workspaceRailGeometry,
+} from '../src/workspace-panels.js';
 
 const markup = `<div class="workspace"><nav class="tools"></nav><main class="middle"><div class="canvas-wrap"><div class="canvas-stage"></div><div class="node-viewers"></div></div><section class="graph-panel"></section></main><aside class="right"><section class="layers"><div class="panel-head">Layers</div></section><section class="alignment-panel">Align</section><section class="shared-colors-panel">Colors</section><section class="inspector">Inspector</section></aside></div>`;
 function fixture() {
@@ -329,15 +333,23 @@ test('proximity is pointer-only; drag and blur cannot leave a stale peek', () =>
   stage.addEventListener('pointerdown', (event) => event.stopPropagation());
   stage.addEventListener('pointermove', (event) => event.stopPropagation());
   stage.dispatchEvent(
-      new f.window.PointerEvent('pointerdown', {
-        bubbles: true,
-        isPrimary: true,
-        clientX: 300,
-        clientY: 250,
-      }),
-    );
+    new f.window.PointerEvent('pointerdown', {
+      bubbles: true,
+      isPrimary: true,
+      clientX: 300,
+      clientY: 250,
+    }),
+  );
   assert.equal(bar.dataset.dragging, 'false');
-  stage.dispatchEvent(new f.window.PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse', buttons: 1, clientX: 306, clientY: 250 }));
+  stage.dispatchEvent(
+    new f.window.PointerEvent('pointermove', {
+      bubbles: true,
+      pointerType: 'mouse',
+      buttons: 1,
+      clientX: 306,
+      clientY: 250,
+    }),
+  );
   assert.equal(bar.dataset.dragging, 'true');
   pointer('pointercancel', { pointerType: 'mouse' });
   assert.equal(bar.dataset.dragging, 'false');
@@ -381,10 +393,12 @@ test('synchronous Assets mount refresh sees the original motion request', () => 
 });
 
 test('rail geometry scales to two and three controls and short panels', () => {
-  for (const count of [2, 3]) for (const height of [80, 228, 500]) {
-    const geometry = workspaceRailGeometry(height, count);
-    assert.equal(geometry.height, height);
-    assert.doesNotMatch(geometry.edge, /NaN|Infinity/);
-    assert.match(geometry.fill, /H6 Z$/);
-  }
+  for (const count of [2, 3])
+    for (const height of [80, 228, 500]) {
+      const geometry = workspaceRailGeometry(height, count);
+      assert.equal(geometry.height, height);
+      assert.doesNotMatch(geometry.edge, /NaN|Infinity/);
+      assert.match(geometry.fill, /H6 Z$/);
+    assert.match(geometry.edge, / L/, 'rounded tab retains the short straight shoulder');
+    }
 });

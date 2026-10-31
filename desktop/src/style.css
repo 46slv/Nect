@@ -3484,7 +3484,7 @@ input[data-color-scrub-step] {
 .workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
   --workspace-wheel-size: min(190px, max(72px, calc(var(--drawer-height, 500px) * 0.28)));
   flex: 1 1 0;
-  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(60px, 1fr);
+  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(0, 1fr);
   gap: 3px 8px;
 }
 .workspace-drawer-left .harmony-wheel {
@@ -3857,6 +3857,7 @@ input[data-color-scrub-step] {
 }
 #app > header > button,
 .header-group > button,
+.header-end > button,
 .canvas-toolbar button,
 .tools button {
   border-color: transparent;
@@ -3864,12 +3865,14 @@ input[data-color-scrub-step] {
 }
 #app > header > button:not(:disabled):hover,
 .header-group > button:not(:disabled):hover,
+.header-end > button:not(:disabled):hover,
 .canvas-toolbar button:not(:disabled):hover,
 .tools button:not(:disabled):hover {
   background: #e6edf1;
 }
 #app > header > button:not(:disabled):active,
 .header-group > button:not(:disabled):active,
+.header-end > button:not(:disabled):active,
 .canvas-toolbar button:not(:disabled):active,
 .tools button:not(:disabled):active,
 .workspace-panel-bar button:not(:disabled):active,
@@ -4084,4 +4087,22 @@ input[data-color-scrub-step] {
 .canvas-toolbar button[aria-pressed='true'],
 .tools button.active {
   background: var(--surface-control);
+}
+
+/* Keep document identity, Help and Build together when the header wraps. */
+.header-end {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+.header-end [data-document-title] {
+  max-width: min(35vw, 240px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header-end .build-info .command-menu-items {
+  left: auto;
+  right: 0;
 }

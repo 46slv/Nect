@@ -36,7 +36,7 @@ test('synthetic menu observers retain active delivery across GC and release it o
       assert.equal(observer.retainedCallbackCount, 1);
       assert.deepEqual(
         [...app.querySelectorAll('.command-menu > summary')].map(el => el.textContent),
-        ['Project', 'Import', 'Export'],
+        ['Project', 'Import', 'Export', 'Output settings'],
       );
     }
     observer.disconnect();

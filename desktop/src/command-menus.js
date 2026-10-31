@@ -53,7 +53,8 @@ export function ensureCommandMenus(app, document) {
     header.querySelector('#png-ppi')?.closest('label'),
     header.querySelector('[data-png-dimensions]'),
     header.querySelector('#export-presets'),
-  ]) if (element) outputItems.append(element);
+  ])
+    if (element) outputItems.append(element);
   brand?.after(project, importMenu, exportMenu, outputSettings);
   header.querySelectorAll('[data-recovery-status], [data-recovery-open]').forEach((button) => {
     project.querySelector('.command-menu-items').append(button);

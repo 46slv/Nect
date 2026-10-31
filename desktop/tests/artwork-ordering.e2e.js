@@ -127,9 +127,10 @@ try {
         `${direction === 'forward' ? 'Forward' : 'Backward'} one position: ${target.name}`,
       );
       const bounds = await order(target.id, direction).boundingBox();
+      const sidebar = await page.locator('[data-drawer-side=right] .layers').boundingBox();
       assert.ok(
-        bounds && bounds.x >= width - 274 && bounds.x + bounds.width <= width,
-        'controls fit sidebar',
+        bounds && sidebar && bounds.x >= sidebar.x && bounds.x + bounds.width <= sidebar.x + sidebar.width && bounds.x + bounds.width <= width,
+        'controls fit the visible Layers sidebar and viewport',
       );
     }
     await page.screenshot({

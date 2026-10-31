@@ -6,7 +6,7 @@ export async function revealCommandMenu(page, label, { keyboard = false } = {}) 
     has: page.locator('summary', { hasText: new RegExp(`^${label}$`) }),
   });
   if ((await menu.getAttribute('open')) === null) {
-    const summary = menu.locator('summary');
+    const summary = menu.locator(':scope > summary');
     // Keep Space as this helper's native toggle route. The Pen regression
     // separately exercises summary Enter without releasing the canvas pointer.
     if (keyboard) await summary.press('Space');
