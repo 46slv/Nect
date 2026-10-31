@@ -1,7 +1,11 @@
 import { activateBoundaryCommand } from './helpers/boundary-controls.js';
 import { ensureWorkspacePanel } from './helpers/workspace-panels.js';
 import { activateCommand } from './command-menu-actions.js';
-import { openArtworkPanel, forceArtworkPanelCommand, activeGraphLayer } from './helpers/artwork-panels.js';
+import {
+  openArtworkPanel,
+  forceArtworkPanelCommand,
+  activeGraphLayer,
+} from './helpers/artwork-panels.js';
 import { loadDemoFixture } from './helpers/browser-fixture-setup.js';
 import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';

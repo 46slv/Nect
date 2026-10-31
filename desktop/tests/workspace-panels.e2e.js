@@ -87,8 +87,10 @@ try {
   assert.equal(await page.locator('[data-action="fit"]').isVisible(), false);
   const hint = await page.locator('.canvas-wrap > .hint').boundingBox();
   const initialStageBox = await page.locator('.canvas-stage').boundingBox();
-  assert.ok(hint.x >= initialStageBox.x && hint.x + hint.width <= initialStageBox.x + initialStageBox.width,
-    'canvas hint stays within the content edge rather than under the creation rail');
+  assert.ok(
+    hint.x >= initialStageBox.x && hint.x + hint.width <= initialStageBox.x + initialStageBox.width,
+    'canvas hint stays within the content edge rather than under the creation rail',
+  );
   await page.screenshot({ path: out + '/boundary-closed.png', animations: 'disabled' });
   for (let i = 0; i < 2; i++) {
     await graphToggle.press('Enter');

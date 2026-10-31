@@ -7781,7 +7781,8 @@ app.addEventListener('click', async (e) => {
               const scroll = [
                 (node.position[0] + (card?.offsetWidth || node.width || 264) / 2 + 16) * graphZoom -
                   viewport.clientWidth / 2,
-                (node.position[1] + (card?.offsetHeight || 100) / 2 + 16 + graphFitInset) * graphZoom -
+                (node.position[1] + (card?.offsetHeight || 100) / 2 + 16 + graphFitInset) *
+                  graphZoom -
                   viewport.clientHeight / 2,
               ].map((value) => Math.max(0, value));
               updateGraphBounds(scroll);
@@ -10868,7 +10869,12 @@ function fitGraph(selectedOnly = false) {
   // Fit reserves a fixed screen-space band for the permanent boundary controls.
   // Express it in graph units so zoom anchoring and overview share one origin.
   const safeTop = Math.min(38, Math.max(0, viewport.clientHeight - 1));
-  const fit = fitScale(bounds, [viewport.clientWidth, viewport.clientHeight - safeTop], 32, GRAPH_LIMITS);
+  const fit = fitScale(
+    bounds,
+    [viewport.clientWidth, viewport.clientHeight - safeTop],
+    32,
+    GRAPH_LIMITS,
+  );
   graphZoom = fit.scale;
   graphFitInset = safeTop / graphZoom;
   // Scroll space includes the 16px margin and this view-only inset.

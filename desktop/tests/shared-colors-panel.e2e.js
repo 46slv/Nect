@@ -45,6 +45,7 @@ page.on('pageerror', (error) => errors.push(error.message));
 const snapshot = () => page.evaluate(() => window.nect.projectSnapshot());
 const saved = async () => JSON.stringify(await snapshot());
 const openAdvanced = async () => {
+  await ensureWorkspacePanel(page, 'colors');
   const details = page.locator('[data-color-advanced]');
   await details.waitFor();
   if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click();
@@ -116,6 +117,7 @@ const rendererShare = () =>
     }
   });
 async function assertCoverage(slotId, unusedSlotId, percent, label) {
+  await ensureWorkspacePanel(page, 'colors');
   const before = await saved();
   const commandState = await page.evaluate(() => window.nect.commandState);
   const dirty = await page.evaluate(() => window.nect.fileState.dirty);
@@ -268,6 +270,7 @@ try {
 
   // Unlink retains the effective color rather than jumping to the old local base.
   const beforeUnbind = await saved();
+  await ensureWorkspacePanel(page, 'inspector');
   await binding().selectOption('');
   assert.equal((await parameter()).colorSlotId, undefined);
   assert.deepEqual((await parameter()).value, { hex: '#2468ab', alpha: 0.25 });
@@ -280,6 +283,7 @@ try {
   await page.locator('[data-action="redo"]').click();
   assert.equal(await saved(), afterUnbind);
   await assertCoverage(slotId, otherSlotId, 0, 'Redo unlink');
+  await ensureWorkspacePanel(page, 'inspector');
   await binding().selectOption(slotId);
   await assertCoverage(slotId, otherSlotId, 29, 'rebind');
   await assertAssetRetained();
@@ -287,6 +291,7 @@ try {
   const beforeLayout = await saved();
   for (const width of [1440, 1000, 900]) {
     await page.setViewportSize({ width, height: 960 });
+    await ensureWorkspacePanel(page, 'colors');
     await page.waitForTimeout(80);
     const geometry = await page.evaluate(() => {
       const rect = (selector) => {
@@ -296,7 +301,6 @@ try {
       return {
         colors: rect('.shared-colors-panel'),
         canvas: rect('.canvas-stage'),
-        inspector: rect('.inspector'),
         graph: rect('.graph-scroll'),
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
@@ -312,11 +316,14 @@ try {
       geometry.colors.y + geometry.colors.height <= geometry.graph.y + 1,
       `colors do not cover the graph at ${width}`,
     );
-    assert.ok(geometry.canvas.width > 0 && geometry.inspector.height >= 120);
+    assert.ok(geometry.canvas.width > 0);
     assert.equal(await launcher.isVisible(), true);
+    await ensureWorkspacePanel(page, 'inspector');
     assert.equal(await binding().isVisible(), true);
+    assert.ok((await page.locator('.inspector').boundingBox()).height >= 120);
   }
   assert.equal(await saved(), beforeLayout);
+  await ensureWorkspacePanel(page, 'colors');
   await page.screenshot({ path: resolve(output, 'narrow.png'), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 960 });
 
@@ -329,6 +336,7 @@ try {
   const contents = await readFile(file, 'utf8');
   assert.deepEqual(JSON.parse(contents), expectedProject);
   await page.waitForFunction(() => !window.nect.fileState.saving && !window.nect.fileState.dirty);
+  await ensureWorkspacePanel(page, 'inspector');
   const staleBinding = await binding().elementHandle();
   const previousSession = await page.evaluate(() => window.nect.commandState.sessionId);
   const chooser = page.waitForEvent('filechooser');
@@ -341,6 +349,7 @@ try {
   assert.deepEqual(await snapshot(), expectedProject);
   await inspectTarget();
   await openAdvanced();
+  await ensureWorkspacePanel(page, 'inspector');
   assert.equal(await binding().inputValue(), slotId);
   await shapeHasColor('#2468ab', 0.25);
   await assertCoverage(slotId, otherSlotId, 29, 'browser reopen');

@@ -379,7 +379,7 @@ try {
       await page.keyboard.press('Escape');
       await page.mouse.up();
     } else {
-      const box = await page.locator('header').boundingBox();
+      const box = await page.locator('#app > header').boundingBox();
       await finishDrag([box.x + 35, box.y + box.height / 2]);
     }
     await page.waitForFunction(

@@ -83,8 +83,12 @@ export async function activeGraphLayer(page) {
   return page.evaluate(() => {
     const ids = [...document.querySelectorAll('.graph .node')].map((node) => node.dataset.id);
     if (!ids.length) return null;
-    return window.nect.document.layers.find((layer) =>
-      layer.nodes.length === ids.length && ids.every((id) => layer.nodes.some((node) => node.id === id)),
-    )?.id ?? null;
+    return (
+      window.nect.document.layers.find(
+        (layer) =>
+          layer.nodes.length === ids.length &&
+          ids.every((id) => layer.nodes.some((node) => node.id === id)),
+      )?.id ?? null
+    );
   });
 }

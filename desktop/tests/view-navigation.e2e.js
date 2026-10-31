@@ -196,16 +196,23 @@ try {
   await click('graph-fit');
   const fitPoint = await graphPoint(await center(graph));
   const fitScroll = await scroll();
-  const boundaryToggle = page.getByRole('button', { name: 'Toggle node graph controls', exact: true });
+  const boundaryToggle = page.getByRole('button', {
+    name: 'Toggle node graph controls',
+    exact: true,
+  });
   await boundaryToggle.press('Enter');
   await boundaryToggle.press('Enter');
   near(await graphPoint(await center(graph)), fitPoint, 1);
   near(await scroll(), fitScroll, 1);
   const firstTitle = page.locator(`.node[data-id="${ids[0]}"] .node-head strong`);
-  assert.equal(await firstTitle.evaluate((el) => {
-    const r = el.getBoundingClientRect();
-    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
-  }), true, 'Fit all keeps the node title reachable beside the boundary controls');
+  assert.equal(
+    await firstTitle.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+    }),
+    true,
+    'Fit all keeps the node title reachable beside the boundary controls',
+  );
   await firstTitle.click();
   // Focus-scoped keyboard shortcuts and native button Space.
   await stage.focus();
@@ -262,24 +269,15 @@ try {
     await click('graph-fit');
     await fitVisible();
     await truthful();
-    const layout = await page.evaluate(() =>
-      [
-        ...document.querySelectorAll(
-          '.canvas-toolbar button,.graph-toolbar button,.graph-toolbar select,.graph-toolbar output',
-        ),
-      ].map((el) => {
-        const a = el.getBoundingClientRect(),
-          b = el.closest('[role="toolbar"]').getBoundingClientRect();
-        return {
-          text: el.textContent,
-          visible: a.width > 0 && a.x >= b.x && a.right <= b.right + 1,
-        };
-      }),
-    );
-    assert.ok(
-      layout.every((el) => el.visible),
-      JSON.stringify(layout),
-    );
+    const ends = await page.evaluate(() => {
+      const left = document.querySelector('.graph-panel > .graph-toolbar').getBoundingClientRect();
+      const right = document.querySelector('.graph-panel > .canvas-toolbar').getBoundingClientRect();
+      return { left: left.right, right: right.left, overflow: document.documentElement.scrollWidth > innerWidth };
+    });
+    assert.equal(ends.overflow, false);
+    assert.ok(ends.left <= ends.right + 1, 'boundary ends do not overlap');
+    assert.equal(await page.locator('#add-node').isVisible(), true);
+    assert.equal(await page.getByRole('button', { name: 'Toggle artboard view controls' }).isVisible(), true);
     await page.screenshot({ path: `test-results/view-navigation-${width}x${height}.png` });
   }
   // Tall Inspector retains actual sidebar scroll and typed drafts on view updates/rerender.

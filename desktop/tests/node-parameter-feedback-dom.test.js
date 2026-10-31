@@ -166,6 +166,10 @@ test('node parameter feedback: split XY, searchable connections and expressions,
   assert.equal(document.querySelector('.node.selected').dataset.id, other.id);
   assert.equal(document.querySelector('[data-zoom="graph"]').textContent, zoom);
   assert.equal(JSON.stringify(win.nect.document), snapshot);
-  assert.equal(document.activeElement === document.querySelector('.graph-scroll'), true, 'Find restores graph focus');
+  assert.equal(
+    document.activeElement === document.querySelector('.graph-scroll'),
+    true,
+    'Find restores graph focus',
+  );
   win.happyDOM.abort();
 });

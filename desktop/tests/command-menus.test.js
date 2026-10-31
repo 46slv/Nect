@@ -88,7 +88,9 @@ test('toolbar grouping keeps labeled output and history controls reachable once'
   assert.ok(assets);
   const project = assets.closest('details');
   let delivered = 0;
-  app.addEventListener('click', (event) => { if (event.target === assets) delivered++; });
+  app.addEventListener('click', (event) => {
+    if (event.target === assets) delivered++;
+  });
   project.open = true;
   assets.click();
   assert.equal(delivered, 1, 'the original action is delivered once');
