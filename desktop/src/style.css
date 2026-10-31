@@ -958,8 +958,31 @@ input[type='color'] {
   font-size: 10px;
   color: var(--muted, #52616f);
 }
+.field-controls:has(> .hsl-color-fields) {
+  flex-wrap: wrap;
+}
+.field-controls > .hsl-color-fields {
+  flex: 0 0 100%;
+}
 .base-inputs:has(.hsl-color-fields) {
   flex-wrap: wrap;
+}
+.base-component:has(.hsl-color-fields) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.base-component:has(.hsl-color-fields) > span {
+  flex: 0 0 100%;
+}
+.base-component:has(.hsl-color-fields) > input[type='color'] {
+  flex: 0 0 32px;
+  width: 32px;
+}
+.base-component:has(.hsl-color-fields) > input[data-color='alpha'] {
+  flex: 0 0 64px;
+  width: 64px;
 }
 .shared-color-row .hsl-color-fields {
   grid-column: 1 / -1;

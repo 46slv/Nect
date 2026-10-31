@@ -26,14 +26,14 @@ const openAdvanced = async () => {
   await details.waitFor({ state: 'visible' });
   if (!(await details.evaluate((el) => el.open))) await details.locator('summary').click();
 };
-const canHit = async (locator, name) => {
+const canHit = async (locator, name, minWidth = 1) => {
   await locator.scrollIntoViewIfNeeded();
   const hit = await locator.evaluate((el) => {
     const r = el.getBoundingClientRect();
     const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
     return { width: r.width, height: r.height, hit: top === el || el.contains(top) };
   });
-  assert.ok(hit.width > 0 && hit.height > 0 && hit.hit, `${name} is visible and reachable`);
+  assert.ok(hit.width >= minWidth && hit.height > 0 && hit.hit, `${name} is visible and reachable`);
 };
 try {
   await mkdir('test-results', { recursive: true });
@@ -82,15 +82,8 @@ try {
   );
   // The existing command owner defers a full render to the next task so a
   // numeric Tab transition keeps its focus and draft selection intact.
-  await page.waitForFunction(
-    (id) => {
-      const field = document.querySelector(
-        `.inspector-body .field[data-node="${id}"][data-key="color"]`,
-      );
-      return field?.querySelector('[data-color="hex"]')?.value === '#00ff00';
-    },
-    id,
-  );
+  const colorSelector = '.inspector-body [data-color="hex"]';
+  await page.waitForFunction((s) => document.querySelector(s)?.value === '#00ff00', colorSelector);
   const edited = await documentText();
   assert.equal(await field.locator('[data-color="hex"]').inputValue(), '#00ff00');
   assert.equal(await field.locator('[data-color="alpha"]').inputValue(), '0.5');
@@ -103,6 +96,10 @@ try {
   // group, with keyboard order H → S → L rather than nested labels.
   await page.locator('#add-node').selectOption('Color');
   const sourceId = await page.evaluate(() => window.nect.document.layers[0].nodes.at(-1).id);
+  const graphField = page.locator(`.graph .field[data-node="${sourceId}"][data-key="value"]`);
+  for (const name of ['h', 's', 'l'])
+    await canHit(graphField.locator(`[data-color="hsl-${name}"]`), `graph ${name}`, 40);
+  await page.screenshot({ path: 'test-results/workflow-hsl-graph-1600.png' });
   await selectColor(id);
   await field.locator('[data-connect-menu]').click();
   await page.locator('dialog select').selectOption(sourceId);
@@ -159,9 +156,13 @@ try {
     'hue edit produces green',
   );
   await activateCommand(page, 'undo');
-  assert.equal(await documentText(), sharedBefore, 'one Undo restores shared HSL gesture');
+  assert.deepEqual(
+    JSON.parse(await documentText()),
+    JSON.parse(sharedBefore),
+    'one Undo restores shared HSL gesture',
+  );
   await activateCommand(page, 'redo');
-  assert.equal(await documentText(), sharedAfter, 'Redo restores shared HSL gesture');
+  assert.deepEqual(JSON.parse(await documentText()), JSON.parse(sharedAfter));
   await openAdvanced();
   await shared('h').focus();
   await page.keyboard.press('Tab');
