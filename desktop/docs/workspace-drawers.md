@@ -62,3 +62,8 @@ The bundled files and unchanged SIL OFL 1.1 notice come from
 Regular SHA-256:
 `ec27e9b75cd90a6f7abe96ede49d00b151eb5b1c2c886bfe9b4fc845f40be1ff`.
 Browser loading and rendered glyph quality remain separate verification steps.
+
+The full Node test command limits concurrency to four workers. Windows CI runs
+`41153528942` and `41156675209` encountered process allocation failures under
+the unbounded default; this limits peak contention without skipping tests or
+changing their assertions. A subsequent full run is required as evidence.

@@ -3412,11 +3412,12 @@ input[data-color-scrub-step] {
   overflow: auto;
 }
 .workspace-drawer-left .shared-colors-panel:has(.harmony-wheel) .auto-chroma-controls {
+  --workspace-wheel-size: min(190px, max(72px, calc(var(--drawer-height, 500px) * 0.28)));
   flex: 1 1 0;
-  grid-template-rows: auto auto auto auto minmax(96px, 1fr);
+  grid-template-rows: auto calc(var(--workspace-wheel-size) + 6px) auto auto minmax(72px, 1fr);
 }
 .workspace-drawer-left .harmony-wheel {
-  width: min(100%, 190px, max(72px, calc(var(--drawer-height, 500px) * 0.35)));
+  width: min(100%, var(--workspace-wheel-size));
 }
 /* The creation rail belongs to the upper surface, not the full-width graph. */
 .workspace,
